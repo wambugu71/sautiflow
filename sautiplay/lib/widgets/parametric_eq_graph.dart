@@ -421,13 +421,55 @@ class _ParametricEqPainter extends CustomPainter {
       case EqBandType.peak:
       case EqBandType.bell:
         final q = band.q > 0 ? band.q : 1.0;
-        final alpha = sinW0 / (2.0 * q);
-        b0 = 1.0 + alpha * A;
-        b1 = -2.0 * cosW0;
-        b2 = 1.0 - alpha * A;
-        a0 = 1.0 + alpha / A;
-        a1 = -2.0 * cosW0;
-        a2 = 1.0 - alpha / A;
+        final f0 = band.frequencyHz.clamp(20.0, fs / 2.1);
+        final useOrfanidis = (f0 > 8000.0) && (fs <= 48000.0) && (gainDb.abs() >= 0.05);
+
+        if (useOrfanidis) {
+          final linG = A * A;
+          final om0 = 2.0 * math.pi * f0;
+          final omN = math.pi * fs;
+          final om0Sq = om0 * om0;
+          final omNSq = omN * omN;
+          final diffSq = (om0Sq - omNSq) * (om0Sq - omNSq);
+          final numW = (om0 * omN * linG / q);
+          final denW = (om0 * omN / q);
+          final gnSq = (diffSq + numW * numW) / (diffSq + denW * denW);
+          final gn = math.sqrt(gnSq);
+
+          final alpha = (linG < 1.0) ? (sinW0 / (2.0 * q * A)) : (sinW0 / (2.0 * q));
+          final a0Un = 1.0 + alpha;
+          final invA0 = 1.0 / a0Un;
+          a1 = (-2.0 * cosW0) * invA0;
+          a2 = (1.0 - alpha) * invA0;
+          a0 = 1.0;
+
+          final sPlus = 1.0 + a1 + a2;
+          final sMinus = gn * (1.0 - a1 + a2);
+          b1 = (sPlus - sMinus) * 0.5;
+          final b0PlusB2 = (sPlus + sMinus) * 0.5;
+
+          final dReal = 1.0 + a1 * cosW0 + a2 * math.cos(2.0 * w0);
+          final dImag = -a1 * sinW0 - a2 * math.sin(2.0 * w0);
+          final dW0Sq = dReal * dReal + dImag * dImag;
+
+          final target = linG * linG * dW0Sq;
+          final x = b0PlusB2 * cosW0 + b1;
+          final sin0Sq = math.max(sinW0 * sinW0, 1.0e-12);
+          final diffTermSq = (target - x * x) / sin0Sq;
+          final diffVal = math.sqrt(math.max(0.0, diffTermSq));
+          final diff = (linG >= 1.0) ? diffVal : -diffVal;
+
+          b0 = (b0PlusB2 + diff) * 0.5;
+          b2 = (b0PlusB2 - diff) * 0.5;
+        } else {
+          final alpha = sinW0 / (2.0 * q);
+          b0 = 1.0 + alpha * A;
+          b1 = -2.0 * cosW0;
+          b2 = 1.0 - alpha * A;
+          a0 = 1.0 + alpha / A;
+          a1 = -2.0 * cosW0;
+          a2 = 1.0 - alpha / A;
+        }
         break;
 
       case EqBandType.lowshelf:
@@ -545,18 +587,18 @@ class _ParametricEqPainter extends CustomPainter {
       case EqBandType.asupercut:
         // 8th-order Butterworth low-pass (4 cascaded SOS)
         final w0 = f0 / fs;
-        final K = math.tan(math.pi * w0.clamp(0.0001, 0.49));
-        final K2 = K * K;
+        final k = math.tan(math.pi * w0.clamp(0.0001, 0.49));
+        final k2 = k * k;
         final list = <List<double>>[];
         for (int s = 0; s < 4; s++) {
           final qButter = 1.0 / (2.0 * math.sin((2.0 * s + 1.0) * math.pi / 16.0));
-          final norm = 1.0 / (1.0 + K / qButter + K2);
-          final b0 = K2 * norm;
+          final norm = 1.0 / (1.0 + k / qButter + k2);
+          final b0 = k2 * norm;
           final b1 = 2.0 * b0;
           final b2 = b0;
           const a0 = 1.0;
-          final a1 = 2.0 * (K2 - 1.0) * norm;
-          final a2 = (1.0 - K / qButter + K2) * norm;
+          final a1 = 2.0 * (k2 - 1.0) * norm;
+          final a2 = (1.0 - k / qButter + k2) * norm;
           list.add([b0, b1, b2, a0, a1, a2]);
         }
         return list;
@@ -567,10 +609,10 @@ class _ParametricEqPainter extends CustomPainter {
         final fLow = (f0 * (term - 0.5 / q)).clamp(20.0, fs * 0.45);
         final fHigh = (f0 * (term + 0.5 / q)).clamp(fLow + 10.0, fs * 0.48);
 
-        final Khp = math.tan(math.pi * fLow / fs);
-        final Khp2 = Khp * Khp;
-        final Klp = math.tan(math.pi * fHigh / fs);
-        final Klp2 = Klp * Klp;
+        final khp = math.tan(math.pi * fLow / fs);
+        final khp2 = khp * khp;
+        final klp = math.tan(math.pi * fHigh / fs);
+        final klp2 = klp * klp;
 
         final q4 = [
           1.0 / (2.0 * math.cos(math.pi / 8.0)),
@@ -579,23 +621,23 @@ class _ParametricEqPainter extends CustomPainter {
 
         final list = <List<double>>[];
         for (int s = 0; s < 2; s++) {
-          final normHp = 1.0 / (1.0 + Khp / q4[s] + Khp2);
+          final normHp = 1.0 / (1.0 + khp / q4[s] + khp2);
           final b0hp = normHp;
           final b1hp = -2.0 * b0hp;
           final b2hp = b0hp;
           const a0 = 1.0;
-          final a1hp = 2.0 * (Khp2 - 1.0) * normHp;
-          final a2hp = (1.0 - Khp / q4[s] + Khp2) * normHp;
+          final a1hp = 2.0 * (khp2 - 1.0) * normHp;
+          final a2hp = (1.0 - khp / q4[s] + khp2) * normHp;
           list.add([b0hp, b1hp, b2hp, a0, a1hp, a2hp]);
         }
         for (int s = 0; s < 2; s++) {
-          final normLp = 1.0 / (1.0 + Klp / q4[s] + Klp2);
-          final b0lp = Klp2 * normLp;
+          final normLp = 1.0 / (1.0 + klp / q4[s] + klp2);
+          final b0lp = klp2 * normLp;
           final b1lp = 2.0 * b0lp;
           final b2lp = b0lp;
           const a0 = 1.0;
-          final a1lp = 2.0 * (Klp2 - 1.0) * normLp;
-          final a2lp = (1.0 - Klp / q4[s] + Klp2) * normLp;
+          final a1lp = 2.0 * (klp2 - 1.0) * normLp;
+          final a2lp = (1.0 - klp / q4[s] + klp2) * normLp;
           list.add([b0lp, b1lp, b2lp, a0, a1lp, a2lp]);
         }
         return list;

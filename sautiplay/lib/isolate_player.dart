@@ -423,6 +423,114 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setReverbGains', 'wet': wet, 'dry': dry});
   }
 
+  void setReverbEngine(ReverbEngine engine) {
+    _send({'cmd': 'setReverbEngine', 'engine': engine.value});
+  }
+
+  void setLatticeReverb({
+    required bool enabled,
+    double wet = 0.35,
+    double dry = 0.70,
+    double roomSize = 0.75,
+    double damping = 0.25,
+    double width = 1.0,
+  }) {
+    _send({
+      'cmd': 'setLatticeReverb',
+      'enabled': enabled,
+      'wet': wet,
+      'dry': dry,
+      'roomSize': roomSize,
+      'damping': damping,
+      'width': width,
+    });
+  }
+
+  void setDiffusionReverb({
+    required bool enabled,
+    double wet = 0.35,
+    double dry = 0.70,
+    double roomSize = 0.70,
+    double decayTimeMs = 1500.0,
+    double diffusion = 0.65,
+    double damping = 0.25,
+    double width = 1.0,
+  }) {
+    _send({
+      'cmd': 'setDiffusionReverb',
+      'enabled': enabled,
+      'wet': wet,
+      'dry': dry,
+      'roomSize': roomSize,
+      'decayTimeMs': decayTimeMs,
+      'diffusion': diffusion,
+      'damping': damping,
+      'width': width,
+    });
+  }
+
+  /// Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4)
+  void setToneCrossoverEnabled(bool enabled) {
+    _send({'cmd': 'setToneCrossoverEnabled', 'enabled': enabled});
+  }
+
+  void setToneCrossoverGains({
+    double bassGainDb = 0.0,
+    double midGainDb = 0.0,
+    double trebleGainDb = 0.0,
+  }) {
+    _send({
+      'cmd': 'setToneCrossoverGains',
+      'bassGainDb': bassGainDb,
+      'midGainDb': midGainDb,
+      'trebleGainDb': trebleGainDb,
+    });
+  }
+
+  void setToneCrossoverFrequencies({
+    double lowCrossoverHz = 250.0,
+    double highCrossoverHz = 3200.0,
+  }) {
+    _send({
+      'cmd': 'setToneCrossoverFrequencies',
+      'lowCrossoverHz': lowCrossoverHz,
+      'highCrossoverHz': highCrossoverHz,
+    });
+  }
+
+  void setMasteringEnabled(bool enabled) {
+    _send({'cmd': 'setMasteringEnabled', 'enabled': enabled});
+  }
+
+  void setMasteringParams({
+    double inputGainDb = 0.0,
+    double compThresholdDb = -12.0,
+    double compRatio = 2.0,
+    double compAttackMs = 10.0,
+    double compReleaseMs = 100.0,
+    double limiterThresholdDb = -0.5,
+    double outputGainDb = 0.0,
+    double preLowDb = 0.0,
+    double preMidDb = 0.0,
+    double preHighDb = 0.0,
+    double postAirDb = 0.0,
+  }) {
+    _send({
+      'cmd': 'setMasteringParams',
+      'inputGainDb': inputGainDb,
+      'compThresholdDb': compThresholdDb,
+      'compRatio': compRatio,
+      'compAttackMs': compAttackMs,
+      'compReleaseMs': compReleaseMs,
+      'limiterThresholdDb': limiterThresholdDb,
+      'outputGainDb': outputGainDb,
+      'preLowDb': preLowDb,
+      'preMidDb': preMidDb,
+      'preHighDb': preHighDb,
+      'postAirDb': postAirDb,
+    });
+  }
+
   void setLowpass({bool? enabled, double? cutoffHz}) {
     _send({'cmd': 'setLowpass', 'enabled': enabled, 'cutoffHz': cutoffHz});
   }
@@ -1799,6 +1907,70 @@ void _isolateEntry(_IsolateInitData initData) {
           player.setReverbGains(
             wet: (message['wet'] as num?)?.toDouble() ?? 0.25,
             dry: (message['dry'] as num?)?.toDouble() ?? 0.75,
+          );
+          break;
+        case 'setReverbEngine':
+          final engineVal = message['engine'] as int? ?? 0;
+          player.setReverbEngine(ReverbEngine.fromValue(engineVal));
+          break;
+        case 'setLatticeReverb':
+          final bool latEnabled = message['enabled'] as bool? ?? false;
+          player.setReverbEnabled(latEnabled);
+          player.setReverbEngine(ReverbEngine.lattice);
+          player.setLatticeReverbParams(
+            wet: (message['wet'] as num?)?.toDouble() ?? 0.35,
+            dry: (message['dry'] as num?)?.toDouble() ?? 0.70,
+            roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.75,
+            damping: (message['damping'] as num?)?.toDouble() ?? 0.25,
+            width: (message['width'] as num?)?.toDouble() ?? 1.0,
+          );
+          break;
+        case 'setDiffusionReverb':
+          final bool diffEnabled = message['enabled'] as bool? ?? false;
+          player.setReverbEnabled(diffEnabled);
+          player.setReverbEngine(ReverbEngine.diffusion);
+          player.setDiffusionReverbParams(
+            wet: (message['wet'] as num?)?.toDouble() ?? 0.35,
+            dry: (message['dry'] as num?)?.toDouble() ?? 0.70,
+            roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.70,
+            decayTimeMs: (message['decayTimeMs'] as num?)?.toDouble() ?? 1500.0,
+            diffusion: (message['diffusion'] as num?)?.toDouble() ?? 0.65,
+            damping: (message['damping'] as num?)?.toDouble() ?? 0.25,
+            width: (message['width'] as num?)?.toDouble() ?? 1.0,
+          );
+          break;
+        case 'setToneCrossoverEnabled':
+          player.setToneCrossoverEnabled(message['enabled'] as bool? ?? false);
+          break;
+        case 'setToneCrossoverGains':
+          player.setToneCrossoverGains(
+            bassGainDb: (message['bassGainDb'] as num?)?.toDouble() ?? 0.0,
+            midGainDb: (message['midGainDb'] as num?)?.toDouble() ?? 0.0,
+            trebleGainDb: (message['trebleGainDb'] as num?)?.toDouble() ?? 0.0,
+          );
+          break;
+        case 'setToneCrossoverFrequencies':
+          player.setToneCrossoverFrequencies(
+            lowCrossoverHz: (message['lowCrossoverHz'] as num?)?.toDouble() ?? 250.0,
+            highCrossoverHz: (message['highCrossoverHz'] as num?)?.toDouble() ?? 3200.0,
+          );
+          break;
+        case 'setMasteringEnabled':
+          player.setMasteringEnabled(message['enabled'] as bool? ?? false);
+          break;
+        case 'setMasteringParams':
+          player.setMasteringParams(
+            inputGainDb: (message['inputGainDb'] as num?)?.toDouble() ?? 0.0,
+            compThresholdDb: (message['compThresholdDb'] as num?)?.toDouble() ?? -12.0,
+            compRatio: (message['compRatio'] as num?)?.toDouble() ?? 2.0,
+            compAttackMs: (message['compAttackMs'] as num?)?.toDouble() ?? 10.0,
+            compReleaseMs: (message['compReleaseMs'] as num?)?.toDouble() ?? 100.0,
+            limiterThresholdDb: (message['limiterThresholdDb'] as num?)?.toDouble() ?? -0.5,
+            outputGainDb: (message['outputGainDb'] as num?)?.toDouble() ?? 0.0,
+            preLowDb: (message['preLowDb'] as num?)?.toDouble() ?? 0.0,
+            preMidDb: (message['preMidDb'] as num?)?.toDouble() ?? 0.0,
+            preHighDb: (message['preHighDb'] as num?)?.toDouble() ?? 0.0,
+            postAirDb: (message['postAirDb'] as num?)?.toDouble() ?? 0.0,
           );
           break;
         case 'setDelay':

@@ -191,6 +191,43 @@ extern "C"
     AE_API void ae_set_reverb_gains(AudioEngineHandle *engine, float wet, float dry);
     AE_API void ae_get_reverb_gains(AudioEngineHandle *engine, float *out_wet, float *out_dry);
     AE_API void ae_get_reverb_params_ex(AudioEngineHandle *engine, int *out_enabled, float *out_mix, float *out_room_size, float *out_damping, float *out_pre_delay_ms, float *out_width);
+
+    // Reverb Engine Selection (0 = Dattorro Tank, 1 = Lattice Reverb, 2 = Diffusion Reverb)
+    AE_API void ae_set_reverb_engine(AudioEngineHandle *engine, int engine_type);
+    AE_API int  ae_get_reverb_engine(AudioEngineHandle *engine);
+
+    // Lattice Reverb Controls
+    AE_API void ae_set_lattice_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float damping, float width);
+    AE_API void ae_get_lattice_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width);
+
+    // Diffusion Reverb Controls
+    AE_API void ae_set_diffusion_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float decay_time_ms, float diffusion, float damping, float width);
+    AE_API void ae_get_diffusion_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_decay_time_ms, float *out_diffusion, float *out_damping, float *out_width);
+
+    // Standalone Clean-Room DSP Suite Exports
+    AE_API void ae_dsp_set_lattice_reverb_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_lattice_reverb_enabled(AudioEngineHandle *engine);
+    AE_API void ae_dsp_set_lattice_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float damping, float width);
+    AE_API void ae_dsp_get_lattice_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width);
+
+    AE_API void ae_dsp_set_diffusion_reverb_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_diffusion_reverb_enabled(AudioEngineHandle *engine);
+    AE_API void ae_dsp_set_diffusion_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float decay_time_ms, float diffusion, float damping, float width);
+    AE_API void ae_dsp_get_diffusion_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_decay_time_ms, float *out_diffusion, float *out_damping, float *out_width);
+    // Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4)
+    AE_API void ae_set_tone_crossover_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_get_tone_crossover_enabled(AudioEngineHandle *engine);
+    AE_API void ae_set_tone_crossover_gains(AudioEngineHandle *engine, float bass_gain_db, float mid_gain_db, float treble_gain_db);
+    AE_API void ae_get_tone_crossover_gains(AudioEngineHandle *engine, float *out_bass_db, float *out_mid_db, float *out_treble_db);
+    AE_API void ae_set_tone_crossover_frequencies(AudioEngineHandle *engine, float low_crossover_hz, float high_crossover_hz);
+    AE_API void ae_get_tone_crossover_frequencies(AudioEngineHandle *engine, float *out_low_hz, float *out_high_hz);
+
+    // Legacy Mastering Compatibility Stubs (Deprecated: routed to Tone Crossover)
+    AE_API void ae_set_mastering_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_get_mastering_enabled(AudioEngineHandle *engine);
+    AE_API void ae_set_mastering_params(AudioEngineHandle *engine, float input_gain_db, float comp_threshold_db, float comp_ratio, float comp_attack_ms, float comp_release_ms, float limiter_threshold_db, float output_gain_db, float pre_low_db, float pre_mid_db, float pre_high_db, float post_air_db);
+    AE_API void ae_get_mastering_params(AudioEngineHandle *engine, float *out_input_gain_db, float *out_comp_threshold_db, float *out_comp_ratio, float *out_comp_attack_ms, float *out_comp_release_ms, float *out_limiter_threshold_db, float *out_output_gain_db, float *out_pre_low_db, float *out_pre_mid_db, float *out_pre_high_db, float *out_post_air_db);
+
     AE_API void ae_set_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_eq_gains(AudioEngineHandle *engine, float low_gain, float mid_gain, float high_gain);
     AE_API void ae_set_gain(AudioEngineHandle *engine, float gain);

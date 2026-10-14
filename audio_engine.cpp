@@ -54,6 +54,10 @@
 #include "dsp/noise_gate_dsp.h"
 #include "dsp/dynamic_eq_dsp.h"
 #include "dsp/tape_drift_dsp.h"
+#include "dsp/lattice_reverb_dsp.h"
+#include "dsp/diffusion_reverb_dsp.h"
+#include "dsp/tone_crossover_dsp.h"
+#include "dsp/cytomic_svf_dsp.h"
 
 #include <algorithm>
 #include <atomic>
@@ -3368,70 +3372,10 @@ static inline AEAudioFormat ma_format_to_ae_format(ma_format fmt)
     }
 }
 
-// High-Precision 64-Bit Float Biquad Filter (Audio EQ Cookbook peaking/bell filter)
-// Transposed Direct Form II with double-precision delay states for >320 dB SNR headroom
-struct Biquad64
-{
-    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
-    double a1 = 0.0, a2 = 0.0;
-    double s1[8] = {};
-    double s2[8] = {};
+// High-Precision 64-Bit Float State Variable Filter
+// Andy Simper's (Cytomic) Linear Trapezoidal SVF with Orfanidis Prescribed-Nyquist-Gain
+using Biquad64 = sauti::dsp::CytomicSVF;
 
-    void reset()
-    {
-        std::fill(s1, s1 + 8, 0.0);
-        std::fill(s2, s2 + 8, 0.0);
-    }
-
-    void initPeak(double sampleRate, double frequency, double gainDb, double q)
-    {
-        if (sampleRate <= 0.0) sampleRate = 48000.0;
-        if (q <= 0.0) q = 1.0;
-        if (frequency <= 0.0) frequency = 1000.0;
-
-        constexpr double PI = 3.14159265358979323846;
-        double w = 2.0 * PI * frequency / sampleRate;
-        if (w > PI * 0.95) w = PI * 0.95;
-        if (w < 1.0e-4) w = 1.0e-4;
-
-        const double s = std::sin(w);
-        const double c = std::cos(w);
-        const double a = s / (2.0 * q);
-        const double A = std::pow(10.0, gainDb / 40.0);
-
-        const double b0_raw = 1.0 + (a * A);
-        const double b1_raw = -2.0 * c;
-        const double b2_raw = 1.0 - (a * A);
-        const double a0_raw = 1.0 + (a / A);
-        const double a1_raw = -2.0 * c;
-        const double a2_raw = 1.0 - (a / A);
-
-        const double invA0 = 1.0 / a0_raw;
-        b0 = b0_raw * invA0;
-        b1 = b1_raw * invA0;
-        b2 = b2_raw * invA0;
-        a1 = a1_raw * invA0;
-        a2 = a2_raw * invA0;
-    }
-
-    void process(double *interleaved, ma_uint32 frames, int channels)
-    {
-        const int ch = std::min(channels, 8);
-        for (ma_uint32 i = 0; i < frames; ++i)
-        {
-            double *frame = interleaved + (size_t)i * (size_t)channels;
-            for (int c = 0; c < ch; ++c)
-            {
-                double in = frame[c];
-                double out = in * b0 + s1[c];
-                if (std::fabs(out) < 1.0e-20) out = 0.0;
-                s1[c] = in * b1 - out * a1 + s2[c];
-                s2[c] = in * b2 - out * a2;
-                frame[c] = out;
-            }
-        }
-    }
-};
 
 // Fast 32-bit float Transposed Direct Form II biquad for engine FX filters
 struct FxBiquad
@@ -3749,9 +3693,9 @@ struct AudioEngineHandle
     std::vector<float> eqFrequencies;
     std::vector<float> eqGains;
     std::vector<float> eqQ;
-    // Each band has one ma_peak2 filter which handles all channels (interleaved)
-    std::vector<ma_peak2> eqFilters;
-    // Dedicated 64-bit double precision biquad filters for true float64 DSP mode
+    // High-precision Cytomic SVF filters for float32 processing
+    std::vector<sauti::dsp::CytomicSVF> eqFilters;
+    // Dedicated 64-bit double precision Cytomic SVF filters for true float64 DSP mode
     std::vector<Biquad64> eqFilters64;
 
     struct FxBand
@@ -3763,7 +3707,8 @@ struct AudioEngineHandle
         float gainDb = 0.0f;
         float slope = 1.0f;
 
-        ma_peak2 peak{}; // Handles both Peak and Bell filters
+        sauti::dsp::CytomicSVF svf{}; // Andy Simper Cytomic SVF with Orfanidis de-cramping
+        ma_peak2 peak{};             // Legacy fallback
         ma_bpf2 bandpass{};
         ma_notch2 notch{};
         ma_loshelf2 lowshelf{};
@@ -3780,6 +3725,7 @@ struct AudioEngineHandle
 
         void uninit()
         {
+            svf.reset();
             ma_peak2_uninit(&peak, nullptr);
             ma_bpf2_uninit(&bandpass, nullptr);
             ma_notch2_uninit(&notch, nullptr);
@@ -3837,7 +3783,7 @@ struct AudioEngineHandle
         }
         for (auto &f : eqFilters)
         {
-            ma_peak2_uninit(&f, nullptr);
+            f.reset();
         }
     }
 
@@ -3858,6 +3804,7 @@ struct AudioEngineHandle
     sauti::dsp::NoiseGateDSP noiseGateDsp;
     sauti::dsp::DynamicEqDSP dynamicEqDsp;
     sauti::dsp::TapeDriftDSP tapeDriftDsp;
+    sauti::dsp::ToneCrossoverDSP toneCrossoverDsp;
     std::mutex dspMutex;
 
     std::atomic<bool> analyzerEnabled{false};
@@ -3890,20 +3837,9 @@ struct AudioEngineHandle
     {
         if (eqBandCount <= 0)
         {
-            for (auto &f : eqFilters)
-            {
-                ma_peak2_uninit(&f, nullptr);
-            }
             eqFilters.clear();
             eqFilters64.clear();
             return;
-        }
-        if (eqFilters.size() > (size_t)eqBandCount)
-        {
-            for (size_t i = (size_t)eqBandCount; i < eqFilters.size(); ++i)
-            {
-                ma_peak2_uninit(&eqFilters[i], nullptr);
-            }
         }
         eqFilters.resize(eqBandCount);
         eqFilters64.resize(eqBandCount);
@@ -3914,32 +3850,23 @@ struct AudioEngineHandle
                             : ((sampleRate > 0)
                                    ? sampleRate
                                    : ((outputSampleRate > 0) ? outputSampleRate : 48000)));
-        int ch = outputChannels > 0 ? outputChannels : 2;
 
         for (int i = 0; i < eqBandCount; ++i)
         {
-            ma_peak2_config config = ma_peak2_config_init(
-                ma_format_f32,
-                (ma_uint32)ch,
-                (ma_uint32)sr,
-                eqGains[i],
-                eqQ[i],
-                eqFrequencies[i]);
-            update_filter_smooth(eqFilters[i], config, (ma_uint32)ch, ma_peak2_init, ma_peak2_reinit, ma_peak2_uninit);
-            eqFilters64[i].initPeak((double)sr, (double)eqFrequencies[i], (double)eqGains[i], (double)eqQ[i]);
+            eqFilters[i].setParameters(sauti::dsp::CytomicSVF::FilterType::Bell, (double)sr, (double)eqFrequencies[i], (double)eqGains[i], (double)eqQ[i]);
+            eqFilters64[i].setParameters(sauti::dsp::CytomicSVF::FilterType::Bell, (double)sr, (double)eqFrequencies[i], (double)eqGains[i], (double)eqQ[i]);
         }
     }
 
     void process_multiband_eq(float *frames, ma_uint32 frameCount, int channels)
     {
-        (void)channels;
         const size_t n = std::min(eqFilters.size(), eqGains.size());
         for (size_t i = 0; i < n; ++i)
         {
             // 0.0 dB flat band bypass: exact unity passthrough with zero biquad calculation
-            if (std::abs(eqGains[i]) < 0.005f)
+            if (eqFilters[i].isFlat())
                 continue;
-            ma_peak2_process_pcm_frames(&eqFilters[i], frames, frames, (ma_uint64)frameCount);
+            eqFilters[i].process(frames, frameCount, channels);
         }
     }
 
@@ -3949,7 +3876,7 @@ struct AudioEngineHandle
         for (size_t i = 0; i < n; ++i)
         {
             // 0.0 dB flat band bypass: exact unity passthrough with zero biquad calculation
-            if (std::abs(eqGains[i]) < 0.005f)
+            if (eqFilters64[i].isFlat())
                 continue;
             eqFilters64[i].process(frames, frameCount, channels);
         }
@@ -4192,15 +4119,7 @@ struct AudioEngineHandle
             case AE_EQ_BAND_PEAK:
             default:
             {
-                // Both Bell and Peak filters use identical peaking second-order biquad
-                ma_peak2_config config = ma_peak2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    gainDb,
-                    q,
-                    frequencyHz);
-                update_filter_smooth(band.peak, config, channelsU32, ma_peak2_init, ma_peak2_reinit, ma_peak2_uninit);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::Bell, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             }
@@ -4268,8 +4187,7 @@ struct AudioEngineHandle
             case AE_EQ_BAND_BELL:
             case AE_EQ_BAND_PEAK:
             default:
-                // Both Bell and Peak filters share band.peak
-                (void)ma_peak2_process_pcm_frames(&band.peak, frames, frames, (ma_uint64)frameCount);
+                band.svf.process(frames, frameCount, ch);
                 break;
             }
         }
@@ -4614,6 +4532,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         std::lock_guard<std::mutex> fx(e->fxMutex);
         reinit_advanced_fx_filters(e);
         e->eq.updateCoefficients(sr);
+        e->toneCrossoverDsp.setSampleRate((float)sr);
         e->stereoWiden.reset(sr);
         e->stereoEnhancement.refresh(sr);
         e->crossfeedNode.setSampleRate((double)sr);
@@ -7626,6 +7545,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         else
                             e->eq.process(processBuffer, produced, e->channels);
                     }
+
+                    // Audiophile 3-Band Phase-Compensated Tone Crossover
+                    if (e->toneCrossoverDsp.isEnabled())
+                    {
+                        if (use64)
+                            e->toneCrossoverDsp.process(buf64, produced, e->channels);
+                        else
+                            e->toneCrossoverDsp.process(processBuffer, produced, e->channels);
+                    }
                 }
             }
 
@@ -10413,6 +10341,230 @@ extern "C"
         if (out_width) *out_width = e->reverbNode.getWidth();
     }
 
+    AE_API void ae_set_reverb_engine(AudioEngineHandle *e, int engine_type)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.setEngine(engine_type);
+    }
+
+    AE_API int ae_get_reverb_engine(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        return e->reverbNode.getEngine();
+    }
+
+    AE_API void ae_set_lattice_reverb_params(AudioEngineHandle *e, float wet, float dry, float room_size, float damping, float width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.setLatticeParams(wet, dry, room_size, damping, width);
+    }
+
+    AE_API void ae_get_lattice_reverb_params(AudioEngineHandle *e, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.getLatticeParams(out_wet, out_dry, out_room_size, out_damping, out_width);
+    }
+
+    AE_API void ae_set_diffusion_reverb_params(AudioEngineHandle *e, float wet, float dry, float room_size, float decay_time_ms, float diffusion, float damping, float width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.setDiffusionParams(wet, dry, room_size, decay_time_ms, diffusion, damping, width);
+    }
+
+    AE_API void ae_get_diffusion_reverb_params(AudioEngineHandle *e, float *out_wet, float *out_dry, float *out_room_size, float *out_decay_time_ms, float *out_diffusion, float *out_damping, float *out_width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.getDiffusionParams(out_wet, out_dry, out_room_size, out_decay_time_ms, out_diffusion, out_damping, out_width);
+    }
+
+    AE_API void ae_dsp_set_lattice_reverb_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        if (enabled) {
+            e->reverbEnabled = true;
+            e->reverbNode.setEnabled(true);
+            e->reverbNode.setEngine(1);
+        } else if (e->reverbNode.getEngine() == 1) {
+            e->reverbEnabled = false;
+            e->reverbNode.setEnabled(false);
+        }
+    }
+
+    AE_API int ae_dsp_get_lattice_reverb_enabled(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        return (e->reverbEnabled && e->reverbNode.getEngine() == 1) ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_lattice_reverb_params(AudioEngineHandle *e, float wet, float dry, float room_size, float damping, float width)
+    {
+        ae_set_lattice_reverb_params(e, wet, dry, room_size, damping, width);
+    }
+
+    AE_API void ae_dsp_get_lattice_reverb_params(AudioEngineHandle *e, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width)
+    {
+        ae_get_lattice_reverb_params(e, out_wet, out_dry, out_room_size, out_damping, out_width);
+    }
+
+    AE_API void ae_dsp_set_diffusion_reverb_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        if (enabled) {
+            e->reverbEnabled = true;
+            e->reverbNode.setEnabled(true);
+            e->reverbNode.setEngine(2);
+        } else if (e->reverbNode.getEngine() == 2) {
+            e->reverbEnabled = false;
+            e->reverbNode.setEnabled(false);
+        }
+    }
+
+    AE_API int ae_dsp_get_diffusion_reverb_enabled(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        return (e->reverbEnabled && e->reverbNode.getEngine() == 2) ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_diffusion_reverb_params(AudioEngineHandle *e, float wet, float dry, float room_size, float decay_time_ms, float diffusion, float damping, float width)
+    {
+        ae_set_diffusion_reverb_params(e, wet, dry, room_size, decay_time_ms, diffusion, damping, width);
+    }
+
+    AE_API void ae_dsp_get_diffusion_reverb_params(AudioEngineHandle *e, float *out_wet, float *out_dry, float *out_room_size, float *out_decay_time_ms, float *out_diffusion, float *out_damping, float *out_width)
+    {
+        ae_get_diffusion_reverb_params(e, out_wet, out_dry, out_room_size, out_decay_time_ms, out_diffusion, out_damping, out_width);
+    }
+
+    // Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4)
+    AE_API void ae_set_tone_crossover_enabled(AudioEngineHandle *e, int enabled)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->toneCrossoverDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_get_tone_crossover_enabled(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        return e->toneCrossoverDsp.isEnabled() ? 1 : 0;
+    }
+
+    AE_API void ae_set_tone_crossover_gains(AudioEngineHandle *e, float bass_gain_db, float mid_gain_db, float treble_gain_db)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->toneCrossoverDsp.setGainsDb(bass_gain_db, mid_gain_db, treble_gain_db);
+    }
+
+    AE_API void ae_get_tone_crossover_gains(AudioEngineHandle *e, float *out_bass_db, float *out_mid_db, float *out_treble_db)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        if (out_bass_db) *out_bass_db = e->toneCrossoverDsp.getBassGainDb();
+        if (out_mid_db) *out_mid_db = e->toneCrossoverDsp.getMidGainDb();
+        if (out_treble_db) *out_treble_db = e->toneCrossoverDsp.getTrebleGainDb();
+    }
+
+    AE_API void ae_set_tone_crossover_frequencies(AudioEngineHandle *e, float low_crossover_hz, float high_crossover_hz)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->toneCrossoverDsp.setCrossoverFrequencies(low_crossover_hz, high_crossover_hz);
+    }
+
+    AE_API void ae_get_tone_crossover_frequencies(AudioEngineHandle *e, float *out_low_hz, float *out_high_hz)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        if (out_low_hz) *out_low_hz = e->toneCrossoverDsp.getLowCrossoverHz();
+        if (out_high_hz) *out_high_hz = e->toneCrossoverDsp.getHighCrossoverHz();
+    }
+
+    // Legacy Mastering Compatibility Stubs (Deprecated: mapped to Tone Crossover)
+    AE_API void ae_set_mastering_enabled(AudioEngineHandle *e, int enabled)
+    {
+        ae_set_tone_crossover_enabled(e, enabled);
+    }
+
+    AE_API int ae_get_mastering_enabled(AudioEngineHandle *e)
+    {
+        return ae_get_tone_crossover_enabled(e);
+    }
+
+    AE_API void ae_set_mastering_params(
+        AudioEngineHandle *e,
+        float input_gain_db,
+        float comp_threshold_db,
+        float comp_ratio,
+        float comp_attack_ms,
+        float comp_release_ms,
+        float limiter_threshold_db,
+        float output_gain_db,
+        float pre_low_db,
+        float pre_mid_db,
+        float pre_high_db,
+        float post_air_db)
+    {
+        if (e == nullptr)
+            return;
+        ae_set_tone_crossover_gains(e, pre_low_db, pre_mid_db, post_air_db);
+    }
+
+    AE_API void ae_get_mastering_params(
+        AudioEngineHandle *e,
+        float *out_input_gain_db,
+        float *out_comp_threshold_db,
+        float *out_comp_ratio,
+        float *out_comp_attack_ms,
+        float *out_comp_release_ms,
+        float *out_limiter_threshold_db,
+        float *out_output_gain_db,
+        float *out_pre_low_db,
+        float *out_pre_mid_db,
+        float *out_pre_high_db,
+        float *out_post_air_db)
+    {
+        if (e == nullptr)
+            return;
+        if (out_input_gain_db) *out_input_gain_db = 0.0f;
+        if (out_comp_threshold_db) *out_comp_threshold_db = 0.0f;
+        if (out_comp_ratio) *out_comp_ratio = 1.0f;
+        if (out_comp_attack_ms) *out_comp_attack_ms = 10.0f;
+        if (out_comp_release_ms) *out_comp_release_ms = 100.0f;
+        if (out_limiter_threshold_db) *out_limiter_threshold_db = 0.0f;
+        if (out_output_gain_db) *out_output_gain_db = 0.0f;
+        if (out_pre_low_db) *out_pre_low_db = e->toneCrossoverDsp.getBassGainDb();
+        if (out_pre_mid_db) *out_pre_mid_db = e->toneCrossoverDsp.getMidGainDb();
+        if (out_pre_high_db) *out_pre_high_db = e->toneCrossoverDsp.getMidGainDb() * 0.5f;
+        if (out_post_air_db) *out_post_air_db = e->toneCrossoverDsp.getTrebleGainDb();
+    }
+
     AE_API void ae_set_eq_enabled(AudioEngineHandle *e, int enabled)
     {
         if (e == nullptr)
@@ -12041,26 +12193,21 @@ extern "C"
                                 : ((engine->sampleRate > 0)
                                        ? engine->sampleRate
                                        : ((engine->outputSampleRate > 0) ? engine->outputSampleRate : 48000)));
-            int ch = engine->outputChannels > 0 ? engine->outputChannels : 2;
-
-            ma_peak2_config config = ma_peak2_config_init(
-                ma_format_f32,
-                (ma_uint32)ch,
-                (ma_uint32)sr,
-                gain_db,
-                engine->eqQ[band_index],
-                engine->eqFrequencies[band_index]);
-
-            // Smoothly re-initialize coefficients without clearing delay-line history
-            // (eliminates audio clicks/pops on slider changes).
-            if (ma_peak2_reinit(&config, &engine->eqFilters[band_index]) != MA_SUCCESS)
-            {
-                ma_peak2_init(&config, nullptr, &engine->eqFilters[band_index]);
-            }
+            engine->eqFilters[band_index].setParameters(
+                sauti::dsp::CytomicSVF::FilterType::Bell,
+                (double)sr,
+                (double)engine->eqFrequencies[band_index],
+                (double)gain_db,
+                (double)engine->eqQ[band_index]);
 
             if (band_index < (int)engine->eqFilters64.size())
             {
-                engine->eqFilters64[band_index].initPeak((double)sr, (double)engine->eqFrequencies[band_index], (double)gain_db, (double)engine->eqQ[band_index]);
+                engine->eqFilters64[band_index].setParameters(
+                    sauti::dsp::CytomicSVF::FilterType::Bell,
+                    (double)sr,
+                    (double)engine->eqFrequencies[band_index],
+                    (double)gain_db,
+                    (double)engine->eqQ[band_index]);
             }
         }
     }

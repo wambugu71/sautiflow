@@ -73,6 +73,11 @@ compile_commands.json
 *.dylib
 *.exe
 *.py
+!modeling/**
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
 
 # Whitelist prebuilt native libraries for all platforms
 !native/

@@ -70,6 +70,20 @@ Write-Host "== Running test_simd_dsp.exe =="
 if ($LASTEXITCODE -ne 0) { Write-Host "test_simd_dsp FAILED"; $failed = $true }
 
 # ---------------------------------------------------------------------------
+# Test 1c: Cytomic SVF Precision & Orfanidis De-cramping (self-contained, fast)
+# ---------------------------------------------------------------------------
+Write-Host "== Building test_cytomic_svf.exe =="
+g++ -std=c++20 -O2 -Wall -c tests/test_cytomic_svf.cpp -o "$objDir/test_cytomic_svf.o" @includes @defines
+if ($LASTEXITCODE -ne 0) { throw "g++ failed on test_cytomic_svf.cpp" }
+
+g++ -std=c++20 -O2 -o test_cytomic_svf.exe "$objDir/test_cytomic_svf.o" -static-libgcc -static-libstdc++
+if ($LASTEXITCODE -ne 0) { throw "linking test_cytomic_svf.exe failed" }
+
+Write-Host "== Running test_cytomic_svf.exe =="
+./test_cytomic_svf.exe
+if ($LASTEXITCODE -ne 0) { Write-Host "test_cytomic_svf FAILED"; $failed = $true }
+
+# ---------------------------------------------------------------------------
 # Test 2: engine API tests (needs full engine + third-party objects)
 # ---------------------------------------------------------------------------
 Write-Host "== Building test_engine_api.exe =="

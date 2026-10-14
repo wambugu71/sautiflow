@@ -385,6 +385,123 @@ class MiniAudioPlayer {
 
   ReverbParamsEx getReverbParams() => _engine.getReverbParamsEx();
 
+  /// Sets the active reverberation algorithm engine.
+  void setReverbEngine(ReverbEngine engine) => _engine.setReverbEngine(engine);
+
+  /// Gets the active reverberation algorithm engine.
+  ReverbEngine getReverbEngine() => _engine.getReverbEngine();
+
+  /// Updates parameters for the Clean-Room Lattice Reverb algorithm.
+  void setLatticeReverbParams({
+    double wet = 0.35,
+    double dry = 0.70,
+    double roomSize = 0.75,
+    double damping = 0.25,
+    double width = 1.0,
+  }) =>
+      _engine.setLatticeReverbParams(
+        wet: wet,
+        dry: dry,
+        roomSize: roomSize,
+        damping: damping,
+        width: width,
+      );
+
+  /// Retrieves current Lattice Reverb parameters.
+  LatticeReverbParams getLatticeReverbParams() => _engine.getLatticeReverbParams();
+
+  /// Updates parameters for the Clean-Room Multi-Tap Diffusion Reverb algorithm.
+  void setDiffusionReverbParams({
+    double wet = 0.35,
+    double dry = 0.70,
+    double roomSize = 0.70,
+    double decayTimeMs = 1500.0,
+    double diffusion = 0.65,
+    double damping = 0.25,
+    double width = 1.0,
+  }) =>
+      _engine.setDiffusionReverbParams(
+        wet: wet,
+        dry: dry,
+        roomSize: roomSize,
+        decayTimeMs: decayTimeMs,
+        diffusion: diffusion,
+        damping: damping,
+        width: width,
+      );
+
+  /// Retrieves current Diffusion Reverb parameters.
+  DiffusionReverbParams getDiffusionReverbParams() =>
+      _engine.getDiffusionReverbParams();
+
+  /// Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4)
+  void setToneCrossoverEnabled(bool enabled) =>
+      _engine.setToneCrossoverEnabled(enabled);
+
+  bool getToneCrossoverEnabled() => _engine.getToneCrossoverEnabled();
+
+  void setToneCrossoverGains({
+    double bassGainDb = 0.0,
+    double midGainDb = 0.0,
+    double trebleGainDb = 0.0,
+  }) =>
+      _engine.setToneCrossoverGains(
+        bassGainDb: bassGainDb,
+        midGainDb: midGainDb,
+        trebleGainDb: trebleGainDb,
+      );
+
+  ({double bassGainDb, double midGainDb, double trebleGainDb})
+      getToneCrossoverGains() => _engine.getToneCrossoverGains();
+
+  void setToneCrossoverFrequencies({
+    double lowCrossoverHz = 250.0,
+    double highCrossoverHz = 3200.0,
+  }) =>
+      _engine.setToneCrossoverFrequencies(
+        lowCrossoverHz: lowCrossoverHz,
+        highCrossoverHz: highCrossoverHz,
+      );
+
+  ({double lowCrossoverHz, double highCrossoverHz})
+      getToneCrossoverFrequencies() => _engine.getToneCrossoverFrequencies();
+
+  ToneCrossoverParams getToneCrossoverParams() =>
+      _engine.getToneCrossoverParams();
+
+  void setMasteringEnabled(bool enabled) => _engine.setMasteringEnabled(enabled);
+
+  bool getMasteringEnabled() => _engine.getMasteringEnabled();
+
+  void setMasteringParams({
+    double inputGainDb = 0.0,
+    double compThresholdDb = -12.0,
+    double compRatio = 2.0,
+    double compAttackMs = 10.0,
+    double compReleaseMs = 100.0,
+    double limiterThresholdDb = -0.5,
+    double outputGainDb = 0.0,
+    double preLowDb = 0.0,
+    double preMidDb = 0.0,
+    double preHighDb = 0.0,
+    double postAirDb = 0.0,
+  }) =>
+      _engine.setMasteringParams(
+        inputGainDb: inputGainDb,
+        compThresholdDb: compThresholdDb,
+        compRatio: compRatio,
+        compAttackMs: compAttackMs,
+        compReleaseMs: compReleaseMs,
+        limiterThresholdDb: limiterThresholdDb,
+        outputGainDb: outputGainDb,
+        preLowDb: preLowDb,
+        preMidDb: preMidDb,
+        preHighDb: preHighDb,
+        postAirDb: postAirDb,
+      );
+
+  MultibandMasteringParams getMasteringParams() => _engine.getMasteringParams();
+
   void setOldEqEnabled(bool enabled) => _engine.setEqEnabled(enabled);
 
   void setOldEqGains({

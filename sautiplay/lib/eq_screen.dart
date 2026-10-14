@@ -996,6 +996,140 @@ class _EqScreenState extends State<EqScreen>
     ),
   ];
 
+  static const List<
+      ({
+        String name,
+        double wet,
+        double dry,
+        double roomSize,
+        double damping,
+        double width
+      })> _latticePresets = [
+    (
+      name: 'Custom',
+      wet: 0.35,
+      dry: 0.70,
+      roomSize: 0.75,
+      damping: 0.25,
+      width: 1.0,
+    ),
+    (
+      name: 'Natural Ambience',
+      wet: 0.20,
+      dry: 0.85,
+      roomSize: 0.40,
+      damping: 0.35,
+      width: 0.90,
+    ),
+    (
+      name: 'Acoustic Chamber',
+      wet: 0.30,
+      dry: 0.80,
+      roomSize: 0.60,
+      damping: 0.30,
+      width: 1.0,
+    ),
+    (
+      name: 'Warm Lattice Hall',
+      wet: 0.35,
+      dry: 0.75,
+      roomSize: 0.75,
+      damping: 0.40,
+      width: 1.10,
+    ),
+    (
+      name: 'Lattice Plate',
+      wet: 0.25,
+      dry: 0.80,
+      roomSize: 0.50,
+      damping: 0.10,
+      width: 1.0,
+    ),
+    (
+      name: 'Infinite Space',
+      wet: 0.50,
+      dry: 0.60,
+      roomSize: 0.95,
+      damping: 0.15,
+      width: 1.25,
+    ),
+  ];
+
+  static const List<
+      ({
+        String name,
+        double wet,
+        double dry,
+        double roomSize,
+        double decayTimeMs,
+        double diffusion,
+        double damping,
+        double width
+      })> _diffusionPresets = [
+    (
+      name: 'Custom',
+      wet: 0.35,
+      dry: 0.70,
+      roomSize: 0.70,
+      decayTimeMs: 1500.0,
+      diffusion: 0.65,
+      damping: 0.25,
+      width: 1.0,
+    ),
+    (
+      name: 'Smooth Cloud',
+      wet: 0.25,
+      dry: 0.80,
+      roomSize: 0.55,
+      decayTimeMs: 1200.0,
+      diffusion: 0.80,
+      damping: 0.30,
+      width: 1.0,
+    ),
+    (
+      name: 'Shimmer Diffuse',
+      wet: 0.30,
+      dry: 0.75,
+      roomSize: 0.65,
+      decayTimeMs: 2200.0,
+      diffusion: 0.90,
+      damping: 0.10,
+      width: 1.15,
+    ),
+    (
+      name: 'Dense Arena',
+      wet: 0.35,
+      dry: 0.70,
+      roomSize: 0.75,
+      decayTimeMs: 2800.0,
+      diffusion: 0.70,
+      damping: 0.35,
+      width: 1.10,
+    ),
+    (
+      name: 'Large Cathedral',
+      wet: 0.40,
+      dry: 0.65,
+      roomSize: 0.85,
+      decayTimeMs: 4200.0,
+      diffusion: 0.85,
+      damping: 0.20,
+      width: 1.20,
+    ),
+    (
+      name: 'Ambient Wash',
+      wet: 0.55,
+      dry: 0.55,
+      roomSize: 0.95,
+      decayTimeMs: 6500.0,
+      diffusion: 0.95,
+      damping: 0.15,
+      width: 1.30,
+    ),
+  ];
+
+  ReverbEngine _reverbEngine = ReverbEngine.dattorro;
+
   String _reverbPreset = 'Custom';
   bool _reverbEnabled = false;
   double _reverbWet = 0.18;
@@ -1005,11 +1139,96 @@ class _EqScreenState extends State<EqScreen>
   double _reverbPreDelayMs = 10.0;
   double _reverbWidth = 1.0;
 
+  // Lattice Reverb
+  String _latticePreset = 'Custom';
+  double _latticeWet = 0.35;
+  double _latticeDry = 0.70;
+  double _latticeRoomSize = 0.75;
+  double _latticeDamping = 0.25;
+  double _latticeWidth = 1.0;
+
+  // Diffusion Reverb
+  String _diffusionPreset = 'Custom';
+  double _diffusionWet = 0.35;
+  double _diffusionDry = 0.70;
+  double _diffusionRoomSize = 0.70;
+  double _diffusionDecayTimeMs = 1500.0;
+  double _diffusionFactor = 0.65;
+  double _diffusionDamping = 0.25;
+  double _diffusionWidth = 1.0;
+
   // Audio Tuning (3-band EQ)
   bool _audioTuningEnabled = false;
   double _tuneLow = 0.0;
   double _tuneMid = 0.0;
   double _tuneHigh = 0.0;
+
+  // Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4)
+  bool _toneCrossoverEnabled = false;
+  String _toneCrossoverPreset = "Audiophile Flat";
+  double _toneCrossoverBassGainDb = 0.0;
+  double _toneCrossoverMidGainDb = 0.0;
+  double _toneCrossoverTrebleGainDb = 0.0;
+  double _toneCrossoverLowHz = 250.0;
+  double _toneCrossoverHighHz = 3200.0;
+
+  static const Map<String, ({
+    double bassGainDb,
+    double midGainDb,
+    double trebleGainDb,
+    double lowCrossoverHz,
+    double highCrossoverHz,
+  })> _toneCrossoverPresets = {
+    "Audiophile Flat": (
+      bassGainDb: 0.0,
+      midGainDb: 0.0,
+      trebleGainDb: 0.0,
+      lowCrossoverHz: 250.0,
+      highCrossoverHz: 3200.0,
+    ),
+    "Warm Analog Vinyl": (
+      bassGainDb: 2.5,
+      midGainDb: 0.5,
+      trebleGainDb: -1.0,
+      lowCrossoverHz: 220.0,
+      highCrossoverHz: 3000.0,
+    ),
+    "Vocal Presence": (
+      bassGainDb: -1.0,
+      midGainDb: 2.0,
+      trebleGainDb: 1.0,
+      lowCrossoverHz: 280.0,
+      highCrossoverHz: 3400.0,
+    ),
+    "Air & Brilliance": (
+      bassGainDb: 0.5,
+      midGainDb: 0.0,
+      trebleGainDb: 2.5,
+      lowCrossoverHz: 200.0,
+      highCrossoverHz: 3500.0,
+    ),
+    "Deep Sub-Bass Foundation": (
+      bassGainDb: 3.5,
+      midGainDb: -0.5,
+      trebleGainDb: 0.5,
+      lowCrossoverHz: 180.0,
+      highCrossoverHz: 3000.0,
+    ),
+    "Acoustic Clarity": (
+      bassGainDb: 1.0,
+      midGainDb: 1.0,
+      trebleGainDb: 1.0,
+      lowCrossoverHz: 250.0,
+      highCrossoverHz: 3200.0,
+    ),
+    "Custom": (
+      bassGainDb: 0.0,
+      midGainDb: 0.0,
+      trebleGainDb: 0.0,
+      lowCrossoverHz: 250.0,
+      highCrossoverHz: 3200.0,
+    ),
+  };
 
   // Preamp & Input Gain
   double _preampDb = 0.0; // Master pre-amplification trim
@@ -2051,11 +2270,15 @@ class _EqScreenState extends State<EqScreen>
     final stereoEnhancement =
         await AppStateService.instance.loadStereoEnhancement();
     final reverb = await AppStateService.instance.loadReverb();
+    final reverbEngineVal = await AppStateService.instance.loadReverbEngine();
+    final latticeRev = await AppStateService.instance.loadLatticeReverb();
+    final diffusionRev = await AppStateService.instance.loadDiffusionReverb();
     final crossfeed = await AppStateService.instance.loadCrossfeed();
     final raceParams = await AppStateService.instance.loadRaceParams();
     final openStageParams =
         await AppStateService.instance.loadOpenStageParams();
     final tuning = await AppStateService.instance.loadAudioTuning();
+    final toneCrossover = await AppStateService.instance.loadToneCrossover();
     final limiter = await AppStateService.instance.loadLimiter();
     final compressor = await AppStateService.instance.loadCompressor();
     final lookaheadLim = await AppStateService.instance.loadLookaheadLimiter();
@@ -2120,8 +2343,9 @@ class _EqScreenState extends State<EqScreen>
       _stereoEnhancementEnabled = stereoEnhancement.enabled;
       _stereoEnhancementMix = stereoEnhancement.mix;
 
-      // Reverb (Freeverb FDN)
+      // Reverb Suite (Dattorro, Lattice, Diffusion)
       _reverbEnabled = reverb.enabled;
+      _reverbEngine = ReverbEngine.fromValue(reverbEngineVal);
       _reverbPreset = reverb.preset;
       _reverbWet = reverb.wet;
       _reverbDry = reverb.dry;
@@ -2130,11 +2354,36 @@ class _EqScreenState extends State<EqScreen>
       _reverbPreDelayMs = reverb.preDelayMs;
       _reverbWidth = reverb.width;
 
+      _latticePreset = latticeRev.preset;
+      _latticeWet = latticeRev.wet;
+      _latticeDry = latticeRev.dry;
+      _latticeRoomSize = latticeRev.roomSize;
+      _latticeDamping = latticeRev.damping;
+      _latticeWidth = latticeRev.width;
+
+      _diffusionPreset = diffusionRev.preset;
+      _diffusionWet = diffusionRev.wet;
+      _diffusionDry = diffusionRev.dry;
+      _diffusionRoomSize = diffusionRev.roomSize;
+      _diffusionDecayTimeMs = diffusionRev.decayTimeMs;
+      _diffusionFactor = diffusionRev.diffusion;
+      _diffusionDamping = diffusionRev.damping;
+      _diffusionWidth = diffusionRev.width;
+
       // Audio Tuning
       _audioTuningEnabled = tuning.enabled;
       _tuneLow = tuning.low;
       _tuneMid = tuning.mid;
       _tuneHigh = tuning.high;
+
+      // Audiophile 3-Band Tone Tuning Crossover
+      _toneCrossoverEnabled = toneCrossover.enabled;
+      _toneCrossoverPreset = toneCrossover.preset;
+      _toneCrossoverBassGainDb = toneCrossover.bassGainDb;
+      _toneCrossoverMidGainDb = toneCrossover.midGainDb;
+      _toneCrossoverTrebleGainDb = toneCrossover.trebleGainDb;
+      _toneCrossoverLowHz = toneCrossover.lowCrossoverHz;
+      _toneCrossoverHighHz = toneCrossover.highCrossoverHz;
 
       // Limiter
       _limiterEnabled = limiter.enabled;
@@ -2434,6 +2683,9 @@ class _EqScreenState extends State<EqScreen>
     if (_audioTuningEnabled) {
       widget.player.setEqEnabled(true);
       widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
+    }
+    if (_toneCrossoverEnabled) {
+      _updateToneCrossover();
     }
     widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
     widget.player
@@ -2920,15 +3172,44 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _updateReverb() {
-    widget.player.setReverbEx(
-      enabled: _reverbEnabled,
-      wet: _reverbWet,
-      dry: _reverbDry,
-      roomSize: _reverbRoomSize,
-      damping: _reverbDamping,
-      preDelayMs: _reverbPreDelayMs,
-      width: _reverbWidth,
-    );
+    switch (_reverbEngine) {
+      case ReverbEngine.dattorro:
+        widget.player.setReverbEngine(ReverbEngine.dattorro);
+        widget.player.setReverbEx(
+          enabled: _reverbEnabled,
+          wet: _reverbWet,
+          dry: _reverbDry,
+          roomSize: _reverbRoomSize,
+          damping: _reverbDamping,
+          preDelayMs: _reverbPreDelayMs,
+          width: _reverbWidth,
+        );
+        break;
+      case ReverbEngine.lattice:
+        widget.player.setReverbEngine(ReverbEngine.lattice);
+        widget.player.setLatticeReverb(
+          enabled: _reverbEnabled,
+          wet: _latticeWet,
+          dry: _latticeDry,
+          roomSize: _latticeRoomSize,
+          damping: _latticeDamping,
+          width: _latticeWidth,
+        );
+        break;
+      case ReverbEngine.diffusion:
+        widget.player.setReverbEngine(ReverbEngine.diffusion);
+        widget.player.setDiffusionReverb(
+          enabled: _reverbEnabled,
+          wet: _diffusionWet,
+          dry: _diffusionDry,
+          roomSize: _diffusionRoomSize,
+          decayTimeMs: _diffusionDecayTimeMs,
+          diffusion: _diffusionFactor,
+          damping: _diffusionDamping,
+          width: _diffusionWidth,
+        );
+        break;
+    }
   }
 
   /// Applies the loaded preamp value to the audio engine.
@@ -3024,11 +3305,39 @@ class _EqScreenState extends State<EqScreen>
       preDelayMs: _reverbPreDelayMs,
       width: _reverbWidth,
     );
+    AppStateService.instance.saveReverbEngine(_reverbEngine.value);
+    AppStateService.instance.saveLatticeReverb(
+      preset: _latticePreset,
+      wet: _latticeWet,
+      dry: _latticeDry,
+      roomSize: _latticeRoomSize,
+      damping: _latticeDamping,
+      width: _latticeWidth,
+    );
+    AppStateService.instance.saveDiffusionReverb(
+      preset: _diffusionPreset,
+      wet: _diffusionWet,
+      dry: _diffusionDry,
+      roomSize: _diffusionRoomSize,
+      decayTimeMs: _diffusionDecayTimeMs,
+      diffusion: _diffusionFactor,
+      damping: _diffusionDamping,
+      width: _diffusionWidth,
+    );
     AppStateService.instance.saveAudioTuning(
       enabled: _audioTuningEnabled,
       low: _tuneLow,
       mid: _tuneMid,
       high: _tuneHigh,
+    );
+    AppStateService.instance.saveToneCrossover(
+      enabled: _toneCrossoverEnabled,
+      preset: _toneCrossoverPreset,
+      bassGainDb: _toneCrossoverBassGainDb,
+      midGainDb: _toneCrossoverMidGainDb,
+      trebleGainDb: _toneCrossoverTrebleGainDb,
+      lowCrossoverHz: _toneCrossoverLowHz,
+      highCrossoverHz: _toneCrossoverHighHz,
     );
     AppStateService.instance.saveLimiter(
       enabled: _limiterEnabled,
@@ -3307,6 +3616,7 @@ class _EqScreenState extends State<EqScreen>
       widget.player.setStereoEnhancement(enabled: false, mix: 0.5);
 
       _reverbEnabled = false;
+      _reverbEngine = ReverbEngine.dattorro;
       _reverbPreset = 'Custom';
       _reverbWet = 0.18;
       _reverbDry = 0.95;
@@ -3314,6 +3624,24 @@ class _EqScreenState extends State<EqScreen>
       _reverbDamping = 0.40;
       _reverbPreDelayMs = 10.0;
       _reverbWidth = 1.0;
+
+      _latticePreset = 'Custom';
+      _latticeWet = 0.35;
+      _latticeDry = 0.70;
+      _latticeRoomSize = 0.75;
+      _latticeDamping = 0.25;
+      _latticeWidth = 1.0;
+
+      _diffusionPreset = 'Custom';
+      _diffusionWet = 0.35;
+      _diffusionDry = 0.70;
+      _diffusionRoomSize = 0.70;
+      _diffusionDecayTimeMs = 1500.0;
+      _diffusionFactor = 0.65;
+      _diffusionDamping = 0.25;
+      _diffusionWidth = 1.0;
+
+      widget.player.setReverbEngine(ReverbEngine.dattorro);
       widget.player.setReverbEx(
         enabled: false,
         wet: _reverbWet,
@@ -3323,6 +3651,24 @@ class _EqScreenState extends State<EqScreen>
         preDelayMs: _reverbPreDelayMs,
         width: _reverbWidth,
       );
+      widget.player.setLatticeReverb(
+        enabled: false,
+        wet: _latticeWet,
+        dry: _latticeDry,
+        roomSize: _latticeRoomSize,
+        damping: _latticeDamping,
+        width: _latticeWidth,
+      );
+      widget.player.setDiffusionReverb(
+        enabled: false,
+        wet: _diffusionWet,
+        dry: _diffusionDry,
+        roomSize: _diffusionRoomSize,
+        decayTimeMs: _diffusionDecayTimeMs,
+        diffusion: _diffusionFactor,
+        damping: _diffusionDamping,
+        width: _diffusionWidth,
+      );
 
       _audioTuningEnabled = false;
       widget.player.setEqEnabled(false);
@@ -3330,6 +3676,17 @@ class _EqScreenState extends State<EqScreen>
       _tuneMid = 0.0;
       _tuneHigh = 0.0;
       widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
+
+      _toneCrossoverEnabled = false;
+      _toneCrossoverPreset = "Audiophile Flat";
+      _toneCrossoverBassGainDb = 0.0;
+      _toneCrossoverMidGainDb = 0.0;
+      _toneCrossoverTrebleGainDb = 0.0;
+      _toneCrossoverLowHz = 250.0;
+      _toneCrossoverHighHz = 3200.0;
+      widget.player.setToneCrossoverEnabled(false);
+      widget.player.setToneCrossoverGains(bassGainDb: 0.0, midGainDb: 0.0, trebleGainDb: 0.0);
+      widget.player.setToneCrossoverFrequencies(lowCrossoverHz: 250.0, highCrossoverHz: 3200.0);
 
       _preampDb = 0.0;
       widget.player.setGain(1.0); // 1.0 is 0dB
@@ -4227,9 +4584,9 @@ class _EqScreenState extends State<EqScreen>
                         break;
                       case 2:
                         _openDetailScreen(
-                          'Audio Tuning',
-                          Icons.tune_rounded,
-                          (_) => _buildAudioTuningSection(),
+                          "Tone Tuning Crossover",
+                          Icons.graphic_eq_rounded,
+                          (_) => _buildToneCrossoverSection(),
                           shape: Shapes.pill,
                         );
                         break;
@@ -4330,22 +4687,23 @@ class _EqScreenState extends State<EqScreen>
                     }
                     if (index == 2) {
                       return _buildEffectTileCard(
-                        icon: Icons.tune_rounded,
+                        icon: Icons.graphic_eq_rounded,
                         shape: Shapes.pill,
-                        title: 'Audio Tuning',
-                        subtitle: _audioTuningEnabled
-                            ? 'Low: ${_tuneLow.toInt()}dB | Mid: ${_tuneMid.toInt()}dB | High: ${_tuneHigh.toInt()}dB'
-                            : 'Disabled',
-                        isEnabled: _audioTuningEnabled,
+                        title: "Tone Tuning Crossover",
+                        subtitle: _toneCrossoverEnabled
+                            ? "Bass: ${_toneCrossoverBassGainDb > 0 ? "+" : ""}${_toneCrossoverBassGainDb.toStringAsFixed(1)}dB | Mid: ${_toneCrossoverMidGainDb > 0 ? "+" : ""}${_toneCrossoverMidGainDb.toStringAsFixed(1)}dB | Treble: ${_toneCrossoverTrebleGainDb > 0 ? "+" : ""}${_toneCrossoverTrebleGainDb.toStringAsFixed(1)}dB"
+                            : "Disabled",
+                        isEnabled: _toneCrossoverEnabled,
                         onToggle: (v) {
-                          setState(() => _audioTuningEnabled = v);
-                          widget.player.setEqEnabled(v);
+                          setState(() => _toneCrossoverEnabled = v);
+                          widget.player.setToneCrossoverEnabled(v);
+                          _updateToneCrossover();
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          'Audio Tuning',
-                          Icons.tune_rounded,
-                          (_) => _buildAudioTuningSection(),
+                          "Tone Tuning Crossover",
+                          Icons.graphic_eq_rounded,
+                          (_) => _buildToneCrossoverSection(),
                           shape: Shapes.pill,
                         ),
                       );
@@ -6211,88 +6569,227 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
-  Widget _buildAudioTuningSection() {
+  void _updateToneCrossover() {
+    widget.player.setToneCrossoverEnabled(_toneCrossoverEnabled);
+    widget.player.setToneCrossoverGains(
+      bassGainDb: _toneCrossoverBassGainDb,
+      midGainDb: _toneCrossoverMidGainDb,
+      trebleGainDb: _toneCrossoverTrebleGainDb,
+    );
+    widget.player.setToneCrossoverFrequencies(
+      lowCrossoverHz: _toneCrossoverLowHz,
+      highCrossoverHz: _toneCrossoverHighHz,
+    );
+  }
+
+  Widget _buildToneCrossoverSection() {
+    final crossoverColor = primaryColor;
     return _CollapsibleSection(
-      icon: /* M3EContainer(
-        Shapes.pill,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child: */
-          Center(
-        child: Icon(Icons.tune_rounded, color: primaryColor, size: 20),
+      icon: Center(
+        child: Icon(Icons.graphic_eq_rounded, color: crossoverColor, size: 20),
       ),
-      //),
-      title: '3-Band Audio Tuning',
-      subtitle: 'Bass, midrange & treble tone control',
-      isEnabled: _audioTuningEnabled,
+      title: "Audiophile Tone Tuning Crossover",
+      subtitle: "Phase-Compensated 4th-Order (LR4) 3-Way Frequency Voicing",
+      isEnabled: _toneCrossoverEnabled,
       onToggle: (v) {
-        setState(() => _audioTuningEnabled = v);
-        widget.player.setEqEnabled(v);
-        if (v) {
-          widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
-        }
+        setState(() => _toneCrossoverEnabled = v);
+        _subScreenSetState?.call(() {});
+        widget.player.setToneCrossoverEnabled(v);
+        if (v) _updateToneCrossover();
         _saveEqState();
       },
       children: [
+        // Information Banner
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: crossoverColor.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: crossoverColor.withValues(alpha: 0.2)),
+          ),
+          child: Text(
+            "Linkwitz-Riley 4th Order (24 dB/oct) with All-Pass phase matching. Mathematically 100% flat summing (0.000 dB ripple). Linear Time-Invariant (pure tone tuning, zero dynamic pumping or IMD distortion).",
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 11.5,
+              height: 1.3,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Profile Presets Dropdown
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "Voicing Profile",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<String>(
+                value: _toneCrossoverPreset,
+                accentColor: crossoverColor,
+                items: _toneCrossoverPresets.keys
+                    .map((preset) => M3EDropdownItem<String>(
+                          value: preset,
+                          label: preset,
+                        ))
+                    .toList(),
+                onChanged: (preset) {
+                  setState(() {
+                    _toneCrossoverPreset = preset;
+                    if (preset != "Custom" && _toneCrossoverPresets.containsKey(preset)) {
+                      final p = _toneCrossoverPresets[preset]!;
+                      _toneCrossoverBassGainDb = p.bassGainDb;
+                      _toneCrossoverMidGainDb = p.midGainDb;
+                      _toneCrossoverTrebleGainDb = p.trebleGainDb;
+                      _toneCrossoverLowHz = p.lowCrossoverHz;
+                      _toneCrossoverHighHz = p.highCrossoverHz;
+                    }
+                  });
+                  _subScreenSetState?.call(() {});
+                  if (_toneCrossoverEnabled) _updateToneCrossover();
+                  _saveEqState();
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        // Subheader 1: 3-BAND FREQUENCY GAINS
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            "3-BAND TONE GAINS (FREQUENCY PERSPECTIVE)",
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.5),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
-              label: 'BASS',
-              value: _tuneLow,
-              min: -24.0,
+              label: "BASS",
+              value: _toneCrossoverBassGainDb,
+              min: -12.0,
               max: 12.0,
               flatValue: 0.0,
-              activeColor: _audioTuningEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) =>
-                  '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+              valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
               onChanged: (v) {
-                setState(() => _tuneLow = v);
-                if (_audioTuningEnabled) {
-                  widget.player
-                      .setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
-                }
+                setState(() {
+                  _toneCrossoverBassGainDb = v;
+                  _toneCrossoverPreset = "Custom";
+                });
+                _subScreenSetState?.call(() {});
+                if (_toneCrossoverEnabled) _updateToneCrossover();
                 _saveEqState();
               },
             ),
             ModernAudioKnob(
-              label: 'MID',
-              value: _tuneMid,
-              min: -24.0,
+              label: "MIDS",
+              value: _toneCrossoverMidGainDb,
+              min: -12.0,
               max: 12.0,
               flatValue: 0.0,
-              activeColor: _audioTuningEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) =>
-                  '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+              valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
               onChanged: (v) {
-                setState(() => _tuneMid = v);
-                if (_audioTuningEnabled) {
-                  widget.player
-                      .setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
-                }
+                setState(() {
+                  _toneCrossoverMidGainDb = v;
+                  _toneCrossoverPreset = "Custom";
+                });
+                _subScreenSetState?.call(() {});
+                if (_toneCrossoverEnabled) _updateToneCrossover();
                 _saveEqState();
               },
             ),
             ModernAudioKnob(
-              label: 'TREBLE',
-              value: _tuneHigh,
-              min: -24.0,
+              label: "TREBLE",
+              value: _toneCrossoverTrebleGainDb,
+              min: -12.0,
               max: 12.0,
               flatValue: 0.0,
-              activeColor: _audioTuningEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) =>
-                  '${v > 0 ? '+' : ''}${v.toStringAsFixed(1)} dB',
+              activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+              valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
               onChanged: (v) {
-                setState(() => _tuneHigh = v);
-                if (_audioTuningEnabled) {
-                  widget.player
-                      .setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
-                }
+                setState(() {
+                  _toneCrossoverTrebleGainDb = v;
+                  _toneCrossoverPreset = "Custom";
+                });
+                _subScreenSetState?.call(() {});
+                if (_toneCrossoverEnabled) _updateToneCrossover();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        // Subheader 2: CROSSOVER TRANSITION FREQUENCIES
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            "ACOUSTIC CROSSOVER SPLIT BOUNDARIES",
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.5),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: "BASS/MID SPLIT",
+              value: _toneCrossoverLowHz,
+              min: 80.0,
+              max: 600.0,
+              flatValue: 250.0,
+              activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+              valueFormatter: (v) => "${v.toStringAsFixed(0)} Hz",
+              onChanged: (v) {
+                setState(() {
+                  _toneCrossoverLowHz = v;
+                  _toneCrossoverPreset = "Custom";
+                });
+                _subScreenSetState?.call(() {});
+                if (_toneCrossoverEnabled) _updateToneCrossover();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: "MID/HIGH SPLIT",
+              value: _toneCrossoverHighHz,
+              min: 1500.0,
+              max: 6000.0,
+              flatValue: 3200.0,
+              activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+              valueFormatter: (v) => "${v.toStringAsFixed(0)} Hz",
+              onChanged: (v) {
+                setState(() {
+                  _toneCrossoverHighHz = v;
+                  _toneCrossoverPreset = "Custom";
+                });
+                _subScreenSetState?.call(() {});
+                if (_toneCrossoverEnabled) _updateToneCrossover();
                 _saveEqState();
               },
             ),
@@ -9534,13 +10031,57 @@ class _EqScreenState extends State<EqScreen>
     _saveEqState();
   }
 
+  void _applyLatticePreset(String name) {
+    final preset = _latticePresets.firstWhere(
+      (p) => p.name == name,
+      orElse: () => _latticePresets.first,
+    );
+    setState(() {
+      _latticePreset = preset.name;
+      _latticeWet = preset.wet;
+      _latticeDry = preset.dry;
+      _latticeRoomSize = preset.roomSize;
+      _latticeDamping = preset.damping;
+      _latticeWidth = preset.width;
+    });
+    if (_reverbEnabled) _updateReverb();
+    _saveEqState();
+  }
+
+  void _applyDiffusionPreset(String name) {
+    final preset = _diffusionPresets.firstWhere(
+      (p) => p.name == name,
+      orElse: () => _diffusionPresets.first,
+    );
+    setState(() {
+      _diffusionPreset = preset.name;
+      _diffusionWet = preset.wet;
+      _diffusionDry = preset.dry;
+      _diffusionRoomSize = preset.roomSize;
+      _diffusionDecayTimeMs = preset.decayTimeMs;
+      _diffusionFactor = preset.diffusion;
+      _diffusionDamping = preset.damping;
+      _diffusionWidth = preset.width;
+    });
+    if (_reverbEnabled) _updateReverb();
+    _saveEqState();
+  }
+
+  String _getReverbSubtitle() {
+    return switch (_reverbEngine) {
+      ReverbEngine.dattorro => 'Studio diffuse tank acoustic space',
+      ReverbEngine.lattice => 'Clean-room 4-Comb + 2-Allpass recursive lattice',
+      ReverbEngine.diffusion => 'Multi-tap high-density diffusion lattice',
+    };
+  }
+
   Widget _buildReverbSection() {
     return _CollapsibleSection(
       icon: Center(
         child: Icon(Icons.wb_twilight_rounded, color: primaryColor, size: 20),
       ),
       title: 'Reverb',
-      subtitle: 'Diffuse tank acoustic space',
+      subtitle: _getReverbSubtitle(),
       isEnabled: _reverbEnabled,
       onToggle: (v) {
         setState(() => _reverbEnabled = v);
@@ -9548,6 +10089,71 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        // 1. Reverb Engine Selector
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Reverb Engine',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<ReverbEngine>(
+                value: _reverbEngine,
+                items: [
+                  for (final engine in ReverbEngine.values)
+                    M3EDropdownItem<ReverbEngine>(
+                      value: engine,
+                      label: engine.label,
+                    ),
+                ],
+                onChanged: (val) {
+                  setState(() {
+                    _reverbEngine = val;
+                  });
+                  _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        // 2. Engine Description Pill / Badge
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: primaryColor.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: primaryColor.withValues(alpha: 0.2)),
+          ),
+          child: Text(
+            switch (_reverbEngine) {
+              ReverbEngine.dattorro =>
+                'Figure-8 Diffuse Tank • Dual modulated allpass loops with mutually prime multi-tap output matrix',
+              ReverbEngine.lattice =>
+                'Clean-Room Lattice • 4 parallel tuned comb filters with cascaded allpass diffusers & low coloration',
+              ReverbEngine.diffusion =>
+                'Multi-Tap Diffusion • Extended prime resonator array with 4-stage allpass dispersion & decay T60 control',
+            },
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 11.5,
+              height: 1.3,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // 3. Preset Selector for active engine
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -9561,160 +10167,453 @@ class _EqScreenState extends State<EqScreen>
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _buildM3EDropdown<String>(
-                value: _reverbPreset,
-                searchEnabled: true,
-                items: _reverbPresets
-                    .map((p) => M3EDropdownItem<String>(
-                          value: p.name,
-                          label: p.name,
-                        ))
-                    .toList(),
-                onChanged: (val) {
-                  _applyReverbPreset(val);
+              child: switch (_reverbEngine) {
+                ReverbEngine.dattorro => _buildM3EDropdown<String>(
+                    value: _reverbPreset,
+                    searchEnabled: true,
+                    items: _reverbPresets
+                        .map((p) => M3EDropdownItem<String>(
+                              value: p.name,
+                              label: p.name,
+                            ))
+                        .toList(),
+                    onChanged: (val) => _applyReverbPreset(val),
+                  ),
+                ReverbEngine.lattice => _buildM3EDropdown<String>(
+                    value: _latticePreset,
+                    searchEnabled: true,
+                    items: _latticePresets
+                        .map((p) => M3EDropdownItem<String>(
+                              value: p.name,
+                              label: p.name,
+                            ))
+                        .toList(),
+                    onChanged: (val) => _applyLatticePreset(val),
+                  ),
+                ReverbEngine.diffusion => _buildM3EDropdown<String>(
+                    value: _diffusionPreset,
+                    searchEnabled: true,
+                    items: _diffusionPresets
+                        .map((p) => M3EDropdownItem<String>(
+                              value: p.name,
+                              label: p.name,
+                            ))
+                        .toList(),
+                    onChanged: (val) => _applyDiffusionPreset(val),
+                  ),
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // 4. Control Knobs for active engine
+        if (_reverbEngine == ReverbEngine.dattorro) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'WET',
+                value: _reverbWet,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.25,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _reverbWet = v;
+                    _reverbPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
                 },
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'WET',
-              value: _reverbWet,
-              min: 0.0,
-              max: 2.0,
-              flatValue: 0.25,
-              activeColor: _reverbEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() {
-                  _reverbWet = v;
-                  _reverbPreset = 'Custom';
-                });
-                if (_reverbEnabled) {
-                  widget.player
-                      .setReverbGains(wet: _reverbWet, dry: _reverbDry);
-                }
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'ROOM SIZE',
-              value: _reverbRoomSize,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.6,
-              activeColor: _reverbEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() {
-                  _reverbRoomSize = v;
-                  _reverbPreset = 'Custom';
-                });
-                if (_reverbEnabled) _updateReverb();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'DAMPING',
-              value: _reverbDamping,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.4,
-              activeColor: _reverbEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() {
-                  _reverbDamping = v;
-                  _reverbPreset = 'Custom';
-                });
-                if (_reverbEnabled) _updateReverb();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: 'PRE-DELAY',
-              value: _reverbPreDelayMs,
-              min: 0.0,
-              max: 250.0,
-              flatValue: 20.0,
-              activeColor: _reverbEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toInt()} ms',
-              onChanged: (v) {
-                setState(() {
-                  _reverbPreDelayMs = v;
-                  _reverbPreset = 'Custom';
-                });
-                if (_reverbEnabled) _updateReverb();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'WIDTH',
-              value: _reverbWidth,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 1.0,
-              activeColor: _reverbEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() {
-                  _reverbWidth = v;
-                  _reverbPreset = 'Custom';
-                });
-                if (_reverbEnabled) _updateReverb();
-                _saveEqState();
-              },
-            ),
-            ModernAudioKnob(
-              label: 'DRY',
-              value: _reverbDry,
-              min: 0.0,
-              max: 2.0,
-              flatValue: 0.75,
-              activeColor: _reverbEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
-              onChanged: (v) {
-                setState(() {
-                  _reverbDry = v;
-                  _reverbPreset = 'Custom';
-                });
-                if (_reverbEnabled) {
-                  widget.player
-                      .setReverbGains(wet: _reverbWet, dry: _reverbDry);
-                }
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-          child: Text(
-            'Tip: higher room size & lower damping give long, bright halls; '
-            'pre-delay keeps vocals clear of the tail.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.4),
-              fontSize: 11.5,
-              height: 1.3,
+              ModernAudioKnob(
+                label: 'ROOM SIZE',
+                value: _reverbRoomSize,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.6,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _reverbRoomSize = v;
+                    _reverbPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DAMPING',
+                value: _reverbDamping,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.4,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _reverbDamping = v;
+                    _reverbPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'PRE-DELAY',
+                value: _reverbPreDelayMs,
+                min: 0.0,
+                max: 250.0,
+                flatValue: 20.0,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                valueFormatter: (v) => '${v.toInt()} ms',
+                onChanged: (v) {
+                  setState(() {
+                    _reverbPreDelayMs = v;
+                    _reverbPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'WIDTH',
+                value: _reverbWidth,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 1.0,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _reverbWidth = v;
+                    _reverbPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DRY',
+                value: _reverbDry,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.75,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _reverbDry = v;
+                    _reverbPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Text(
+              'Tip: higher room size & lower damping give long, bright halls; '
+              'pre-delay keeps vocals clear of the tail.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 11.5,
+                height: 1.3,
+              ),
             ),
           ),
-        ),
+        ] else if (_reverbEngine == ReverbEngine.lattice) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'WET',
+                value: _latticeWet,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.35,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _latticeWet = v;
+                    _latticePreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'ROOM SIZE',
+                value: _latticeRoomSize,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.75,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _latticeRoomSize = v;
+                    _latticePreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DAMPING',
+                value: _latticeDamping,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.25,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _latticeDamping = v;
+                    _latticePreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'DRY',
+                value: _latticeDry,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.70,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _latticeDry = v;
+                    _latticePreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'WIDTH',
+                value: _latticeWidth,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 1.0,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _latticeWidth = v;
+                    _latticePreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Text(
+              'Lattice tip: Clean-room 4-comb + 2-allpass recursive lattice matrix delivers '
+              'crystal-clear articulation with zero metallic ringing.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 11.5,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ] else if (_reverbEngine == ReverbEngine.diffusion) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'WET',
+                value: _diffusionWet,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.35,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _diffusionWet = v;
+                    _diffusionPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'ROOM SIZE',
+                value: _diffusionRoomSize,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.70,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _diffusionRoomSize = v;
+                    _diffusionPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DECAY TIME',
+                value: _diffusionDecayTimeMs,
+                min: 100.0,
+                max: 10000.0,
+                flatValue: 1500.0,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                valueFormatter: (v) => (v >= 1000.0)
+                    ? '${(v / 1000.0).toStringAsFixed(1)} s'
+                    : '${v.toInt()} ms',
+                onChanged: (v) {
+                  setState(() {
+                    _diffusionDecayTimeMs = v;
+                    _diffusionPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'DIFFUSION',
+                value: _diffusionFactor,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.65,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _diffusionFactor = v;
+                    _diffusionPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DAMPING',
+                value: _diffusionDamping,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.25,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _diffusionDamping = v;
+                    _diffusionPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DRY',
+                value: _diffusionDry,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.70,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _diffusionDry = v;
+                    _diffusionPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ModernAudioKnob(
+                label: 'WIDTH',
+                value: _diffusionWidth,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 1.0,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _diffusionWidth = v;
+                    _diffusionPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Text(
+              'Diffusion tip: Multi-tap allpass network smears transients into an ultra-dense, '
+              'lush tail; higher decay times produce expansive ambient spaces.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 11.5,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

@@ -177,6 +177,142 @@ class ReverbParamsEx {
       'damping: $damping, preDelayMs: $preDelayMs, width: $width)';
 }
 
+/// Enumeration of available reverberation engines in Sautiflow DSP.
+enum ReverbEngine {
+  dattorro(0, 'Dattorro Plate'),
+  lattice(1, 'Lattice Reverb'),
+  diffusion(2, 'Diffusion Reverb');
+
+  const ReverbEngine(this.value, this.label);
+  final int value;
+  final String label;
+
+  static ReverbEngine fromValue(int val) {
+    switch (val) {
+      case 1:
+        return ReverbEngine.lattice;
+      case 2:
+        return ReverbEngine.diffusion;
+      case 0:
+      default:
+        return ReverbEngine.dattorro;
+    }
+  }
+}
+
+/// Parameters for the Clean-Room 4-Comb + 2-Allpass Recursive Lattice Reverb.
+class LatticeReverbParams {
+  const LatticeReverbParams({
+    this.enabled = false,
+    this.wet = 0.35,
+    this.dry = 0.70,
+    this.roomSize = 0.75,
+    this.damping = 0.25,
+    this.width = 1.0,
+  });
+
+  final bool enabled;
+  final double wet;
+  final double dry;
+  final double roomSize;
+  final double damping;
+  final double width;
+
+  @override
+  String toString() =>
+      'LatticeReverbParams(enabled: $enabled, wet: $wet, dry: $dry, '
+      'roomSize: $roomSize, damping: $damping, width: $width)';
+}
+
+/// Parameters for the Clean-Room Multi-Tap Diffusion Lattice Reverb.
+class DiffusionReverbParams {
+  const DiffusionReverbParams({
+    this.enabled = false,
+    this.wet = 0.35,
+    this.dry = 0.70,
+    this.roomSize = 0.70,
+    this.decayTimeMs = 1500.0,
+    this.diffusion = 0.65,
+    this.damping = 0.25,
+    this.width = 1.0,
+  });
+
+  final bool enabled;
+  final double wet;
+  final double dry;
+  final double roomSize;
+  final double decayTimeMs;
+  final double diffusion;
+  final double damping;
+  final double width;
+
+  @override
+  String toString() =>
+      'DiffusionReverbParams(enabled: $enabled, wet: $wet, dry: $dry, '
+      'roomSize: $roomSize, decayTimeMs: $decayTimeMs, '
+      'diffusion: $diffusion, damping: $damping, width: $width)';
+}
+
+class ToneCrossoverParams {
+  const ToneCrossoverParams({
+    this.enabled = false,
+    this.bassGainDb = 0.0,
+    this.midGainDb = 0.0,
+    this.trebleGainDb = 0.0,
+    this.lowCrossoverHz = 250.0,
+    this.highCrossoverHz = 3200.0,
+  });
+
+  final bool enabled;
+  final double bassGainDb;
+  final double midGainDb;
+  final double trebleGainDb;
+  final double lowCrossoverHz;
+  final double highCrossoverHz;
+
+  @override
+  String toString() =>
+      'ToneCrossoverParams(enabled: $enabled, bass: ${bassGainDb}dB, mid: ${midGainDb}dB, '
+      'treble: ${trebleGainDb}dB, lowCross: ${lowCrossoverHz}Hz, highCross: ${highCrossoverHz}Hz)';
+}
+
+class MultibandMasteringParams {
+  const MultibandMasteringParams({
+    this.enabled = false,
+    this.inputGainDb = 0.0,
+    this.compThresholdDb = -12.0,
+    this.compRatio = 2.0,
+    this.compAttackMs = 10.0,
+    this.compReleaseMs = 100.0,
+    this.limiterThresholdDb = -0.5,
+    this.outputGainDb = 0.0,
+    this.preLowDb = 0.0,
+    this.preMidDb = 0.0,
+    this.preHighDb = 0.0,
+    this.postAirDb = 0.0,
+  });
+
+  final bool enabled;
+  final double inputGainDb;
+  final double compThresholdDb;
+  final double compRatio;
+  final double compAttackMs;
+  final double compReleaseMs;
+  final double limiterThresholdDb;
+  final double outputGainDb;
+  final double preLowDb;
+  final double preMidDb;
+  final double preHighDb;
+  final double postAirDb;
+
+  @override
+  String toString() =>
+      'MultibandMasteringParams(enabled: $enabled, in: ${inputGainDb}dB, compTh: ${compThresholdDb}dB, '
+      'ratio: 1:$compRatio, att: ${compAttackMs}ms, rel: ${compReleaseMs}ms, '
+      'limTh: ${limiterThresholdDb}dB, out: ${outputGainDb}dB, '
+      'preLow: ${preLowDb}dB, preMid: ${preMidDb}dB, preHigh: ${preHighDb}dB, postAir: ${postAirDb}dB)';
+}
+
 class EqBandConfig {
   const EqBandConfig({
     required this.type,
@@ -1264,6 +1400,160 @@ typedef _GetReverbGainsNative = ffi.Void Function(
 typedef _GetReverbGainsDart = void Function(ffi.Pointer<ffi.Void>,
     ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
 
+typedef _SetReverbEngineNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetReverbEngineDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetReverbEngineNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetReverbEngineDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetLatticeReverbParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetLatticeReverbParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double, double);
+
+typedef _GetLatticeReverbParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _GetLatticeReverbParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _SetDiffusionReverbParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetDiffusionReverbParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double, double, double, double);
+
+typedef _GetDiffusionReverbParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _GetDiffusionReverbParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _SetToneCrossoverEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetToneCrossoverEnabledDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _GetToneCrossoverEnabledNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetToneCrossoverEnabledDart = int Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _SetToneCrossoverGainsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetToneCrossoverGainsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double);
+
+typedef _GetToneCrossoverGainsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _GetToneCrossoverGainsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _SetToneCrossoverFreqsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float);
+typedef _SetToneCrossoverFreqsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double);
+
+typedef _GetToneCrossoverFreqsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _GetToneCrossoverFreqsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _SetMasteringEnabledNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetMasteringEnabledDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _GetMasteringEnabledNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetMasteringEnabledDart = int Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _SetMasteringParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float);
+typedef _SetMasteringParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double);
+
+typedef _GetMasteringParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _GetMasteringParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
 typedef _SetEqGainsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float);
 typedef _SetEqGainsDart = void Function(
@@ -2244,6 +2534,70 @@ class AudioEngineFFI {
         _lib.lookupFunction<_GetReverbGainsNative, _GetReverbGainsDart>(
       'ae_get_reverb_gains',
     );
+    _setReverbEngine =
+        _lib.lookupFunction<_SetReverbEngineNative, _SetReverbEngineDart>(
+      'ae_set_reverb_engine',
+    );
+    _getReverbEngine =
+        _lib.lookupFunction<_GetReverbEngineNative, _GetReverbEngineDart>(
+      'ae_get_reverb_engine',
+    );
+    _setLatticeReverbParams =
+        _lib.lookupFunction<_SetLatticeReverbParamsNative, _SetLatticeReverbParamsDart>(
+      'ae_set_lattice_reverb_params',
+    );
+    _getLatticeReverbParams =
+        _lib.lookupFunction<_GetLatticeReverbParamsNative, _GetLatticeReverbParamsDart>(
+      'ae_get_lattice_reverb_params',
+    );
+    _setDiffusionReverbParams =
+        _lib.lookupFunction<_SetDiffusionReverbParamsNative, _SetDiffusionReverbParamsDart>(
+      'ae_set_diffusion_reverb_params',
+    );
+    _getDiffusionReverbParams =
+        _lib.lookupFunction<_GetDiffusionReverbParamsNative, _GetDiffusionReverbParamsDart>(
+      'ae_get_diffusion_reverb_params',
+    );
+      _setToneCrossoverEnabled =
+          _lib.lookupFunction<_SetToneCrossoverEnabledNative, _SetToneCrossoverEnabledDart>(
+        'ae_set_tone_crossover_enabled',
+      );
+      _getToneCrossoverEnabled =
+          _lib.lookupFunction<_GetToneCrossoverEnabledNative, _GetToneCrossoverEnabledDart>(
+        'ae_get_tone_crossover_enabled',
+      );
+      _setToneCrossoverGains =
+          _lib.lookupFunction<_SetToneCrossoverGainsNative, _SetToneCrossoverGainsDart>(
+        'ae_set_tone_crossover_gains',
+      );
+      _getToneCrossoverGains =
+          _lib.lookupFunction<_GetToneCrossoverGainsNative, _GetToneCrossoverGainsDart>(
+        'ae_get_tone_crossover_gains',
+      );
+      _setToneCrossoverFreqs =
+          _lib.lookupFunction<_SetToneCrossoverFreqsNative, _SetToneCrossoverFreqsDart>(
+        'ae_set_tone_crossover_frequencies',
+      );
+      _getToneCrossoverFreqs =
+          _lib.lookupFunction<_GetToneCrossoverFreqsNative, _GetToneCrossoverFreqsDart>(
+        'ae_get_tone_crossover_frequencies',
+      );
+      _setMasteringEnabled =
+          _lib.lookupFunction<_SetMasteringEnabledNative, _SetMasteringEnabledDart>(
+        'ae_set_mastering_enabled',
+      );
+      _getMasteringEnabled =
+          _lib.lookupFunction<_GetMasteringEnabledNative, _GetMasteringEnabledDart>(
+        'ae_get_mastering_enabled',
+      );
+      _setMasteringParams =
+          _lib.lookupFunction<_SetMasteringParamsNative, _SetMasteringParamsDart>(
+        'ae_set_mastering_params',
+      );
+      _getMasteringParams =
+          _lib.lookupFunction<_GetMasteringParamsNative, _GetMasteringParamsDart>(
+        'ae_get_mastering_params',
+      );
     _setEqEnabled = _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
       'ae_set_eq_enabled',
     );
@@ -2954,6 +3308,22 @@ class AudioEngineFFI {
   late final _GetReverbParamsExDart _getReverbParamsEx;
   late final _SetReverbGainsDart _setReverbGains;
   late final _GetReverbGainsDart _getReverbGains;
+  late final _SetReverbEngineDart _setReverbEngine;
+  late final _GetReverbEngineDart _getReverbEngine;
+  late final _SetLatticeReverbParamsDart _setLatticeReverbParams;
+  late final _GetLatticeReverbParamsDart _getLatticeReverbParams;
+  late final _SetDiffusionReverbParamsDart _setDiffusionReverbParams;
+  late final _GetDiffusionReverbParamsDart _getDiffusionReverbParams;
+  late final _SetToneCrossoverEnabledDart _setToneCrossoverEnabled;
+  late final _GetToneCrossoverEnabledDart _getToneCrossoverEnabled;
+  late final _SetToneCrossoverGainsDart _setToneCrossoverGains;
+  late final _GetToneCrossoverGainsDart _getToneCrossoverGains;
+  late final _SetToneCrossoverFreqsDart _setToneCrossoverFreqs;
+  late final _GetToneCrossoverFreqsDart _getToneCrossoverFreqs;
+  late final _SetMasteringEnabledDart _setMasteringEnabled;
+  late final _GetMasteringEnabledDart _getMasteringEnabled;
+  late final _SetMasteringParamsDart _setMasteringParams;
+  late final _GetMasteringParamsDart _getMasteringParams;
   late final _SetFxEnabledDart _setEqEnabled;
   late final _SetEqGainsDart _setEqGains;
   late final _SetSingleFloatDart _setGain;
@@ -3837,6 +4207,282 @@ class AudioEngineFFI {
       calloc
         ..free(wetPtr)
         ..free(dryPtr);
+    }
+  }
+
+  /// Sets the active reverberation algorithm engine (Dattorro, Lattice, or Diffusion).
+  void setReverbEngine(ReverbEngine engine) {
+    if (_engine == ffi.nullptr) return;
+    _setReverbEngine(_engine, engine.value);
+  }
+
+  /// Gets the active reverberation algorithm engine.
+  ReverbEngine getReverbEngine() {
+    if (_engine == ffi.nullptr) return ReverbEngine.dattorro;
+    return ReverbEngine.fromValue(_getReverbEngine(_engine));
+  }
+
+  /// Updates parameters for the Clean-Room Lattice Reverb algorithm.
+  void setLatticeReverbParams({
+    double wet = 0.35,
+    double dry = 0.70,
+    double roomSize = 0.75,
+    double damping = 0.25,
+    double width = 1.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setLatticeReverbParams(_engine, wet, dry, roomSize, damping, width);
+  }
+
+  /// Retrieves current Lattice Reverb parameters from the native audio engine.
+  LatticeReverbParams getLatticeReverbParams() {
+    if (_engine == ffi.nullptr) return const LatticeReverbParams();
+    final wetPtr = calloc<ffi.Float>();
+    final dryPtr = calloc<ffi.Float>();
+    final roomPtr = calloc<ffi.Float>();
+    final dampPtr = calloc<ffi.Float>();
+    final widthPtr = calloc<ffi.Float>();
+    try {
+      _getLatticeReverbParams(_engine, wetPtr, dryPtr, roomPtr, dampPtr, widthPtr);
+      return LatticeReverbParams(
+        wet: wetPtr.value,
+        dry: dryPtr.value,
+        roomSize: roomPtr.value,
+        damping: dampPtr.value,
+        width: widthPtr.value,
+      );
+    } finally {
+      calloc
+        ..free(wetPtr)
+        ..free(dryPtr)
+        ..free(roomPtr)
+        ..free(dampPtr)
+        ..free(widthPtr);
+    }
+  }
+
+  /// Updates parameters for the Clean-Room Multi-Tap Diffusion Reverb algorithm.
+  void setDiffusionReverbParams({
+    double wet = 0.35,
+    double dry = 0.70,
+    double roomSize = 0.70,
+    double decayTimeMs = 1500.0,
+    double diffusion = 0.65,
+    double damping = 0.25,
+    double width = 1.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setDiffusionReverbParams(_engine, wet, dry, roomSize, decayTimeMs, diffusion, damping, width);
+  }
+
+  /// Retrieves current Diffusion Reverb parameters from the native audio engine.
+  DiffusionReverbParams getDiffusionReverbParams() {
+    if (_engine == ffi.nullptr) return const DiffusionReverbParams();
+    final wetPtr = calloc<ffi.Float>();
+    final dryPtr = calloc<ffi.Float>();
+    final roomPtr = calloc<ffi.Float>();
+    final decayPtr = calloc<ffi.Float>();
+    final diffPtr = calloc<ffi.Float>();
+    final dampPtr = calloc<ffi.Float>();
+    final widthPtr = calloc<ffi.Float>();
+    try {
+      _getDiffusionReverbParams(_engine, wetPtr, dryPtr, roomPtr, decayPtr, diffPtr, dampPtr, widthPtr);
+      return DiffusionReverbParams(
+        wet: wetPtr.value,
+        dry: dryPtr.value,
+        roomSize: roomPtr.value,
+        decayTimeMs: decayPtr.value,
+        diffusion: diffPtr.value,
+        damping: dampPtr.value,
+        width: widthPtr.value,
+      );
+    } finally {
+      calloc
+        ..free(wetPtr)
+        ..free(dryPtr)
+        ..free(roomPtr)
+        ..free(decayPtr)
+        ..free(diffPtr)
+        ..free(dampPtr)
+        ..free(widthPtr);
+    }
+  }
+
+  void setToneCrossoverEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setToneCrossoverEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  bool getToneCrossoverEnabled() {
+    if (_engine == ffi.nullptr) return false;
+    return _getToneCrossoverEnabled(_engine) != 0;
+  }
+
+  void setToneCrossoverGains({
+    double bassGainDb = 0.0,
+    double midGainDb = 0.0,
+    double trebleGainDb = 0.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setToneCrossoverGains(_engine, bassGainDb, midGainDb, trebleGainDb);
+  }
+
+  ({double bassGainDb, double midGainDb, double trebleGainDb}) getToneCrossoverGains() {
+    if (_engine == ffi.nullptr) {
+      return (bassGainDb: 0.0, midGainDb: 0.0, trebleGainDb: 0.0);
+    }
+    final bassPtr = calloc<ffi.Float>();
+    final midPtr = calloc<ffi.Float>();
+    final treblePtr = calloc<ffi.Float>();
+    try {
+      _getToneCrossoverGains(_engine, bassPtr, midPtr, treblePtr);
+      return (
+        bassGainDb: bassPtr.value,
+        midGainDb: midPtr.value,
+        trebleGainDb: treblePtr.value,
+      );
+    } finally {
+      calloc.free(bassPtr);
+      calloc.free(midPtr);
+      calloc.free(treblePtr);
+    }
+  }
+
+  void setToneCrossoverFrequencies({
+    double lowCrossoverHz = 250.0,
+    double highCrossoverHz = 3200.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setToneCrossoverFreqs(_engine, lowCrossoverHz, highCrossoverHz);
+  }
+
+  ({double lowCrossoverHz, double highCrossoverHz}) getToneCrossoverFrequencies() {
+    if (_engine == ffi.nullptr) {
+      return (lowCrossoverHz: 250.0, highCrossoverHz: 3200.0);
+    }
+    final lowPtr = calloc<ffi.Float>();
+    final highPtr = calloc<ffi.Float>();
+    try {
+      _getToneCrossoverFreqs(_engine, lowPtr, highPtr);
+      return (
+        lowCrossoverHz: lowPtr.value,
+        highCrossoverHz: highPtr.value,
+      );
+    } finally {
+      calloc.free(lowPtr);
+      calloc.free(highPtr);
+    }
+  }
+
+  ToneCrossoverParams getToneCrossoverParams() {
+    if (_engine == ffi.nullptr) return const ToneCrossoverParams();
+    final enabled = getToneCrossoverEnabled();
+    final gains = getToneCrossoverGains();
+    final freqs = getToneCrossoverFrequencies();
+    return ToneCrossoverParams(
+      enabled: enabled,
+      bassGainDb: gains.bassGainDb,
+      midGainDb: gains.midGainDb,
+      trebleGainDb: gains.trebleGainDb,
+      lowCrossoverHz: freqs.lowCrossoverHz,
+      highCrossoverHz: freqs.highCrossoverHz,
+    );
+  }
+
+  void setMasteringEnabled(bool enabled) {
+    if (_engine == ffi.nullptr) return;
+    _setMasteringEnabled(_engine, enabled ? 1 : 0);
+  }
+
+  bool getMasteringEnabled() {
+    if (_engine == ffi.nullptr) return false;
+    return _getMasteringEnabled(_engine) != 0;
+  }
+
+  void setMasteringParams({
+    double inputGainDb = 0.0,
+    double compThresholdDb = -12.0,
+    double compRatio = 2.0,
+    double compAttackMs = 10.0,
+    double compReleaseMs = 100.0,
+    double limiterThresholdDb = -0.5,
+    double outputGainDb = 0.0,
+    double preLowDb = 0.0,
+    double preMidDb = 0.0,
+    double preHighDb = 0.0,
+    double postAirDb = 0.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    _setMasteringParams(
+      _engine,
+      inputGainDb,
+      compThresholdDb,
+      compRatio,
+      compAttackMs,
+      compReleaseMs,
+      limiterThresholdDb,
+      outputGainDb,
+      preLowDb,
+      preMidDb,
+      preHighDb,
+      postAirDb,
+    );
+  }
+
+  MultibandMasteringParams getMasteringParams() {
+    if (_engine == ffi.nullptr) return const MultibandMasteringParams();
+    final inPtr = calloc<ffi.Float>();
+    final thPtr = calloc<ffi.Float>();
+    final ratPtr = calloc<ffi.Float>();
+    final attPtr = calloc<ffi.Float>();
+    final relPtr = calloc<ffi.Float>();
+    final limPtr = calloc<ffi.Float>();
+    final outPtr = calloc<ffi.Float>();
+    final lowPtr = calloc<ffi.Float>();
+    final midPtr = calloc<ffi.Float>();
+    final highPtr = calloc<ffi.Float>();
+    final airPtr = calloc<ffi.Float>();
+    try {
+      _getMasteringParams(
+        _engine,
+        inPtr,
+        thPtr,
+        ratPtr,
+        attPtr,
+        relPtr,
+        limPtr,
+        outPtr,
+        lowPtr,
+        midPtr,
+        highPtr,
+        airPtr,
+      );
+      return MultibandMasteringParams(
+        inputGainDb: inPtr.value,
+        compThresholdDb: thPtr.value,
+        compRatio: ratPtr.value,
+        compAttackMs: attPtr.value,
+        compReleaseMs: relPtr.value,
+        limiterThresholdDb: limPtr.value,
+        outputGainDb: outPtr.value,
+        preLowDb: lowPtr.value,
+        preMidDb: midPtr.value,
+        preHighDb: highPtr.value,
+        postAirDb: airPtr.value,
+      );
+    } finally {
+      calloc
+        ..free(inPtr)
+        ..free(thPtr)
+        ..free(ratPtr)
+        ..free(attPtr)
+        ..free(relPtr)
+        ..free(limPtr)
+        ..free(outPtr)
+        ..free(lowPtr)
+        ..free(midPtr)
+        ..free(highPtr)
+        ..free(airPtr);
     }
   }
 

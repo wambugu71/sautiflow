@@ -26,6 +26,14 @@
 #include <cstdint>
 #include <vector>
 #include <algorithm>
+#include "dsp/lattice_reverb_dsp.h"
+#include "dsp/diffusion_reverb_dsp.h"
+
+enum class ReverbEngine {
+    Dattorro = 0,
+    Lattice = 1,
+    Diffusion = 2
+};
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -46,6 +54,8 @@ public:
     {
         if (rate <= 0.0)
             rate = 48000.0;
+        latticeDsp.setSampleRate(rate);
+        diffusionDsp.setSampleRate(rate);
         if (std::abs(sampleRate - rate) < 0.1)
             return;
 
@@ -57,6 +67,48 @@ public:
     void setEnabled(bool e)
     {
         targetEnabled = e;
+        latticeDsp.setEnabled(e && targetEngine == ReverbEngine::Lattice);
+        diffusionDsp.setEnabled(e && targetEngine == ReverbEngine::Diffusion);
+    }
+
+    void setEngine(int engine)
+    {
+        if (engine < 0 || engine > 2) engine = 0;
+        targetEngine = static_cast<ReverbEngine>(engine);
+        latticeDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Lattice);
+        diffusionDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Diffusion);
+    }
+
+    int getEngine() const { return static_cast<int>(targetEngine); }
+
+    void setLatticeParams(float wet, float dry, float roomSize, float damping, float width = 1.0f)
+    {
+        latticeDsp.setParams(wet, dry, roomSize, damping, width);
+    }
+
+    void getLatticeParams(float *wet, float *dry, float *roomSize, float *damping, float *width) const
+    {
+        if (wet) *wet = latticeDsp.getWet();
+        if (dry) *dry = latticeDsp.getDry();
+        if (roomSize) *roomSize = latticeDsp.getRoomSize();
+        if (damping) *damping = latticeDsp.getDamping();
+        if (width) *width = latticeDsp.getWidth();
+    }
+
+    void setDiffusionParams(float wet, float dry, float roomSize, float decayTimeMs, float diffusion, float damping, float width = 1.0f)
+    {
+        diffusionDsp.setParams(wet, dry, roomSize, decayTimeMs, diffusion, damping, width);
+    }
+
+    void getDiffusionParams(float *wet, float *dry, float *roomSize, float *decayTimeMs, float *diffusion, float *damping, float *width) const
+    {
+        if (wet) *wet = diffusionDsp.getWet();
+        if (dry) *dry = diffusionDsp.getDry();
+        if (roomSize) *roomSize = diffusionDsp.getRoomSize();
+        if (decayTimeMs) *decayTimeMs = diffusionDsp.getDecayTimeMs();
+        if (diffusion) *diffusion = diffusionDsp.getDiffusion();
+        if (damping) *damping = diffusionDsp.getDamping();
+        if (width) *width = diffusionDsp.getWidth();
     }
 
     bool getEnabled() const { return targetEnabled; }
@@ -70,21 +122,29 @@ public:
     void setWet(float w)
     {
         targetWet = std::max(0.0f, std::min(w, 2.0f));
+        latticeDsp.setWet(targetWet);
+        diffusionDsp.setWet(targetWet);
     }
 
     void setDry(float d)
     {
         targetDry = std::max(0.0f, std::min(d, 2.0f));
+        latticeDsp.setDry(targetDry);
+        diffusionDsp.setDry(targetDry);
     }
 
     void setRoomSize(float r)
     {
         targetRoomSize = std::max(0.0f, std::min(r, 1.0f));
+        latticeDsp.setRoomSize(targetRoomSize);
+        diffusionDsp.setRoomSize(targetRoomSize);
     }
 
     void setDamping(float d)
     {
         targetDamping = std::max(0.0f, std::min(d, 1.0f));
+        latticeDsp.setDamping(targetDamping);
+        diffusionDsp.setDamping(targetDamping);
     }
 
     void setPreDelayMs(float ms)
@@ -95,6 +155,8 @@ public:
     void setWidth(float w)
     {
         targetWidth = std::max(0.0f, std::min(w, 2.0f));
+        latticeDsp.setWidth(targetWidth);
+        diffusionDsp.setWidth(targetWidth);
     }
 
     float getWet() const { return targetWet; }
@@ -157,6 +219,8 @@ public:
         currentPreDelayMs = targetPreDelayMs;
         currentWidth = targetWidth;
         currentEnabled = targetEnabled;
+        latticeDsp.reset();
+        diffusionDsp.reset();
     }
 
     void process(float *interleaved, uint32_t frames, int channels)
@@ -170,6 +234,18 @@ public:
             return;
         }
         currentEnabled = true;
+
+        if (targetEngine == ReverbEngine::Lattice)
+        {
+            latticeDsp.process(interleaved, frames, channels);
+            return;
+        }
+
+        if (targetEngine == ReverbEngine::Diffusion)
+        {
+            diffusionDsp.process(interleaved, frames, channels);
+            return;
+        }
 
         if (tank1_del1.empty())
             return;
@@ -593,4 +669,8 @@ private:
     size_t tap_t2_d1_1 = 0, tap_t2_d1_2 = 0, tap_t2_d1_3 = 0;
     size_t tap_t2_ap2_1 = 0, tap_t2_ap2_2 = 0;
     size_t tap_t2_d2_1 = 0, tap_t2_d2_2 = 0;
+
+    ReverbEngine targetEngine = ReverbEngine::Dattorro;
+    sauti::dsp::LatticeReverbDSP latticeDsp;
+    sauti::dsp::DiffusionReverbDSP diffusionDsp;
 };

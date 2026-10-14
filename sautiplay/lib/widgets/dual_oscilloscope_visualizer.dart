@@ -224,13 +224,16 @@ class _DualOscilloscopeVisualizerState extends State<DualOscilloscopeVisualizer>
 
     // Determine window size based on timebase zoom (standard 10ms ~ 480 samples)
     final baseWindow = 512;
-    final int windowSize = (baseWindow / _timeZoom).round().clamp(64, _ringCapacity ~/ 2);
+    final int windowSize =
+        (baseWindow / _timeZoom).round().clamp(64, _ringCapacity ~/ 2);
 
     // 1. Edge-Trigger Synchronization on CH1
     int triggerOffset = 0;
     if (_triggerMode != OscilloscopeTriggerMode.freeRun) {
       const searchRange = 256;
-      final start = (_ringWriteIndex - windowSize - searchRange + _ringCapacity) % _ringCapacity;
+      final start =
+          (_ringWriteIndex - windowSize - searchRange + _ringCapacity) %
+              _ringCapacity;
 
       int bestZeroCross = -1;
       int secondZeroCross = -1;
@@ -270,10 +273,12 @@ class _DualOscilloscopeVisualizerState extends State<DualOscilloscopeVisualizer>
           }
         }
       } else {
-        triggerOffset = (_ringWriteIndex - windowSize + _ringCapacity) % _ringCapacity;
+        triggerOffset =
+            (_ringWriteIndex - windowSize + _ringCapacity) % _ringCapacity;
       }
     } else {
-      triggerOffset = (_ringWriteIndex - windowSize + _ringCapacity) % _ringCapacity;
+      triggerOffset =
+          (_ringWriteIndex - windowSize + _ringCapacity) % _ringCapacity;
     }
 
     // 2. Extract Waveforms & Calculate Metrics
@@ -342,7 +347,8 @@ class _DualOscilloscopeVisualizerState extends State<DualOscilloscopeVisualizer>
     // Stereo phase correlation
     final denom = math.sqrt(ch1SumSq * ch2SumSq);
     if (denom > 1e-6) {
-      _stereoCorrelation = (_stereoCorrelation * 0.8) + ((dotProduct / denom) * 0.2);
+      _stereoCorrelation =
+          (_stereoCorrelation * 0.8) + ((dotProduct / denom) * 0.2);
     }
 
     // 3. Phosphor Persistence History Management
@@ -448,217 +454,10 @@ class _DualOscilloscopeVisualizerState extends State<DualOscilloscopeVisualizer>
           ),
 
           // 2. HUD Top Telemetry Bar
-          if (_showHud)
-            Positioned(
-              top: 6,
-              left: 10,
-              right: 10,
-              child: Row(
-                children: [
-                  // High Refresh Rate Badge (60 - 120 Hz)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _measuredFps >= 90
-                                ? const Color(0xFF00E676)
-                                : const Color(0xFF00B0FF),
-                            boxShadow: [
-                              BoxShadow(
-                                color: (_measuredFps >= 90
-                                        ? const Color(0xFF00E676)
-                                        : const Color(0xFF00B0FF))
-                                    .withValues(alpha: 0.8),
-                                blurRadius: 4,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          '${_measuredFps.toStringAsFixed(0)} Hz',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'monospace',
-                            letterSpacing: 0.4,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(width: 6),
-
-                  // Mode Indicator
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: primary.withValues(alpha: 0.4)),
-                    ),
-                    child: Text(
-                      _mode.displayName.toUpperCase(),
-                      style: TextStyle(
-                        color: primary,
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
-
-                  const Spacer(),
-
-                  // CH1 Metrics Badge
-                  _buildChannelBadge(
-                    channel: 'CH1',
-                    color: ch1Color,
-                    vpp: _ch1Vpp,
-                    rmsDb: _ch1RmsDb,
-                  ),
-
-                  const SizedBox(width: 6),
-
-                  // CH2 Metrics Badge
-                  _buildChannelBadge(
-                    channel: 'CH2',
-                    color: ch2Color,
-                    vpp: _ch2Vpp,
-                    rmsDb: _ch2RmsDb,
-                  ),
-                ],
-              ),
-            ),
 
           // 3. HUD Bottom Telemetry Bar (Frequency, Phase, Trigger)
-          if (_showHud)
-            Positioned(
-              bottom: widget.showControls ? 36 : 6,
-              left: 10,
-              right: 10,
-              child: Row(
-                children: [
-                  // Measured Frequency
-                  if (_detectedFreqHz > 20)
-                    Text(
-                      _detectedFreqHz >= 1000
-                          ? 'FREQ: ${(_detectedFreqHz / 1000).toStringAsFixed(2)} kHz'
-                          : 'FREQ: ${_detectedFreqHz.toStringAsFixed(0)} Hz',
-                      style: const TextStyle(
-                        color: Color(0xFF00E5FF),
-                        fontSize: 9.5,
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-
-                  const Spacer(),
-
-                  // Stereo Phase Correlation
-                  Text(
-                    'PHASE: ${_stereoCorrelation >= 0 ? '+' : ''}${_stereoCorrelation.toStringAsFixed(2)} '
-                    '(${_stereoCorrelation > 0.8 ? 'MONO' : _stereoCorrelation > 0.2 ? 'STEREO' : 'WIDE'})',
-                    style: TextStyle(
-                      color: _stereoCorrelation < 0
-                          ? const Color(0xFFFF5252)
-                          : Colors.white70,
-                      fontSize: 9.5,
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
 
           // 4. Quick Interactive Floating Toolbar
-          if (widget.showControls)
-            Positioned(
-              bottom: 4,
-              left: 8,
-              right: 8,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Mode Selector Chip
-                  _buildToolbarChip(
-                    icon: _mode.icon,
-                    label: _mode.displayName,
-                    isActive: true,
-                    onTap: () {
-                      setState(() {
-                        final next = (_mode.index + 1) % 3;
-                        _mode = OscilloscopeMode.values[next];
-                      });
-                    },
-                  ),
-
-                  const SizedBox(width: 6),
-
-                  // Timebase Zoom Chip
-                  _buildToolbarChip(
-                    icon: Icons.zoom_in_rounded,
-                    label: '${_timeZoom}x',
-                    isActive: _timeZoom != 1.0,
-                    onTap: () {
-                      setState(() {
-                        if (_timeZoom == 1.0) {
-                          _timeZoom = 2.0;
-                        } else if (_timeZoom == 2.0) {
-                          _timeZoom = 4.0;
-                        } else if (_timeZoom == 4.0) {
-                          _timeZoom = 0.5;
-                        } else {
-                          _timeZoom = 1.0;
-                        }
-                      });
-                    },
-                  ),
-
-                  const SizedBox(width: 6),
-
-                  // Trigger Mode Chip
-                  _buildToolbarChip(
-                    icon: _triggerMode.icon,
-                    label: _triggerMode.label,
-                    isActive: _triggerMode != OscilloscopeTriggerMode.freeRun,
-                    onTap: () {
-                      setState(() {
-                        final next = (_triggerMode.index + 1) %
-                            OscilloscopeTriggerMode.values.length;
-                        _triggerMode = OscilloscopeTriggerMode.values[next];
-                      });
-                    },
-                  ),
-
-                  const SizedBox(width: 6),
-
-                  // Phosphor Glow Toggle Chip
-                  _buildToolbarChip(
-                    icon: Icons.flare_rounded,
-                    label: _glowPersistence ? 'GLOW' : 'FLAT',
-                    isActive: _glowPersistence,
-                    onTap: () {
-                      setState(() => _glowPersistence = !_glowPersistence);
-                    },
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );

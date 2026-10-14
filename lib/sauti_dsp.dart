@@ -1,3 +1,5 @@
+export 'audio_engine_ffi.dart' show ReverbEngine, ReverbParamsEx, LatticeReverbParams, DiffusionReverbParams,
+        ToneCrossoverParams, MultibandMasteringParams;
 import 'dart:ffi' as ffi;
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';

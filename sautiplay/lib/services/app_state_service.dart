@@ -336,6 +336,115 @@ class AppStateService {
     );
   }
 
+  static const _kReverbEngine = 'sp_reverb_engine';
+  static const _kLatticePreset = 'sp_lattice_preset';
+  static const _kLatticeWet = 'sp_lattice_wet';
+  static const _kLatticeDry = 'sp_lattice_dry';
+  static const _kLatticeRoomSize = 'sp_lattice_room_size';
+  static const _kLatticeDamping = 'sp_lattice_damping';
+  static const _kLatticeWidth = 'sp_lattice_width';
+
+  static const _kDiffusionPreset = 'sp_diffusion_preset';
+  static const _kDiffusionWet = 'sp_diffusion_wet';
+  static const _kDiffusionDry = 'sp_diffusion_dry';
+  static const _kDiffusionRoomSize = 'sp_diffusion_room_size';
+  static const _kDiffusionDecayMs = 'sp_diffusion_decay_ms';
+  static const _kDiffusionDiffusion = 'sp_diffusion_diffusion';
+  static const _kDiffusionDamping = 'sp_diffusion_damping';
+  static const _kDiffusionWidth = 'sp_diffusion_width';
+
+  Future<void> saveReverbEngine(int engine) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setInt(_kReverbEngine, engine);
+  }
+
+  Future<int> loadReverbEngine() async {
+    final prefs = PreferencesStore.instance;
+    return prefs.getInt(_kReverbEngine) ?? 0;
+  }
+
+  Future<void> saveLatticeReverb({
+    required String preset,
+    required double wet,
+    required double dry,
+    required double roomSize,
+    required double damping,
+    required double width,
+  }) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setString(_kLatticePreset, preset);
+    await prefs.setDouble(_kLatticeWet, wet);
+    await prefs.setDouble(_kLatticeDry, dry);
+    await prefs.setDouble(_kLatticeRoomSize, roomSize);
+    await prefs.setDouble(_kLatticeDamping, damping);
+    await prefs.setDouble(_kLatticeWidth, width);
+  }
+
+  Future<
+      ({
+        String preset,
+        double wet,
+        double dry,
+        double roomSize,
+        double damping,
+        double width
+      })> loadLatticeReverb() async {
+    final prefs = PreferencesStore.instance;
+    return (
+      preset: prefs.getString(_kLatticePreset) ?? 'Custom',
+      wet: prefs.getDouble(_kLatticeWet) ?? 0.35,
+      dry: prefs.getDouble(_kLatticeDry) ?? 0.70,
+      roomSize: prefs.getDouble(_kLatticeRoomSize) ?? 0.75,
+      damping: prefs.getDouble(_kLatticeDamping) ?? 0.25,
+      width: prefs.getDouble(_kLatticeWidth) ?? 1.0,
+    );
+  }
+
+  Future<void> saveDiffusionReverb({
+    required String preset,
+    required double wet,
+    required double dry,
+    required double roomSize,
+    required double decayTimeMs,
+    required double diffusion,
+    required double damping,
+    required double width,
+  }) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setString(_kDiffusionPreset, preset);
+    await prefs.setDouble(_kDiffusionWet, wet);
+    await prefs.setDouble(_kDiffusionDry, dry);
+    await prefs.setDouble(_kDiffusionRoomSize, roomSize);
+    await prefs.setDouble(_kDiffusionDecayMs, decayTimeMs);
+    await prefs.setDouble(_kDiffusionDiffusion, diffusion);
+    await prefs.setDouble(_kDiffusionDamping, damping);
+    await prefs.setDouble(_kDiffusionWidth, width);
+  }
+
+  Future<
+      ({
+        String preset,
+        double wet,
+        double dry,
+        double roomSize,
+        double decayTimeMs,
+        double diffusion,
+        double damping,
+        double width
+      })> loadDiffusionReverb() async {
+    final prefs = PreferencesStore.instance;
+    return (
+      preset: prefs.getString(_kDiffusionPreset) ?? 'Custom',
+      wet: prefs.getDouble(_kDiffusionWet) ?? 0.35,
+      dry: prefs.getDouble(_kDiffusionDry) ?? 0.70,
+      roomSize: prefs.getDouble(_kDiffusionRoomSize) ?? 0.70,
+      decayTimeMs: prefs.getDouble(_kDiffusionDecayMs) ?? 1500.0,
+      diffusion: prefs.getDouble(_kDiffusionDiffusion) ?? 0.65,
+      damping: prefs.getDouble(_kDiffusionDamping) ?? 0.25,
+      width: prefs.getDouble(_kDiffusionWidth) ?? 1.0,
+    );
+  }
+
   static const _kRaceDelayMs = 'sp_race_delay_ms';
   static const _kRaceAlpha = 'sp_race_alpha';
   static const _kRaceLpfHz = 'sp_race_lpf_hz';
@@ -509,6 +618,131 @@ class AppStateService {
       low: prefs.getDouble(_kTuneLow) ?? 1.0,
       mid: prefs.getDouble(_kTuneMid) ?? 1.0,
       high: prefs.getDouble(_kTuneHigh) ?? 1.0,
+    );
+  }
+
+  // ─── EQ – Audiophile Tone Tuning Crossover ─────────────────────────────────
+  static const _kToneCrossoverEnabled = 'sp_tone_crossover_enabled';
+  static const _kToneCrossoverPreset = 'sp_tone_crossover_preset';
+  static const _kToneCrossoverBassGainDb = 'sp_tone_crossover_bass_gain_db';
+  static const _kToneCrossoverMidGainDb = 'sp_tone_crossover_mid_gain_db';
+  static const _kToneCrossoverTrebleGainDb = 'sp_tone_crossover_treble_gain_db';
+  static const _kToneCrossoverLowHz = 'sp_tone_crossover_low_hz';
+  static const _kToneCrossoverHighHz = 'sp_tone_crossover_high_hz';
+
+  Future<void> saveToneCrossover({
+    required bool enabled,
+    required String preset,
+    required double bassGainDb,
+    required double midGainDb,
+    required double trebleGainDb,
+    required double lowCrossoverHz,
+    required double highCrossoverHz,
+  }) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setBool(_kToneCrossoverEnabled, enabled);
+    await prefs.setString(_kToneCrossoverPreset, preset);
+    await prefs.setDouble(_kToneCrossoverBassGainDb, bassGainDb);
+    await prefs.setDouble(_kToneCrossoverMidGainDb, midGainDb);
+    await prefs.setDouble(_kToneCrossoverTrebleGainDb, trebleGainDb);
+    await prefs.setDouble(_kToneCrossoverLowHz, lowCrossoverHz);
+    await prefs.setDouble(_kToneCrossoverHighHz, highCrossoverHz);
+  }
+
+  Future<
+      ({
+        bool enabled,
+        String preset,
+        double bassGainDb,
+        double midGainDb,
+        double trebleGainDb,
+        double lowCrossoverHz,
+        double highCrossoverHz,
+      })> loadToneCrossover() async {
+    final prefs = PreferencesStore.instance;
+    return (
+      enabled: prefs.getBool(_kToneCrossoverEnabled) ?? false,
+      preset: prefs.getString(_kToneCrossoverPreset) ?? 'Audiophile Flat',
+      bassGainDb: prefs.getDouble(_kToneCrossoverBassGainDb) ?? 0.0,
+      midGainDb: prefs.getDouble(_kToneCrossoverMidGainDb) ?? 0.0,
+      trebleGainDb: prefs.getDouble(_kToneCrossoverTrebleGainDb) ?? 0.0,
+      lowCrossoverHz: prefs.getDouble(_kToneCrossoverLowHz) ?? 250.0,
+      highCrossoverHz: prefs.getDouble(_kToneCrossoverHighHz) ?? 3200.0,
+    );
+  }
+
+  // ─── EQ – Multiband Mastering Processor (Legacy Stubs) ─────────────────────
+  static const _kMasteringEnabled = 'sp_mastering_enabled';
+  static const _kMasteringPreset = 'sp_mastering_preset';
+  static const _kMasteringInputGainDb = 'sp_mastering_input_gain_db';
+  static const _kMasteringCompThresholdDb = 'sp_mastering_comp_threshold_db';
+  static const _kMasteringCompRatio = 'sp_mastering_comp_ratio';
+  static const _kMasteringCompAttackMs = 'sp_mastering_comp_attack_ms';
+  static const _kMasteringCompReleaseMs = 'sp_mastering_comp_release_ms';
+  static const _kMasteringLimiterCeilingDb = 'sp_mastering_limiter_ceiling_db';
+  static const _kMasteringOutputGainDb = 'sp_mastering_output_gain_db';
+  static const _kMasteringWarmthDb = 'sp_mastering_warmth_db';
+  static const _kMasteringPresenceDb = 'sp_mastering_presence_db';
+  static const _kMasteringAirDb = 'sp_mastering_air_db';
+
+  Future<void> saveMastering({
+    required bool enabled,
+    required String preset,
+    required double inputGainDb,
+    required double compThresholdDb,
+    required double compRatio,
+    required double compAttackMs,
+    required double compReleaseMs,
+    required double limiterCeilingDb,
+    required double outputGainDb,
+    required double warmthDb,
+    required double presenceDb,
+    required double airDb,
+  }) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setBool(_kMasteringEnabled, enabled);
+    await prefs.setString(_kMasteringPreset, preset);
+    await prefs.setDouble(_kMasteringInputGainDb, inputGainDb);
+    await prefs.setDouble(_kMasteringCompThresholdDb, compThresholdDb);
+    await prefs.setDouble(_kMasteringCompRatio, compRatio);
+    await prefs.setDouble(_kMasteringCompAttackMs, compAttackMs);
+    await prefs.setDouble(_kMasteringCompReleaseMs, compReleaseMs);
+    await prefs.setDouble(_kMasteringLimiterCeilingDb, limiterCeilingDb);
+    await prefs.setDouble(_kMasteringOutputGainDb, outputGainDb);
+    await prefs.setDouble(_kMasteringWarmthDb, warmthDb);
+    await prefs.setDouble(_kMasteringPresenceDb, presenceDb);
+    await prefs.setDouble(_kMasteringAirDb, airDb);
+  }
+
+  Future<
+      ({
+        bool enabled,
+        String preset,
+        double inputGainDb,
+        double compThresholdDb,
+        double compRatio,
+        double compAttackMs,
+        double compReleaseMs,
+        double limiterCeilingDb,
+        double outputGainDb,
+        double warmthDb,
+        double presenceDb,
+        double airDb,
+      })> loadMastering() async {
+    final prefs = PreferencesStore.instance;
+    return (
+      enabled: prefs.getBool(_kMasteringEnabled) ?? false,
+      preset: prefs.getString(_kMasteringPreset) ?? 'Commercial Master',
+      inputGainDb: prefs.getDouble(_kMasteringInputGainDb) ?? 0.0,
+      compThresholdDb: prefs.getDouble(_kMasteringCompThresholdDb) ?? -12.0,
+      compRatio: prefs.getDouble(_kMasteringCompRatio) ?? 2.0,
+      compAttackMs: prefs.getDouble(_kMasteringCompAttackMs) ?? 10.0,
+      compReleaseMs: prefs.getDouble(_kMasteringCompReleaseMs) ?? 100.0,
+      limiterCeilingDb: prefs.getDouble(_kMasteringLimiterCeilingDb) ?? -0.5,
+      outputGainDb: prefs.getDouble(_kMasteringOutputGainDb) ?? 0.0,
+      warmthDb: prefs.getDouble(_kMasteringWarmthDb) ?? 0.0,
+      presenceDb: prefs.getDouble(_kMasteringPresenceDb) ?? 0.0,
+      airDb: prefs.getDouble(_kMasteringAirDb) ?? 0.0,
     );
   }
 
