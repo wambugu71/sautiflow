@@ -44,7 +44,10 @@ public:
         LowPass,
         HighPass,
         BandPass,
-        Notch
+        Notch,
+        AllPass,
+        Tilt,
+        BandReject
     };
 
     static constexpr int kMaxChannels = 8;
@@ -73,7 +76,7 @@ public:
         type_ = type;
 
         // Exact flat bypass check: 0.0 dB gain on gain-dependent filter types
-        const bool isGainType = (type == FilterType::Bell || type == FilterType::LowShelf || type == FilterType::HighShelf);
+        const bool isGainType = (type == FilterType::Bell || type == FilterType::LowShelf || type == FilterType::HighShelf || type == FilterType::Tilt || type == FilterType::BandReject);
         if (isGainType && std::abs(gainDb_) < 0.005) {
             isFlat_ = true;
             return;
@@ -186,6 +189,28 @@ public:
                 k_ = k0;
                 m0_ = 1.0;
                 m1_ = -k0;
+                m2_ = 0.0;
+                break;
+
+            case FilterType::AllPass:
+                k_ = k0;
+                m0_ = 1.0;
+                m1_ = -2.0 * k0;
+                m2_ = 0.0;
+                break;
+
+            case FilterType::Tilt:
+                g_ = std::tan(w0 * 0.5) * std::sqrt(A);
+                k_ = k0;
+                m0_ = A;
+                m1_ = (1.0 - A) * k0;
+                m2_ = (1.0 / A) - A;
+                break;
+
+            case FilterType::BandReject:
+                k_ = k0;
+                m0_ = 1.0;
+                m1_ = (G - 1.0) * k0;
                 m2_ = 0.0;
                 break;
             }

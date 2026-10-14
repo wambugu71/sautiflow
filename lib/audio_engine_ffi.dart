@@ -329,6 +329,24 @@ class EqBandConfig {
   final double q;
   final double gainDb;
   final double slope;
+
+  EqBandConfig copyWith({
+    EqBandType? type,
+    double? frequencyHz,
+    bool? enabled,
+    double? q,
+    double? gainDb,
+    double? slope,
+  }) {
+    return EqBandConfig(
+      type: type ?? this.type,
+      frequencyHz: frequencyHz ?? this.frequencyHz,
+      enabled: enabled ?? this.enabled,
+      q: q ?? this.q,
+      gainDb: gainDb ?? this.gainDb,
+      slope: slope ?? this.slope,
+    );
+  }
 }
 
 enum StreamPlaybackState {
@@ -1977,6 +1995,18 @@ typedef _GetMultibandEqGainNative = ffi.Float Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _GetMultibandEqGainDart = double Function(ffi.Pointer<ffi.Void>, int);
 
+typedef _GetMultibandEqOptimizedGainNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _GetMultibandEqOptimizedGainDart = double Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _SetMultibandEqModeNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetMultibandEqModeDart = void Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetMultibandEqModeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetMultibandEqModeDart = int Function(ffi.Pointer<ffi.Void>);
+
 typedef _SetMultibandFxEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetMultibandFxEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
@@ -3053,6 +3083,14 @@ class AudioEngineFFI {
         _lib.lookupFunction<_GetMultibandEqGainNative, _GetMultibandEqGainDart>(
       'ae_get_multiband_eq_gain',
     );
+    _getMultibandEqOptimizedGain = _lib.lookupFunction<
+        _GetMultibandEqOptimizedGainNative, _GetMultibandEqOptimizedGainDart>(
+      'ae_get_multiband_eq_optimized_gain',
+    );
+    _setMultibandEqMode = _lib.lookupFunction<_SetMultibandEqModeNative,
+        _SetMultibandEqModeDart>('ae_set_multiband_eq_mode');
+    _getMultibandEqMode = _lib.lookupFunction<_GetMultibandEqModeNative,
+        _GetMultibandEqModeDart>('ae_get_multiband_eq_mode');
     _setMultibandFxEnabled = _lib.lookupFunction<_SetMultibandFxEnabledNative,
         _SetMultibandFxEnabledDart>('ae_set_multiband_fx_enabled');
     _setMultibandFxBands = _lib
@@ -3463,6 +3501,9 @@ class AudioEngineFFI {
   late final _SetMultibandEqEnabledDart _setMultibandEqEnabled;
   late final _SetMultibandEqGainDart _setMultibandEqGain;
   late final _GetMultibandEqGainDart _getMultibandEqGain;
+  late final _GetMultibandEqOptimizedGainDart _getMultibandEqOptimizedGain;
+  late final _SetMultibandEqModeDart _setMultibandEqMode;
+  late final _GetMultibandEqModeDart _getMultibandEqMode;
   late final _SetMultibandFxEnabledDart _setMultibandFxEnabled;
   late final _SetMultibandFxBandsDart _setMultibandFxBands;
   late final _ClearMultibandFxDart _clearMultibandFx;
@@ -5576,6 +5617,21 @@ class AudioEngineFFI {
   double getMultibandEqGain(int bandIndex) {
     if (_engine == ffi.nullptr) return 0.0;
     return _getMultibandEqGain(_engine, bandIndex);
+  }
+
+  double getMultibandEqOptimizedGain(int bandIndex) {
+    if (_engine == ffi.nullptr) return 0.0;
+    return _getMultibandEqOptimizedGain(_engine, bandIndex);
+  }
+
+  void setMultibandEqMode(int mode) {
+    if (_engine == ffi.nullptr) return;
+    _setMultibandEqMode(_engine, mode);
+  }
+
+  int getMultibandEqMode() {
+    if (_engine == ffi.nullptr) return 0;
+    return _getMultibandEqMode(_engine);
   }
 
   void setMultibandFxEnabled(bool enabled) {

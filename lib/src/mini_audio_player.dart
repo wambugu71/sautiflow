@@ -637,6 +637,19 @@ class MiniAudioPlayer {
   double getMultibandEqBandGain(int bandIndex) =>
       _engine.getMultibandEqGain(bandIndex);
 
+  /// Retrieves the interaction-matrix optimized filter command gain (dB) for a band.
+  double getMultibandEqOptimizedGain(int bandIndex) =>
+      _engine.getMultibandEqOptimizedGain(bandIndex);
+
+  /// Configures Graphic EQ topology:
+  /// 0 = MatrixCompensatedCascade (default)
+  /// 1 = SymmetricParallel
+  /// 2 = LegacyCascade
+  void setMultibandEqMode(int mode) => _engine.setMultibandEqMode(mode);
+
+  /// Gets current Graphic EQ topology mode.
+  int getMultibandEqMode() => _engine.getMultibandEqMode();
+
   /// Configure a mixed multiband FX chain where each band can be a different
   /// filter type (peak, bandpass, notch, lowshelf, highshelf).
   void initMultibandFx(List<EqBandConfig> bands, {bool enabled = true}) {

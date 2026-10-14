@@ -512,6 +512,9 @@ extern "C"
     AE_API void ae_set_multiband_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_multiband_eq_gain(AudioEngineHandle *engine, int band_index, float gain_db);
     AE_API float ae_get_multiband_eq_gain(AudioEngineHandle *engine, int band_index);
+    AE_API float ae_get_multiband_eq_optimized_gain(AudioEngineHandle *engine, int band_index);
+    AE_API void ae_set_multiband_eq_mode(AudioEngineHandle *engine, int mode);
+    AE_API int ae_get_multiband_eq_mode(AudioEngineHandle *engine);
 
     // Unified multiband FX chain (mixed filter types).
     // band_count: number of bands in the chain.

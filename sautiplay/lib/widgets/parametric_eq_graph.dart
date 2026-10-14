@@ -129,29 +129,8 @@ class _ParametricEqPainter extends CustomPainter {
       final band = bands[b];
       if (!band.enabled) continue;
 
-      if (band.type == EqBandType.tilt) {
-        final halfGain = band.gainDb * 0.5;
-        final lowBand = EqBandConfig(
-          type: EqBandType.lowshelf,
-          frequencyHz: band.frequencyHz,
-          gainDb: -halfGain,
-          slope: band.slope,
-        );
-        final highBand = EqBandConfig(
-          type: EqBandType.highshelf,
-          frequencyHz: band.frequencyHz,
-          gainDb: halfGain,
-          slope: band.slope,
-        );
-        final lowCoeffs = _computeBiquadCoeffs(lowBand, sampleRate);
-        final highCoeffs = _computeBiquadCoeffs(highBand, sampleRate);
-        for (int i = 0; i < numPoints; i++) {
-          final db = _evalBiquadGainDb(lowCoeffs, freqs[i], sampleRate) +
-              _evalBiquadGainDb(highCoeffs, freqs[i], sampleRate);
-          bandDbCurves[b][i] = db;
-          totalDbCurve[i] += db;
-        }
-      } else if (band.type == EqBandType.asupercut ||
+      if (band.type == EqBandType.tilt ||
+          band.type == EqBandType.asupercut ||
           band.type == EqBandType.asuperpass ||
           band.type == EqBandType.asuperstop) {
         final stages = _computeMultiStageCoeffs(band, sampleRate);
@@ -277,7 +256,7 @@ class _ParametricEqPainter extends CustomPainter {
 
       // Evaluate the actual net gain at center frequency for placing the handle
       final double bandNetDb;
-      if (band.type == EqBandType.tilt) {
+      if (band.type == EqBandType.tilt || band.type == EqBandType.allpass) {
         bandNetDb = 0.0;
       } else {
         final coeffs = _computeBiquadCoeffs(band, sampleRate);
@@ -584,6 +563,18 @@ class _ParametricEqPainter extends CustomPainter {
     final q = band.q > 0 ? band.q : 1.0;
 
     switch (band.type) {
+      case EqBandType.tilt:
+        final halfGain = band.gainDb * 0.5;
+        final lowCoeffs = _computeBiquadCoeffs(
+          band.copyWith(type: EqBandType.lowshelf, gainDb: -halfGain),
+          fs,
+        );
+        final highCoeffs = _computeBiquadCoeffs(
+          band.copyWith(type: EqBandType.highshelf, gainDb: halfGain),
+          fs,
+        );
+        return [lowCoeffs, highCoeffs];
+
       case EqBandType.asupercut:
         // 8th-order Butterworth low-pass (4 cascaded SOS)
         final w0 = f0 / fs;

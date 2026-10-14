@@ -230,6 +230,176 @@ static void test_flat_band_bypass() {
     CHECK(bitExactDouble, "Double64 buffer passes bit-exact through 0.0 dB flat band bypass");
 }
 
+// -----------------------------------------------------------------------------
+// Test 5: AllPass Filter (Unity Magnitude, Phase Inversion at f0, Non-Bypass)
+// -----------------------------------------------------------------------------
+static void test_allpass_filter() {
+    std::printf("\n== Test 5: AllPass Filter (Magnitude, Phase & Non-Bypass) ==\n");
+    const double fs = 48000.0;
+    const double f0 = 1000.0;
+    const double q = 1.0;
+
+    CytomicSVF svf;
+    svf.setParameters(CytomicSVF::FilterType::AllPass, fs, f0, 0.0, q);
+
+    CHECK(!svf.isFlat(), "AllPass filter is NOT marked as flat bypass even with 0.0 dB gain");
+
+    auto measureGainAt = [&](double testFreq) {
+        svf.reset();
+        const uint32_t N = 48000;
+        std::vector<double> b(N * 2);
+        for (uint32_t i = 0; i < N; ++i) {
+            double s = std::cos(2.0 * M_PI * testFreq * (double)i / fs);
+            b[i * 2 + 0] = s;
+            b[i * 2 + 1] = s;
+        }
+        svf.process(b.data(), N, 2);
+        double maxAmp = 0.0;
+        for (uint32_t i = N - 4000; i < N; ++i) {
+            maxAmp = std::max(maxAmp, std::abs(b[i * 2]));
+        }
+        return 20.0 * std::log10(std::max(maxAmp, 1e-12));
+    };
+
+    double g100 = measureGainAt(100.0);
+    double g1k = measureGainAt(1000.0);
+    double g10k = measureGainAt(10000.0);
+
+    std::printf("  AllPass Gain: 100 Hz = %+.3f dB, 1 kHz = %+.3f dB, 10 kHz = %+.3f dB\n",
+                g100, g1k, g10k);
+    CHECK(std::abs(g100) < 0.05, "AllPass magnitude at 100 Hz is 0 dB (+/-0.05 dB)");
+    CHECK(std::abs(g1k) < 0.05, "AllPass magnitude at 1 kHz (f0) is 0 dB (+/-0.05 dB)");
+    CHECK(std::abs(g10k) < 0.05, "AllPass magnitude at 10 kHz is 0 dB (+/-0.05 dB)");
+
+    // Test phase inversion at f0: out(t) = -in(t) -> out(t) + in(t) == 0 in steady state
+    svf.reset();
+    const uint32_t N = 48000;
+    std::vector<double> b(N * 2);
+    for (uint32_t i = 0; i < N; ++i) {
+        double s = std::sin(2.0 * M_PI * f0 * (double)i / fs);
+        b[i * 2 + 0] = s;
+        b[i * 2 + 1] = s;
+    }
+    svf.process(b.data(), N, 2);
+
+    double maxSum = 0.0;
+    for (uint32_t i = N - 2000; i < N; ++i) {
+        double in_s = std::sin(2.0 * M_PI * f0 * (double)i / fs);
+        double out_s = b[i * 2];
+        maxSum = std::max(maxSum, std::abs(out_s + in_s));
+    }
+    std::printf("  AllPass phase inversion residual at f0 (max |out + in|): %.3e\n", maxSum);
+    CHECK(maxSum < 0.01, "AllPass output exhibits exact 180 deg phase shift (inversion) at f0");
+}
+
+// -----------------------------------------------------------------------------
+// Test 6: Tilt Filter (Symmetric Shelf Tilt Around f0)
+// -----------------------------------------------------------------------------
+static void test_tilt_filter() {
+    std::printf("\n== Test 6: Tilt Filter (+/- G/2 dB Shelves with 0 dB at f0) ==\n");
+    const double fs = 48000.0;
+    const double f0 = 1000.0;
+    const double q = 0.7071;
+
+    CytomicSVF svf;
+
+    // Zero dB gain must be flat bypass
+    svf.setParameters(CytomicSVF::FilterType::Tilt, fs, f0, 0.0, q);
+    CHECK(svf.isFlat(), "Tilt filter at 0.0 dB gain is flagged as flat bypass");
+
+    auto measureGainAt = [&](double gainDb, double testFreq) {
+        svf.setParameters(CytomicSVF::FilterType::Tilt, fs, f0, gainDb, q);
+        svf.reset();
+        const uint32_t N = 48000;
+        std::vector<double> b(N * 2);
+        for (uint32_t i = 0; i < N; ++i) {
+            double s = std::cos(2.0 * M_PI * testFreq * (double)i / fs);
+            b[i * 2 + 0] = s;
+            b[i * 2 + 1] = s;
+        }
+        svf.process(b.data(), N, 2);
+        double maxAmp = 0.0;
+        for (uint32_t i = N - 4000; i < N; ++i) {
+            maxAmp = std::max(maxAmp, std::abs(b[i * 2]));
+        }
+        return 20.0 * std::log10(std::max(maxAmp, 1e-12));
+    };
+
+    // Positive Tilt: +6.0 dB gain -> expect -3.0 dB at DC/low, 0.0 dB at f0, +3.0 dB at Nyquist/high
+    double gLowPos = measureGainAt(+6.0, 30.0);
+    double gMidPos = measureGainAt(+6.0, 1000.0);
+    double gHighPos = measureGainAt(+6.0, 20000.0);
+
+    std::printf("  +6 dB Tilt: 30 Hz = %+.2f dB, 1 kHz = %+.2f dB, 20 kHz = %+.2f dB\n",
+                gLowPos, gMidPos, gHighPos);
+    CHECK(std::abs(gLowPos - (-3.0)) < 0.35, "Positive tilt attenuates low frequencies to -G/2 dB (-3.0 dB +/-0.35 dB)");
+    CHECK(std::abs(gMidPos) < 0.15, "Positive tilt passes center frequency at 0.0 dB (+/-0.15 dB)");
+    CHECK(std::abs(gHighPos - 3.0) < 0.35, "Positive tilt boosts high frequencies to +G/2 dB (+3.0 dB +/-0.35 dB)");
+
+    // Negative Tilt: -6.0 dB gain -> expect +3.0 dB at DC/low, 0.0 dB at f0, -3.0 dB at Nyquist/high
+    double gLowNeg = measureGainAt(-6.0, 30.0);
+    double gMidNeg = measureGainAt(-6.0, 1000.0);
+    double gHighNeg = measureGainAt(-6.0, 20000.0);
+
+    std::printf("  -6 dB Tilt: 30 Hz = %+.2f dB, 1 kHz = %+.2f dB, 20 kHz = %+.2f dB\n",
+                gLowNeg, gMidNeg, gHighNeg);
+    CHECK(std::abs(gLowNeg - 3.0) < 0.35, "Negative tilt boosts low frequencies to +G/2 dB (+3.0 dB +/-0.35 dB)");
+    CHECK(std::abs(gMidNeg) < 0.15, "Negative tilt passes center frequency at 0.0 dB (+/-0.15 dB)");
+    CHECK(std::abs(gHighNeg - (-3.0)) < 0.35, "Negative tilt attenuates high frequencies to -G/2 dB (-3.0 dB +/-0.35 dB)");
+}
+
+// -----------------------------------------------------------------------------
+// Test 7: BandReject Filter (Parametric Notch / Peak-Dip)
+// -----------------------------------------------------------------------------
+static void test_bandreject_filter() {
+    std::printf("\n== Test 7: BandReject Filter (Parametric Notch / Peak-Dip) ==\n");
+    const double fs = 48000.0;
+    const double f0 = 1000.0;
+    const double q = 2.0;
+
+    CytomicSVF svf;
+
+    // Zero dB gain must be flat bypass
+    svf.setParameters(CytomicSVF::FilterType::BandReject, fs, f0, 0.0, q);
+    CHECK(svf.isFlat(), "BandReject at 0.0 dB gain is flagged as flat bypass");
+
+    auto measureGainAt = [&](double gainDb, double testFreq) {
+        svf.setParameters(CytomicSVF::FilterType::BandReject, fs, f0, gainDb, q);
+        svf.reset();
+        const uint32_t N = 48000;
+        std::vector<double> b(N * 2);
+        for (uint32_t i = 0; i < N; ++i) {
+            double s = std::cos(2.0 * M_PI * testFreq * (double)i / fs);
+            b[i * 2 + 0] = s;
+            b[i * 2 + 1] = s;
+        }
+        svf.process(b.data(), N, 2);
+        double maxAmp = 0.0;
+        for (uint32_t i = N - 4000; i < N; ++i) {
+            maxAmp = std::max(maxAmp, std::abs(b[i * 2]));
+        }
+        return 20.0 * std::log10(std::max(maxAmp, 1e-12));
+    };
+
+    // Notch cut with -12.0 dB at f0
+    const double cutDb = -12.0;
+    double gLow = measureGainAt(cutDb, 100.0);
+    double gMid = measureGainAt(cutDb, 1000.0);
+    double gHigh = measureGainAt(cutDb, 10000.0);
+
+    std::printf("  BandReject (-12 dB): 100 Hz = %+.2f dB, 1 kHz = %+.2f dB, 10 kHz = %+.2f dB\n",
+                gLow, gMid, gHigh);
+    CHECK(std::abs(gLow) < 0.2, "BandReject passes low frequencies at 0.0 dB (+/-0.2 dB)");
+    CHECK(std::abs(gMid - cutDb) < 0.3, "BandReject notches center frequency to -12.0 dB (+/-0.3 dB)");
+    CHECK(std::abs(gHigh) < 0.2, "BandReject passes high frequencies at 0.0 dB (+/-0.2 dB)");
+
+    // Boost with +6.0 dB at f0 (band-pass emphasis)
+    const double boostDb = 6.0;
+    double gMidBoost = measureGainAt(boostDb, 1000.0);
+    std::printf("  BandReject (+6 dB): 1 kHz = %+.2f dB\n", gMidBoost);
+    CHECK(std::abs(gMidBoost - boostDb) < 0.3, "BandReject boosts center frequency to +6.0 dB (+/-0.3 dB)");
+}
+
 int main() {
     std::printf("=================================================================\n");
     std::printf("  CytomicSVF (Andy Simper) + Orfanidis De-Cramping Test Suite    \n");
@@ -239,6 +409,9 @@ int main() {
     test_low_frequency_noise_floor();
     test_nyquist_cramping_correction();
     test_flat_band_bypass();
+    test_allpass_filter();
+    test_tilt_filter();
+    test_bandreject_filter();
 
     std::printf("\n=================================================================\n");
     std::printf("  Test Summary: %d Passed, %d Failed\n", g_passes, g_failures);

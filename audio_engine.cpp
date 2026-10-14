@@ -58,6 +58,7 @@
 #include "dsp/diffusion_reverb_dsp.h"
 #include "dsp/tone_crossover_dsp.h"
 #include "dsp/cytomic_svf_dsp.h"
+#include "dsp/graphic_eq_dsp.h"
 
 #include <algorithm>
 #include <atomic>
@@ -3697,6 +3698,8 @@ struct AudioEngineHandle
     std::vector<sauti::dsp::CytomicSVF> eqFilters;
     // Dedicated 64-bit double precision Cytomic SVF filters for true float64 DSP mode
     std::vector<Biquad64> eqFilters64;
+    // Audiophile matrix-compensated & parallel Graphic EQ
+    sauti::dsp::GraphicEqDSP graphicEq;
 
     struct FxBand
     {
@@ -3785,6 +3788,7 @@ struct AudioEngineHandle
         {
             f.reset();
         }
+        graphicEq.reset();
     }
 
     // Native Clean-Room Audio DSP Suite
@@ -3839,10 +3843,9 @@ struct AudioEngineHandle
         {
             eqFilters.clear();
             eqFilters64.clear();
+            graphicEq.init(0, nullptr);
             return;
         }
-        eqFilters.resize(eqBandCount);
-        eqFilters64.resize(eqBandCount);
         int sr = (engineSampleRate > 0)
                      ? engineSampleRate
                      : ((deviceSampleRate > 0)
@@ -3851,35 +3854,31 @@ struct AudioEngineHandle
                                    ? sampleRate
                                    : ((outputSampleRate > 0) ? outputSampleRate : 48000)));
 
+        graphicEq.init(eqBandCount, eqFrequencies.data(), eqQ.data(), (double)sr);
+        graphicEq.setAllGains(eqGains.data());
+
+        eqFilters.resize(eqBandCount);
+        eqFilters64.resize(eqBandCount);
         for (int i = 0; i < eqBandCount; ++i)
         {
-            eqFilters[i].setParameters(sauti::dsp::CytomicSVF::FilterType::Bell, (double)sr, (double)eqFrequencies[i], (double)eqGains[i], (double)eqQ[i]);
-            eqFilters64[i].setParameters(sauti::dsp::CytomicSVF::FilterType::Bell, (double)sr, (double)eqFrequencies[i], (double)eqGains[i], (double)eqQ[i]);
+            double optGain = graphicEq.getOptimizedGain(i);
+            eqFilters[i].setParameters(sauti::dsp::CytomicSVF::FilterType::Bell, (double)sr, (double)eqFrequencies[i], optGain, (double)eqQ[i]);
+            eqFilters64[i].setParameters(sauti::dsp::CytomicSVF::FilterType::Bell, (double)sr, (double)eqFrequencies[i], optGain, (double)eqQ[i]);
         }
     }
 
     void process_multiband_eq(float *frames, ma_uint32 frameCount, int channels)
     {
-        const size_t n = std::min(eqFilters.size(), eqGains.size());
-        for (size_t i = 0; i < n; ++i)
-        {
-            // 0.0 dB flat band bypass: exact unity passthrough with zero biquad calculation
-            if (eqFilters[i].isFlat())
-                continue;
-            eqFilters[i].process(frames, frameCount, channels);
-        }
+        if (!multibandEqEnabled || graphicEq.isFlat())
+            return;
+        graphicEq.process(frames, frameCount, channels);
     }
 
     void process_multiband_eq_64(double *frames, ma_uint32 frameCount, int channels)
     {
-        const size_t n = std::min(eqFilters64.size(), eqGains.size());
-        for (size_t i = 0; i < n; ++i)
-        {
-            // 0.0 dB flat band bypass: exact unity passthrough with zero biquad calculation
-            if (eqFilters64[i].isFlat())
-                continue;
-            eqFilters64[i].process(frames, frameCount, channels);
-        }
+        if (!multibandEqEnabled || graphicEq.isFlat())
+            return;
+        graphicEq.process(frames, frameCount, channels);
     }
 
     void update_multiband_fx_filters()
@@ -3911,125 +3910,47 @@ struct AudioEngineHandle
             {
             case AE_EQ_BAND_BANDPASS:
             {
-                ma_bpf2_config config = ma_bpf2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    frequencyHz,
-                    q);
-                update_filter_smooth(band.bandpass, config, channelsU32, ma_bpf2_init, ma_bpf2_reinit, ma_bpf2_uninit);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::BandPass, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             case AE_EQ_BAND_NOTCH:
             {
-                ma_notch2_config config = ma_notch2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    q,
-                    frequencyHz);
-                update_filter_smooth(band.notch, config, channelsU32, ma_notch2_init, ma_notch2_reinit, ma_notch2_uninit);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::Notch, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             case AE_EQ_BAND_LOWSHELF:
             {
-                ma_loshelf2_config config = ma_loshelf2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    gainDb,
-                    slope,
-                    frequencyHz);
-                update_filter_smooth(band.lowshelf, config, channelsU32, ma_loshelf2_init, ma_loshelf2_reinit, ma_loshelf2_uninit);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::LowShelf, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             case AE_EQ_BAND_HIGHSHELF:
             {
-                ma_hishelf2_config config = ma_hishelf2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    gainDb,
-                    slope,
-                    frequencyHz);
-                update_filter_smooth(band.highshelf, config, channelsU32, ma_hishelf2_init, ma_hishelf2_reinit, ma_hishelf2_uninit);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::HighShelf, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             case AE_EQ_BAND_LOWPASS:
             {
-                ma_lpf2_config config = ma_lpf2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    frequencyHz,
-                    q);
-                update_filter_smooth(band.lowpass, config, channelsU32, ma_lpf2_init, ma_lpf2_reinit, ma_lpf2_uninit);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             case AE_EQ_BAND_HIGHPASS:
             {
-                ma_hpf2_config config = ma_hpf2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    frequencyHz,
-                    q);
-                update_filter_smooth(band.highpass, config, channelsU32, ma_hpf2_init, ma_hpf2_reinit, ma_hpf2_uninit);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             case AE_EQ_BAND_TILT:
             {
-                const float halfGain = gainDb * 0.5f;
-                ma_loshelf2_config lowConfig = ma_loshelf2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    -halfGain,
-                    slope,
-                    frequencyHz);
-                update_filter_smooth(band.tiltLow, lowConfig, channelsU32, ma_loshelf2_init, ma_loshelf2_reinit, ma_loshelf2_uninit);
-
-                ma_hishelf2_config highConfig = ma_hishelf2_config_init(
-                    ma_format_f32,
-                    channelsU32,
-                    sampleRateU32,
-                    halfGain,
-                    slope,
-                    frequencyHz);
-                update_filter_smooth(band.tiltHigh, highConfig, channelsU32, ma_hishelf2_init, ma_hishelf2_reinit, ma_hishelf2_uninit);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::Tilt, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             case AE_EQ_BAND_ALLPASS:
             {
-                constexpr double PI = 3.14159265358979323846;
-                const double w0 = 2.0 * PI * (double)frequencyHz / (double)sampleRateU32;
-                const double cosW0 = std::cos(w0);
-                const double sinW0 = std::sin(w0);
-                const double alpha = sinW0 / (2.0 * (double)q);
-                const double b0 = 1.0 - alpha;
-                const double b1 = -2.0 * cosW0;
-                const double b2 = 1.0 + alpha;
-                const double a0 = 1.0 + alpha;
-                const double a1 = -2.0 * cosW0;
-                const double a2 = 1.0 - alpha;
-                band.allpass.setCoefficients(b0, b1, b2, a0, a1, a2);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::AllPass, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             case AE_EQ_BAND_BANDREJECT:
             {
-                constexpr double PI = 3.14159265358979323846;
-                const double w0 = 2.0 * PI * (double)frequencyHz / (double)sampleRateU32;
-                const double cosW0 = std::cos(w0);
-                const double sinW0 = std::sin(w0);
-                const double alpha = sinW0 / (2.0 * (double)q);
-                const double A = std::pow(10.0, (double)gainDb / 40.0);
-                const double b0 = 1.0 + alpha * A;
-                const double b1 = -2.0 * cosW0;
-                const double b2 = 1.0 + alpha * A;
-                const double a0 = 1.0 + alpha / A;
-                const double a1 = -2.0 * cosW0;
-                const double a2 = 1.0 - alpha / A;
-                band.bandreject.setCoefficients(b0, b1, b2, a0, a1, a2);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::BandReject, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
                 break;
             }
             case AE_EQ_BAND_ASUPERCUT:
@@ -4144,34 +4065,6 @@ struct AudioEngineHandle
 
             switch (band.type)
             {
-            case AE_EQ_BAND_BANDPASS:
-                (void)ma_bpf2_process_pcm_frames(&band.bandpass, frames, frames, (ma_uint64)frameCount);
-                break;
-            case AE_EQ_BAND_NOTCH:
-                (void)ma_notch2_process_pcm_frames(&band.notch, frames, frames, (ma_uint64)frameCount);
-                break;
-            case AE_EQ_BAND_LOWSHELF:
-                (void)ma_loshelf2_process_pcm_frames(&band.lowshelf, frames, frames, (ma_uint64)frameCount);
-                break;
-            case AE_EQ_BAND_HIGHSHELF:
-                (void)ma_hishelf2_process_pcm_frames(&band.highshelf, frames, frames, (ma_uint64)frameCount);
-                break;
-            case AE_EQ_BAND_LOWPASS:
-                (void)ma_lpf2_process_pcm_frames(&band.lowpass, frames, frames, (ma_uint64)frameCount);
-                break;
-            case AE_EQ_BAND_HIGHPASS:
-                (void)ma_hpf2_process_pcm_frames(&band.highpass, frames, frames, (ma_uint64)frameCount);
-                break;
-            case AE_EQ_BAND_TILT:
-                (void)ma_loshelf2_process_pcm_frames(&band.tiltLow, frames, frames, (ma_uint64)frameCount);
-                (void)ma_hishelf2_process_pcm_frames(&band.tiltHigh, frames, frames, (ma_uint64)frameCount);
-                break;
-            case AE_EQ_BAND_ALLPASS:
-                band.allpass.process(frames, frameCount, ch);
-                break;
-            case AE_EQ_BAND_BANDREJECT:
-                band.bandreject.process(frames, frameCount, ch);
-                break;
             case AE_EQ_BAND_ASUPERCUT:
                 for (int s = 0; s < 4; ++s)
                     band.superCutStages[s].process(frames, frameCount, ch);
@@ -4184,6 +4077,15 @@ struct AudioEngineHandle
                 for (int s = 0; s < 3; ++s)
                     band.superStopStages[s].process(frames, frameCount, ch);
                 break;
+            case AE_EQ_BAND_BANDPASS:
+            case AE_EQ_BAND_NOTCH:
+            case AE_EQ_BAND_LOWSHELF:
+            case AE_EQ_BAND_HIGHSHELF:
+            case AE_EQ_BAND_LOWPASS:
+            case AE_EQ_BAND_HIGHPASS:
+            case AE_EQ_BAND_TILT:
+            case AE_EQ_BAND_ALLPASS:
+            case AE_EQ_BAND_BANDREJECT:
             case AE_EQ_BAND_BELL:
             case AE_EQ_BAND_PEAK:
             default:
@@ -12162,7 +12064,24 @@ extern "C"
         }
         else
         {
-            engine->eqQ.assign(band_count, 1.0f); // Default Q=1.0
+            // Auto-Q calculation based on logarithmic bandwidth
+            engine->eqQ.resize(band_count);
+            for (int i = 0; i < band_count; ++i)
+            {
+                double ratio = 2.0;
+                if (i == 0 && band_count > 1)
+                    ratio = (double)frequencies[1] / (double)frequencies[0];
+                else if (i == band_count - 1 && band_count > 1)
+                    ratio = (double)frequencies[band_count - 1] / (double)frequencies[band_count - 2];
+                else if (band_count > 2)
+                    ratio = std::sqrt((double)frequencies[i + 1] / (double)frequencies[i - 1]);
+
+                if (ratio <= 1.001) ratio = 1.001;
+                const double N = std::log2(ratio);
+                const double two_pow_N = std::pow(2.0, N);
+                const double denom = two_pow_N - 1.0;
+                engine->eqQ[i] = (denom > 1e-5) ? (float)std::clamp(std::sqrt(two_pow_N) / denom, 0.5, 12.0) : 1.4142f;
+            }
         }
 
         engine->update_eq_filters();
@@ -12182,9 +12101,10 @@ extern "C"
             return;
 
         std::lock_guard<std::mutex> lk(engine->eqMutex);
-        if (band_index < engine->eqBandCount && band_index < (int)engine->eqFilters.size())
+        if (band_index < engine->eqBandCount)
         {
             engine->eqGains[band_index] = gain_db;
+            engine->graphicEq.setBandGain(band_index, (double)gain_db);
 
             int sr = (engine->engineSampleRate > 0)
                          ? engine->engineSampleRate
@@ -12193,21 +12113,26 @@ extern "C"
                                 : ((engine->sampleRate > 0)
                                        ? engine->sampleRate
                                        : ((engine->outputSampleRate > 0) ? engine->outputSampleRate : 48000)));
-            engine->eqFilters[band_index].setParameters(
-                sauti::dsp::CytomicSVF::FilterType::Bell,
-                (double)sr,
-                (double)engine->eqFrequencies[band_index],
-                (double)gain_db,
-                (double)engine->eqQ[band_index]);
 
-            if (band_index < (int)engine->eqFilters64.size())
+            for (int i = 0; i < engine->eqBandCount && i < (int)engine->eqFilters.size(); ++i)
             {
-                engine->eqFilters64[band_index].setParameters(
+                double optGain = engine->graphicEq.getOptimizedGain(i);
+                engine->eqFilters[i].setParameters(
                     sauti::dsp::CytomicSVF::FilterType::Bell,
                     (double)sr,
-                    (double)engine->eqFrequencies[band_index],
-                    (double)gain_db,
-                    (double)engine->eqQ[band_index]);
+                    (double)engine->eqFrequencies[i],
+                    optGain,
+                    (double)engine->eqQ[i]);
+
+                if (i < (int)engine->eqFilters64.size())
+                {
+                    engine->eqFilters64[i].setParameters(
+                        sauti::dsp::CytomicSVF::FilterType::Bell,
+                        (double)sr,
+                        (double)engine->eqFrequencies[i],
+                        optGain,
+                        (double)engine->eqQ[i]);
+                }
             }
         }
     }
@@ -12218,6 +12143,30 @@ extern "C"
             return 0.0f;
         std::lock_guard<std::mutex> lk(engine->eqMutex);
         return engine->eqGains[band_index];
+    }
+
+    AE_API float ae_get_multiband_eq_optimized_gain(AudioEngineHandle *engine, int band_index)
+    {
+        if (!engine || band_index < 0)
+            return 0.0f;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        return (float)engine->graphicEq.getOptimizedGain(band_index);
+    }
+
+    AE_API void ae_set_multiband_eq_mode(AudioEngineHandle *engine, int mode)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        engine->graphicEq.setTopology((sauti::dsp::GraphicEqDSP::EqTopology)mode);
+    }
+
+    AE_API int ae_get_multiband_eq_mode(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        return (int)engine->graphicEq.getTopology();
     }
 
     AE_API void ae_set_multiband_fx_enabled(AudioEngineHandle *engine, int enabled)

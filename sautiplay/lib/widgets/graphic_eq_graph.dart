@@ -240,8 +240,8 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
       points.add(Offset(x, y));
     }
 
-    // 3. Construct Smooth Catmull-Rom Cubic Spline Path
-    final splinePath = _buildCatmullRomSpline(points);
+    // 3. Construct Smooth Monotonic Cubic Hermite Spline (PCHIP) with zero overshoot
+    final splinePath = _buildMonotonicSpline(points);
 
     // 4. Draw Shaded Fill between Spline Curve and 0 dB Baseline
     final fillPath = Path.from(splinePath);
@@ -516,8 +516,9 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
     }
   }
 
-  // Constructs a smooth Catmull-Rom cubic spline connecting points
-  Path _buildCatmullRomSpline(List<Offset> pts) {
+  // Constructs a smooth Monotonic Cubic Hermite Spline (PCHIP) connecting points.
+  // Guarantees zero overshoot between sliders and eliminates comb ripple / Runge's phenomenon.
+  Path _buildMonotonicSpline(List<Offset> pts) {
     final path = Path();
     if (pts.isEmpty) return path;
     if (pts.length == 1) {
@@ -532,17 +533,60 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
       return path;
     }
 
-    for (int i = 0; i < pts.length - 1; i++) {
-      final p0 = i > 0 ? pts[i - 1] : pts[i];
+    final n = pts.length;
+    // 1. Compute secant slopes
+    final h = List<double>.filled(n - 1, 0.0);
+    final delta = List<double>.filled(n - 1, 0.0);
+    for (int i = 0; i < n - 1; i++) {
+      h[i] = pts[i + 1].dx - pts[i].dx;
+      if (h[i].abs() < 1e-6) h[i] = 1e-6;
+      delta[i] = (pts[i + 1].dy - pts[i].dy) / h[i];
+    }
+
+    // 2. Compute internal tangent slopes using standard Fritsch-Carlson algorithm
+    final d = List<double>.filled(n, 0.0);
+    d[0] = delta[0];
+    d[n - 1] = delta[n - 2];
+
+    for (int i = 1; i < n - 1; i++) {
+      if (delta[i - 1] * delta[i] <= 0.0) {
+        // Local extremum or plateau: zero tangent prevents overshoot
+        d[i] = 0.0;
+      } else {
+        // Weighted harmonic mean slope
+        final w1 = 2.0 * h[i] + h[i - 1];
+        final w2 = h[i] + 2.0 * h[i - 1];
+        d[i] = (w1 + w2) / ((w1 / delta[i - 1]) + (w2 / delta[i]));
+      }
+    }
+
+    // 3. Monotonicity enforcement (Fritsch-Carlson condition)
+    for (int i = 0; i < n - 1; i++) {
+      if (delta[i] == 0.0) {
+        d[i] = 0.0;
+        d[i + 1] = 0.0;
+      } else {
+        final alpha = d[i] / delta[i];
+        final beta = d[i + 1] / delta[i];
+        final dist = alpha * alpha + beta * beta;
+        if (dist > 9.0) {
+          final tau = 3.0 / math.sqrt(dist);
+          d[i] = tau * alpha * delta[i];
+          d[i + 1] = tau * beta * delta[i];
+        }
+      }
+    }
+
+    // 4. Construct smooth Cubic Bezier segments
+    for (int i = 0; i < n - 1; i++) {
       final p1 = pts[i];
       final p2 = pts[i + 1];
-      final p3 = (i < pts.length - 2) ? pts[i + 2] : p2;
+      final dx = h[i] / 3.0;
 
-      // Catmull-Rom to Cubic Bezier control points
-      final c1x = p1.dx + (p2.dx - p0.dx) / 6.0;
-      final c1y = p1.dy + (p2.dy - p0.dy) / 6.0;
-      final c2x = p2.dx - (p3.dx - p1.dx) / 6.0;
-      final c2y = p2.dy - (p3.dy - p1.dy) / 6.0;
+      final c1x = p1.dx + dx;
+      final c1y = p1.dy + d[i] * dx;
+      final c2x = p2.dx - dx;
+      final c2y = p2.dy - d[i + 1] * dx;
 
       path.cubicTo(c1x, c1y, c2x, c2y, p2.dx, p2.dy);
     }
