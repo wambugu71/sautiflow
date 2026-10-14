@@ -821,6 +821,30 @@ class _EqScreenState extends State<EqScreen>
           gainDb: 4.5,
           slope: 1.2),
     ],
+    'Warm Tilt (Mastering)': [
+      EqBandConfig(
+          type: EqBandType.highpass, frequencyHz: 25, gainDb: 0.0, q: 0.7),
+      EqBandConfig(
+          type: EqBandType.tilt, frequencyHz: 1000, gainDb: -2.5, slope: 1.0),
+      EqBandConfig(
+          type: EqBandType.peak, frequencyHz: 3200, gainDb: -1.0, q: 2.0),
+    ],
+    'Bright Air Tilt': [
+      EqBandConfig(
+          type: EqBandType.highpass, frequencyHz: 30, gainDb: 0.0, q: 0.7),
+      EqBandConfig(
+          type: EqBandType.tilt, frequencyHz: 1200, gainDb: 3.0, slope: 1.0),
+    ],
+    'Acoustic Room & Phase': [
+      EqBandConfig(
+          type: EqBandType.bandreject, frequencyHz: 60, gainDb: -18.0, q: 8.0),
+      EqBandConfig(
+          type: EqBandType.allpass, frequencyHz: 80, gainDb: 0.0, q: 1.2),
+      EqBandConfig(
+          type: EqBandType.tilt, frequencyHz: 1000, gainDb: 1.5, slope: 1.0),
+      EqBandConfig(
+          type: EqBandType.asupercut, frequencyHz: 20000, gainDb: 0.0, q: 0.7),
+    ],
     'Octave Series (30-60-120...)': [
       EqBandConfig(type: EqBandType.peak, frequencyHz: 30, gainDb: 0.0, q: 1.4),
       EqBandConfig(type: EqBandType.peak, frequencyHz: 60, gainDb: 0.0, q: 1.4),

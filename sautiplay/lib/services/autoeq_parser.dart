@@ -230,6 +230,8 @@ class AutoEqParser {
             bType = EqBandType.tilt;
           } else if (typeStr == 'AP' || typeStr == 'ALLPASS' || typeStr == 'ALL_PASS') {
             bType = EqBandType.allpass;
+          } else if (typeStr == 'BR' || typeStr == 'BANDREJECT' || typeStr == 'BAND_REJECT') {
+            bType = EqBandType.bandreject;
           }
 
           pBands.add(EqBandConfig(
@@ -343,6 +345,16 @@ class AutoEqParser {
         return -24.0 * (1.0 - (logDist / bwFactor));
       }
       return 0.0;
+    } else if (type == EqBandType.allpass) {
+      return 0.0;
+    } else if (type == EqBandType.tilt) {
+      double logRatio = math.log(ratio) / math.ln10;
+      return (gainDb * 0.5 * (logRatio / 1.3)).clamp(-gainDb.abs() * 0.5, gainDb.abs() * 0.5);
+    } else if (type == EqBandType.bandreject) {
+      double logDist = (math.log(ratio) / math.ln10).abs();
+      double bwFactor = 1.0 / (2.0 * math.max(q, 0.1));
+      double response = math.exp(-math.pow(logDist / bwFactor, 2));
+      return gainDb * response;
     }
     return 0.0;
   }
