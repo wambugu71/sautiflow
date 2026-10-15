@@ -881,6 +881,23 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setMultibandEqBandGain', 'index': index, 'gain': gain});
   }
 
+  void setMultibandEqMode(int mode) {
+    _send({'cmd': 'setMultibandEqMode', 'mode': mode});
+  }
+
+  void setMultibandEqChannelMode(int mode) {
+    _send({'cmd': 'setMultibandEqChannelMode', 'mode': mode});
+  }
+
+  void setMultibandEqChannelGain(int channel, int index, double gain) {
+    _send({
+      'cmd': 'setMultibandEqChannelGain',
+      'channel': channel,
+      'index': index,
+      'gain': gain,
+    });
+  }
+
   void initMultibandFx(List<EqBandConfig> bands, {bool enabled = true}) {
     _send({
       'cmd': 'initMultibandFx',
@@ -2138,6 +2155,19 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setMultibandEqBandGain':
           player.setMultibandEqBandGain(message['index'], message['gain']);
+          break;
+        case 'setMultibandEqMode':
+          player.setMultibandEqMode(message['mode'] as int);
+          break;
+        case 'setMultibandEqChannelMode':
+          player.setMultibandEqChannelMode(message['mode'] as int);
+          break;
+        case 'setMultibandEqChannelGain':
+          player.setMultibandEqChannelGain(
+            message['channel'] as int,
+            message['index'] as int,
+            (message['gain'] as num).toDouble(),
+          );
           break;
         case 'initMultibandFx':
           {

@@ -197,6 +197,32 @@ public:
         }
     }
 
+    // Process a single channel in interleaved float32 audio
+    void processChannel(float* frames, size_t frame_count, int channels, int channel_index) {
+        if (!frames || frame_count == 0 || channels <= 0 || channel_index < 0 || channel_index >= channels || band_count_ <= 0 || isFlat_) {
+            return;
+        }
+
+        if (topology_ == EqTopology::SymmetricParallel) {
+            processParallelChannel(frames, frame_count, channels, channel_index);
+        } else {
+            processCascadeChannel(frames, frame_count, channels, channel_index);
+        }
+    }
+
+    // Process a single channel in interleaved float64 audio
+    void processChannel(double* frames, size_t frame_count, int channels, int channel_index) {
+        if (!frames || frame_count == 0 || channels <= 0 || channel_index < 0 || channel_index >= channels || band_count_ <= 0 || isFlat_) {
+            return;
+        }
+
+        if (topology_ == EqTopology::SymmetricParallel) {
+            processParallelChannel(frames, frame_count, channels, channel_index);
+        } else {
+            processCascadeChannel(frames, frame_count, channels, channel_index);
+        }
+    }
+
     // Analytical evaluation of composite response in dB at any arbitrary test frequency
     double evaluateCompositeResponseDb(double eval_freq_hz) const {
         if (band_count_ <= 0) return 0.0;
@@ -458,6 +484,37 @@ private:
 
             for (size_t s = 0; s < total_samples; ++s) {
                 frames[s] += (T)(bp_buffer[s] * linear_scale);
+            }
+        }
+    }
+
+    template <typename T>
+    void processCascadeChannel(T* frames, size_t frame_count, int channels, int channel_index) {
+        for (int i = 0; i < band_count_; ++i) {
+            if (filters_[i].isFlat()) continue;
+            filters_[i].processChannel(frames, (uint32_t)frame_count, channels, channel_index);
+        }
+    }
+
+    template <typename T>
+    void processParallelChannel(T* frames, size_t frame_count, int channels, int channel_index) {
+        std::vector<T> dry(frame_count);
+        for (size_t s = 0; s < frame_count; ++s) {
+            dry[s] = frames[s * channels + channel_index];
+        }
+
+        std::vector<T> bp_buffer(frame_count);
+
+        for (int m = 0; m < band_count_; ++m) {
+            const double g_opt = optimized_gains_db_[m];
+            if (std::abs(g_opt) < 0.005) continue;
+
+            const double linear_scale = std::pow(10.0, g_opt / 20.0) - 1.0;
+            std::memcpy(bp_buffer.data(), dry.data(), frame_count * sizeof(T));
+            filters_[m].processChannel(bp_buffer.data(), (uint32_t)frame_count, 1, 0);
+
+            for (size_t s = 0; s < frame_count; ++s) {
+                frames[s * channels + channel_index] += (T)(bp_buffer[s] * linear_scale);
             }
         }
     }

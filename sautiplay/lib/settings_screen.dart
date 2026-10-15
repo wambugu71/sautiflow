@@ -141,6 +141,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _resampleAlgorithm = 0;
   int _ditherMode = 0;
   int _eqBandCount = 10;
+  int _eqChannelMode = 0;
+  int _eqSliderLinkMode = 0;
+  int _eqTopology = 0;
 
   // DSP Oversampling
   int _dspOversampling = 1;
@@ -311,10 +314,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return '$depth • $resamplerShort';
   }
 
-  String _getAudioProcessingBadgeText() {
-    return _getAudioProcessingSubtitle();
-  }
-
   String _getStreamingQualityBadgeText() {
     switch (_streamingQualityPreset) {
       case AudioQualityPreset.low:
@@ -331,6 +330,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadUiSettings() async {
     final saved = await AppStateService.instance.loadUiSettings();
     final eqSaved = await AppStateService.instance.loadEqBands();
+    final eqExt = await AppStateService.instance
+        .loadEqExtendedSettings(bandCount: eqSaved.bandCount);
     final oversamplingSaved =
         await AppStateService.instance.loadDspOversampling();
     final spSaved = await AppStateService.instance.loadSpeakerProtection();
@@ -374,6 +375,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _resampleAlgorithm = saved.resampleAlgorithm;
       _ditherMode = saved.ditherMode;
       _eqBandCount = eqSaved.bandCount;
+      _eqChannelMode = eqExt.channelMode;
+      _eqSliderLinkMode = eqExt.sliderLinkMode;
+      _eqTopology = eqExt.topology;
       _dspOversampling = oversamplingSaved;
       _speakerProtectionEnabled = spSaved.enabled;
       _subsonicCutoffHz = spSaved.subsonicCutoffHz;
@@ -1936,6 +1940,247 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 gains: List.filled(count, 0.0),
                                 preampDb: state.preampDb,
                                 bandCount: count,
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            _buildSectionHeader('CHANNEL EQUALIZATION ROUTING'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _buildLeadingIcon(Icons.alt_route_rounded),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Channel Routing Mode',
+                                    style: TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
+                                const SizedBox(height: 4),
+                                Text(
+                                    _eqChannelMode == 1
+                                        ? '2-Way Dual Channel: Calibrate Left and Right curves independently'
+                                        : 'Stereo (Whole): Both audio channels share identical EQ curves',
+                                    style: TextStyle(
+                                        color: _textDark, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: M3ESegmentedButton<int>(
+                          segments: const [
+                            M3ESegment<int>(
+                              value: 0,
+                              label: 'Stereo (Whole)',
+                              icon: Icon(Icons.link_rounded, size: 16),
+                            ),
+                            M3ESegment<int>(
+                              value: 1,
+                              label: '2-Way Dual L/R',
+                              icon: Icon(Icons.call_split_rounded, size: 16),
+                            ),
+                          ],
+                          selected: {_eqChannelMode},
+                          onSelectionChanged: (newSelection) async {
+                            if (newSelection.isNotEmpty) {
+                              final mode = newSelection.first;
+                              setState(() => _eqChannelMode = mode);
+                              setSubState(() {});
+                              widget.player.setMultibandEqChannelMode(mode);
+                              final ext = await AppStateService.instance
+                                  .loadEqExtendedSettings(bandCount: _eqBandCount);
+                              await AppStateService.instance.saveEqExtendedSettings(
+                                channelMode: mode,
+                                gainsRight: ext.gainsRight,
+                                sliderLinkMode: ext.sliderLinkMode,
+                                topology: ext.topology,
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            _buildSectionHeader('SLIDER ADJUSTMENT COUPLING (WMP STYLE)'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _buildLeadingIcon(Icons.tune_rounded),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Slider Movement Behavior',
+                                    style: TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
+                                const SizedBox(height: 4),
+                                Text(
+                                    _eqSliderLinkMode == 1
+                                        ? 'Loose Group: Moving one slider smoothly adjusts neighbors in a bell curve'
+                                        : (_eqSliderLinkMode == 2
+                                            ? 'Tight Group: Moving one slider moves a wider group proportionally'
+                                            : 'Single: Sliders move completely independently'),
+                                    style: TextStyle(
+                                        color: _textDark, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: M3ESegmentedButton<int>(
+                          segments: const [
+                            M3ESegment<int>(
+                              value: 0,
+                              label: 'Single (1)',
+                              icon: Icon(Icons.radio_button_checked_rounded, size: 15),
+                            ),
+                            M3ESegment<int>(
+                              value: 1,
+                              label: 'Loose Group (3)',
+                              icon: Icon(Icons.waves_rounded, size: 15),
+                            ),
+                            M3ESegment<int>(
+                              value: 2,
+                              label: 'Tight Group (5)',
+                              icon: Icon(Icons.water_rounded, size: 15),
+                            ),
+                          ],
+                          selected: {_eqSliderLinkMode},
+                          onSelectionChanged: (newSelection) async {
+                            if (newSelection.isNotEmpty) {
+                              final mode = newSelection.first;
+                              setState(() => _eqSliderLinkMode = mode);
+                              setSubState(() {});
+                              final ext = await AppStateService.instance
+                                  .loadEqExtendedSettings(bandCount: _eqBandCount);
+                              await AppStateService.instance.saveEqExtendedSettings(
+                                channelMode: ext.channelMode,
+                                gainsRight: ext.gainsRight,
+                                sliderLinkMode: mode,
+                                topology: ext.topology,
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            _buildSectionHeader('FILTER ARCHITECTURE & TOPOLOGY'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _buildLeadingIcon(Icons.memory_rounded),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('DSP Topology',
+                                    style: TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
+                                const SizedBox(height: 4),
+                                Text(
+                                    _eqTopology == 1
+                                        ? 'Symmetric Parallel: Constant-Q bank eliminating phase delay'
+                                        : (_eqTopology == 2
+                                            ? 'Legacy Cascade: Direct series biquads for A/B comparison'
+                                            : 'Matrix Compensated: Decoupled interaction matrix (0 ripple)'),
+                                    style: TextStyle(
+                                        color: _textDark, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: M3ESegmentedButton<int>(
+                          segments: const [
+                            M3ESegment<int>(
+                              value: 0,
+                              label: 'Matrix Decoupled',
+                              icon: Icon(Icons.auto_fix_high_rounded, size: 15),
+                            ),
+                            M3ESegment<int>(
+                              value: 1,
+                              label: 'Parallel Bank',
+                              icon: Icon(Icons.layers_rounded, size: 15),
+                            ),
+                            M3ESegment<int>(
+                              value: 2,
+                              label: 'Legacy Cascade',
+                              icon: Icon(Icons.history_rounded, size: 15),
+                            ),
+                          ],
+                          selected: {_eqTopology},
+                          onSelectionChanged: (newSelection) async {
+                            if (newSelection.isNotEmpty) {
+                              final top = newSelection.first;
+                              setState(() => _eqTopology = top);
+                              setSubState(() {});
+                              widget.player.setMultibandEqMode(top);
+                              final ext = await AppStateService.instance
+                                  .loadEqExtendedSettings(bandCount: _eqBandCount);
+                              await AppStateService.instance.saveEqExtendedSettings(
+                                channelMode: ext.channelMode,
+                                gainsRight: ext.gainsRight,
+                                sliderLinkMode: ext.sliderLinkMode,
+                                topology: top,
                               );
                             }
                           },

@@ -18,6 +18,7 @@ class GraphicEqGraph extends StatefulWidget {
   final bool isEnabled;
   final double height;
   final Color? primaryColor;
+  final String? channelLabel;
   final void Function(int index, double gainDb)? onBandChanged;
   final VoidCallback? onBandChangeEnd;
   final void Function(int index)? onBandLongPress;
@@ -30,6 +31,7 @@ class GraphicEqGraph extends StatefulWidget {
     this.isEnabled = true,
     this.height = 210.0,
     this.primaryColor,
+    this.channelLabel,
     this.onBandChanged,
     this.onBandChangeEnd,
     this.onBandLongPress,
@@ -168,6 +170,7 @@ class _GraphicEqGraphState extends State<GraphicEqGraph> {
                   preampDb: widget.preampDb,
                   isEnabled: widget.isEnabled,
                   primaryColor: effectivePrimary,
+                  channelLabel: widget.channelLabel,
                   activeBandIndex: _activeBandIndex,
                   activeGainDb: _activeGainDb,
                 ),
@@ -186,6 +189,7 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
   final double preampDb;
   final bool isEnabled;
   final Color primaryColor;
+  final String? channelLabel;
   final int? activeBandIndex;
   final double? activeGainDb;
 
@@ -195,6 +199,7 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
     required this.preampDb,
     required this.isEnabled,
     required this.primaryColor,
+    this.channelLabel,
     this.activeBandIndex,
     this.activeGainDb,
   });
@@ -223,6 +228,23 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
 
     // 1. Draw Grid Lines and Labels
     _drawGrid(canvas, paddingLeft, paddingTop, graphWidth, graphHeight);
+
+    // 1b. Draw subtle channel routing badge (e.g. Left, Right, Stereo)
+    if (channelLabel != null && channelLabel!.isNotEmpty) {
+      final badgePainter = TextPainter(
+        text: TextSpan(
+          text: channelLabel!.toUpperCase(),
+          style: TextStyle(
+            color: isEnabled ? primaryColor.withValues(alpha: 0.85) : Colors.white24,
+            fontSize: 10.0,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      badgePainter.paint(canvas, Offset(paddingLeft + 4.0, paddingTop - 16.0));
+    }
 
     final bandCount = math.min(frequencies.length, gains.length);
     if (bandCount == 0) return;

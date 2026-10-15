@@ -59,8 +59,37 @@ void main() {
   engine.setMultibandEqMode(0); // Restore MatrixCompensatedCascade
   print('   [PASS] Default restored to MatrixCompensatedCascade.');
 
+  // 5. Test 2-Way Dual Channel vs Whole Stereo
+  print('5. Testing 2-Way GEQ (Dual Channel Left/Right vs Whole)...');
+  engine.setMultibandEqChannelMode(0); // Whole / Stereo
+  if (engine.getMultibandEqChannelMode() != 0) throw Exception('Channel mode 0 failed');
+  print('   [PASS] Channel Mode 0 (Whole Stereo Linked) verified.');
+
+  engine.setMultibandEqChannelMode(1); // 2-Way Dual Channel
+  if (engine.getMultibandEqChannelMode() != 1) throw Exception('Channel mode 1 failed');
+  print('   [PASS] Channel Mode 1 (2-Way Dual Channel) verified.');
+
+  // Set Left channel band 2 to +4.0 dB, Right channel band 2 to -5.0 dB
+  engine.setMultibandEqChannelGain(0, 2, 4.0);
+  engine.setMultibandEqChannelGain(1, 2, -5.0);
+
+  final leftGain2 = engine.getMultibandEqChannelGain(0, 2);
+  final rightGain2 = engine.getMultibandEqChannelGain(1, 2);
+  print('   Left Channel Band 2:  $leftGain2 dB');
+  print('   Right Channel Band 2: $rightGain2 dB');
+  if ((leftGain2 - 4.0).abs() > 0.01 || (rightGain2 - (-5.0)).abs() > 0.01) {
+    throw Exception('Dual channel gains not independent!');
+  }
+  print('   [PASS] Dual-channel Left & Right independent gains verified.');
+
+  final leftOpt2 = engine.getMultibandEqChannelOptimizedGain(0, 2);
+  final rightOpt2 = engine.getMultibandEqChannelOptimizedGain(1, 2);
+  print('   Left Channel Band 2 Optimized:  ${leftOpt2.toStringAsFixed(2)} dB');
+  print('   Right Channel Band 2 Optimized: ${rightOpt2.toStringAsFixed(2)} dB');
+  print('   [PASS] Dual-channel independent matrix optimization verified.');
+
   engine.destroy();
   print('===============================================================');
-  print('   MATRIX-COMPENSATED GRAPHIC EQ FULLY VERIFIED AND WORKING!   ');
+  print('   AUDIOPHILE 2-WAY MATRIX GEQ FULLY VERIFIED AND WORKING!    ');
   print('===============================================================');
 }

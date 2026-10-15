@@ -12,6 +12,7 @@ import 'package:sautiflow/sautiflow.dart';
 import 'database/preferences_store.dart';
 
 import 'isolate_player.dart';
+import 'models/eq_slider_coupling.dart';
 import 'services/app_state_service.dart';
 import 'widgets/app_showcase.dart';
 import 'widgets/clarity_graph.dart';
@@ -578,6 +579,7 @@ class _EqScreenState extends State<EqScreen>
   Color get bgDarkColor => context.bgDark;
   Color get surfaceDarkColor => context.cardDark;
   Color get surfaceDarkerColor => context.cardDark.withValues(alpha: 0.8);
+  Color get _textDark => context.textMuted;
 
   // Preferences
   bool _showWarningBanner = true;
@@ -599,6 +601,11 @@ class _EqScreenState extends State<EqScreen>
     16000.0
   ];
   List<double> _eqGains = List.filled(10, 0.0);
+  List<double> _eqGainsRight = List.filled(10, 0.0);
+  int _eqChannelMode = 0; // 0 = Stereo (Whole), 1 = 2-Way Dual Channel
+  int _activeChannelIndex = 0; // 0 = Left / Linked, 1 = Right
+  int _eqSliderLinkMode = 0; // 0 = Single, 1 = Loose (Bell), 2 = Tight (Wide)
+  int _eqTopology = 0; // 0 = Matrix Cascade, 1 = Parallel, 2 = Legacy
 
   void _setupFrequencies(int bands) {
     if (bands == 10) {
@@ -677,6 +684,9 @@ class _EqScreenState extends State<EqScreen>
     }
     if (_eqGains.length != bands) {
       _eqGains = List.filled(bands, 0.0);
+    }
+    if (_eqGainsRight.length != bands) {
+      _eqGainsRight = List.filled(bands, 0.0);
     }
   }
 
@@ -2289,6 +2299,8 @@ class _EqScreenState extends State<EqScreen>
     final pitchCorrection =
         await AppStateService.instance.loadPitchCorrection();
     final eqBands = await AppStateService.instance.loadEqBands();
+    final eqExt = await AppStateService.instance
+        .loadEqExtendedSettings(bandCount: eqBands.bandCount);
     final crystalizer = await AppStateService.instance.loadCrystalizer();
     final stereoWiden = await AppStateService.instance.loadStereoWiden();
     final stereoEnhancement =
@@ -2334,6 +2346,18 @@ class _EqScreenState extends State<EqScreen>
         }
       }
       _preampDb = eqBands.preampDb;
+
+      // Extended 2-Way Dual Channel, Slider Coupling & DSP Topology
+      _eqChannelMode = eqExt.channelMode;
+      _eqSliderLinkMode = eqExt.sliderLinkMode;
+      _eqTopology = eqExt.topology;
+      if (eqExt.gainsRight.length == _eqGainsRight.length) {
+        for (int i = 0; i < _eqGainsRight.length; i++) {
+          _eqGainsRight[i] = eqExt.gainsRight[i];
+        }
+      } else {
+        _eqGainsRight = List<double>.from(_eqGains);
+      }
 
       // Crystalizer
       _crystalizerEnabled = crystalizer.enabled;
@@ -2685,6 +2709,8 @@ class _EqScreenState extends State<EqScreen>
 
     // Apply loaded state to the audio engine
     widget.player.setMultibandEqEnabled(_masterEqEnabled);
+    widget.player.setMultibandEqMode(_eqTopology);
+    widget.player.setMultibandEqChannelMode(_eqChannelMode);
     widget.player.initMultibandEq(_eqFrequencies);
     _applyEqGains();
     _applyStoredPreamp();
@@ -3283,6 +3309,12 @@ class _EqScreenState extends State<EqScreen>
       preampDb: _preampDb,
       bandCount: _eqFrequencies.length,
     );
+    AppStateService.instance.saveEqExtendedSettings(
+      channelMode: _eqChannelMode,
+      gainsRight: List<double>.from(_eqGainsRight),
+      sliderLinkMode: _eqSliderLinkMode,
+      topology: _eqTopology,
+    );
     AppStateService.instance.saveCrystalizer(
       enabled: _crystalizerEnabled,
       intensity: _crystalizerIntensity,
@@ -3522,8 +3554,55 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _applyEqGains() {
-    for (int i = 0; i < _eqGains.length; i++) {
-      widget.player.setMultibandEqBandGain(i, _eqGains[i]);
+    if (_eqChannelMode == 1) {
+      for (int i = 0; i < _eqGains.length; i++) {
+        widget.player.setMultibandEqChannelGain(0, i, _eqGains[i]);
+      }
+      for (int i = 0; i < _eqGainsRight.length; i++) {
+        widget.player.setMultibandEqChannelGain(1, i, _eqGainsRight[i]);
+      }
+    } else {
+      for (int i = 0; i < _eqGains.length; i++) {
+        widget.player.setMultibandEqBandGain(i, _eqGains[i]);
+      }
+    }
+  }
+
+  void _onSliderBandChanged(int index, double newGain) {
+    if (!_masterEqEnabled) return;
+    final isRight = (_eqChannelMode == 1 && _activeChannelIndex == 1);
+    final targetGains = isRight ? _eqGainsRight : _eqGains;
+
+    final linkMode = EqSliderLinkMode.fromId(_eqSliderLinkMode);
+    final updated = calculateCoupledGains(
+      currentGains: targetGains,
+      targetIndex: index,
+      newTargetDb: newGain,
+      linkMode: linkMode,
+    );
+
+    setState(() {
+      _activePreset = 'Custom';
+      for (int i = 0; i < updated.length; i++) {
+        targetGains[i] = updated[i];
+      }
+      if (_eqChannelMode == 0) {
+        // Keep Right channel in sync when in Stereo Whole mode
+        for (int i = 0; i < updated.length && i < _eqGainsRight.length; i++) {
+          _eqGainsRight[i] = updated[i];
+        }
+      }
+    });
+
+    if (_eqChannelMode == 1) {
+      final ch = _activeChannelIndex;
+      for (int i = 0; i < updated.length; i++) {
+        widget.player.setMultibandEqChannelGain(ch, i, updated[i]);
+      }
+    } else {
+      for (int i = 0; i < updated.length; i++) {
+        widget.player.setMultibandEqBandGain(i, updated[i]);
+      }
     }
   }
 
@@ -5576,49 +5655,150 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
-        // 1. Interactive Spline Curve & Touch Node Controller
+        // Channel Routing & Link Controls
+        if (_eqChannelMode == 1) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: M3ESegmentedButton<int>(
+                    segments: const [
+                      M3ESegment<int>(
+                        value: 0,
+                        label: 'Left Channel (Ch 1)',
+                        icon: Icon(Icons.volume_down_rounded, size: 16),
+                      ),
+                      M3ESegment<int>(
+                        value: 1,
+                        label: 'Right Channel (Ch 2)',
+                        icon: Icon(Icons.volume_up_rounded, size: 16),
+                      ),
+                    ],
+                    selected: {_activeChannelIndex},
+                    onSelectionChanged: (sel) {
+                      if (sel.isNotEmpty) {
+                        setState(() => _activeChannelIndex = sel.first);
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: _activeChannelIndex == 0
+                      ? 'Copy Left curve to Right'
+                      : 'Copy Right curve to Left',
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  onPressed: () {
+                    setState(() {
+                      if (_activeChannelIndex == 0) {
+                        _eqGainsRight = List<double>.from(_eqGains);
+                        for (int i = 0; i < _eqGains.length; i++) {
+                          widget.player.setMultibandEqChannelGain(1, i, _eqGains[i]);
+                        }
+                      } else {
+                        _eqGains = List<double>.from(_eqGainsRight);
+                        for (int i = 0; i < _eqGainsRight.length; i++) {
+                          widget.player.setMultibandEqChannelGain(0, i, _eqGainsRight[i]);
+                        }
+                      }
+                    });
+                    _saveEqState();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // Slider Coupling Behavior Chips (Single, Loose Group, Tight Group - WMP Style)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: Row(
+            children: [
+              Text(
+                'Slider Link: ',
+                style: TextStyle(
+                  color: _textDark,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 6),
+              for (final mode in EqSliderLinkMode.values) ...[
+                Padding(
+                  padding: const EdgeInsets.only(right: 6.0),
+                  child: ChoiceChip(
+                    label: Text(
+                      mode.label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: _eqSliderLinkMode == mode.id
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                      ),
+                    ),
+                    selected: _eqSliderLinkMode == mode.id,
+                    selectedColor: primaryColor.withValues(alpha: 0.25),
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() => _eqSliderLinkMode = mode.id);
+                        _saveEqState();
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        // 1. Interactive PCHIP Spline Curve & Touch Node Controller
         RepaintBoundary(
           child: GraphicEqGraph(
             frequencies: _eqFrequencies,
-            gains: _eqGains,
+            gains: (_eqChannelMode == 1 && _activeChannelIndex == 1)
+                ? _eqGainsRight
+                : _eqGains,
+            channelLabel: _eqChannelMode == 1
+                ? (_activeChannelIndex == 0 ? 'LEFT CHANNEL (CH 1)' : 'RIGHT CHANNEL (CH 2)')
+                : 'STEREO LINKED',
             preampDb: _preampDb,
             isEnabled: _masterEqEnabled,
             height: 215.0,
             primaryColor: primaryColor,
             onBandChanged: (index, gain) {
-              if (!_masterEqEnabled) return;
-              setState(() {
-                _eqGains[index] = gain;
-                _activePreset = 'Custom';
-                widget.player.setMultibandEqBandGain(index, gain);
-              });
+              _onSliderBandChanged(index, gain);
             },
             onBandChangeEnd: () {
               if (_masterEqEnabled) _saveEqState();
             },
             onBandLongPress: (index) {
               if (!_masterEqEnabled) return;
+              final activeGains = (_eqChannelMode == 1 && _activeChannelIndex == 1)
+                  ? _eqGainsRight
+                  : _eqGains;
               final freq = _eqFrequencies[index];
               final label = freq >= 1000
                   ? '${(freq / 1000).toStringAsFixed(freq % 1000 == 0 ? 0 : 1)}k'
                   : '${freq.toInt()}Hz';
               _promptForValue(
                 title: 'Band Gain ($label)',
-                currentValue: _eqGains[index],
+                currentValue: activeGains[index],
                 min: -12.0,
                 max: 12.0,
                 onChanged: (v) {
-                  setState(() {
-                    _eqGains[index] = v;
-                    _activePreset = 'Custom';
-                    widget.player.setMultibandEqBandGain(index, v);
-                  });
+                  _onSliderBandChanged(index, v);
                   _saveEqState();
                 },
               );
             },
           ),
         ),
+        const SizedBox(height: 8),
+
+        // 2. Precision Vertical Fader Bank (Classic Windows Media Player Fader Row)
+        _buildVerticalFaderBank(primaryColor),
         const SizedBox(height: 10),
 
         // 3. Band Count Segmented Selector
@@ -5673,6 +5853,95 @@ class _EqScreenState extends State<EqScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildVerticalFaderBank(Color primaryColor) {
+    final activeGains = (_eqChannelMode == 1 && _activeChannelIndex == 1)
+        ? _eqGainsRight
+        : _eqGains;
+    final bandCount = _eqFrequencies.length;
+
+    return Container(
+      height: 185.0,
+      margin: const EdgeInsets.symmetric(vertical: 4.0),
+      decoration: BoxDecoration(
+        color: context.bgDark.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: context.outlineColor.withValues(alpha: 0.35)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 8.0),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: bandCount,
+        separatorBuilder: (_, __) => const SizedBox(width: 4),
+        itemBuilder: (context, i) {
+          final freq = _eqFrequencies[i];
+          final gain = activeGains[i];
+          final freqLabel = freq >= 1000
+              ? '${(freq / 1000).toStringAsFixed(freq % 1000 == 0 ? 0 : 1)}k'
+              : '${freq.toInt()}';
+
+          return SizedBox(
+            width: 48.0,
+            child: Column(
+              children: [
+                GestureDetector(
+                  onTap: () {
+                    _onSliderBandChanged(i, 0.0);
+                    _saveEqState();
+                  },
+                  child: Text(
+                    '${gain >= 0 ? '+' : ''}${gain.toStringAsFixed(1)}',
+                    style: TextStyle(
+                      color: gain.abs() > 0.05 ? primaryColor : _textDark,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Expanded(
+                  child: RotatedBox(
+                    quarterTurns: 3,
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 3.5,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                        activeTrackColor: primaryColor,
+                        inactiveTrackColor: Colors.white12,
+                        thumbColor: primaryColor,
+                      ),
+                      child: Slider(
+                        value: gain.clamp(-12.0, 12.0),
+                        min: -12.0,
+                        max: 12.0,
+                        onChanged: _masterEqEnabled
+                            ? (v) => _onSliderBandChanged(i, v)
+                            : null,
+                        onChangeEnd: (_) {
+                          if (_masterEqEnabled) _saveEqState();
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  freqLabel,
+                  style: TextStyle(
+                    color: _textDark,
+                    fontSize: 10.0,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -6985,6 +7254,7 @@ class _EqScreenState extends State<EqScreen>
     _saveEqState();
   }
 
+  // ignore: unused_element
   Future<void> _deleteUserParametricProfile(String name) async {
     final prefs = PreferencesStore.instance;
     _userParametricProfiles.remove(name);

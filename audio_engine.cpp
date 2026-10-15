@@ -3710,14 +3710,13 @@ struct AudioEngineHandle
     DitherProcessorState ditherProcessor;
 
     std::vector<float> eqFrequencies;
-    std::vector<float> eqGains;
+    std::vector<float> eqGains;      // Left / Linked channel
+    std::vector<float> eqGainsRight; // Right channel
     std::vector<float> eqQ;
-    // High-precision Cytomic SVF filters for float32 processing
-    std::vector<sauti::dsp::CytomicSVF> eqFilters;
-    // Dedicated 64-bit double precision Cytomic SVF filters for true float64 DSP mode
-    std::vector<Biquad64> eqFilters64;
-    // Audiophile matrix-compensated & parallel Graphic EQ
+    std::atomic<int> eqChannelMode{0}; // 0 = Whole (Stereo Linked), 1 = 2-Way Dual Channel (Independent L/R)
+    // Audiophile matrix-compensated & parallel Graphic EQ (Left & Right)
     sauti::dsp::GraphicEqDSP graphicEq;
+    sauti::dsp::GraphicEqDSP graphicEqRight;
 
     struct FxBand
     {
@@ -3751,11 +3750,8 @@ struct AudioEngineHandle
         {
             band.uninit();
         }
-        for (auto &f : eqFilters)
-        {
-            f.reset();
-        }
         graphicEq.reset();
+        graphicEqRight.reset();
     }
 
     // Native Clean-Room Audio DSP Suite
@@ -3806,11 +3802,10 @@ struct AudioEngineHandle
 
     void update_eq_filters()
     {
-        if (eqBandCount <= 0)
+        if (eqBandCount <= 0 || eqFrequencies.empty() || eqGains.empty())
         {
-            eqFilters.clear();
-            eqFilters64.clear();
             graphicEq.init(0, nullptr);
+            graphicEqRight.init(0, nullptr);
             return;
         }
         int sr = (engineSampleRate > 0)
@@ -3821,31 +3816,58 @@ struct AudioEngineHandle
                                    ? sampleRate
                                    : ((outputSampleRate > 0) ? outputSampleRate : 48000)));
 
-        graphicEq.init(eqBandCount, eqFrequencies.data(), eqQ.data(), (double)sr);
+        const auto top = graphicEq.getTopology();
+        graphicEq.init(eqBandCount, eqFrequencies.data(), eqQ.data(), (double)sr, top);
         graphicEq.setAllGains(eqGains.data());
 
-        eqFilters.resize(eqBandCount);
-        eqFilters64.resize(eqBandCount);
-        for (int i = 0; i < eqBandCount; ++i)
+        graphicEqRight.init(eqBandCount, eqFrequencies.data(), eqQ.data(), (double)sr, top);
+        if (eqGainsRight.size() == (size_t)eqBandCount)
         {
-            double optGain = graphicEq.getOptimizedGain(i);
-            eqFilters[i].setParameters(sauti::dsp::CytomicSVF::FilterType::Bell, (double)sr, (double)eqFrequencies[i], optGain, (double)eqQ[i]);
-            eqFilters64[i].setParameters(sauti::dsp::CytomicSVF::FilterType::Bell, (double)sr, (double)eqFrequencies[i], optGain, (double)eqQ[i]);
+            graphicEqRight.setAllGains(eqGainsRight.data());
+        }
+        else
+        {
+            eqGainsRight = eqGains;
+            graphicEqRight.setAllGains(eqGains.data());
         }
     }
 
     void process_multiband_eq(float *frames, ma_uint32 frameCount, int channels)
     {
-        if (!multibandEqEnabled || graphicEq.isFlat())
+        if (!multibandEqEnabled)
             return;
-        graphicEq.process(frames, frameCount, channels);
+
+        if (eqChannelMode.load(std::memory_order_relaxed) == 1 && channels >= 2)
+        {
+            if (!graphicEq.isFlat())
+                graphicEq.processChannel(frames, frameCount, channels, 0);
+            if (!graphicEqRight.isFlat())
+                graphicEqRight.processChannel(frames, frameCount, channels, 1);
+        }
+        else
+        {
+            if (!graphicEq.isFlat())
+                graphicEq.process(frames, frameCount, channels);
+        }
     }
 
     void process_multiband_eq_64(double *frames, ma_uint32 frameCount, int channels)
     {
-        if (!multibandEqEnabled || graphicEq.isFlat())
+        if (!multibandEqEnabled)
             return;
-        graphicEq.process(frames, frameCount, channels);
+
+        if (eqChannelMode.load(std::memory_order_relaxed) == 1 && channels >= 2)
+        {
+            if (!graphicEq.isFlat())
+                graphicEq.processChannel(frames, frameCount, channels, 0);
+            if (!graphicEqRight.isFlat())
+                graphicEqRight.processChannel(frames, frameCount, channels, 1);
+        }
+        else
+        {
+            if (!graphicEq.isFlat())
+                graphicEq.process(frames, frameCount, channels);
+        }
     }
 
     void update_multiband_fx_filters()
@@ -12065,6 +12087,7 @@ extern "C"
         engine->eqBandCount = band_count;
         engine->eqFrequencies.assign(frequencies, frequencies + band_count);
         engine->eqGains.assign(band_count, 0.0f); // 0dB initially
+        engine->eqGainsRight.assign(band_count, 0.0f);
 
         if (q_factors)
         {
@@ -12114,33 +12137,11 @@ extern "C"
             engine->eqGains[band_index] = gain_db;
             engine->graphicEq.setBandGain(band_index, (double)gain_db);
 
-            int sr = (engine->engineSampleRate > 0)
-                         ? engine->engineSampleRate
-                         : ((engine->deviceSampleRate > 0)
-                                ? engine->deviceSampleRate
-                                : ((engine->sampleRate > 0)
-                                       ? engine->sampleRate
-                                       : ((engine->outputSampleRate > 0) ? engine->outputSampleRate : 48000)));
-
-            for (int i = 0; i < engine->eqBandCount && i < (int)engine->eqFilters.size(); ++i)
+            if (engine->eqChannelMode.load(std::memory_order_relaxed) == 0)
             {
-                double optGain = engine->graphicEq.getOptimizedGain(i);
-                engine->eqFilters[i].setParameters(
-                    sauti::dsp::CytomicSVF::FilterType::Bell,
-                    (double)sr,
-                    (double)engine->eqFrequencies[i],
-                    optGain,
-                    (double)engine->eqQ[i]);
-
-                if (i < (int)engine->eqFilters64.size())
-                {
-                    engine->eqFilters64[i].setParameters(
-                        sauti::dsp::CytomicSVF::FilterType::Bell,
-                        (double)sr,
-                        (double)engine->eqFrequencies[i],
-                        optGain,
-                        (double)engine->eqQ[i]);
-                }
+                if (band_index < (int)engine->eqGainsRight.size())
+                    engine->eqGainsRight[band_index] = gain_db;
+                engine->graphicEqRight.setBandGain(band_index, (double)gain_db);
             }
         }
     }
@@ -12167,6 +12168,7 @@ extern "C"
             return;
         std::lock_guard<std::mutex> lk(engine->eqMutex);
         engine->graphicEq.setTopology((sauti::dsp::GraphicEqDSP::EqTopology)mode);
+        engine->graphicEqRight.setTopology((sauti::dsp::GraphicEqDSP::EqTopology)mode);
     }
 
     AE_API int ae_get_multiband_eq_mode(AudioEngineHandle *engine)
@@ -12175,6 +12177,74 @@ extern "C"
             return 0;
         std::lock_guard<std::mutex> lk(engine->eqMutex);
         return (int)engine->graphicEq.getTopology();
+    }
+
+    AE_API void ae_set_multiband_eq_channel_mode(AudioEngineHandle *engine, int mode)
+    {
+        if (!engine)
+            return;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        engine->eqChannelMode.store(mode, std::memory_order_relaxed);
+    }
+
+    AE_API int ae_get_multiband_eq_channel_mode(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+        return engine->eqChannelMode.load(std::memory_order_relaxed);
+    }
+
+    AE_API void ae_set_multiband_eq_channel_gain(AudioEngineHandle *engine, int channel, int band_index, float gain_db)
+    {
+        if (!engine || band_index < 0)
+            return;
+
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        if (band_index < engine->eqBandCount)
+        {
+            if (channel == 1) // Right
+            {
+                if (band_index < (int)engine->eqGainsRight.size())
+                    engine->eqGainsRight[band_index] = gain_db;
+                engine->graphicEqRight.setBandGain(band_index, (double)gain_db);
+            }
+            else // Left / Whole
+            {
+                engine->eqGains[band_index] = gain_db;
+                engine->graphicEq.setBandGain(band_index, (double)gain_db);
+
+                if (engine->eqChannelMode.load(std::memory_order_relaxed) == 0)
+                {
+                    if (band_index < (int)engine->eqGainsRight.size())
+                        engine->eqGainsRight[band_index] = gain_db;
+                    engine->graphicEqRight.setBandGain(band_index, (double)gain_db);
+                }
+            }
+        }
+    }
+
+    AE_API float ae_get_multiband_eq_channel_gain(AudioEngineHandle *engine, int channel, int band_index)
+    {
+        if (!engine || band_index < 0 || band_index >= engine->eqBandCount)
+            return 0.0f;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        if (channel == 1)
+        {
+            if (band_index < (int)engine->eqGainsRight.size())
+                return engine->eqGainsRight[band_index];
+            return 0.0f;
+        }
+        return engine->eqGains[band_index];
+    }
+
+    AE_API float ae_get_multiband_eq_channel_optimized_gain(AudioEngineHandle *engine, int channel, int band_index)
+    {
+        if (!engine || band_index < 0)
+            return 0.0f;
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        if (channel == 1)
+            return (float)engine->graphicEqRight.getOptimizedGain(band_index);
+        return (float)engine->graphicEq.getOptimizedGain(band_index);
     }
 
     AE_API void ae_set_multiband_fx_enabled(AudioEngineHandle *engine, int enabled)

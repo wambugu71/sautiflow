@@ -313,6 +313,43 @@ public:
         }
     }
 
+    // Process a single specific channel in interleaved multichannel buffer in-place
+    template <typename T>
+    void processChannel(T *interleaved, uint32_t frames, int channels, int targetChannel) {
+        if (!interleaved || frames == 0 || channels <= 0 || targetChannel < 0 || targetChannel >= channels || isFlat_) return;
+        const int c = std::min(targetChannel, kMaxChannels - 1);
+
+        if (useOrfanidis_) {
+            for (uint32_t i = 0; i < frames; ++i) {
+                T *sample = interleaved + (size_t)i * (size_t)channels + targetChannel;
+                const double in = static_cast<double>(*sample);
+                double out = in * b0_ + s1_[c];
+                flushDenormal(out);
+                s1_[c] = in * b1_ - out * a1_ + s2_[c];
+                s2_[c] = in * b2_ - out * a2_;
+                flushDenormal(s1_[c]);
+                flushDenormal(s2_[c]);
+                *sample = static_cast<T>(out);
+            }
+        } else {
+            for (uint32_t i = 0; i < frames; ++i) {
+                T *sample = interleaved + (size_t)i * (size_t)channels + targetChannel;
+                const double in = static_cast<double>(*sample);
+
+                const double v3 = in - ic2eq_[c];
+                const double v1 = a1_ * ic1eq_[c] + a2_ * v3;
+                const double v2 = ic2eq_[c] + a2_ * ic1eq_[c] + a3_ * v3;
+
+                ic1eq_[c] = 2.0 * v1 - ic1eq_[c];
+                ic2eq_[c] = 2.0 * v2 - ic2eq_[c];
+                flushDenormal(ic1eq_[c]);
+                flushDenormal(ic2eq_[c]);
+
+                *sample = static_cast<T>(m0_ * in + m1_ * v1 + m2_ * v2);
+            }
+        }
+    }
+
     bool isFlat() const { return isFlat_; }
     bool isOrfanidisActive() const { return useOrfanidis_; }
     FilterType getType() const { return type_; }

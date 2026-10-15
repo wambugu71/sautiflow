@@ -148,6 +148,50 @@ class AppStateService {
     );
   }
 
+  static const _kEqChannelMode = 'sp_eq_channel_mode';
+  static const _kEqGainsRight = 'sp_eq_gains_right';
+  static const _kEqSliderLinkMode = 'sp_eq_slider_link_mode';
+  static const _kEqTopology = 'sp_eq_topology';
+
+  Future<void> saveEqExtendedSettings({
+    required int channelMode,
+    required List<double> gainsRight,
+    required int sliderLinkMode,
+    required int topology,
+  }) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setInt(_kEqChannelMode, channelMode);
+    await prefs.setStringList(
+        _kEqGainsRight, gainsRight.map((g) => g.toString()).toList());
+    await prefs.setInt(_kEqSliderLinkMode, sliderLinkMode);
+    await prefs.setInt(_kEqTopology, topology);
+    eqSettingsChanged.add(null);
+  }
+
+  Future<
+      ({
+        int channelMode,
+        List<double> gainsRight,
+        int sliderLinkMode,
+        int topology,
+      })> loadEqExtendedSettings({int bandCount = 10}) async {
+    final prefs = PreferencesStore.instance;
+    final channelMode = prefs.getInt(_kEqChannelMode) ?? 0;
+    final rawGainsRight = prefs.getStringList(_kEqGainsRight);
+    final gainsRight = rawGainsRight != null
+        ? rawGainsRight.map((s) => double.tryParse(s) ?? 0.0).toList()
+        : List<double>.filled(bandCount, 0.0);
+    final sliderLinkMode = prefs.getInt(_kEqSliderLinkMode) ?? 0;
+    final topology = prefs.getInt(_kEqTopology) ?? 0;
+
+    return (
+      channelMode: channelMode,
+      gainsRight: gainsRight,
+      sliderLinkMode: sliderLinkMode,
+      topology: topology,
+    );
+  }
+
   // ─── EQ – Spatial Audio / Reverb ──────────────────────────────────────────
   static const _kSpatialEnabled = 'sp_spatial_enabled';
   static const _kReverbMix = 'sp_reverb_mix';
