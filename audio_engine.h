@@ -221,6 +221,11 @@ extern "C"
     AE_API void ae_get_tone_crossover_gains(AudioEngineHandle *engine, float *out_bass_db, float *out_mid_db, float *out_treble_db);
     AE_API void ae_set_tone_crossover_frequencies(AudioEngineHandle *engine, float low_crossover_hz, float high_crossover_hz);
     AE_API void ae_get_tone_crossover_frequencies(AudioEngineHandle *engine, float *out_low_hz, float *out_high_hz);
+    // Tone Modes: 0=CrossoverLR4, 1=ActiveBaxandall, 2=QuadSpectralTilt, 3=BaxandallAndTilt
+    AE_API void ae_set_tone_mode(AudioEngineHandle *engine, int mode);
+    AE_API int  ae_get_tone_mode(AudioEngineHandle *engine);
+    AE_API void ae_set_tone_spectral_tilt(AudioEngineHandle *engine, float tilt_db);
+    AE_API void ae_get_tone_spectral_tilt(AudioEngineHandle *engine, float *out_tilt_db);
 
     // Legacy Mastering Compatibility Stubs (Deprecated: routed to Tone Crossover)
     AE_API void ae_set_mastering_enabled(AudioEngineHandle *engine, int enabled);
@@ -710,6 +715,8 @@ extern "C"
     // Audio Clarity Engine (0=TransientCrisp, 1=AirShelf, 2=PresenceExciter, 3=HarmonicBrilliance)
     AE_API void ae_dsp_set_clarity_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_dsp_set_clarity_params(AudioEngineHandle *engine, int profile, float intensity);
+    AE_API void ae_dsp_set_clarity_advanced_params(AudioEngineHandle *engine, float g2_warmth, float g3_presence, float transient_snap, float demask_amount);
+    AE_API void ae_dsp_get_clarity_advanced_params(AudioEngineHandle *engine, float *out_g2, float *out_g3, float *out_snap, float *out_demask);
 
     // Harmonic Bass Engine (0=SubBassResonant, 1=PunchyBass, 2=HarmonicExciter, 3=PultecDeep)
     AE_API void ae_dsp_set_bass_enabled(AudioEngineHandle *engine, int enabled);

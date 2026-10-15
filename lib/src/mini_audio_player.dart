@@ -469,6 +469,21 @@ class MiniAudioPlayer {
   ToneCrossoverParams getToneCrossoverParams() =>
       _engine.getToneCrossoverParams();
 
+  /// Sets the active Tone Tuning Mode:
+  /// - [ToneMode.crossoverLR4]: 4th-order Linkwitz-Riley 3-way crossover
+  /// - [ToneMode.activeBaxandall]: Peter Baxandall (1952) proportional-Q reciprocal tone shelves
+  /// - [ToneMode.quadSpectralTilt]: Quad-style 650 Hz dual-shelf pivot tilt seesaw
+  /// - [ToneMode.baxandallAndTilt]: Baxandall Bass/Treble + Quad 650 Hz Tilt active together
+  void setToneMode(ToneMode mode) => _engine.setToneMode(mode);
+
+  ToneMode getToneMode() => _engine.getToneMode();
+
+  /// Sets the Quad-style Spectral Tilt gain in dB (-6.0 dB to +6.0 dB, pivot 650 Hz).
+  void setToneSpectralTilt(double tiltDb) =>
+      _engine.setToneSpectralTilt(tiltDb);
+
+  double getToneSpectralTilt() => _engine.getToneSpectralTilt();
+
   void setMasteringEnabled(bool enabled) => _engine.setMasteringEnabled(enabled);
 
   bool getMasteringEnabled() => _engine.getMasteringEnabled();

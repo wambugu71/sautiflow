@@ -350,6 +350,30 @@ public:
         }
     }
 
+    // Process a single sample for a specific channel
+    inline double processSample(double in, int channel = 0) {
+        if (isFlat_) return in;
+        const int c = std::min(channel, kMaxChannels - 1);
+        if (useOrfanidis_) {
+            double out = in * b0_ + s1_[c];
+            flushDenormal(out);
+            s1_[c] = in * b1_ - out * a1_ + s2_[c];
+            s2_[c] = in * b2_ - out * a2_;
+            flushDenormal(s1_[c]);
+            flushDenormal(s2_[c]);
+            return out;
+        } else {
+            const double v3 = in - ic2eq_[c];
+            const double v1 = a1_ * ic1eq_[c] + a2_ * v3;
+            const double v2 = ic2eq_[c] + a2_ * ic1eq_[c] + a3_ * v3;
+            ic1eq_[c] = 2.0 * v1 - ic1eq_[c];
+            ic2eq_[c] = 2.0 * v2 - ic2eq_[c];
+            flushDenormal(ic1eq_[c]);
+            flushDenormal(ic2eq_[c]);
+            return m0_ * in + m1_ * v1 + m2_ * v2;
+        }
+    }
+
     bool isFlat() const { return isFlat_; }
     bool isOrfanidisActive() const { return useOrfanidis_; }
     FilterType getType() const { return type_; }

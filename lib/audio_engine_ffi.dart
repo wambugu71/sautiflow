@@ -12,6 +12,23 @@ enum LoopMode { off, all, one }
 
 enum AudioFormat { f32, s16, u8, s24, s32 }
 
+enum ToneMode {
+  crossoverLR4(0),
+  activeBaxandall(1),
+  quadSpectralTilt(2),
+  baxandallAndTilt(3);
+
+  final int value;
+  const ToneMode(this.value);
+
+  static ToneMode fromValue(int value) {
+    return ToneMode.values.firstWhere(
+      (m) => m.value == value,
+      orElse: () => ToneMode.crossoverLR4,
+    );
+  }
+}
+
 enum EqBandType {
   peak,
   bandpass,
@@ -261,6 +278,8 @@ class ToneCrossoverParams {
     this.trebleGainDb = 0.0,
     this.lowCrossoverHz = 250.0,
     this.highCrossoverHz = 3200.0,
+    this.mode = ToneMode.crossoverLR4,
+    this.spectralTiltDb = 0.0,
   });
 
   final bool enabled;
@@ -269,10 +288,13 @@ class ToneCrossoverParams {
   final double trebleGainDb;
   final double lowCrossoverHz;
   final double highCrossoverHz;
+  final ToneMode mode;
+  final double spectralTiltDb;
 
   @override
   String toString() =>
-      'ToneCrossoverParams(enabled: $enabled, bass: ${bassGainDb}dB, mid: ${midGainDb}dB, '
+      'ToneCrossoverParams(enabled: $enabled, mode: $mode, tilt: ${spectralTiltDb}dB, '
+      'bass: ${bassGainDb}dB, mid: ${midGainDb}dB, '
       'treble: ${trebleGainDb}dB, lowCross: ${lowCrossoverHz}Hz, highCross: ${highCrossoverHz}Hz)';
 }
 
@@ -1508,6 +1530,26 @@ typedef _GetToneCrossoverFreqsDart = void Function(
     ffi.Pointer<ffi.Float>,
     ffi.Pointer<ffi.Float>);
 
+typedef _SetToneModeNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetToneModeDart = void Function(
+    ffi.Pointer<ffi.Void>, int);
+
+typedef _GetToneModeNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetToneModeDart = int Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _SetToneSpectralTiltNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float);
+typedef _SetToneSpectralTiltDart = void Function(
+    ffi.Pointer<ffi.Void>, double);
+
+typedef _GetToneSpectralTiltNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>);
+typedef _GetToneSpectralTiltDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>);
+
 typedef _SetMasteringEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetMasteringEnabledDart = void Function(
@@ -2636,6 +2678,22 @@ class AudioEngineFFI {
           _lib.lookupFunction<_GetToneCrossoverFreqsNative, _GetToneCrossoverFreqsDart>(
         'ae_get_tone_crossover_frequencies',
       );
+      _setToneMode =
+          _lib.lookupFunction<_SetToneModeNative, _SetToneModeDart>(
+        'ae_set_tone_mode',
+      );
+      _getToneMode =
+          _lib.lookupFunction<_GetToneModeNative, _GetToneModeDart>(
+        'ae_get_tone_mode',
+      );
+      _setToneSpectralTilt =
+          _lib.lookupFunction<_SetToneSpectralTiltNative, _SetToneSpectralTiltDart>(
+        'ae_set_tone_spectral_tilt',
+      );
+      _getToneSpectralTilt =
+          _lib.lookupFunction<_GetToneSpectralTiltNative, _GetToneSpectralTiltDart>(
+        'ae_get_tone_spectral_tilt',
+      );
       _setMasteringEnabled =
           _lib.lookupFunction<_SetMasteringEnabledNative, _SetMasteringEnabledDart>(
         'ae_set_mastering_enabled',
@@ -3403,6 +3461,10 @@ class AudioEngineFFI {
   late final _GetToneCrossoverGainsDart _getToneCrossoverGains;
   late final _SetToneCrossoverFreqsDart _setToneCrossoverFreqs;
   late final _GetToneCrossoverFreqsDart _getToneCrossoverFreqs;
+  late final _SetToneModeDart _setToneMode;
+  late final _GetToneModeDart _getToneMode;
+  late final _SetToneSpectralTiltDart _setToneSpectralTilt;
+  late final _GetToneSpectralTiltDart _getToneSpectralTilt;
   late final _SetMasteringEnabledDart _setMasteringEnabled;
   late final _GetMasteringEnabledDart _getMasteringEnabled;
   late final _SetMasteringParamsDart _setMasteringParams;
@@ -4466,11 +4528,47 @@ class AudioEngineFFI {
     }
   }
 
+  /// Sets the active Tone Tuning Mode:
+  /// - [ToneMode.crossoverLR4] (0): 4th-order Linkwitz-Riley 3-way crossover
+  /// - [ToneMode.activeBaxandall] (1): Peter Baxandall (1952) proportional-Q reciprocal tone shelves
+  /// - [ToneMode.quadSpectralTilt] (2): Quad-style 650 Hz dual-shelf pivot tilt seesaw
+  /// - [ToneMode.baxandallAndTilt] (3): Baxandall Bass/Treble + Quad 650 Hz Tilt active together
+  void setToneMode(ToneMode mode) {
+    if (_engine == ffi.nullptr) return;
+    _setToneMode(_engine, mode.value);
+  }
+
+  /// Gets the current Tone Tuning Mode.
+  ToneMode getToneMode() {
+    if (_engine == ffi.nullptr) return ToneMode.crossoverLR4;
+    return ToneMode.fromValue(_getToneMode(_engine));
+  }
+
+  /// Sets the Quad-style Spectral Tilt gain in dB (-6.0 dB to +6.0 dB, pivot 650 Hz).
+  void setToneSpectralTilt(double tiltDb) {
+    if (_engine == ffi.nullptr) return;
+    _setToneSpectralTilt(_engine, tiltDb);
+  }
+
+  /// Gets the current Quad Spectral Tilt gain in dB.
+  double getToneSpectralTilt() {
+    if (_engine == ffi.nullptr) return 0.0;
+    final tiltPtr = calloc<ffi.Float>();
+    try {
+      _getToneSpectralTilt(_engine, tiltPtr);
+      return tiltPtr.value;
+    } finally {
+      calloc.free(tiltPtr);
+    }
+  }
+
   ToneCrossoverParams getToneCrossoverParams() {
     if (_engine == ffi.nullptr) return const ToneCrossoverParams();
     final enabled = getToneCrossoverEnabled();
     final gains = getToneCrossoverGains();
     final freqs = getToneCrossoverFrequencies();
+    final mode = getToneMode();
+    final tilt = getToneSpectralTilt();
     return ToneCrossoverParams(
       enabled: enabled,
       bassGainDb: gains.bassGainDb,
@@ -4478,6 +4576,8 @@ class AudioEngineFFI {
       trebleGainDb: gains.trebleGainDb,
       lowCrossoverHz: freqs.lowCrossoverHz,
       highCrossoverHz: freqs.highCrossoverHz,
+      mode: mode,
+      spectralTiltDb: tilt,
     );
   }
 

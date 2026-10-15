@@ -498,6 +498,26 @@ class IsolateAudioPlayer {
     });
   }
 
+  /// Sets the active Tone Tuning Mode:
+  /// - [ToneMode.crossoverLR4]: 4th-order Linkwitz-Riley 3-way crossover
+  /// - [ToneMode.activeBaxandall]: Peter Baxandall (1952) proportional-Q reciprocal tone shelves
+  /// - [ToneMode.quadSpectralTilt]: Quad-style 650 Hz dual-shelf pivot tilt seesaw
+  /// - [ToneMode.baxandallAndTilt]: Baxandall Bass/Treble + Quad 650 Hz Tilt active together
+  void setToneMode(ToneMode mode) {
+    _send({
+      'cmd': 'setToneMode',
+      'mode': mode.value,
+    });
+  }
+
+  /// Sets the Quad-style Spectral Tilt gain in dB (-6.0 dB to +6.0 dB, pivot 650 Hz).
+  void setToneSpectralTilt(double tiltDb) {
+    _send({
+      'cmd': 'setToneSpectralTilt',
+      'tiltDb': tiltDb,
+    });
+  }
+
   void setMasteringEnabled(bool enabled) {
     _send({'cmd': 'setMasteringEnabled', 'enabled': enabled});
   }
@@ -949,6 +969,20 @@ class IsolateAudioPlayer {
         'enabled': enabled,
         'profile': profile.value,
         'intensity': intensity,
+      });
+
+  void setClarityAdvancedParams({
+    double warmthDensity = 0.0,
+    double presenceSheen = 0.0,
+    double transientSnap = 0.0,
+    double demaskAmount = 0.0,
+  }) =>
+      _send({
+        'cmd': 'setClarityAdvancedParams',
+        'warmthDensity': warmthDensity,
+        'presenceSheen': presenceSheen,
+        'transientSnap': transientSnap,
+        'demaskAmount': demaskAmount,
       });
 
   void setHarmonicBass({
@@ -1972,6 +2006,12 @@ void _isolateEntry(_IsolateInitData initData) {
             highCrossoverHz: (message['highCrossoverHz'] as num?)?.toDouble() ?? 3200.0,
           );
           break;
+        case 'setToneMode':
+          player.setToneMode(ToneMode.fromValue(message['mode'] as int? ?? 0));
+          break;
+        case 'setToneSpectralTilt':
+          player.setToneSpectralTilt((message['tiltDb'] as num?)?.toDouble() ?? 0.0);
+          break;
         case 'setMasteringEnabled':
           player.setMasteringEnabled(message['enabled'] as bool? ?? false);
           break;
@@ -2742,6 +2782,14 @@ void _isolateEntry(_IsolateInitData initData) {
               orElse: () => AudioClarityProfile.transientCrisp,
             ),
             intensity: (message['intensity'] as num?)?.toDouble() ?? 0.5,
+          );
+          break;
+        case 'setClarityAdvancedParams':
+          player.dsp.setClarityAdvancedParams(
+            warmthDensity: (message['warmthDensity'] as num?)?.toDouble() ?? 0.0,
+            presenceSheen: (message['presenceSheen'] as num?)?.toDouble() ?? 0.0,
+            transientSnap: (message['transientSnap'] as num?)?.toDouble() ?? 0.0,
+            demaskAmount: (message['demaskAmount'] as num?)?.toDouble() ?? 0.0,
           );
           break;
         case 'setHarmonicBass':

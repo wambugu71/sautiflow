@@ -5,28 +5,41 @@
 #include <algorithm>
 #include <atomic>
 #include "denormals.h"
+#include "baxandall_tone_dsp.h"
 
 namespace sauti::dsp {
 
 // =============================================================================
-// ToneCrossoverDSP: Audiophile 3-Band Phase-Compensated LR4 Tone Crossover
+// ToneCrossoverDSP: Audiophile Tone Tuning Suite
 //
-// Topology:
-//   - 4th-Order Linkwitz-Riley (LR4, 24 dB/octave) 3-Way Frequency Crossover.
-//   - All-Pass Phase Compensation on Low band for Crossover 2 phase alignment:
-//       H_low(s)  = LP1(s, f_low) * AP2(s, f_high)
-//       H_mid(s)  = HP1(s, f_low) * LP2(s, f_high)
-//       H_high(s) = HP1(s, f_low) * HP2(s, f_high)
-//   - Unity-Gain Transparency:
-//       H_sum(s) = H_low + H_mid + H_high = AP1(s, f_low) * AP2(s, f_high)
-//       |H_sum(j*w)| == 1.000000000 (0.000 dB ripple across 20 Hz - 20 kHz).
-//   - Pure Linear Time-Invariant (LTI) - No dynamic pumping or IMD distortion.
-//   - 64-bit double-precision biquad state filters for zero roundoff noise floor.
-//   - Per-sample exponential gain de-zippering (click-free tone adjustment).
+// Modes:
+//   1. CrossoverLR4 (Mode 0):
+//      - 4th-Order Linkwitz-Riley (LR4, 24 dB/octave) 3-Way Frequency Crossover.
+//      - All-Pass Phase Compensation on Low band for Crossover 2 phase alignment.
+//      - Unity-Gain Transparency (|H_sum| == 1.000000000).
+//
+//   2. ActiveBaxandall (Mode 1):
+//      - Peter Baxandall (1952) Proportional-Q reciprocal tone shelves.
+//      - Sliding turnover frequency (bass 35 Hz -> 100 Hz, treble 15 kHz -> 8 kHz).
+//      - Proportional Q scaling (0.42 -> 0.707) leaving 200 Hz - 4 kHz vocal range flat.
+//
+//   3. QuadSpectralTilt (Mode 2):
+//      - Quad-style dual-shelf pivot seesaw centered at 650 Hz (logarithmic midpoint).
+//      - Reciprocal +/- T/2 dB shelves with exact phase cancellation around 650 Hz.
+//
+//   4. BaxandallAndTilt (Mode 3):
+//      - Both Active Baxandall Bass/Treble and Quad 650 Hz Tilt active simultaneously.
 // =============================================================================
 class ToneCrossoverDSP {
 public:
     static constexpr int kMaxChannels = 8;
+
+    enum class ToneMode {
+        CrossoverLR4 = 0,
+        ActiveBaxandall = 1,
+        QuadSpectralTilt = 2,
+        BaxandallAndTilt = 3
+    };
 
     struct BiquadCoeffs {
         double b0 = 1.0, b1 = 0.0, b2 = 0.0;
@@ -90,18 +103,27 @@ public:
         sample_rate_ = sampleRate;
         updateFilters();
         updateSmoothingAlpha();
+        baxandall_tone_.setSampleRate(static_cast<double>(sampleRate));
     }
 
     float getSampleRate() const { return sample_rate_; }
 
     void setEnabled(bool enabled) {
         enabled_.store(enabled, std::memory_order_release);
+        baxandall_tone_.setEnabled(enabled);
         if (!enabled) {
             reset();
         }
     }
 
     bool isEnabled() const { return enabled_.load(std::memory_order_relaxed); }
+
+    void setMode(ToneMode mode) {
+        mode_.store(mode, std::memory_order_release);
+        syncBaxandall();
+    }
+
+    ToneMode getMode() const { return mode_.load(std::memory_order_relaxed); }
 
     void reset() {
         lp1_.reset();
@@ -112,6 +134,7 @@ public:
         cur_bass_linear_ = target_bass_linear_;
         cur_mid_linear_ = target_mid_linear_;
         cur_treble_linear_ = target_treble_linear_;
+        baxandall_tone_.reset();
     }
 
     // Tone Gain Setters (-15 dB to +15 dB)
@@ -119,6 +142,7 @@ public:
         float clamped = std::clamp(gainDb, -15.0f, 15.0f);
         bass_gain_db_.store(clamped, std::memory_order_relaxed);
         target_bass_linear_ = std::pow(10.0, static_cast<double>(clamped) * 0.05);
+        baxandall_tone_.setBassGainDb(clamped);
     }
     float getBassGainDb() const { return bass_gain_db_.load(std::memory_order_relaxed); }
 
@@ -133,8 +157,16 @@ public:
         float clamped = std::clamp(gainDb, -15.0f, 15.0f);
         treble_gain_db_.store(clamped, std::memory_order_relaxed);
         target_treble_linear_ = std::pow(10.0, static_cast<double>(clamped) * 0.05);
+        baxandall_tone_.setTrebleGainDb(clamped);
     }
     float getTrebleGainDb() const { return treble_gain_db_.load(std::memory_order_relaxed); }
+
+    void setTiltDb(float tiltDb) {
+        float clamped = std::clamp(tiltDb, -6.0f, 6.0f);
+        tilt_gain_db_.store(clamped, std::memory_order_relaxed);
+        baxandall_tone_.setTiltDb(clamped);
+    }
+    float getTiltDb() const { return tilt_gain_db_.load(std::memory_order_relaxed); }
 
     void setGainsDb(float bassDb, float midDb, float trebleDb) {
         setBassGainDb(bassDb);
@@ -158,12 +190,22 @@ public:
     float getLowCrossoverHz() const { return low_crossover_hz_.load(std::memory_order_relaxed); }
     float getHighCrossoverHz() const { return high_crossover_hz_.load(std::memory_order_relaxed); }
 
+    // Direct access to the internal Baxandall/Tilt engine
+    BaxandallToneDSP& getBaxandallToneEngine() { return baxandall_tone_; }
+    const BaxandallToneDSP& getBaxandallToneEngine() const { return baxandall_tone_; }
+
     void process(float* buffer, uint32_t frames, int channels) {
         if (!isEnabled() || !buffer || frames == 0 || channels < 1) return;
+
+        ToneMode mode = mode_.load(std::memory_order_relaxed);
+        if (mode == ToneMode::ActiveBaxandall || mode == ToneMode::QuadSpectralTilt || mode == ToneMode::BaxandallAndTilt) {
+            baxandall_tone_.process(buffer, frames, channels);
+            return;
+        }
+
         const int chs = std::min(channels, kMaxChannels);
 
         for (uint32_t i = 0; i < frames; ++i) {
-            // Exponential smoothing for tone gains (dezippered continuous transition)
             cur_bass_linear_ += gain_smooth_alpha_ * (target_bass_linear_ - cur_bass_linear_);
             cur_mid_linear_  += gain_smooth_alpha_ * (target_mid_linear_  - cur_mid_linear_);
             cur_treble_linear_ += gain_smooth_alpha_ * (target_treble_linear_ - cur_treble_linear_);
@@ -180,7 +222,7 @@ public:
                 double x_low1  = lp1_.process(lp1_coeffs_, c, x);
                 double x_high1 = hp1_.process(hp1_coeffs_, c, x);
 
-                // 2. All-pass phase compensation on Low band (matches Crossover 2 phase shift)
+                // 2. All-pass phase compensation on Low band
                 double x_low = ap2_.process(ap2_coeffs_, c, x_low1);
 
                 // 3. Second crossover split on x_high1 at f_high
@@ -197,6 +239,13 @@ public:
 
     void process(double* buffer, uint32_t frames, int channels) {
         if (!isEnabled() || !buffer || frames == 0 || channels < 1) return;
+
+        ToneMode mode = mode_.load(std::memory_order_relaxed);
+        if (mode == ToneMode::ActiveBaxandall || mode == ToneMode::QuadSpectralTilt || mode == ToneMode::BaxandallAndTilt) {
+            baxandall_tone_.process(buffer, frames, channels);
+            return;
+        }
+
         const int chs = std::min(channels, kMaxChannels);
 
         for (uint32_t i = 0; i < frames; ++i) {
@@ -225,8 +274,24 @@ public:
     }
 
 private:
+    void syncBaxandall() {
+        ToneMode m = mode_.load(std::memory_order_relaxed);
+        if (m == ToneMode::QuadSpectralTilt) {
+            baxandall_tone_.setBassGainDb(0.0f);
+            baxandall_tone_.setTrebleGainDb(0.0f);
+            baxandall_tone_.setTiltDb(tilt_gain_db_.load(std::memory_order_relaxed));
+        } else if (m == ToneMode::ActiveBaxandall) {
+            baxandall_tone_.setBassGainDb(bass_gain_db_.load(std::memory_order_relaxed));
+            baxandall_tone_.setTrebleGainDb(treble_gain_db_.load(std::memory_order_relaxed));
+            baxandall_tone_.setTiltDb(0.0f);
+        } else if (m == ToneMode::BaxandallAndTilt) {
+            baxandall_tone_.setBassGainDb(bass_gain_db_.load(std::memory_order_relaxed));
+            baxandall_tone_.setTrebleGainDb(treble_gain_db_.load(std::memory_order_relaxed));
+            baxandall_tone_.setTiltDb(tilt_gain_db_.load(std::memory_order_relaxed));
+        }
+    }
+
     void updateSmoothingAlpha() {
-        // ~25 ms time constant for smooth click-free knob movement
         constexpr double kSmoothingMs = 25.0;
         gain_smooth_alpha_ = 1.0 - std::exp(-1.0 / (sample_rate_ * (kSmoothingMs * 0.001)));
     }
@@ -249,7 +314,7 @@ private:
         const double w0 = 2.0 * 3.14159265358979323846 * (fc / fs);
         const double cosW0 = std::cos(w0);
         const double sinW0 = std::sin(w0);
-        const double alpha = sinW0 * 0.70710678118654752440; // sin(w0) / (2 * Q), Q = 1/sqrt(2)
+        const double alpha = sinW0 * 0.70710678118654752440;
 
         const double a0 = 1.0 + alpha;
         const double invA0 = 1.0 / a0;
@@ -289,17 +354,19 @@ private:
         const double invA0 = 1.0 / a0;
         c.b0 = (1.0 - alpha) * invA0;
         c.b1 = (-2.0 * cosW0) * invA0;
-        c.b2 = (1.0 + alpha) * invA0; // = 1.0
+        c.b2 = (1.0 + alpha) * invA0;
         c.a1 = (-2.0 * cosW0) * invA0;
         c.a2 = (1.0 - alpha) * invA0;
     }
 
     float sample_rate_ = 48000.0f;
     std::atomic<bool> enabled_{false};
+    std::atomic<ToneMode> mode_{ToneMode::CrossoverLR4};
 
     std::atomic<float> bass_gain_db_{0.0f};
     std::atomic<float> mid_gain_db_{0.0f};
     std::atomic<float> treble_gain_db_{0.0f};
+    std::atomic<float> tilt_gain_db_{0.0f};
 
     std::atomic<float> low_crossover_hz_{250.0f};
     std::atomic<float> high_crossover_hz_{3200.0f};
@@ -320,12 +387,15 @@ private:
     BiquadCoeffs lp2_coeffs_;
     BiquadCoeffs hp2_coeffs_;
 
-    // Filter States
+    // Filter States for LR4 Crossover
     LR4Stage lp1_;
     LR4Stage hp1_;
     AP2Stage ap2_;
     LR4Stage lp2_;
     LR4Stage hp2_;
+
+    // Internal Baxandall & Quad Tilt Engine
+    BaxandallToneDSP baxandall_tone_;
 };
 
 } // namespace sauti::dsp

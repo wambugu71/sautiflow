@@ -1197,9 +1197,11 @@ class _EqScreenState extends State<EqScreen>
   double _tuneMid = 0.0;
   double _tuneHigh = 0.0;
 
-  // Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4)
+  // Audiophile Tone Controls Suite (Active Baxandall, Quad Spectral Tilt, 3-Band LR4)
   bool _toneCrossoverEnabled = false;
   String _toneCrossoverPreset = "Audiophile Flat";
+  ToneMode _toneMode = ToneMode.crossoverLR4;
+  double _toneSpectralTiltDb = 0.0;
   double _toneCrossoverBassGainDb = 0.0;
   double _toneCrossoverMidGainDb = 0.0;
   double _toneCrossoverTrebleGainDb = 0.0;
@@ -1207,6 +1209,8 @@ class _EqScreenState extends State<EqScreen>
   double _toneCrossoverHighHz = 3200.0;
 
   static const Map<String, ({
+    ToneMode mode,
+    double tiltDb,
     double bassGainDb,
     double midGainDb,
     double trebleGainDb,
@@ -1214,41 +1218,89 @@ class _EqScreenState extends State<EqScreen>
     double highCrossoverHz,
   })> _toneCrossoverPresets = {
     "Audiophile Flat": (
+      mode: ToneMode.activeBaxandall,
+      tiltDb: 0.0,
       bassGainDb: 0.0,
       midGainDb: 0.0,
       trebleGainDb: 0.0,
       lowCrossoverHz: 250.0,
       highCrossoverHz: 3200.0,
     ),
-    "Warm Analog Vinyl": (
+    "Baxandall Hi-Fi Warmth": (
+      mode: ToneMode.activeBaxandall,
+      tiltDb: 0.0,
+      bassGainDb: 3.0,
+      midGainDb: 0.0,
+      trebleGainDb: -1.0,
+      lowCrossoverHz: 250.0,
+      highCrossoverHz: 3200.0,
+    ),
+    "Baxandall Air & Crisp": (
+      mode: ToneMode.activeBaxandall,
+      tiltDb: 0.0,
+      bassGainDb: 0.0,
+      midGainDb: 0.0,
+      trebleGainDb: 3.0,
+      lowCrossoverHz: 250.0,
+      highCrossoverHz: 3200.0,
+    ),
+    "Baxandall Loudness Contour": (
+      mode: ToneMode.activeBaxandall,
+      tiltDb: 0.0,
+      bassGainDb: 4.0,
+      midGainDb: 0.0,
+      trebleGainDb: 2.5,
+      lowCrossoverHz: 250.0,
+      highCrossoverHz: 3200.0,
+    ),
+    "Quad Warm Tilt (-2 dB)": (
+      mode: ToneMode.quadSpectralTilt,
+      tiltDb: -2.0,
+      bassGainDb: 0.0,
+      midGainDb: 0.0,
+      trebleGainDb: 0.0,
+      lowCrossoverHz: 250.0,
+      highCrossoverHz: 3200.0,
+    ),
+    "Quad Bright Tilt (+2 dB)": (
+      mode: ToneMode.quadSpectralTilt,
+      tiltDb: 2.0,
+      bassGainDb: 0.0,
+      midGainDb: 0.0,
+      trebleGainDb: 0.0,
+      lowCrossoverHz: 250.0,
+      highCrossoverHz: 3200.0,
+    ),
+    "Warm Analog Vinyl (LR4)": (
+      mode: ToneMode.crossoverLR4,
+      tiltDb: 0.0,
       bassGainDb: 2.5,
       midGainDb: 0.5,
       trebleGainDb: -1.0,
       lowCrossoverHz: 220.0,
       highCrossoverHz: 3000.0,
     ),
-    "Vocal Presence": (
+    "Vocal Presence (LR4)": (
+      mode: ToneMode.crossoverLR4,
+      tiltDb: 0.0,
       bassGainDb: -1.0,
       midGainDb: 2.0,
       trebleGainDb: 1.0,
       lowCrossoverHz: 280.0,
       highCrossoverHz: 3400.0,
     ),
-    "Air & Brilliance": (
-      bassGainDb: 0.5,
-      midGainDb: 0.0,
-      trebleGainDb: 2.5,
-      lowCrossoverHz: 200.0,
-      highCrossoverHz: 3500.0,
-    ),
-    "Deep Sub-Bass Foundation": (
+    "Deep Sub-Bass (LR4)": (
+      mode: ToneMode.crossoverLR4,
+      tiltDb: 0.0,
       bassGainDb: 3.5,
       midGainDb: -0.5,
       trebleGainDb: 0.5,
       lowCrossoverHz: 180.0,
       highCrossoverHz: 3000.0,
     ),
-    "Acoustic Clarity": (
+    "Acoustic Clarity (LR4)": (
+      mode: ToneMode.crossoverLR4,
+      tiltDb: 0.0,
       bassGainDb: 1.0,
       midGainDb: 1.0,
       trebleGainDb: 1.0,
@@ -1256,6 +1308,8 @@ class _EqScreenState extends State<EqScreen>
       highCrossoverHz: 3200.0,
     ),
     "Custom": (
+      mode: ToneMode.activeBaxandall,
+      tiltDb: 0.0,
       bassGainDb: 0.0,
       midGainDb: 0.0,
       trebleGainDb: 0.0,
@@ -1418,6 +1472,10 @@ class _EqScreenState extends State<EqScreen>
   bool _clarityEnabled = false;
   AudioClarityProfile _clarityProfile = AudioClarityProfile.transientCrisp;
   double _clarityIntensity = 0.5;
+  double _clarityWarmthDensity = 0.35;
+  double _clarityPresenceSheen = 0.40;
+  double _clarityTransientSnap = 0.50;
+  double _clarityDeMaskAmount = 0.45;
 
   // 1b. Dialogue Booster & Enhancer (reconstructed from Dolby DAP)
   bool _dialogEnhancerEnabled = false;
@@ -2424,9 +2482,11 @@ class _EqScreenState extends State<EqScreen>
       _tuneMid = tuning.mid;
       _tuneHigh = tuning.high;
 
-      // Audiophile 3-Band Tone Tuning Crossover
+      // Audiophile Tone Controls Suite (Active Baxandall, Quad Tilt, LR4 Crossover)
       _toneCrossoverEnabled = toneCrossover.enabled;
       _toneCrossoverPreset = toneCrossover.preset;
+      _toneMode = ToneMode.fromValue(toneCrossover.toneMode);
+      _toneSpectralTiltDb = toneCrossover.spectralTiltDb;
       _toneCrossoverBassGainDb = toneCrossover.bassGainDb;
       _toneCrossoverMidGainDb = toneCrossover.midGainDb;
       _toneCrossoverTrebleGainDb = toneCrossover.trebleGainDb;
@@ -2464,6 +2524,14 @@ class _EqScreenState extends State<EqScreen>
         );
         _clarityIntensity =
             (dspMap['clarityIntensity'] as num?)?.toDouble() ?? 0.5;
+        _clarityWarmthDensity =
+            (dspMap['clarityWarmthDensity'] as num?)?.toDouble() ?? 0.35;
+        _clarityPresenceSheen =
+            (dspMap['clarityPresenceSheen'] as num?)?.toDouble() ?? 0.40;
+        _clarityTransientSnap =
+            (dspMap['clarityTransientSnap'] as num?)?.toDouble() ?? 0.50;
+        _clarityDeMaskAmount =
+            (dspMap['clarityDeMaskAmount'] as num?)?.toDouble() ?? 0.45;
 
         _dialogEnhancerEnabled = dspMap['dialogEnhancerEnabled'] ?? false;
         _dialogEnhancerProfile = DialogEnhancerProfile.values.firstWhere(
@@ -2843,6 +2911,14 @@ class _EqScreenState extends State<EqScreen>
       profile: _clarityProfile,
       intensity: _clarityIntensity,
     );
+    if (_clarityProfile == AudioClarityProfile.psychoacousticMaster) {
+      widget.player.setClarityAdvancedParams(
+        warmthDensity: _clarityWarmthDensity,
+        presenceSheen: _clarityPresenceSheen,
+        transientSnap: _clarityTransientSnap,
+        demaskAmount: _clarityDeMaskAmount,
+      );
+    }
   }
 
   void _updateDialogEnhancer() {
@@ -3394,6 +3470,8 @@ class _EqScreenState extends State<EqScreen>
       trebleGainDb: _toneCrossoverTrebleGainDb,
       lowCrossoverHz: _toneCrossoverLowHz,
       highCrossoverHz: _toneCrossoverHighHz,
+      toneMode: _toneMode.value,
+      spectralTiltDb: _toneSpectralTiltDb,
     );
     AppStateService.instance.saveLimiter(
       enabled: _limiterEnabled,
@@ -3421,6 +3499,10 @@ class _EqScreenState extends State<EqScreen>
       'clarityEnabled': _clarityEnabled,
       'clarityProfile': _clarityProfile.value,
       'clarityIntensity': _clarityIntensity,
+      'clarityWarmthDensity': _clarityWarmthDensity,
+      'clarityPresenceSheen': _clarityPresenceSheen,
+      'clarityTransientSnap': _clarityTransientSnap,
+      'clarityDeMaskAmount': _clarityDeMaskAmount,
       'dialogEnhancerEnabled': _dialogEnhancerEnabled,
       'dialogEnhancerProfile': _dialogEnhancerProfile.value,
       'dialogEnhancerAmount': _dialogEnhancerAmount,
@@ -3782,12 +3864,16 @@ class _EqScreenState extends State<EqScreen>
 
       _toneCrossoverEnabled = false;
       _toneCrossoverPreset = "Audiophile Flat";
+      _toneMode = ToneMode.crossoverLR4;
+      _toneSpectralTiltDb = 0.0;
       _toneCrossoverBassGainDb = 0.0;
       _toneCrossoverMidGainDb = 0.0;
       _toneCrossoverTrebleGainDb = 0.0;
       _toneCrossoverLowHz = 250.0;
       _toneCrossoverHighHz = 3200.0;
       widget.player.setToneCrossoverEnabled(false);
+      widget.player.setToneMode(ToneMode.crossoverLR4);
+      widget.player.setToneSpectralTilt(0.0);
       widget.player.setToneCrossoverGains(bassGainDb: 0.0, midGainDb: 0.0, trebleGainDb: 0.0);
       widget.player.setToneCrossoverFrequencies(lowCrossoverHz: 250.0, highCrossoverHz: 3200.0);
 
@@ -3819,6 +3905,10 @@ class _EqScreenState extends State<EqScreen>
       _clarityEnabled = false;
       _clarityProfile = AudioClarityProfile.transientCrisp;
       _clarityIntensity = 0.5;
+      _clarityWarmthDensity = 0.35;
+      _clarityPresenceSheen = 0.40;
+      _clarityTransientSnap = 0.50;
+      _clarityDeMaskAmount = 0.45;
       widget.player.setClarity(enabled: false);
 
       _dialogEnhancerEnabled = false;
@@ -4789,13 +4879,32 @@ class _EqScreenState extends State<EqScreen>
                       );
                     }
                     if (index == 2) {
+                      String toneSubtitle = "Disabled";
+                      if (_toneCrossoverEnabled) {
+                        switch (_toneMode) {
+                          case ToneMode.activeBaxandall:
+                            toneSubtitle =
+                                "Baxandall | B: ${_toneCrossoverBassGainDb > 0 ? "+" : ""}${_toneCrossoverBassGainDb.toStringAsFixed(1)}dB, T: ${_toneCrossoverTrebleGainDb > 0 ? "+" : ""}${_toneCrossoverTrebleGainDb.toStringAsFixed(1)}dB";
+                            break;
+                          case ToneMode.quadSpectralTilt:
+                            toneSubtitle =
+                                "Quad Tilt: ${_toneSpectralTiltDb > 0 ? "+" : ""}${_toneSpectralTiltDb.toStringAsFixed(1)}dB (650Hz)";
+                            break;
+                          case ToneMode.baxandallAndTilt:
+                            toneSubtitle =
+                                "Baxandall + Tilt (${_toneSpectralTiltDb > 0 ? "+" : ""}${_toneSpectralTiltDb.toStringAsFixed(1)}dB)";
+                            break;
+                          case ToneMode.crossoverLR4:
+                            toneSubtitle =
+                                "LR4 3-Band | B: ${_toneCrossoverBassGainDb > 0 ? "+" : ""}${_toneCrossoverBassGainDb.toStringAsFixed(1)} | M: ${_toneCrossoverMidGainDb > 0 ? "+" : ""}${_toneCrossoverMidGainDb.toStringAsFixed(1)} | T: ${_toneCrossoverTrebleGainDb > 0 ? "+" : ""}${_toneCrossoverTrebleGainDb.toStringAsFixed(1)}dB";
+                            break;
+                        }
+                      }
                       return _buildEffectTileCard(
-                        icon: Icons.graphic_eq_rounded,
+                        icon: Icons.tune_rounded,
                         shape: Shapes.pill,
-                        title: "Tone Tuning Crossover",
-                        subtitle: _toneCrossoverEnabled
-                            ? "Bass: ${_toneCrossoverBassGainDb > 0 ? "+" : ""}${_toneCrossoverBassGainDb.toStringAsFixed(1)}dB | Mid: ${_toneCrossoverMidGainDb > 0 ? "+" : ""}${_toneCrossoverMidGainDb.toStringAsFixed(1)}dB | Treble: ${_toneCrossoverTrebleGainDb > 0 ? "+" : ""}${_toneCrossoverTrebleGainDb.toStringAsFixed(1)}dB"
-                            : "Disabled",
+                        title: "Audiophile Tone Controls",
+                        subtitle: toneSubtitle,
                         isEnabled: _toneCrossoverEnabled,
                         onToggle: (v) {
                           setState(() => _toneCrossoverEnabled = v);
@@ -4804,8 +4913,8 @@ class _EqScreenState extends State<EqScreen>
                           _saveEqState();
                         },
                         onTapDetail: () => _openDetailScreen(
-                          "Tone Tuning Crossover",
-                          Icons.graphic_eq_rounded,
+                          "Audiophile Tone Controls",
+                          Icons.tune_rounded,
                           (_) => _buildToneCrossoverSection(),
                           shape: Shapes.pill,
                         ),
@@ -6771,6 +6880,8 @@ class _EqScreenState extends State<EqScreen>
 
   void _updateToneCrossover() {
     widget.player.setToneCrossoverEnabled(_toneCrossoverEnabled);
+    widget.player.setToneMode(_toneMode);
+    widget.player.setToneSpectralTilt(_toneSpectralTiltDb);
     widget.player.setToneCrossoverGains(
       bassGainDb: _toneCrossoverBassGainDb,
       midGainDb: _toneCrossoverMidGainDb,
@@ -6784,12 +6895,37 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildToneCrossoverSection() {
     final crossoverColor = primaryColor;
+    String modeSubtitle;
+    String modeBanner;
+    switch (_toneMode) {
+      case ToneMode.activeBaxandall:
+        modeSubtitle = "Peter Baxandall (1952) Proportional-Q Reciprocal Shelves";
+        modeBanner =
+            "Peter Baxandall (1952) active proportional-Q shelves. Wide skirts with sliding turnover (Bass 35–100 Hz, Treble 15–8 kHz). 200 Hz – 4 kHz vocal band remains flat and uncolored.";
+        break;
+      case ToneMode.quadSpectralTilt:
+        modeSubtitle = "Quad-Style 650 Hz Logarithmic Midpoint Pivot Tilt Filter";
+        modeBanner =
+            "Quad-style dual-shelf seesaw centered at 650 Hz. Turning clockwise brightens high frequencies while gently softening bass in a linear dB-per-octave slope with near-zero vocal phase distortion.";
+        break;
+      case ToneMode.baxandallAndTilt:
+        modeSubtitle = "Baxandall Proportional-Q Shelves + Quad 650 Hz Spectral Tilt";
+        modeBanner =
+            "Combines both Peter Baxandall active shelves and Quad 650 Hz tilt macro seesaw simultaneously for surgical and musical mastering adjustments.";
+        break;
+      case ToneMode.crossoverLR4:
+        modeSubtitle = "Phase-Compensated 4th-Order (LR4) 3-Way Frequency Voicing";
+        modeBanner =
+            "Linkwitz-Riley 4th Order (24 dB/oct) with All-Pass phase matching. Mathematically 100% flat summing (0.000 dB ripple). Pure linear time-invariant 3-way crossover.";
+        break;
+    }
+
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.graphic_eq_rounded, color: crossoverColor, size: 20),
+        child: Icon(Icons.tune_rounded, color: crossoverColor, size: 20),
       ),
-      title: "Audiophile Tone Tuning Crossover",
-      subtitle: "Phase-Compensated 4th-Order (LR4) 3-Way Frequency Voicing",
+      title: "Audiophile Tone Controls",
+      subtitle: modeSubtitle,
       isEnabled: _toneCrossoverEnabled,
       onToggle: (v) {
         setState(() => _toneCrossoverEnabled = v);
@@ -6809,7 +6945,7 @@ class _EqScreenState extends State<EqScreen>
             border: Border.all(color: crossoverColor.withValues(alpha: 0.2)),
           ),
           child: Text(
-            "Linkwitz-Riley 4th Order (24 dB/oct) with All-Pass phase matching. Mathematically 100% flat summing (0.000 dB ripple). Linear Time-Invariant (pure tone tuning, zero dynamic pumping or IMD distortion).",
+            modeBanner,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.7),
               fontSize: 11.5,
@@ -6819,6 +6955,56 @@ class _EqScreenState extends State<EqScreen>
           ),
         ),
         const SizedBox(height: 16),
+
+        // Tone Architecture Selector
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "Tone Architecture",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildM3EDropdown<ToneMode>(
+                value: _toneMode,
+                accentColor: crossoverColor,
+                items: const [
+                  M3EDropdownItem(
+                    value: ToneMode.activeBaxandall,
+                    label: "Active Baxandall (1952)",
+                  ),
+                  M3EDropdownItem(
+                    value: ToneMode.quadSpectralTilt,
+                    label: "Quad Spectral Tilt (650 Hz)",
+                  ),
+                  M3EDropdownItem(
+                    value: ToneMode.baxandallAndTilt,
+                    label: "Baxandall + Tilt",
+                  ),
+                  M3EDropdownItem(
+                    value: ToneMode.crossoverLR4,
+                    label: "3-Band LR4 Crossover",
+                  ),
+                ],
+                onChanged: (mode) {
+                  setState(() {
+                    _toneMode = mode;
+                    _toneCrossoverPreset = "Custom";
+                  });
+                  _subScreenSetState?.call(() {});
+                  if (_toneCrossoverEnabled) _updateToneCrossover();
+                  _saveEqState();
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
 
         // Profile Presets Dropdown
         Row(
@@ -6848,6 +7034,8 @@ class _EqScreenState extends State<EqScreen>
                     _toneCrossoverPreset = preset;
                     if (preset != "Custom" && _toneCrossoverPresets.containsKey(preset)) {
                       final p = _toneCrossoverPresets[preset]!;
+                      _toneMode = p.mode;
+                      _toneSpectralTiltDb = p.tiltDb;
                       _toneCrossoverBassGainDb = p.bassGainDb;
                       _toneCrossoverMidGainDb = p.midGainDb;
                       _toneCrossoverTrebleGainDb = p.trebleGainDb;
@@ -6865,34 +7053,34 @@ class _EqScreenState extends State<EqScreen>
         ),
         const SizedBox(height: 20),
 
-        // Subheader 1: 3-BAND FREQUENCY GAINS
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            "3-BAND TONE GAINS (FREQUENCY PERSPECTIVE)",
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.5),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
+        // Quad Spectral Tilt Controls (when in tilt mode)
+        if (_toneMode == ToneMode.quadSpectralTilt || _toneMode == ToneMode.baxandallAndTilt) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              "QUAD SPECTRAL TILT (650 HZ LOGARITHMIC PIVOT)",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.5),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: "BASS",
-              value: _toneCrossoverBassGainDb,
-              min: -12.0,
-              max: 12.0,
+          const SizedBox(height: 12),
+          Center(
+            child: ModernAudioKnob(
+              label: "SPECTRAL TILT",
+              value: _toneSpectralTiltDb,
+              min: -6.0,
+              max: 6.0,
               flatValue: 0.0,
               activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
-              valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
+              valueFormatter: (v) =>
+                  "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
               onChanged: (v) {
                 setState(() {
-                  _toneCrossoverBassGainDb = v;
+                  _toneSpectralTiltDb = v;
                   _toneCrossoverPreset = "Custom";
                 });
                 _subScreenSetState?.call(() {});
@@ -6900,101 +7088,247 @@ class _EqScreenState extends State<EqScreen>
                 _saveEqState();
               },
             ),
-            ModernAudioKnob(
-              label: "MIDS",
-              value: _toneCrossoverMidGainDb,
-              min: -12.0,
-              max: 12.0,
-              flatValue: 0.0,
-              activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
-              valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
-              onChanged: (v) {
-                setState(() {
-                  _toneCrossoverMidGainDb = v;
-                  _toneCrossoverPreset = "Custom";
-                });
-                _subScreenSetState?.call(() {});
-                if (_toneCrossoverEnabled) _updateToneCrossover();
-                _saveEqState();
-              },
+          ),
+          const SizedBox(height: 6),
+          Center(
+            child: Text(
+              _toneSpectralTiltDb < -0.05
+                  ? "Warm & Dark (Bass +${(-_toneSpectralTiltDb / 2.0).toStringAsFixed(1)} dB, Treble -${(-_toneSpectralTiltDb / 2.0).toStringAsFixed(1)} dB)"
+                  : _toneSpectralTiltDb > 0.05
+                      ? "Bright & Open (Treble +${(_toneSpectralTiltDb / 2.0).toStringAsFixed(1)} dB, Bass -${(_toneSpectralTiltDb / 2.0).toStringAsFixed(1)} dB)"
+                      : "Linear Transparent (0.0 dB Flat Pivot)",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.55),
+                fontSize: 11,
+                fontStyle: FontStyle.italic,
+              ),
             ),
-            ModernAudioKnob(
-              label: "TREBLE",
-              value: _toneCrossoverTrebleGainDb,
-              min: -12.0,
-              max: 12.0,
-              flatValue: 0.0,
-              activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
-              valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
-              onChanged: (v) {
-                setState(() {
-                  _toneCrossoverTrebleGainDb = v;
-                  _toneCrossoverPreset = "Custom";
-                });
-                _subScreenSetState?.call(() {});
-                if (_toneCrossoverEnabled) _updateToneCrossover();
-                _saveEqState();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
+          ),
+          const SizedBox(height: 20),
+        ],
 
-        // Subheader 2: CROSSOVER TRANSITION FREQUENCIES
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            "ACOUSTIC CROSSOVER SPLIT BOUNDARIES",
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.5),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
+        // Active Baxandall Controls (when in baxandall mode)
+        if (_toneMode == ToneMode.activeBaxandall || _toneMode == ToneMode.baxandallAndTilt) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              "ACTIVE BAXANDALL SHELVES (PROPORTIONAL-Q)",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.5),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            ModernAudioKnob(
-              label: "BASS/MID SPLIT",
-              value: _toneCrossoverLowHz,
-              min: 80.0,
-              max: 600.0,
-              flatValue: 250.0,
-              activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
-              valueFormatter: (v) => "${v.toStringAsFixed(0)} Hz",
-              onChanged: (v) {
-                setState(() {
-                  _toneCrossoverLowHz = v;
-                  _toneCrossoverPreset = "Custom";
-                });
-                _subScreenSetState?.call(() {});
-                if (_toneCrossoverEnabled) _updateToneCrossover();
-                _saveEqState();
-              },
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: "BASS",
+                value: _toneCrossoverBassGainDb,
+                min: -12.0,
+                max: 12.0,
+                flatValue: 0.0,
+                activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+                valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
+                onChanged: (v) {
+                  setState(() {
+                    _toneCrossoverBassGainDb = v;
+                    _toneCrossoverPreset = "Custom";
+                  });
+                  _subScreenSetState?.call(() {});
+                  if (_toneCrossoverEnabled) _updateToneCrossover();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: "TREBLE",
+                value: _toneCrossoverTrebleGainDb,
+                min: -12.0,
+                max: 12.0,
+                flatValue: 0.0,
+                activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+                valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
+                onChanged: (v) {
+                  setState(() {
+                    _toneCrossoverTrebleGainDb = v;
+                    _toneCrossoverPreset = "Custom";
+                  });
+                  _subScreenSetState?.call(() {});
+                  if (_toneCrossoverEnabled) _updateToneCrossover();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              Text(
+                "Turnover: ${(35.0 + (100.0 - 35.0) * (_toneCrossoverBassGainDb.abs() / 12.0)).toStringAsFixed(0)} Hz",
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: 10.5,
+                ),
+              ),
+              Text(
+                "Turnover: ${(15.0 - (15.0 - 8.0) * (_toneCrossoverTrebleGainDb.abs() / 12.0)).toStringAsFixed(1)} kHz",
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: 10.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Center(
+            child: Text(
+              "Vocal Range (200 Hz – 4 kHz) remains perfectly uncolored",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.45),
+                fontSize: 10.5,
+                fontStyle: FontStyle.italic,
+              ),
             ),
-            ModernAudioKnob(
-              label: "MID/HIGH SPLIT",
-              value: _toneCrossoverHighHz,
-              min: 1500.0,
-              max: 6000.0,
-              flatValue: 3200.0,
-              activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
-              valueFormatter: (v) => "${v.toStringAsFixed(0)} Hz",
-              onChanged: (v) {
-                setState(() {
-                  _toneCrossoverHighHz = v;
-                  _toneCrossoverPreset = "Custom";
-                });
-                _subScreenSetState?.call(() {});
-                if (_toneCrossoverEnabled) _updateToneCrossover();
-                _saveEqState();
-              },
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        // 3-Band LR4 Controls (when in LR4 mode)
+        if (_toneMode == ToneMode.crossoverLR4) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              "3-BAND TONE GAINS (LR4 PHASE MATCHED)",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.5),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+              ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: "BASS",
+                value: _toneCrossoverBassGainDb,
+                min: -12.0,
+                max: 12.0,
+                flatValue: 0.0,
+                activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+                valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
+                onChanged: (v) {
+                  setState(() {
+                    _toneCrossoverBassGainDb = v;
+                    _toneCrossoverPreset = "Custom";
+                  });
+                  _subScreenSetState?.call(() {});
+                  if (_toneCrossoverEnabled) _updateToneCrossover();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: "MIDS",
+                value: _toneCrossoverMidGainDb,
+                min: -12.0,
+                max: 12.0,
+                flatValue: 0.0,
+                activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+                valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
+                onChanged: (v) {
+                  setState(() {
+                    _toneCrossoverMidGainDb = v;
+                    _toneCrossoverPreset = "Custom";
+                  });
+                  _subScreenSetState?.call(() {});
+                  if (_toneCrossoverEnabled) _updateToneCrossover();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: "TREBLE",
+                value: _toneCrossoverTrebleGainDb,
+                min: -12.0,
+                max: 12.0,
+                flatValue: 0.0,
+                activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+                valueFormatter: (v) => "${v > 0 ? "+" : ""}${v.toStringAsFixed(1)} dB",
+                onChanged: (v) {
+                  setState(() {
+                    _toneCrossoverTrebleGainDb = v;
+                    _toneCrossoverPreset = "Custom";
+                  });
+                  _subScreenSetState?.call(() {});
+                  if (_toneCrossoverEnabled) _updateToneCrossover();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Subheader: CROSSOVER TRANSITION FREQUENCIES
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              "ACOUSTIC CROSSOVER SPLIT BOUNDARIES",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.5),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: "BASS/MID SPLIT",
+                value: _toneCrossoverLowHz,
+                min: 80.0,
+                max: 600.0,
+                flatValue: 250.0,
+                activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+                valueFormatter: (v) => "${v.toStringAsFixed(0)} Hz",
+                onChanged: (v) {
+                  setState(() {
+                    _toneCrossoverLowHz = v;
+                    _toneCrossoverPreset = "Custom";
+                  });
+                  _subScreenSetState?.call(() {});
+                  if (_toneCrossoverEnabled) _updateToneCrossover();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: "MID/HIGH SPLIT",
+                value: _toneCrossoverHighHz,
+                min: 1500.0,
+                max: 6000.0,
+                flatValue: 3200.0,
+                activeColor: _toneCrossoverEnabled ? crossoverColor : Colors.white54,
+                valueFormatter: (v) => "${v.toStringAsFixed(0)} Hz",
+                onChanged: (v) {
+                  setState(() {
+                    _toneCrossoverHighHz = v;
+                    _toneCrossoverPreset = "Custom";
+                  });
+                  _subScreenSetState?.call(() {});
+                  if (_toneCrossoverEnabled) _updateToneCrossover();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -8192,6 +8526,7 @@ class _EqScreenState extends State<EqScreen>
       AudioClarityProfile.airShelf => 'Air',
       AudioClarityProfile.presenceExciter => 'Vocal',
       AudioClarityProfile.harmonicBrilliance => 'Brilliance',
+      AudioClarityProfile.psychoacousticMaster => 'Master',
     };
   }
 
@@ -8727,6 +9062,10 @@ class _EqScreenState extends State<EqScreen>
                     value: AudioClarityProfile.harmonicBrilliance,
                     label: 'Harmonic',
                   ),
+                  M3EDropdownItem(
+                    value: AudioClarityProfile.psychoacousticMaster,
+                    label: 'Master (Audiophile)',
+                  ),
                 ],
                 onChanged: (val) {
                   setState(() => _clarityProfile = val);
@@ -8752,7 +9091,7 @@ class _EqScreenState extends State<EqScreen>
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
-              label: 'CLARITY',
+              label: 'MASTER INTENSITY',
               value: _clarityIntensity,
               min: 0.0,
               max: 1.0,
@@ -8768,6 +9107,99 @@ class _EqScreenState extends State<EqScreen>
             ),
           ],
         ),
+        if (_clarityProfile == AudioClarityProfile.psychoacousticMaster) ...[
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: primaryColor.withValues(alpha: 0.2)),
+            ),
+            child: Text(
+              "Audiophile Psychoacoustic Master: Transient articulation, 4x polyphase oversampled Chebyshev 2nd/3rd harmonics (zero-comb 39-sample delay compensated), and dynamic low-mid masking reduction.",
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 11.0,
+                height: 1.3,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'WARMTH (T2)',
+                value: _clarityWarmthDensity,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.0,
+                activeColor: _clarityEnabled ? primaryColor : Colors.white54,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() => _clarityWarmthDensity = v);
+                  if (_clarityEnabled) _updateClarity();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'PRESENCE (T3)',
+                value: _clarityPresenceSheen,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.0,
+                activeColor: _clarityEnabled ? primaryColor : Colors.white54,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() => _clarityPresenceSheen = v);
+                  if (_clarityEnabled) _updateClarity();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'TRANSIENT SNAP',
+                value: _clarityTransientSnap,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.0,
+                activeColor: _clarityEnabled ? primaryColor : Colors.white54,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() => _clarityTransientSnap = v);
+                  if (_clarityEnabled) _updateClarity();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DE-MASKING',
+                value: _clarityDeMaskAmount,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.0,
+                activeColor: _clarityEnabled ? primaryColor : Colors.white54,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() => _clarityDeMaskAmount = v);
+                  if (_clarityEnabled) _updateClarity();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

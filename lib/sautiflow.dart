@@ -29,6 +29,7 @@ export 'audio_engine_ffi.dart'
         LatticeReverbParams,
         DiffusionReverbParams,
         ToneCrossoverParams,
+        ToneMode,
         MultibandMasteringParams;
 export 'src/filters_api.dart';
 export 'src/m3u_parser.dart' show M3uParser, M3uEntry;

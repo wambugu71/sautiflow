@@ -10438,6 +10438,38 @@ extern "C"
         if (out_high_hz) *out_high_hz = e->toneCrossoverDsp.getHighCrossoverHz();
     }
 
+    AE_API void ae_set_tone_mode(AudioEngineHandle *e, int mode)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->toneCrossoverDsp.setMode(static_cast<sauti::dsp::ToneCrossoverDSP::ToneMode>(mode));
+    }
+
+    AE_API int ae_get_tone_mode(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        return static_cast<int>(e->toneCrossoverDsp.getMode());
+    }
+
+    AE_API void ae_set_tone_spectral_tilt(AudioEngineHandle *e, float tilt_db)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->toneCrossoverDsp.setTiltDb(tilt_db);
+    }
+
+    AE_API void ae_get_tone_spectral_tilt(AudioEngineHandle *e, float *out_tilt_db)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        if (out_tilt_db) *out_tilt_db = e->toneCrossoverDsp.getTiltDb();
+    }
+
     // Legacy Mastering Compatibility Stubs (Deprecated: mapped to Tone Crossover)
     AE_API void ae_set_mastering_enabled(AudioEngineHandle *e, int enabled)
     {
@@ -13374,6 +13406,26 @@ extern "C"
         std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->clarityDsp.setProfile(static_cast<sauti::dsp::AudioClarityProfile>(profile));
         engine->clarityDsp.setIntensity(intensity);
+    }
+
+    AE_API void ae_dsp_set_clarity_advanced_params(AudioEngineHandle *engine, float g2_warmth, float g3_presence, float transient_snap, float demask_amount)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->clarityDsp.setWarmthDensity(g2_warmth);
+        engine->clarityDsp.setPresenceSheen(g3_presence);
+        engine->clarityDsp.setTransientSnap(transient_snap);
+        engine->clarityDsp.setDeMaskAmount(demask_amount);
+    }
+
+    AE_API void ae_dsp_get_clarity_advanced_params(AudioEngineHandle *engine, float *out_g2, float *out_g3, float *out_snap, float *out_demask)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (out_g2) *out_g2 = engine->clarityDsp.getWarmthDensity();
+        if (out_g3) *out_g3 = engine->clarityDsp.getPresenceSheen();
+        if (out_snap) *out_snap = engine->clarityDsp.getTransientSnap();
+        if (out_demask) *out_demask = engine->clarityDsp.getDeMaskAmount();
     }
 
     // Harmonic Bass Engine

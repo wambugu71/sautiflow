@@ -355,6 +355,45 @@ class _ClarityPainter extends CustomPainter {
           Paint()..color = primaryColor.withValues(alpha: 0.05),
         );
         break;
+
+      case AudioClarityProfile.psychoacousticMaster:
+        // 350 Hz dynamic de-masking center
+        final x350 = freqToX(350.0);
+        final marker350Paint = Paint()
+          ..color = primaryColor.withValues(alpha: 0.25)
+          ..strokeWidth = 1.0;
+        canvas.drawLine(
+          Offset(x350, paddingTop),
+          Offset(x350, paddingTop + graphHeight),
+          marker350Paint,
+        );
+
+        // 3.5 kHz Chebyshev presence boundary
+        final x35k = freqToX(3500.0);
+        final marker35kPaint = Paint()
+          ..color = primaryColor.withValues(alpha: 0.35)
+          ..strokeWidth = 1.0;
+        canvas.drawLine(
+          Offset(x35k, paddingTop),
+          Offset(x35k, paddingTop + graphHeight),
+          marker35kPaint,
+        );
+
+        // Presence & Sheen band 3.5k - 20k highlight
+        final xEnd = freqToX(20000.0);
+        final sheenRect =
+            Rect.fromLTRB(x35k, paddingTop, xEnd, paddingTop + graphHeight);
+        final sheenPaint = Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              primaryColor.withValues(alpha: 0.14),
+              primaryColor.withValues(alpha: 0.02),
+            ],
+          ).createShader(sheenRect);
+        canvas.drawRect(sheenRect, sheenPaint);
+        break;
     }
   }
 
@@ -558,6 +597,8 @@ class _ClarityPainter extends CustomPainter {
         return 'VOCAL PRESENCE';
       case AudioClarityProfile.harmonicBrilliance:
         return 'HARMONIC EXCITER';
+      case AudioClarityProfile.psychoacousticMaster:
+        return 'PSYCHOACOUSTIC MASTER';
     }
   }
 
@@ -578,7 +619,27 @@ class _ClarityPainter extends CustomPainter {
         return _computePresenceExciterGainDb(intensity, freq);
       case AudioClarityProfile.harmonicBrilliance:
         return _computeHarmonicBrillianceGainDb(intensity, freq);
+      case AudioClarityProfile.psychoacousticMaster:
+        return _computePsychoacousticMasterGainDb(intensity, freq);
     }
+  }
+
+  /// 5. Psychoacoustic Master: Dynamic low-mid de-masking at 350 Hz + Chebyshev presence sheen >3.5 kHz.
+  static double _computePsychoacousticMasterGainDb(double intensity, double freq) {
+    double gain = 0.0;
+    // 350 Hz de-masking dip
+    final logDist350 = (math.log(freq / 350.0) / math.ln2).abs();
+    if (logDist350 < 1.5) {
+      final dipFactor = math.cos(logDist350 * math.pi / 3.0);
+      gain -= dipFactor * (1.8 * intensity);
+    }
+    // >3.5 kHz presence and air sheen
+    if (freq > 3500.0) {
+      final octavesAbove = math.log(freq / 3500.0) / math.ln2;
+      final boost = math.min(octavesAbove * 1.2, 3.2) * intensity;
+      gain += boost;
+    }
+    return gain;
   }
 
   /// 1. Transient Crisp: Differential pre-emphasis + 18 kHz smoothing low-pass.

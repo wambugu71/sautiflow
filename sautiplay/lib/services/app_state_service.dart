@@ -673,6 +673,8 @@ class AppStateService {
   static const _kToneCrossoverTrebleGainDb = 'sp_tone_crossover_treble_gain_db';
   static const _kToneCrossoverLowHz = 'sp_tone_crossover_low_hz';
   static const _kToneCrossoverHighHz = 'sp_tone_crossover_high_hz';
+  static const _kToneCrossoverMode = 'sp_tone_crossover_mode';
+  static const _kToneCrossoverTiltDb = 'sp_tone_crossover_tilt_db';
 
   Future<void> saveToneCrossover({
     required bool enabled,
@@ -682,6 +684,8 @@ class AppStateService {
     required double trebleGainDb,
     required double lowCrossoverHz,
     required double highCrossoverHz,
+    int toneMode = 0,
+    double spectralTiltDb = 0.0,
   }) async {
     final prefs = PreferencesStore.instance;
     await prefs.setBool(_kToneCrossoverEnabled, enabled);
@@ -691,6 +695,8 @@ class AppStateService {
     await prefs.setDouble(_kToneCrossoverTrebleGainDb, trebleGainDb);
     await prefs.setDouble(_kToneCrossoverLowHz, lowCrossoverHz);
     await prefs.setDouble(_kToneCrossoverHighHz, highCrossoverHz);
+    await prefs.setInt(_kToneCrossoverMode, toneMode);
+    await prefs.setDouble(_kToneCrossoverTiltDb, spectralTiltDb);
   }
 
   Future<
@@ -702,6 +708,8 @@ class AppStateService {
         double trebleGainDb,
         double lowCrossoverHz,
         double highCrossoverHz,
+        int toneMode,
+        double spectralTiltDb,
       })> loadToneCrossover() async {
     final prefs = PreferencesStore.instance;
     return (
@@ -712,6 +720,8 @@ class AppStateService {
       trebleGainDb: prefs.getDouble(_kToneCrossoverTrebleGainDb) ?? 0.0,
       lowCrossoverHz: prefs.getDouble(_kToneCrossoverLowHz) ?? 250.0,
       highCrossoverHz: prefs.getDouble(_kToneCrossoverHighHz) ?? 3200.0,
+      toneMode: prefs.getInt(_kToneCrossoverMode) ?? 0,
+      spectralTiltDb: prefs.getDouble(_kToneCrossoverTiltDb) ?? 0.0,
     );
   }
 

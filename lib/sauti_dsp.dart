@@ -1,5 +1,5 @@
 export 'audio_engine_ffi.dart' show ReverbEngine, ReverbParamsEx, LatticeReverbParams, DiffusionReverbParams,
-        ToneCrossoverParams, MultibandMasteringParams;
+        ToneCrossoverParams, MultibandMasteringParams, ToneMode;
 import 'dart:ffi' as ffi;
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
@@ -10,7 +10,8 @@ enum AudioClarityProfile {
   transientCrisp(0),
   airShelf(1),
   presenceExciter(2),
-  harmonicBrilliance(3);
+  harmonicBrilliance(3),
+  psychoacousticMaster(4);
 
   final int value;
   const AudioClarityProfile(this.value);
@@ -205,6 +206,24 @@ typedef _DspSetClarityParamsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float);
 typedef _DspSetClarityParamsDart = void Function(
     ffi.Pointer<ffi.Void>, int, double);
+
+typedef _DspSetClarityAdvancedParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _DspSetClarityAdvancedParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double);
+
+typedef _DspGetClarityAdvancedParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _DspGetClarityAdvancedParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
 
 typedef _DspSetBassParamsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float, ffi.Float);
@@ -603,6 +622,8 @@ class SautiDsp {
 
   late final _DspSetEnabledDart _setClarityEnabled;
   late final _DspSetClarityParamsDart _setClarityParams;
+  late final _DspSetClarityAdvancedParamsDart _setClarityAdvancedParams;
+  late final _DspGetClarityAdvancedParamsDart _getClarityAdvancedParams;
 
   late final _DspSetEnabledDart _setBassEnabled;
   late final _DspSetBassParamsDart _setBassParams;
@@ -704,6 +725,10 @@ class SautiDsp {
             'ae_dsp_set_clarity_enabled');
     _setClarityParams = _lib.lookupFunction<_DspSetClarityParamsNative,
         _DspSetClarityParamsDart>('ae_dsp_set_clarity_params');
+    _setClarityAdvancedParams = _lib.lookupFunction<_DspSetClarityAdvancedParamsNative,
+        _DspSetClarityAdvancedParamsDart>('ae_dsp_set_clarity_advanced_params');
+    _getClarityAdvancedParams = _lib.lookupFunction<_DspGetClarityAdvancedParamsNative,
+        _DspGetClarityAdvancedParamsDart>('ae_dsp_get_clarity_advanced_params');
 
     _setBassEnabled =
         _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
@@ -922,6 +947,63 @@ class SautiDsp {
     if (_enginePtr == ffi.nullptr) return;
     _setClarityEnabled(_enginePtr, enabled ? 1 : 0);
     _setClarityParams(_enginePtr, profile.value, intensity);
+  }
+
+  /// Sets advanced psychoacoustic clarity parameters:
+  /// - [warmthDensity]: Chebyshev 2nd harmonic warmth ($T_2$)
+  /// - [presenceSheen]: Chebyshev 3rd harmonic sheen ($T_3$)
+  /// - [transientSnap]: Transient articulator punch
+  /// - [demaskAmount]: Dynamic low-mid de-masking attenuation
+  void setClarityAdvancedParams({
+    double warmthDensity = 0.0,
+    double presenceSheen = 0.0,
+    double transientSnap = 0.0,
+    double demaskAmount = 0.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setClarityAdvancedParams(
+      _enginePtr,
+      warmthDensity,
+      presenceSheen,
+      transientSnap,
+      demaskAmount,
+    );
+  }
+
+  /// Gets current advanced psychoacoustic clarity parameters:
+  /// returns ({double warmthDensity, double presenceSheen, double transientSnap, double demaskAmount})
+  ({
+    double warmthDensity,
+    double presenceSheen,
+    double transientSnap,
+    double demaskAmount
+  }) getClarityAdvancedParams() {
+    if (_enginePtr == ffi.nullptr) {
+      return (
+        warmthDensity: 0.0,
+        presenceSheen: 0.0,
+        transientSnap: 0.0,
+        demaskAmount: 0.0
+      );
+    }
+    final g2Ptr = calloc<ffi.Float>();
+    final g3Ptr = calloc<ffi.Float>();
+    final snapPtr = calloc<ffi.Float>();
+    final demaskPtr = calloc<ffi.Float>();
+    try {
+      _getClarityAdvancedParams(_enginePtr, g2Ptr, g3Ptr, snapPtr, demaskPtr);
+      return (
+        warmthDensity: g2Ptr.value,
+        presenceSheen: g3Ptr.value,
+        transientSnap: snapPtr.value,
+        demaskAmount: demaskPtr.value,
+      );
+    } finally {
+      calloc.free(g2Ptr);
+      calloc.free(g3Ptr);
+      calloc.free(snapPtr);
+      calloc.free(demaskPtr);
+    }
   }
 
   /// Harmonic Bass Engine.
