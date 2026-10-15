@@ -5795,13 +5795,9 @@ class _EqScreenState extends State<EqScreen>
             },
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
 
-        // 2. Precision Vertical Fader Bank (Classic Windows Media Player Fader Row)
-        _buildVerticalFaderBank(primaryColor),
-        const SizedBox(height: 10),
-
-        // 3. Band Count Segmented Selector
+        // 2. Band Count Segmented Selector
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: M3ESegmentedButton<int>(
@@ -5853,95 +5849,6 @@ class _EqScreenState extends State<EqScreen>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildVerticalFaderBank(Color primaryColor) {
-    final activeGains = (_eqChannelMode == 1 && _activeChannelIndex == 1)
-        ? _eqGainsRight
-        : _eqGains;
-    final bandCount = _eqFrequencies.length;
-
-    return Container(
-      height: 185.0,
-      margin: const EdgeInsets.symmetric(vertical: 4.0),
-      decoration: BoxDecoration(
-        color: context.bgDark.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: context.outlineColor.withValues(alpha: 0.35)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 8.0),
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        itemCount: bandCount,
-        separatorBuilder: (_, __) => const SizedBox(width: 4),
-        itemBuilder: (context, i) {
-          final freq = _eqFrequencies[i];
-          final gain = activeGains[i];
-          final freqLabel = freq >= 1000
-              ? '${(freq / 1000).toStringAsFixed(freq % 1000 == 0 ? 0 : 1)}k'
-              : '${freq.toInt()}';
-
-          return SizedBox(
-            width: 48.0,
-            child: Column(
-              children: [
-                GestureDetector(
-                  onTap: () {
-                    _onSliderBandChanged(i, 0.0);
-                    _saveEqState();
-                  },
-                  child: Text(
-                    '${gain >= 0 ? '+' : ''}${gain.toStringAsFixed(1)}',
-                    style: TextStyle(
-                      color: gain.abs() > 0.05 ? primaryColor : _textDark,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Expanded(
-                  child: RotatedBox(
-                    quarterTurns: 3,
-                    child: SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 3.5,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
-                        activeTrackColor: primaryColor,
-                        inactiveTrackColor: Colors.white12,
-                        thumbColor: primaryColor,
-                      ),
-                      child: Slider(
-                        value: gain.clamp(-12.0, 12.0),
-                        min: -12.0,
-                        max: 12.0,
-                        onChanged: _masterEqEnabled
-                            ? (v) => _onSliderBandChanged(i, v)
-                            : null,
-                        onChangeEnd: (_) {
-                          if (_masterEqEnabled) _saveEqState();
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  freqLabel,
-                  style: TextStyle(
-                    color: _textDark,
-                    fontSize: 10.0,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
     );
   }
 
