@@ -106,4 +106,10 @@ struct ScopedDenormalsDisable {
     ScopedDenormalsDisable& operator=(const ScopedDenormalsDisable&) = delete;
 };
 
+inline void flush_denormal(float &val) noexcept {
+    if (std::abs(val) < 1.0e-15f) {
+        val = 0.0f;
+    }
+}
+
 } // namespace sauti::dsp

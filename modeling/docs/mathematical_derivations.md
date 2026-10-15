@@ -371,22 +371,46 @@ Eliminates chatter and flutter around ambient background noise levels.
 
 ---
 
-## 19. Algorithmic Reverbs (Dattorro, Diffusion, Lattice)
-**Module:** `reverb.py` | **C++ Source:** `reverb_node.h`, `diffusion_reverb_dsp.h`, `lattice_reverb_dsp.h`  
+## 19. Algorithmic Reverbs (Dattorro, Hadamard FDN, Keith Barr Ring, Griesinger Spin & Wander, Lattice, Diffusion)
+**Module:** `reverb.py` | **C++ Source:** `reverb_node.h`, `hadamard_fdn_dsp.h`, `barr_ring_reverb_dsp.h`, `griesinger_tank_dsp.h`, `diffusion_reverb_dsp.h`, `lattice_reverb_dsp.h`  
 **Historical Creators & Attribution:**
 - **Jon Dattorro** (1997): Designed the landmark figure-8 tank stereo plate reverberator (*Effect Design: Part 1 - Reverberator and Other Filters*, JAES).
+- **Jean-Marc Jot & Antoine Chaigne** (1991): Formulated the modern unitary Feedback Delay Network (*Digital delay networks for designing artificial reverberators*, AES 90th Conv.).
+- **Keith Barr** (1988, 2006): Designed the all-pass ring recirculating topology powering the Alesis MidiVerb II / Quadraverb and Spin Semiconductor FV-1 (US Patent 4,868,881).
+- **Dr. David Griesinger** (1978, 1986): Invented the cross-coupled tank with "Spin & Wander" modulation for the Lexicon 224, 480L Random Hall, and PCM series (*Practical Processors and Programs for Digital Reverberation*, JAES).
 - **Manfred R. Schroeder** (1962): Pioneered all-pass and comb filter digital reverberators (*Natural Sounding Artificial Reverberation*, JAES).
 - **James A. Moorer** (1979): Introduced early reflection tapped delay lines and low-pass comb damping (*About This Reverberation Business*, Computer Music Journal).
 
 ### Mathematical Formulation
-**Dattorro Figure-8 Tank Architecture:**
-1. **Input Diffusion:** Four cascaded Schroeder all-pass filters:
+
+#### 1. Dattorro Figure-8 Tank Architecture:
+1. **Input Diffusion:** Four cascaded Schroeder all-pass filters per channel:
    $$y[n] = -g x[n] + x[n - D] + g y[n - D]$$
 2. **Cross-Coupled Figure-8 Loop:** Two symmetric branches containing:
    - Modulated LFO delay lines (preventing metallic resonances).
    - One-pole lowpass damping filters: $y[n] = (1 - d) x[n] + d y[n-1]$.
    - Decay attenuation factor $k_{\text{decay}} = 10^{-3 D / (f_s \cdot \text{RT60})}$.
    - Cross-coupled feedback between left and right tanks.
+
+#### 2. 8-Channel Orthonormal Hadamard Feedback Delay Network (FDN):
+1. **Delay Line Array:** 8 mutually prime delay lines $L_i$ spanning 25 ms to 75 ms.
+2. **Unitary Feedback Matrix:** $\mathbf{A} = \frac{1}{\sqrt{8}} \mathbf{H}_8$ where $\mathbf{H}_8$ is the Sylvester-Hadamard matrix computed via the 3-stage Fast Walsh-Hadamard Transform (FWHT), achieving exact energy preservation with zero matrix multiplications:
+   $$\mathbf{y}_{\text{matrix}} = \frac{1}{\sqrt{8}} \mathbf{H}_8 \cdot \mathbf{x}_{\text{delays}}$$
+3. **Loss & Damping:** Per-channel delay attenuation $g_i = 10^{-3 \cdot (L_i / f_s) / \text{RT60}}$ cascaded with a 1-pole lowpass filter for frequency-dependent wall absorption.
+4. **Prime-Rate Micro-Modulation:** Subtle incommensurate sinusoidal delay modulation ($\pm 2.5$ samples) on alternate channels to break rigid eigentones.
+
+#### 3. Keith Barr All-Pass Ring (Alesis / Spin FV-1):
+1. **Input Diffusers:** 4 series Schroeder allpasses per channel ($g = \pm 0.6$).
+2. **4-Stage Recirculating Loop:**
+   $$\text{Stage}_k: \text{AP}_A (g = 0.6) \to \text{AP}_B (g = 0.5) \to \text{Damping LPF} \to \text{Delay}_k$$
+   Closed loop: $\text{Delay}_4 \to \text{Stage}_1, \text{Delay}_1 \to \text{Stage}_2, \text{Delay}_2 \to \text{Stage}_3, \text{Delay}_3 \to \text{Stage}_4$.
+3. **Quadrature Modulation:** 0.5 Hz quadrature sine/cosine LFO modulating delay taps in $\text{AP}_1$ and $\text{AP}_3$.
+4. **Multi-Tap Extraction:** 4 weighted taps per delay line summed into Left and Right outputs.
+
+#### 4. David Griesinger "Spin & Wander" Tank (Lexicon 480L):
+1. **Dual Figure-8 Tank:** Cross-coupled recirculating tanks with series input allpasses.
+2. **Spin Engine:** Dual asynchronous LFOs (0.75 Hz and 1.10 Hz) modulating loop allpass read pointers.
+3. **Wander Engine:** Smoothed decorrelated pseudo-random walk drifting delay positions by $\pm 12$ samples, simulating chaotic acoustic air currents and non-uniform boundary reflections in concert halls.
 
 ---
 

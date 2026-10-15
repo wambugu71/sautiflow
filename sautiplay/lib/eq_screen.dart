@@ -1162,6 +1162,159 @@ class _EqScreenState extends State<EqScreen>
     ),
   ];
 
+  static const List<
+      ({
+        String name,
+        double wet,
+        double dry,
+        double roomSize,
+        double damping,
+        double width
+      })> _hadamardPresets = [
+    (
+      name: 'Custom',
+      wet: 0.22,
+      dry: 0.95,
+      roomSize: 0.65,
+      damping: 0.30,
+      width: 1.0,
+    ),
+    (
+      name: 'Acoustic Concert Hall',
+      wet: 0.25,
+      dry: 0.95,
+      roomSize: 0.70,
+      damping: 0.35,
+      width: 1.05,
+    ),
+    (
+      name: 'Warm Wooden Chamber',
+      wet: 0.20,
+      dry: 0.90,
+      roomSize: 0.45,
+      damping: 0.50,
+      width: 0.95,
+    ),
+    (
+      name: 'Infinite Canyon',
+      wet: 0.40,
+      dry: 0.75,
+      roomSize: 0.92,
+      damping: 0.15,
+      width: 1.20,
+    ),
+    (
+      name: 'Pristine Studio Room',
+      wet: 0.15,
+      dry: 1.0,
+      roomSize: 0.30,
+      damping: 0.60,
+      width: 0.90,
+    ),
+  ];
+
+  static const List<
+      ({
+        String name,
+        double wet,
+        double dry,
+        double roomSize,
+        double damping,
+        double width
+      })> _barrPresets = [
+    (
+      name: 'Custom',
+      wet: 0.28,
+      dry: 0.90,
+      roomSize: 0.70,
+      damping: 0.35,
+      width: 1.0,
+    ),
+    (
+      name: 'Alesis Bloom',
+      wet: 0.35,
+      dry: 0.85,
+      roomSize: 0.80,
+      damping: 0.25,
+      width: 1.15,
+    ),
+    (
+      name: 'Shoegaze Dream Wash',
+      wet: 0.50,
+      dry: 0.70,
+      roomSize: 0.90,
+      damping: 0.15,
+      width: 1.25,
+    ),
+    (
+      name: 'Guitar Pedal Plate',
+      wet: 0.25,
+      dry: 0.95,
+      roomSize: 0.55,
+      damping: 0.40,
+      width: 1.0,
+    ),
+    (
+      name: 'Midiverb II Warm Space',
+      wet: 0.30,
+      dry: 0.90,
+      roomSize: 0.65,
+      damping: 0.45,
+      width: 1.05,
+    ),
+  ];
+
+  static const List<
+      ({
+        String name,
+        double wet,
+        double dry,
+        double roomSize,
+        double damping,
+        double width
+      })> _griesingerPresets = [
+    (
+      name: 'Custom',
+      wet: 0.24,
+      dry: 0.95,
+      roomSize: 0.68,
+      damping: 0.30,
+      width: 1.0,
+    ),
+    (
+      name: 'Lexicon 480L Random Hall',
+      wet: 0.26,
+      dry: 0.92,
+      roomSize: 0.75,
+      damping: 0.28,
+      width: 1.10,
+    ),
+    (
+      name: 'Blade Runner Brass Cloud',
+      wet: 0.45,
+      dry: 0.75,
+      roomSize: 0.88,
+      damping: 0.18,
+      width: 1.25,
+    ),
+    (
+      name: 'Lexicon 224 Rich Plate',
+      wet: 0.22,
+      dry: 0.98,
+      roomSize: 0.52,
+      damping: 0.20,
+      width: 1.0,
+    ),
+    (
+      name: 'Orchestral Hall Bloom',
+      wet: 0.30,
+      dry: 0.90,
+      roomSize: 0.82,
+      damping: 0.32,
+      width: 1.15,
+    ),
+  ];
+
   ReverbEngine _reverbEngine = ReverbEngine.dattorro;
 
   String _reverbPreset = 'Custom';
@@ -1190,6 +1343,30 @@ class _EqScreenState extends State<EqScreen>
   double _diffusionFactor = 0.65;
   double _diffusionDamping = 0.25;
   double _diffusionWidth = 1.0;
+
+  // Hadamard FDN Reverb
+  String _hadamardPreset = 'Custom';
+  double _hadamardWet = 0.22;
+  double _hadamardDry = 0.95;
+  double _hadamardRoomSize = 0.65;
+  double _hadamardDamping = 0.30;
+  double _hadamardWidth = 1.0;
+
+  // Keith Barr All-Pass Ring Reverb
+  String _barrPreset = 'Custom';
+  double _barrWet = 0.28;
+  double _barrDry = 0.90;
+  double _barrRoomSize = 0.70;
+  double _barrDamping = 0.35;
+  double _barrWidth = 1.0;
+
+  // David Griesinger Spin & Wander Reverb
+  String _griesingerPreset = 'Custom';
+  double _griesingerWet = 0.24;
+  double _griesingerDry = 0.95;
+  double _griesingerRoomSize = 0.68;
+  double _griesingerDamping = 0.30;
+  double _griesingerWidth = 1.0;
 
   // Audio Tuning (3-band EQ)
   bool _audioTuningEnabled = false;
@@ -2367,6 +2544,9 @@ class _EqScreenState extends State<EqScreen>
     final reverbEngineVal = await AppStateService.instance.loadReverbEngine();
     final latticeRev = await AppStateService.instance.loadLatticeReverb();
     final diffusionRev = await AppStateService.instance.loadDiffusionReverb();
+    final hadamardRev = await AppStateService.instance.loadHadamardReverb();
+    final barrRev = await AppStateService.instance.loadBarrReverb();
+    final griesingerRev = await AppStateService.instance.loadGriesingerReverb();
     final crossfeed = await AppStateService.instance.loadCrossfeed();
     final raceParams = await AppStateService.instance.loadRaceParams();
     final openStageParams =
@@ -2475,6 +2655,27 @@ class _EqScreenState extends State<EqScreen>
       _diffusionFactor = diffusionRev.diffusion;
       _diffusionDamping = diffusionRev.damping;
       _diffusionWidth = diffusionRev.width;
+
+      _hadamardPreset = hadamardRev.preset;
+      _hadamardWet = hadamardRev.wet;
+      _hadamardDry = hadamardRev.dry;
+      _hadamardRoomSize = hadamardRev.roomSize;
+      _hadamardDamping = hadamardRev.damping;
+      _hadamardWidth = hadamardRev.width;
+
+      _barrPreset = barrRev.preset;
+      _barrWet = barrRev.wet;
+      _barrDry = barrRev.dry;
+      _barrRoomSize = barrRev.roomSize;
+      _barrDamping = barrRev.damping;
+      _barrWidth = barrRev.width;
+
+      _griesingerPreset = griesingerRev.preset;
+      _griesingerWet = griesingerRev.wet;
+      _griesingerDry = griesingerRev.dry;
+      _griesingerRoomSize = griesingerRev.roomSize;
+      _griesingerDamping = griesingerRev.damping;
+      _griesingerWidth = griesingerRev.width;
 
       // Audio Tuning
       _audioTuningEnabled = tuning.enabled;
@@ -3335,6 +3536,39 @@ class _EqScreenState extends State<EqScreen>
           width: _diffusionWidth,
         );
         break;
+      case ReverbEngine.hadamardFdn:
+        widget.player.setReverbEngine(ReverbEngine.hadamardFdn);
+        widget.player.setHadamardReverb(
+          enabled: _reverbEnabled,
+          wet: _hadamardWet,
+          dry: _hadamardDry,
+          roomSize: _hadamardRoomSize,
+          damping: _hadamardDamping,
+          width: _hadamardWidth,
+        );
+        break;
+      case ReverbEngine.barrRing:
+        widget.player.setReverbEngine(ReverbEngine.barrRing);
+        widget.player.setBarrReverb(
+          enabled: _reverbEnabled,
+          wet: _barrWet,
+          dry: _barrDry,
+          roomSize: _barrRoomSize,
+          damping: _barrDamping,
+          width: _barrWidth,
+        );
+        break;
+      case ReverbEngine.griesinger:
+        widget.player.setReverbEngine(ReverbEngine.griesinger);
+        widget.player.setGriesingerReverb(
+          enabled: _reverbEnabled,
+          wet: _griesingerWet,
+          dry: _griesingerDry,
+          roomSize: _griesingerRoomSize,
+          damping: _griesingerDamping,
+          width: _griesingerWidth,
+        );
+        break;
     }
   }
 
@@ -3455,6 +3689,30 @@ class _EqScreenState extends State<EqScreen>
       diffusion: _diffusionFactor,
       damping: _diffusionDamping,
       width: _diffusionWidth,
+    );
+    AppStateService.instance.saveHadamardReverb(
+      preset: _hadamardPreset,
+      wet: _hadamardWet,
+      dry: _hadamardDry,
+      roomSize: _hadamardRoomSize,
+      damping: _hadamardDamping,
+      width: _hadamardWidth,
+    );
+    AppStateService.instance.saveBarrReverb(
+      preset: _barrPreset,
+      wet: _barrWet,
+      dry: _barrDry,
+      roomSize: _barrRoomSize,
+      damping: _barrDamping,
+      width: _barrWidth,
+    );
+    AppStateService.instance.saveGriesingerReverb(
+      preset: _griesingerPreset,
+      wet: _griesingerWet,
+      dry: _griesingerDry,
+      roomSize: _griesingerRoomSize,
+      damping: _griesingerDamping,
+      width: _griesingerWidth,
     );
     AppStateService.instance.saveAudioTuning(
       enabled: _audioTuningEnabled,
@@ -3826,6 +4084,27 @@ class _EqScreenState extends State<EqScreen>
       _diffusionDamping = 0.25;
       _diffusionWidth = 1.0;
 
+      _hadamardPreset = 'Custom';
+      _hadamardWet = 0.22;
+      _hadamardDry = 0.95;
+      _hadamardRoomSize = 0.65;
+      _hadamardDamping = 0.30;
+      _hadamardWidth = 1.0;
+
+      _barrPreset = 'Custom';
+      _barrWet = 0.28;
+      _barrDry = 0.90;
+      _barrRoomSize = 0.70;
+      _barrDamping = 0.35;
+      _barrWidth = 1.0;
+
+      _griesingerPreset = 'Custom';
+      _griesingerWet = 0.24;
+      _griesingerDry = 0.95;
+      _griesingerRoomSize = 0.68;
+      _griesingerDamping = 0.30;
+      _griesingerWidth = 1.0;
+
       widget.player.setReverbEngine(ReverbEngine.dattorro);
       widget.player.setReverbEx(
         enabled: false,
@@ -3853,6 +4132,30 @@ class _EqScreenState extends State<EqScreen>
         diffusion: _diffusionFactor,
         damping: _diffusionDamping,
         width: _diffusionWidth,
+      );
+      widget.player.setHadamardReverb(
+        enabled: false,
+        wet: _hadamardWet,
+        dry: _hadamardDry,
+        roomSize: _hadamardRoomSize,
+        damping: _hadamardDamping,
+        width: _hadamardWidth,
+      );
+      widget.player.setBarrReverb(
+        enabled: false,
+        wet: _barrWet,
+        dry: _barrDry,
+        roomSize: _barrRoomSize,
+        damping: _barrDamping,
+        width: _barrWidth,
+      );
+      widget.player.setGriesingerReverb(
+        enabled: false,
+        wet: _griesingerWet,
+        dry: _griesingerDry,
+        roomSize: _griesingerRoomSize,
+        damping: _griesingerDamping,
+        width: _griesingerWidth,
       );
 
       _audioTuningEnabled = false;
@@ -10700,11 +11003,68 @@ class _EqScreenState extends State<EqScreen>
     _saveEqState();
   }
 
+  void _applyHadamardPreset(String name) {
+    final preset = _hadamardPresets.firstWhere(
+      (p) => p.name == name,
+      orElse: () => _hadamardPresets.first,
+    );
+    setState(() {
+      _hadamardPreset = preset.name;
+      _hadamardWet = preset.wet;
+      _hadamardDry = preset.dry;
+      _hadamardRoomSize = preset.roomSize;
+      _hadamardDamping = preset.damping;
+      _hadamardWidth = preset.width;
+    });
+    if (_reverbEnabled) _updateReverb();
+    _saveEqState();
+  }
+
+  void _applyBarrPreset(String name) {
+    final preset = _barrPresets.firstWhere(
+      (p) => p.name == name,
+      orElse: () => _barrPresets.first,
+    );
+    setState(() {
+      _barrPreset = preset.name;
+      _barrWet = preset.wet;
+      _barrDry = preset.dry;
+      _barrRoomSize = preset.roomSize;
+      _barrDamping = preset.damping;
+      _barrWidth = preset.width;
+    });
+    if (_reverbEnabled) _updateReverb();
+    _saveEqState();
+  }
+
+  void _applyGriesingerPreset(String name) {
+    final preset = _griesingerPresets.firstWhere(
+      (p) => p.name == name,
+      orElse: () => _griesingerPresets.first,
+    );
+    setState(() {
+      _griesingerPreset = preset.name;
+      _griesingerWet = preset.wet;
+      _griesingerDry = preset.dry;
+      _griesingerRoomSize = preset.roomSize;
+      _griesingerDamping = preset.damping;
+      _griesingerWidth = preset.width;
+    });
+    if (_reverbEnabled) _updateReverb();
+    _saveEqState();
+  }
+
   String _getReverbSubtitle() {
     return switch (_reverbEngine) {
       ReverbEngine.dattorro => 'Studio diffuse tank acoustic space',
       ReverbEngine.lattice => 'Clean-room 4-Comb + 2-Allpass recursive lattice',
       ReverbEngine.diffusion => 'Multi-tap high-density diffusion lattice',
+      ReverbEngine.hadamardFdn =>
+        '8-channel orthonormal Hadamard feedback delay network',
+      ReverbEngine.barrRing =>
+        'Alesis / Spin FV-1 quad all-pass recirculating ring',
+      ReverbEngine.griesinger =>
+        'Lexicon 224/480L figure-8 tank with spin & wander drift',
     };
   }
 
@@ -10775,6 +11135,12 @@ class _EqScreenState extends State<EqScreen>
                 'Clean-Room Lattice • 4 parallel tuned comb filters with cascaded allpass diffusers & low coloration',
               ReverbEngine.diffusion =>
                 'Multi-Tap Diffusion • Extended prime resonator array with 4-stage allpass dispersion & decay T60 control',
+              ReverbEngine.hadamardFdn =>
+                '8-Channel Hadamard FDN • Orthonormal Fast Walsh-Hadamard feedback matrix with prime delay lines & Jot energy conservation',
+              ReverbEngine.barrRing =>
+                'Keith Barr All-Pass Ring • 4 series input diffusers feeding 4 recirculating allpass-delay loops with quadrature LFO modulation',
+              ReverbEngine.griesinger =>
+                'Griesinger Spin & Wander • Dual cross-coupled figure-8 loops with dual LFO spin & random-walk wander delay modulation',
             },
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.7),
@@ -10833,6 +11199,39 @@ class _EqScreenState extends State<EqScreen>
                             ))
                         .toList(),
                     onChanged: (val) => _applyDiffusionPreset(val),
+                  ),
+                ReverbEngine.hadamardFdn => _buildM3EDropdown<String>(
+                    value: _hadamardPreset,
+                    searchEnabled: true,
+                    items: _hadamardPresets
+                        .map((p) => M3EDropdownItem<String>(
+                              value: p.name,
+                              label: p.name,
+                            ))
+                        .toList(),
+                    onChanged: (val) => _applyHadamardPreset(val),
+                  ),
+                ReverbEngine.barrRing => _buildM3EDropdown<String>(
+                    value: _barrPreset,
+                    searchEnabled: true,
+                    items: _barrPresets
+                        .map((p) => M3EDropdownItem<String>(
+                              value: p.name,
+                              label: p.name,
+                            ))
+                        .toList(),
+                    onChanged: (val) => _applyBarrPreset(val),
+                  ),
+                ReverbEngine.griesinger => _buildM3EDropdown<String>(
+                    value: _griesingerPreset,
+                    searchEnabled: true,
+                    items: _griesingerPresets
+                        .map((p) => M3EDropdownItem<String>(
+                              value: p.name,
+                              label: p.name,
+                            ))
+                        .toList(),
+                    onChanged: (val) => _applyGriesingerPreset(val),
                   ),
               },
             ),
@@ -11239,6 +11638,351 @@ class _EqScreenState extends State<EqScreen>
             child: Text(
               'Diffusion tip: Multi-tap allpass network smears transients into an ultra-dense, '
               'lush tail; higher decay times produce expansive ambient spaces.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 11.5,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ] else if (_reverbEngine == ReverbEngine.hadamardFdn) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'WET',
+                value: _hadamardWet,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.22,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _hadamardWet = v;
+                    _hadamardPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'ROOM SIZE',
+                value: _hadamardRoomSize,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.65,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _hadamardRoomSize = v;
+                    _hadamardPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DAMPING',
+                value: _hadamardDamping,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.30,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _hadamardDamping = v;
+                    _hadamardPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'DRY',
+                value: _hadamardDry,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.95,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _hadamardDry = v;
+                    _hadamardPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'WIDTH',
+                value: _hadamardWidth,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 1.0,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _hadamardWidth = v;
+                    _hadamardPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Text(
+              'Hadamard FDN tip: 8-channel orthonormal feedback network with prime delays '
+              'guarantees zero modal ringing and natural diffuse decay.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 11.5,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ] else if (_reverbEngine == ReverbEngine.barrRing) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'WET',
+                value: _barrWet,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.28,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _barrWet = v;
+                    _barrPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'ROOM SIZE',
+                value: _barrRoomSize,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.70,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _barrRoomSize = v;
+                    _barrPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DAMPING',
+                value: _barrDamping,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.35,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _barrDamping = v;
+                    _barrPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'DRY',
+                value: _barrDry,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.90,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _barrDry = v;
+                    _barrPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'WIDTH',
+                value: _barrWidth,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 1.0,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _barrWidth = v;
+                    _barrPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Text(
+              'Barr Ring tip: Recirculating 4-stage allpass ring with quadrature modulation '
+              'produces the warm, bloom-heavy wash of legendary Alesis hardware.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 11.5,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ] else if (_reverbEngine == ReverbEngine.griesinger) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'WET',
+                value: _griesingerWet,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.24,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _griesingerWet = v;
+                    _griesingerPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'ROOM SIZE',
+                value: _griesingerRoomSize,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.68,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _griesingerRoomSize = v;
+                    _griesingerPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'DAMPING',
+                value: _griesingerDamping,
+                min: 0.0,
+                max: 1.0,
+                flatValue: 0.30,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _griesingerDamping = v;
+                    _griesingerPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ModernAudioKnob(
+                label: 'DRY',
+                value: _griesingerDry,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 0.95,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _griesingerDry = v;
+                    _griesingerPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'WIDTH',
+                value: _griesingerWidth,
+                min: 0.0,
+                max: 2.0,
+                flatValue: 1.0,
+                activeColor: _reverbEnabled ? primaryColor : Colors.white,
+                isPercentage: true,
+                valueFormatter: (v) => '${(v * 100).toInt()}%',
+                onChanged: (v) {
+                  setState(() {
+                    _griesingerWidth = v;
+                    _griesingerPreset = 'Custom';
+                  });
+                  if (_reverbEnabled) _updateReverb();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+            child: Text(
+              'Griesinger tip: Dual LFO spin coupled with continuous random-walk delay drift '
+              'breaks standing waves for rich, silky Lexicon plate & hall acoustics.',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.4),
                 fontSize: 11.5,

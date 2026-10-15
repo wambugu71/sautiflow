@@ -230,6 +230,86 @@ int main()
         std::cout << "PASS: Damping filter provides smooth, effective acoustic absorption." << std::endl;
     }
 
+    // Test 9: Comprehensive Multi-Engine Validation (All 6 Topologies)
+    const char* engineNames[] = {
+        "Dattorro Figure-8 Plate",
+        "Lattice Reverb (Parallel Comb)",
+        "Diffusion Reverb (Multi-Stage)",
+        "8-Channel Hadamard FDN",
+        "Keith Barr All-Pass Ring",
+        "David Griesinger Spin & Wander"
+    };
+
+    for (int eng = 0; eng <= 5; ++eng)
+    {
+        std::cout << "\n--- Testing Engine " << eng << " (" << engineNames[eng] << ") ---" << std::endl;
+        ReverbNode testNode;
+        testNode.setSampleRate(48000.0);
+        testNode.setEngine(eng);
+        testNode.setEnabled(true);
+        testNode.setWet(0.5f);
+        testNode.setDry(1.0f);
+        testNode.setRoomSize(0.7f);
+        testNode.setDamping(0.3f);
+        testNode.setWidth(1.0f);
+        testNode.reset();
+
+        const uint32_t fCount = 48000;
+        std::vector<float> buf(fCount * 2, 0.0f);
+        buf[0] = 1.0f; // Left impulse
+        buf[1] = 1.0f; // Right impulse
+
+        const uint32_t chunk = 256;
+        for (uint32_t i = 0; i < fCount; i += chunk)
+        {
+            uint32_t toProc = std::min(chunk, fCount - i);
+            testNode.process(&buf[i * 2], toProc, 2);
+        }
+
+        // 1. Check NaN/Inf
+        for (size_t i = 0; i < buf.size(); ++i)
+        {
+            if (std::isnan(buf[i]) || std::isinf(buf[i]))
+            {
+                std::cerr << "FAILED: Engine " << eng << " produced NaN/Inf at sample " << i << std::endl;
+                return 1;
+            }
+        }
+        std::cout << "PASS: Engine " << eng << " output is finite and stable (no NaN/Inf)." << std::endl;
+
+        // 2. Tail energy check
+        float tEnergy = 0.0f;
+        for (size_t i = 2000 * 2; i < 35000 * 2; ++i)
+        {
+            tEnergy += buf[i] * buf[i];
+        }
+        std::cout << "Tail energy: " << tEnergy << std::endl;
+        if (tEnergy <= 0.0001f)
+        {
+            std::cerr << "FAILED: Engine " << eng << " tail energy too low!" << std::endl;
+            return 1;
+        }
+
+        // 3. Stereo decorrelation check
+        float diffE = 0.0f;
+        float sumE = 0.0f;
+        for (size_t i = 2000; i < 15000; ++i)
+        {
+            float l = buf[i * 2];
+            float r = buf[i * 2 + 1];
+            diffE += (l - r) * (l - r);
+            sumE += (l + r) * (l + r);
+        }
+        float decorrRatio = diffE / (sumE + 1e-6f);
+        std::cout << "Stereo decorrelation ratio (diff/sum): " << decorrRatio << std::endl;
+        if (decorrRatio < 0.03f)
+        {
+            std::cerr << "FAILED: Engine " << eng << " stereo channels too correlated!" << std::endl;
+            return 1;
+        }
+        std::cout << "PASS: Engine " << eng << " produces rich, decorrelated stereo field." << std::endl;
+    }
+
     std::cout << "\nALL REVERB TESTS PASSED SUCCESSFULLY!" << std::endl;
     return 0;
 }

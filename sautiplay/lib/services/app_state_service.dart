@@ -489,6 +489,138 @@ class AppStateService {
     );
   }
 
+  static const _kHadamardPreset = 'sp_hadamard_preset';
+  static const _kHadamardWet = 'sp_hadamard_wet';
+  static const _kHadamardDry = 'sp_hadamard_dry';
+  static const _kHadamardRoomSize = 'sp_hadamard_room_size';
+  static const _kHadamardDamping = 'sp_hadamard_damping';
+  static const _kHadamardWidth = 'sp_hadamard_width';
+
+  Future<void> saveHadamardReverb({
+    required String preset,
+    required double wet,
+    required double dry,
+    required double roomSize,
+    required double damping,
+    required double width,
+  }) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setString(_kHadamardPreset, preset);
+    await prefs.setDouble(_kHadamardWet, wet);
+    await prefs.setDouble(_kHadamardDry, dry);
+    await prefs.setDouble(_kHadamardRoomSize, roomSize);
+    await prefs.setDouble(_kHadamardDamping, damping);
+    await prefs.setDouble(_kHadamardWidth, width);
+  }
+
+  Future<
+      ({
+        String preset,
+        double wet,
+        double dry,
+        double roomSize,
+        double damping,
+        double width
+      })> loadHadamardReverb() async {
+    final prefs = PreferencesStore.instance;
+    return (
+      preset: prefs.getString(_kHadamardPreset) ?? 'Custom',
+      wet: prefs.getDouble(_kHadamardWet) ?? 0.22,
+      dry: prefs.getDouble(_kHadamardDry) ?? 0.95,
+      roomSize: prefs.getDouble(_kHadamardRoomSize) ?? 0.65,
+      damping: prefs.getDouble(_kHadamardDamping) ?? 0.30,
+      width: prefs.getDouble(_kHadamardWidth) ?? 1.0,
+    );
+  }
+
+  static const _kBarrPreset = 'sp_barr_preset';
+  static const _kBarrWet = 'sp_barr_wet';
+  static const _kBarrDry = 'sp_barr_dry';
+  static const _kBarrRoomSize = 'sp_barr_room_size';
+  static const _kBarrDamping = 'sp_barr_damping';
+  static const _kBarrWidth = 'sp_barr_width';
+
+  Future<void> saveBarrReverb({
+    required String preset,
+    required double wet,
+    required double dry,
+    required double roomSize,
+    required double damping,
+    required double width,
+  }) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setString(_kBarrPreset, preset);
+    await prefs.setDouble(_kBarrWet, wet);
+    await prefs.setDouble(_kBarrDry, dry);
+    await prefs.setDouble(_kBarrRoomSize, roomSize);
+    await prefs.setDouble(_kBarrDamping, damping);
+    await prefs.setDouble(_kBarrWidth, width);
+  }
+
+  Future<
+      ({
+        String preset,
+        double wet,
+        double dry,
+        double roomSize,
+        double damping,
+        double width
+      })> loadBarrReverb() async {
+    final prefs = PreferencesStore.instance;
+    return (
+      preset: prefs.getString(_kBarrPreset) ?? 'Custom',
+      wet: prefs.getDouble(_kBarrWet) ?? 0.28,
+      dry: prefs.getDouble(_kBarrDry) ?? 0.90,
+      roomSize: prefs.getDouble(_kBarrRoomSize) ?? 0.70,
+      damping: prefs.getDouble(_kBarrDamping) ?? 0.35,
+      width: prefs.getDouble(_kBarrWidth) ?? 1.0,
+    );
+  }
+
+  static const _kGriesingerPreset = 'sp_griesinger_preset';
+  static const _kGriesingerWet = 'sp_griesinger_wet';
+  static const _kGriesingerDry = 'sp_griesinger_dry';
+  static const _kGriesingerRoomSize = 'sp_griesinger_room_size';
+  static const _kGriesingerDamping = 'sp_griesinger_damping';
+  static const _kGriesingerWidth = 'sp_griesinger_width';
+
+  Future<void> saveGriesingerReverb({
+    required String preset,
+    required double wet,
+    required double dry,
+    required double roomSize,
+    required double damping,
+    required double width,
+  }) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setString(_kGriesingerPreset, preset);
+    await prefs.setDouble(_kGriesingerWet, wet);
+    await prefs.setDouble(_kGriesingerDry, dry);
+    await prefs.setDouble(_kGriesingerRoomSize, roomSize);
+    await prefs.setDouble(_kGriesingerDamping, damping);
+    await prefs.setDouble(_kGriesingerWidth, width);
+  }
+
+  Future<
+      ({
+        String preset,
+        double wet,
+        double dry,
+        double roomSize,
+        double damping,
+        double width
+      })> loadGriesingerReverb() async {
+    final prefs = PreferencesStore.instance;
+    return (
+      preset: prefs.getString(_kGriesingerPreset) ?? 'Custom',
+      wet: prefs.getDouble(_kGriesingerWet) ?? 0.24,
+      dry: prefs.getDouble(_kGriesingerDry) ?? 0.95,
+      roomSize: prefs.getDouble(_kGriesingerRoomSize) ?? 0.68,
+      damping: prefs.getDouble(_kGriesingerDamping) ?? 0.30,
+      width: prefs.getDouble(_kGriesingerWidth) ?? 1.0,
+    );
+  }
+
   static const _kRaceDelayMs = 'sp_race_delay_ms';
   static const _kRaceAlpha = 'sp_race_alpha';
   static const _kRaceLpfHz = 'sp_race_lpf_hz';

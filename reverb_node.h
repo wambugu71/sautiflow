@@ -28,11 +28,17 @@
 #include <algorithm>
 #include "dsp/lattice_reverb_dsp.h"
 #include "dsp/diffusion_reverb_dsp.h"
+#include "dsp/hadamard_fdn_dsp.h"
+#include "dsp/barr_ring_reverb_dsp.h"
+#include "dsp/griesinger_tank_dsp.h"
 
 enum class ReverbEngine {
     Dattorro = 0,
     Lattice = 1,
-    Diffusion = 2
+    Diffusion = 2,
+    HadamardFdn = 3,
+    BarrRing = 4,
+    Griesinger = 5
 };
 
 #ifndef M_PI
@@ -56,6 +62,9 @@ public:
             rate = 48000.0;
         latticeDsp.setSampleRate(rate);
         diffusionDsp.setSampleRate(rate);
+        hadamardDsp.setSampleRate(rate);
+        barrDsp.setSampleRate(rate);
+        griesingerDsp.setSampleRate(rate);
         if (std::abs(sampleRate - rate) < 0.1)
             return;
 
@@ -69,14 +78,20 @@ public:
         targetEnabled = e;
         latticeDsp.setEnabled(e && targetEngine == ReverbEngine::Lattice);
         diffusionDsp.setEnabled(e && targetEngine == ReverbEngine::Diffusion);
+        hadamardDsp.setEnabled(e && targetEngine == ReverbEngine::HadamardFdn);
+        barrDsp.setEnabled(e && targetEngine == ReverbEngine::BarrRing);
+        griesingerDsp.setEnabled(e && targetEngine == ReverbEngine::Griesinger);
     }
 
     void setEngine(int engine)
     {
-        if (engine < 0 || engine > 2) engine = 0;
+        if (engine < 0 || engine > 5) engine = 0;
         targetEngine = static_cast<ReverbEngine>(engine);
         latticeDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Lattice);
         diffusionDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Diffusion);
+        hadamardDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::HadamardFdn);
+        barrDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::BarrRing);
+        griesingerDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Griesinger);
     }
 
     int getEngine() const { return static_cast<int>(targetEngine); }
@@ -111,6 +126,48 @@ public:
         if (width) *width = diffusionDsp.getWidth();
     }
 
+    void setHadamardParams(float wet, float dry, float roomSize, float damping, float width = 1.0f)
+    {
+        hadamardDsp.setParams(wet, dry, roomSize, damping, width);
+    }
+
+    void getHadamardParams(float *wet, float *dry, float *roomSize, float *damping, float *width) const
+    {
+        if (wet) *wet = hadamardDsp.getWet();
+        if (dry) *dry = hadamardDsp.getDry();
+        if (roomSize) *roomSize = hadamardDsp.getRoomSize();
+        if (damping) *damping = hadamardDsp.getDamping();
+        if (width) *width = hadamardDsp.getWidth();
+    }
+
+    void setBarrParams(float wet, float dry, float roomSize, float damping, float width = 1.0f)
+    {
+        barrDsp.setParams(wet, dry, roomSize, damping, width);
+    }
+
+    void getBarrParams(float *wet, float *dry, float *roomSize, float *damping, float *width) const
+    {
+        if (wet) *wet = barrDsp.getWet();
+        if (dry) *dry = barrDsp.getDry();
+        if (roomSize) *roomSize = barrDsp.getRoomSize();
+        if (damping) *damping = barrDsp.getDamping();
+        if (width) *width = barrDsp.getWidth();
+    }
+
+    void setGriesingerParams(float wet, float dry, float roomSize, float damping, float width = 1.0f)
+    {
+        griesingerDsp.setParams(wet, dry, roomSize, damping, width);
+    }
+
+    void getGriesingerParams(float *wet, float *dry, float *roomSize, float *damping, float *width) const
+    {
+        if (wet) *wet = griesingerDsp.getWet();
+        if (dry) *dry = griesingerDsp.getDry();
+        if (roomSize) *roomSize = griesingerDsp.getRoomSize();
+        if (damping) *damping = griesingerDsp.getDamping();
+        if (width) *width = griesingerDsp.getWidth();
+    }
+
     bool getEnabled() const { return targetEnabled; }
 
     void setMix(float m)
@@ -124,6 +181,9 @@ public:
         targetWet = std::max(0.0f, std::min(w, 2.0f));
         latticeDsp.setWet(targetWet);
         diffusionDsp.setWet(targetWet);
+        hadamardDsp.setWet(targetWet);
+        barrDsp.setWet(targetWet);
+        griesingerDsp.setWet(targetWet);
     }
 
     void setDry(float d)
@@ -131,6 +191,9 @@ public:
         targetDry = std::max(0.0f, std::min(d, 2.0f));
         latticeDsp.setDry(targetDry);
         diffusionDsp.setDry(targetDry);
+        hadamardDsp.setDry(targetDry);
+        barrDsp.setDry(targetDry);
+        griesingerDsp.setDry(targetDry);
     }
 
     void setRoomSize(float r)
@@ -138,6 +201,9 @@ public:
         targetRoomSize = std::max(0.0f, std::min(r, 1.0f));
         latticeDsp.setRoomSize(targetRoomSize);
         diffusionDsp.setRoomSize(targetRoomSize);
+        hadamardDsp.setRoomSize(targetRoomSize);
+        barrDsp.setRoomSize(targetRoomSize);
+        griesingerDsp.setRoomSize(targetRoomSize);
     }
 
     void setDamping(float d)
@@ -145,6 +211,9 @@ public:
         targetDamping = std::max(0.0f, std::min(d, 1.0f));
         latticeDsp.setDamping(targetDamping);
         diffusionDsp.setDamping(targetDamping);
+        hadamardDsp.setDamping(targetDamping);
+        barrDsp.setDamping(targetDamping);
+        griesingerDsp.setDamping(targetDamping);
     }
 
     void setPreDelayMs(float ms)
@@ -157,6 +226,9 @@ public:
         targetWidth = std::max(0.0f, std::min(w, 2.0f));
         latticeDsp.setWidth(targetWidth);
         diffusionDsp.setWidth(targetWidth);
+        hadamardDsp.setWidth(targetWidth);
+        barrDsp.setWidth(targetWidth);
+        griesingerDsp.setWidth(targetWidth);
     }
 
     float getWet() const { return targetWet; }
@@ -221,6 +293,9 @@ public:
         currentEnabled = targetEnabled;
         latticeDsp.reset();
         diffusionDsp.reset();
+        hadamardDsp.reset();
+        barrDsp.reset();
+        griesingerDsp.reset();
     }
 
     void process(float *interleaved, uint32_t frames, int channels)
@@ -244,6 +319,24 @@ public:
         if (targetEngine == ReverbEngine::Diffusion)
         {
             diffusionDsp.process(interleaved, frames, channels);
+            return;
+        }
+
+        if (targetEngine == ReverbEngine::HadamardFdn)
+        {
+            hadamardDsp.process(interleaved, frames, channels);
+            return;
+        }
+
+        if (targetEngine == ReverbEngine::BarrRing)
+        {
+            barrDsp.process(interleaved, frames, channels);
+            return;
+        }
+
+        if (targetEngine == ReverbEngine::Griesinger)
+        {
+            griesingerDsp.process(interleaved, frames, channels);
             return;
         }
 
@@ -673,4 +766,7 @@ private:
     ReverbEngine targetEngine = ReverbEngine::Dattorro;
     sauti::dsp::LatticeReverbDSP latticeDsp;
     sauti::dsp::DiffusionReverbDSP diffusionDsp;
+    sauti::dsp::HadamardFdnDSP hadamardDsp;
+    sauti::dsp::BarrRingReverbDSP barrDsp;
+    sauti::dsp::GriesingerTankDSP griesingerDsp;
 };

@@ -469,6 +469,63 @@ class IsolateAudioPlayer {
     });
   }
 
+  void setHadamardReverb({
+    required bool enabled,
+    double wet = 0.22,
+    double dry = 0.95,
+    double roomSize = 0.65,
+    double damping = 0.30,
+    double width = 1.0,
+  }) {
+    _send({
+      'cmd': 'setHadamardReverb',
+      'enabled': enabled,
+      'wet': wet,
+      'dry': dry,
+      'roomSize': roomSize,
+      'damping': damping,
+      'width': width,
+    });
+  }
+
+  void setBarrReverb({
+    required bool enabled,
+    double wet = 0.28,
+    double dry = 0.90,
+    double roomSize = 0.70,
+    double damping = 0.35,
+    double width = 1.0,
+  }) {
+    _send({
+      'cmd': 'setBarrReverb',
+      'enabled': enabled,
+      'wet': wet,
+      'dry': dry,
+      'roomSize': roomSize,
+      'damping': damping,
+      'width': width,
+    });
+  }
+
+  void setGriesingerReverb({
+    required bool enabled,
+    double wet = 0.24,
+    double dry = 0.95,
+    double roomSize = 0.68,
+    double damping = 0.30,
+    double width = 1.0,
+  }) {
+    _send({
+      'cmd': 'setGriesingerReverb',
+      'enabled': enabled,
+      'wet': wet,
+      'dry': dry,
+      'roomSize': roomSize,
+      'damping': damping,
+      'width': width,
+    });
+  }
+
   /// Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4)
   void setToneCrossoverEnabled(bool enabled) {
     _send({'cmd': 'setToneCrossoverEnabled', 'enabled': enabled});
@@ -1987,6 +2044,48 @@ void _isolateEntry(_IsolateInitData initData) {
             decayTimeMs: (message['decayTimeMs'] as num?)?.toDouble() ?? 1500.0,
             diffusion: (message['diffusion'] as num?)?.toDouble() ?? 0.65,
             damping: (message['damping'] as num?)?.toDouble() ?? 0.25,
+            width: (message['width'] as num?)?.toDouble() ?? 1.0,
+          );
+          break;
+        case 'setHadamardReverb':
+          final bool hadEnabled = message['enabled'] as bool? ?? false;
+          player.setReverbEnabled(hadEnabled);
+          player.setReverbEngine(ReverbEngine.hadamardFdn);
+          player.setReverbEx(
+            enabled: hadEnabled,
+            wet: (message['wet'] as num?)?.toDouble() ?? 0.22,
+            dry: (message['dry'] as num?)?.toDouble() ?? 0.95,
+            roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.65,
+            damping: (message['damping'] as num?)?.toDouble() ?? 0.30,
+            preDelayMs: 0.0,
+            width: (message['width'] as num?)?.toDouble() ?? 1.0,
+          );
+          break;
+        case 'setBarrReverb':
+          final bool barrEnabled = message['enabled'] as bool? ?? false;
+          player.setReverbEnabled(barrEnabled);
+          player.setReverbEngine(ReverbEngine.barrRing);
+          player.setReverbEx(
+            enabled: barrEnabled,
+            wet: (message['wet'] as num?)?.toDouble() ?? 0.28,
+            dry: (message['dry'] as num?)?.toDouble() ?? 0.90,
+            roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.70,
+            damping: (message['damping'] as num?)?.toDouble() ?? 0.35,
+            preDelayMs: 0.0,
+            width: (message['width'] as num?)?.toDouble() ?? 1.0,
+          );
+          break;
+        case 'setGriesingerReverb':
+          final bool griesEnabled = message['enabled'] as bool? ?? false;
+          player.setReverbEnabled(griesEnabled);
+          player.setReverbEngine(ReverbEngine.griesinger);
+          player.setReverbEx(
+            enabled: griesEnabled,
+            wet: (message['wet'] as num?)?.toDouble() ?? 0.24,
+            dry: (message['dry'] as num?)?.toDouble() ?? 0.95,
+            roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.68,
+            damping: (message['damping'] as num?)?.toDouble() ?? 0.30,
+            preDelayMs: 0.0,
             width: (message['width'] as num?)?.toDouble() ?? 1.0,
           );
           break;

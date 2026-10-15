@@ -198,7 +198,10 @@ class ReverbParamsEx {
 enum ReverbEngine {
   dattorro(0, 'Dattorro Plate'),
   lattice(1, 'Lattice Reverb'),
-  diffusion(2, 'Diffusion Reverb');
+  diffusion(2, 'Diffusion Reverb'),
+  hadamardFdn(3, 'Hadamard FDN Hall'),
+  barrRing(4, 'Keith Barr All-Pass Ring'),
+  griesinger(5, 'Griesinger Spin & Wander');
 
   const ReverbEngine(this.value, this.label);
   final int value;
@@ -210,6 +213,12 @@ enum ReverbEngine {
         return ReverbEngine.lattice;
       case 2:
         return ReverbEngine.diffusion;
+      case 3:
+        return ReverbEngine.hadamardFdn;
+      case 4:
+        return ReverbEngine.barrRing;
+      case 5:
+        return ReverbEngine.griesinger;
       case 0:
       default:
         return ReverbEngine.dattorro;
