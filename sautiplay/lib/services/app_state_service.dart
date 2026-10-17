@@ -1776,6 +1776,34 @@ class AppStateService {
           prefs.getInt(_kAudioFocusHeadsetClickTimeoutMs) ?? 350,
     );
   }
+
+  // ─── Proximity Wave Gestures ────────────────────────────────────────────────
+  static const _kProximityGesturesEnabled = 'sp_proximity_gestures_enabled';
+  static const _kProximityOnlyWhenPlaying = 'sp_proximity_only_when_playing';
+  static const _kProximityHapticFeedback = 'sp_proximity_haptic_feedback';
+  static const _kProximityWaveDebounceMs = 'sp_proximity_wave_debounce_ms';
+
+  final StreamController<ProximityGestureSettings> proximitySettingsChanged =
+      StreamController<ProximityGestureSettings>.broadcast();
+
+  Future<void> saveProximitySettings(ProximityGestureSettings settings) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setBool(_kProximityGesturesEnabled, settings.enabled);
+    await prefs.setBool(_kProximityOnlyWhenPlaying, settings.onlyWhenPlaying);
+    await prefs.setBool(_kProximityHapticFeedback, settings.hapticFeedback);
+    await prefs.setInt(_kProximityWaveDebounceMs, settings.waveDebounceMs);
+    proximitySettingsChanged.add(settings);
+  }
+
+  Future<ProximityGestureSettings> loadProximitySettings() async {
+    final prefs = PreferencesStore.instance;
+    return ProximityGestureSettings(
+      enabled: prefs.getBool(_kProximityGesturesEnabled) ?? false,
+      onlyWhenPlaying: prefs.getBool(_kProximityOnlyWhenPlaying) ?? true,
+      hapticFeedback: prefs.getBool(_kProximityHapticFeedback) ?? true,
+      waveDebounceMs: prefs.getInt(_kProximityWaveDebounceMs) ?? 500,
+    );
+  }
 }
 
 class AudioFocusSettings {
@@ -1832,6 +1860,52 @@ class AudioFocusSettings {
           headsetClickTimeoutMs ?? this.headsetClickTimeoutMs,
     );
   }
+}
+
+class ProximityGestureSettings {
+  final bool enabled;
+  final bool onlyWhenPlaying;
+  final bool hapticFeedback;
+  final int waveDebounceMs;
+
+  const ProximityGestureSettings({
+    this.enabled = false,
+    this.onlyWhenPlaying = true,
+    this.hapticFeedback = true,
+    this.waveDebounceMs = 500,
+  });
+
+  ProximityGestureSettings copyWith({
+    bool? enabled,
+    bool? onlyWhenPlaying,
+    bool? hapticFeedback,
+    int? waveDebounceMs,
+  }) {
+    return ProximityGestureSettings(
+      enabled: enabled ?? this.enabled,
+      onlyWhenPlaying: onlyWhenPlaying ?? this.onlyWhenPlaying,
+      hapticFeedback: hapticFeedback ?? this.hapticFeedback,
+      waveDebounceMs: waveDebounceMs ?? this.waveDebounceMs,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProximityGestureSettings &&
+          runtimeType == other.runtimeType &&
+          enabled == other.enabled &&
+          onlyWhenPlaying == other.onlyWhenPlaying &&
+          hapticFeedback == other.hapticFeedback &&
+          waveDebounceMs == other.waveDebounceMs;
+
+  @override
+  int get hashCode => Object.hash(
+        enabled,
+        onlyWhenPlaying,
+        hapticFeedback,
+        waveDebounceMs,
+      );
 }
 
 

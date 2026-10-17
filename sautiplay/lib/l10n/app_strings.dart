@@ -60,6 +60,7 @@ abstract class AppStrings {
   String get systemDefault;
   String get audioEngine;
   String get audioFocus;
+  String get proximityGestures;
   String get streamingStorage;
   String get localAndNetwork;
   String get aboutDiagnostics;
@@ -175,6 +176,7 @@ class _EnglishStrings implements AppStrings {
   @override String get systemDefault => 'System Default';
   @override String get audioEngine => 'Audio Engine';
   @override String get audioFocus => 'Audio Focus';
+  @override String get proximityGestures => 'Proximity Gestures';
   @override String get streamingStorage => 'Streaming & Storage';
   @override String get localAndNetwork => 'Local & Network Audio';
   @override String get aboutDiagnostics => 'About & Diagnostics';
@@ -273,6 +275,7 @@ class _SwahiliStrings implements AppStrings {
   @override String get systemDefault => 'Mfumo Chaguomsingi';
   @override String get audioEngine => 'Injini ya Sauti';
   @override String get audioFocus => 'Uzingativu wa Sauti';
+  @override String get proximityGestures => 'Ishara za Ukaribu';
   @override String get streamingStorage => 'Utiririshaji na Hifadhi';
   @override String get localAndNetwork => 'Sauti ya Ndani na Mtandao';
   @override String get aboutDiagnostics => 'Kuhusu na Utambuzi';
@@ -371,6 +374,7 @@ class _AmharicStrings implements AppStrings {
   @override String get systemDefault => 'የስርዓቱ መደበኛ';
   @override String get audioEngine => 'የድምፅ ሞተር';
   @override String get audioFocus => 'የድምፅ ትኩረት';
+  @override String get proximityGestures => 'የቅርበት ምልክቶች';
   @override String get streamingStorage => 'ዥረት እና ማከማቻ';
   @override String get localAndNetwork => 'የውስጥ እና የአውታረ መረብ ኦዲዮ';
   @override String get aboutDiagnostics => 'ስለ መተግበሪያው';

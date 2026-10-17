@@ -1041,6 +1041,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.5.0"
+  proximity_sensor:
+    dependency: "direct main"
+    description:
+      name: proximity_sensor
+      sha256: "5bdb792932f2a703cad81714daa85ec5d46c35dfad1ece7d1a32fa62e2b07aa8"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.4.0"
   pub_semver:
     dependency: transitive
     description:

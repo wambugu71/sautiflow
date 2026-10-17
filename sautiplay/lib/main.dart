@@ -24,6 +24,7 @@ import 'services/artwork_theme_service.dart';
 import 'services/file_deletion_helper.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'services/app_locale_service.dart';
+import 'services/proximity_gesture_service.dart';
 import 'l10n/app_strings.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
@@ -413,6 +414,27 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _player.init(enableSystemAudio: true);
     _player.onToggleFavorite = _handleNotificationToggleFavorite;
     LikedSongsService.instance.likedSongsNotifier.addListener(_syncNotificationFavoriteStatus);
+
+    // Initialize proximity wave gestures for hands-free track navigation
+    ProximityGestureService.instance.init(
+      onNext: () {
+        if (_currentUiQueue.isNotEmpty) {
+          _player.next();
+        }
+      },
+      onPrevious: () {
+        if (_currentUiQueue.isNotEmpty) {
+          _player.previous();
+        }
+      },
+      onGestureAction: (action) {
+        final label = action == ProximityGestureAction.nextTrack
+            ? 'Next song'
+            : 'Previous song';
+        _logs.insert(0, '[gesture] Proximity wave: $label');
+      },
+      statusStream: _player.statusStream,
+    );
 
     // Initialize the multiband EQ (safe to call even if unnecessary, but good practice)
     _player.initMultibandEq(_eqFrequencies);
@@ -804,6 +826,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _metadata.removeListener(_extractArtworkTheme);
     LikedSongsService.instance.likedSongsNotifier.removeListener(_syncNotificationFavoriteStatus);
     DlnaRendererService.instance.stopInternal();
+    ProximityGestureService.instance.dispose();
     _status.dispose();
     _player.dispose();
     super.dispose();

@@ -22,6 +22,7 @@ import 'services/app_locale_service.dart';
 import 'l10n/app_strings.dart';
 import 'services/cached_stream_service.dart';
 import 'services/lastfm_service.dart';
+import 'services/proximity_gesture_service.dart';
 import 'streaming_service.dart';
 import 'services/app_update_service.dart';
 import 'widgets/app_update_dialog.dart';
@@ -203,6 +204,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   AudioFocusSettings _audioFocusSettings = const AudioFocusSettings();
   StreamSubscription<AudioFocusSettings>? _audioFocusSub;
 
+  // Proximity Wave Gestures (Mobile Only)
+  ProximityGestureSettings _proximitySettings = const ProximityGestureSettings();
+  StreamSubscription<ProximityGestureSettings>? _proximitySettingsSub;
+
   StreamSubscription<void>? _audioSettingsSub;
   StreamSubscription<PlayerStatus>? _playerStatusSub;
   StreamSubscription<String>? _lastFmAuthSub;
@@ -232,6 +237,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         .listen((settings) {
       if (mounted) {
         setState(() => _audioFocusSettings = settings);
+      }
+    });
+    _proximitySettings = ProximityGestureService.instance.settings;
+    _proximitySettingsSub = AppStateService
+        .instance.proximitySettingsChanged.stream
+        .listen((settings) {
+      if (mounted) {
+        setState(() => _proximitySettings = settings);
       }
     });
     _playerStatusSub = widget.player.statusStream.listen((status) {
@@ -283,6 +296,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _audioSettingsSub?.cancel();
     _audioFocusSub?.cancel();
+    _proximitySettingsSub?.cancel();
     _playerStatusSub?.cancel();
     _lastFmAuthSub?.cancel();
     _useM3EShapeSub?.cancel();
@@ -351,6 +365,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final preferAac = await AppStateService.instance.loadPreferNativeAac();
     final fallback = await AppStateService.instance.loadEnableHostedFallback();
     final focusSaved = await AppStateService.instance.loadAudioFocusSettings();
+    final proxSaved = await AppStateService.instance.loadProximitySettings();
 
     String versionStr = 'v0.6.31';
     try {
@@ -365,6 +380,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _appVersion = versionStr;
       _autoCheckUpdates = autoCheck;
+      _proximitySettings = proxSaved;
       _streamingQualityPreset = streamingPreset;
       _preferNativeAac = preferAac;
       _enableHostedFallback = fallback;
@@ -2866,6 +2882,123 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 24),
+            _buildSectionHeader('AIR GESTURES & PROXIMITY SENSOR'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                if (!ProximityGestureService.isSupported)
+                  AppSettingsTile(
+                    title: 'Proximity Wave Gestures',
+                    subtitle:
+                        'Hardware proximity sensors are supported on mobile devices (Android / iOS)',
+                    leading:
+                        _buildLeadingIcon(Icons.sensors_off_rounded, _textDark),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _textDark.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Mobile only',
+                        style: TextStyle(
+                            color: _textDark,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  )
+                else
+                  _buildM3ESwitchTile(
+                    title: 'Proximity Wave Gestures',
+                    subtitle: _proximitySettings.enabled
+                        ? 'Active: 1 wave next • 2 waves previous'
+                        : 'Control music touch-free using device proximity sensor',
+                    secondary: _buildLeadingIcon(
+                      Icons.sensors_rounded,
+                      _proximitySettings.enabled ? _primary : _textDark,
+                    ),
+                    value: _proximitySettings.enabled,
+                    onChanged: (v) {
+                      final updated = _proximitySettings.copyWith(enabled: v);
+                      setState(() => _proximitySettings = updated);
+                      setSubState(() {});
+                      ProximityGestureService.instance.updateSettings(updated);
+                    },
+                  ),
+                if (ProximityGestureService.isSupported && _proximitySettings.enabled) ...[
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 14),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: _primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: _primary.withValues(alpha: 0.2)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.waving_hand_rounded,
+                                  color: _primary, size: 20),
+                              const SizedBox(width: 8),
+                              Text('Proximity Wave Action Guide',
+                                  style: TextStyle(
+                                      color: _primary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14)),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          _buildGestureRow('1 Wave', 'Next song in playlist'),
+                          const SizedBox(height: 6),
+                          _buildGestureRow('2 Waves (double wave)',
+                              'Previous song in playlist'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const M3EDivider(),
+                  _buildM3ESwitchTile(
+                    title: 'Tactile Haptic Feedback',
+                    subtitle:
+                        'Vibrates briefly to confirm each wave gesture',
+                    secondary: _buildLeadingIcon(Icons.vibration_rounded),
+                    value: _proximitySettings.hapticFeedback,
+                    onChanged: (v) {
+                      final updated =
+                          _proximitySettings.copyWith(hapticFeedback: v);
+                      setState(() => _proximitySettings = updated);
+                      setSubState(() {});
+                      ProximityGestureService.instance.updateSettings(updated);
+                    },
+                  ),
+                  const M3EDivider(),
+                  _buildM3ESwitchTile(
+                    title: 'Only While Playing',
+                    subtitle:
+                        'Powers down proximity sensor when paused to conserve battery',
+                    secondary: _buildLeadingIcon(
+                        Icons.battery_saver_rounded),
+                    value: _proximitySettings.onlyWhenPlaying,
+                    onChanged: (v) {
+                      final updated =
+                          _proximitySettings.copyWith(onlyWhenPlaying: v);
+                      setState(() => _proximitySettings = updated);
+                      setSubState(() {});
+                      ProximityGestureService.instance.updateSettings(updated);
+                    },
+                  ),
+                ],
+              ],
+            ),
           ],
         );
       },
@@ -2882,6 +3015,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     if (_audioFocusSettings.handleHeadsetMultiClicks) {
       parts.add('Headset 2x/3x');
+    }
+    if (_proximitySettings.enabled) {
+      parts.add('Wave gestures');
     }
     if (parts.isEmpty) {
       return 'Audio focus & hardware controls';
@@ -3302,6 +3438,167 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 style:
                                     TextStyle(color: _textDark, fontSize: 11)),
                             Text('Relaxed (600ms)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 11)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 24),
+            _buildSectionHeader('AIR GESTURES & PROXIMITY SENSOR'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildM3ESwitchTile(
+                  title: 'Proximity Wave Gestures',
+                  subtitle: _proximitySettings.enabled
+                      ? 'Wave hand over device to skip or replay tracks'
+                      : 'Control playback touch-free using device proximity sensor',
+                  secondary: _buildLeadingIcon(
+                    Icons.sensors_rounded,
+                    _proximitySettings.enabled ? _primary : _textDark,
+                  ),
+                  value: _proximitySettings.enabled,
+                  onChanged: (v) {
+                    final updated = _proximitySettings.copyWith(enabled: v);
+                    setState(() => _proximitySettings = updated);
+                    setSubState(() {});
+                    ProximityGestureService.instance.updateSettings(updated);
+                  },
+                ),
+                if (_proximitySettings.enabled) ...[
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 14),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: _primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: _primary.withValues(alpha: 0.2)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.waving_hand_rounded,
+                                  color: _primary, size: 20),
+                              const SizedBox(width: 8),
+                              Text('Wave Action Guide',
+                                  style: TextStyle(
+                                      color: _primary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14)),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          _buildGestureRow('1 Wave', 'Next song in playlist'),
+                          const SizedBox(height: 6),
+                          _buildGestureRow('2 Waves (double wave)',
+                              'Previous song in playlist'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const M3EDivider(),
+                  _buildM3ESwitchTile(
+                    title: 'Tactile Haptic Feedback',
+                    subtitle:
+                        'Vibrates briefly to confirm each wave gesture',
+                    secondary: _buildLeadingIcon(Icons.vibration_rounded),
+                    value: _proximitySettings.hapticFeedback,
+                    onChanged: (v) {
+                      final updated =
+                          _proximitySettings.copyWith(hapticFeedback: v);
+                      setState(() => _proximitySettings = updated);
+                      setSubState(() {});
+                      ProximityGestureService.instance.updateSettings(updated);
+                    },
+                  ),
+                  const M3EDivider(),
+                  _buildM3ESwitchTile(
+                    title: 'Only While Playing',
+                    subtitle:
+                        'Powers down proximity sensor when paused to conserve battery',
+                    secondary: _buildLeadingIcon(
+                        Icons.battery_saver_rounded),
+                    value: _proximitySettings.onlyWhenPlaying,
+                    onChanged: (v) {
+                      final updated =
+                          _proximitySettings.copyWith(onlyWhenPlaying: v);
+                      setState(() => _proximitySettings = updated);
+                      setSubState(() {});
+                      ProximityGestureService.instance.updateSettings(updated);
+                    },
+                  ),
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                _buildLeadingIcon(Icons.speed_rounded),
+                                const SizedBox(width: 16),
+                                Text('Double-Wave Detection Window',
+                                    style: TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
+                              ],
+                            ),
+                            Text(
+                              '${_proximitySettings.waveDebounceMs}ms',
+                              style: TextStyle(
+                                color: _primary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Maximum time between waves to detect 2 waves for previous track',
+                          style: TextStyle(color: _textDark, fontSize: 13),
+                        ),
+                        const SizedBox(height: 12),
+                        M3ESlider(
+                          value: _proximitySettings.waveDebounceMs.toDouble(),
+                          min: 300,
+                          max: 800,
+                          divisions: 10,
+                          onChanged: (val) {
+                            final updated = _proximitySettings.copyWith(
+                                waveDebounceMs: val.round());
+                            setState(() => _proximitySettings = updated);
+                            setSubState(() {});
+                            ProximityGestureService.instance
+                                .updateSettings(updated);
+                          },
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Fast (300ms)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 11)),
+                            Text('Normal (500ms)',
+                                style:
+                                    TextStyle(color: _textDark, fontSize: 11)),
+                            Text('Relaxed (800ms)',
                                 style:
                                     TextStyle(color: _textDark, fontSize: 11)),
                           ],
