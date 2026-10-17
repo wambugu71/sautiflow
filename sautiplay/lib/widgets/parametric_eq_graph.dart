@@ -19,13 +19,14 @@ class ParametricEqGraph extends StatelessWidget {
     super.key,
     required this.bands,
     this.isEnabled = true,
-    this.height = 100.0,
+    this.height = 160.0,
     this.primaryColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    final effectivePrimary = primaryColor ?? AppThemeService.instance.currentData.primary;
+    final effectivePrimary =
+        primaryColor ?? AppThemeService.instance.currentData.primary;
     final cardBg = AppThemeService.instance.currentData.cardDark;
 
     return Container(
@@ -34,7 +35,8 @@ class ParametricEqGraph extends StatelessWidget {
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(12.0),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.0),
+        border:
+            Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.0),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.3),
@@ -117,12 +119,14 @@ class _ParametricEqPainter extends CustomPainter {
     });
 
     final xCoords = List<double>.generate(numPoints, (i) {
-      final logRatio = math.log(freqs[i] / minFreq) / math.log(maxFreq / minFreq);
+      final logRatio =
+          math.log(freqs[i] / minFreq) / math.log(maxFreq / minFreq);
       return paddingLeft + logRatio * graphWidth;
     });
 
     // 3. Compute per-band dB curves & total master dB curve
-    final bandDbCurves = List.generate(bands.length, (_) => List<double>.filled(numPoints, 0.0));
+    final bandDbCurves =
+        List.generate(bands.length, (_) => List<double>.filled(numPoints, 0.0));
     final totalDbCurve = List<double>.filled(numPoints, 0.0);
 
     for (int b = 0; b < bands.length; b++) {
@@ -196,7 +200,8 @@ class _ParametricEqPainter extends CustomPainter {
             color.withValues(alpha: 0.18),
             color.withValues(alpha: 0.02),
           ],
-        ).createShader(Rect.fromLTWH(paddingLeft, paddingTop, graphWidth, graphHeight))
+        ).createShader(
+            Rect.fromLTWH(paddingLeft, paddingTop, graphWidth, graphHeight))
         ..style = PaintingStyle.fill;
       canvas.drawPath(fillPath, fillPaint);
     }
@@ -238,7 +243,8 @@ class _ParametricEqPainter extends CustomPainter {
           primaryColor.withValues(alpha: 0.25),
           primaryColor.withValues(alpha: 0.0),
         ],
-      ).createShader(Rect.fromLTWH(paddingLeft, paddingTop, graphWidth, graphHeight))
+      ).createShader(
+          Rect.fromLTWH(paddingLeft, paddingTop, graphWidth, graphHeight))
       ..style = PaintingStyle.fill;
     canvas.drawPath(masterFillPath, masterFillPaint);
 
@@ -303,7 +309,8 @@ class _ParametricEqPainter extends CustomPainter {
       )..layout();
       textPainter.paint(
         canvas,
-        Offset(handleX - textPainter.width / 2, handleY - textPainter.height / 2),
+        Offset(
+            handleX - textPainter.width / 2, handleY - textPainter.height / 2),
       );
     }
   }
@@ -401,7 +408,8 @@ class _ParametricEqPainter extends CustomPainter {
       case EqBandType.bell:
         final q = band.q > 0 ? band.q : 1.0;
         final f0 = band.frequencyHz.clamp(20.0, fs / 2.1);
-        final useOrfanidis = (f0 > 8000.0) && (fs <= 48000.0) && (gainDb.abs() >= 0.05);
+        final useOrfanidis =
+            (f0 > 8000.0) && (fs <= 48000.0) && (gainDb.abs() >= 0.05);
 
         if (useOrfanidis) {
           final linG = A * A;
@@ -415,7 +423,8 @@ class _ParametricEqPainter extends CustomPainter {
           final gnSq = (diffSq + numW * numW) / (diffSq + denW * denW);
           final gn = math.sqrt(gnSq);
 
-          final alpha = (linG < 1.0) ? (sinW0 / (2.0 * q * A)) : (sinW0 / (2.0 * q));
+          final alpha =
+              (linG < 1.0) ? (sinW0 / (2.0 * q * A)) : (sinW0 / (2.0 * q));
           final a0Un = 1.0 + alpha;
           final invA0 = 1.0 / a0Un;
           a1 = (-2.0 * cosW0) * invA0;
@@ -582,7 +591,8 @@ class _ParametricEqPainter extends CustomPainter {
         final k2 = k * k;
         final list = <List<double>>[];
         for (int s = 0; s < 4; s++) {
-          final qButter = 1.0 / (2.0 * math.sin((2.0 * s + 1.0) * math.pi / 16.0));
+          final qButter =
+              1.0 / (2.0 * math.sin((2.0 * s + 1.0) * math.pi / 16.0));
           final norm = 1.0 / (1.0 + k / qButter + k2);
           final b0 = k2 * norm;
           final b1 = 2.0 * b0;

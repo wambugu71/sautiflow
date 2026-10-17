@@ -4301,15 +4301,22 @@ static void apply_buffer_policy(AudioEngineHandle *e, ma_device_config &cfg)
     {
         cfg.periodSizeInFrames = (ma_uint32)userFrames;
         cfg.periodSizeInMilliseconds = 0;
-#if defined(__ANDROID__)
-        cfg.aaudio.allowSetBufferCapacity = MA_TRUE;
-        cfg.aaudio.enableCompatibilityWorkarounds = MA_FALSE;
-#endif
     }
     if (userPeriods > 0)
     {
         cfg.periods = (ma_uint32)userPeriods;
     }
+
+#if defined(__ANDROID__)
+    const bool wantLowLatency = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) ||
+                                (userFrames > 0);
+    if (wantLowLatency)
+    {
+        cfg.aaudio.allowSetBufferCapacity = MA_TRUE;
+        cfg.aaudio.enableCompatibilityWorkarounds = MA_FALSE;
+    }
+#endif
 }
 
 static void arm_transition_fade_in(AudioEngineHandle *e)
@@ -5972,11 +5979,14 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 continue;
             }
 
-        // Maintain ~350 ms of pre-buffered audio in pcmRingBuffer.
-        // Keeping ~350 ms provides rock-solid immunity against underruns across all platforms,
-        // while allowing tempo and pitch changes (ScaleTempo WSOLA & resampler) to apply
-        // with responsive immediacy (~0.35 s delay instead of ~3.0 s) without skipping or seeking.
-        const size_t targetHeadroomSamples = std::max<size_t>(targetChunkSamples * 4, (size_t)((double)sr * 0.35) * ch);
+        // Maintain pre-buffered audio in pcmRingBuffer.
+        // In low-latency mode (Exclusive / Auto Sample-Rate Match), maintain ~50 ms of headroom
+        // so that real-time DSP (Parametric EQ, Cytomic SVF, limiter) and UI knob changes respond instantly.
+        // In standard mode, keep ~350 ms for maximum resilience against underruns.
+        const bool lowLatency = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
+        const double headroomSeconds = lowLatency ? 0.05 : 0.35;
+        const size_t targetHeadroomSamples = std::max<size_t>(targetChunkSamples * 2, (size_t)((double)sr * headroomSeconds) * ch);
 
         if (e->pcmRingBuffer.available_write() < targetChunkSamples ||
             e->pcmRingBuffer.available_read() >= targetHeadroomSamples)
@@ -11218,10 +11228,17 @@ extern "C"
 #endif
                 if (wantExclusive)
                 {
+#if defined(__APPLE__)
+                    // CoreAudio does not support exclusive mode via miniaudio (returns MA_SHARE_MODE_NOT_SUPPORTED).
+                    // Use ultra-low-latency shared mode with tight frame periods (128/256 frames).
+                    cfg.playback.shareMode = ma_share_mode_shared;
+#else
                     cfg.playback.shareMode = ma_share_mode_exclusive;
+#endif
                     cfg.performanceProfile = ma_performance_profile_low_latency;
-                    cfg.periodSizeInMilliseconds = 25;
-                    cfg.periods = 4;
+                    cfg.periodSizeInMilliseconds = 0;
+                    cfg.periodSizeInFrames = 256; // Low latency buffer (~5.3ms @ 48kHz, replaces 100ms)
+                    cfg.periods = 2;              // Double-buffering for low latency MMAP & WASAPI event-driven
                     cfg.wasapi.noAutoConvertSRC = 1;
                     cfg.wasapi.noDefaultQualitySRC = 1;
                     cfg.alsa.noMMap = 0;
@@ -11243,8 +11260,12 @@ extern "C"
                 if (!initOk)
                 {
                     cfg.playback.shareMode = ma_share_mode_shared;
-                    cfg.performanceProfile = ma_performance_profile_conservative;
+                    // Maintain low-latency performance profile if exclusive or auto sample rate was requested!
+                    cfg.performanceProfile = wantExclusive ? ma_performance_profile_low_latency : ma_performance_profile_conservative;
                     cfg.sampleRate = 0;
+                    cfg.periodSizeInMilliseconds = 0;
+                    cfg.periodSizeInFrames = wantExclusive ? 256 : 0;
+                    cfg.periods = wantExclusive ? 2 : 0;
                     cfg.wasapi.noAutoConvertSRC = 0;
                     cfg.wasapi.noDefaultQualitySRC = 0;
                     cfg.noPreSilencedOutputBuffer = 0;
@@ -11254,7 +11275,8 @@ extern "C"
                     if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
                     {
                         initOk = true;
-                        engine_log("Shared Mode initialized successfully at DAC rate %u Hz.", e->device.sampleRate);
+                        engine_log("Shared Mode initialized successfully at DAC rate %u Hz (lowLatency=%s).",
+                                   e->device.sampleRate, wantExclusive ? "true" : "false");
                     }
                     else
                     {
@@ -11263,6 +11285,7 @@ extern "C"
                         safeCfg.playback.format = ma_format_f32;
                         safeCfg.playback.channels = 2;
                         safeCfg.sampleRate = 0;
+                        safeCfg.performanceProfile = ma_performance_profile_conservative;
                         safeCfg.dataCallback = data_callback;
                         safeCfg.notificationCallback = device_notification_callback;
                         safeCfg.pUserData = e;
@@ -15051,6 +15074,8 @@ extern "C"
             info.engine_sample_rate = engine->engineSampleRate;
             info.device_sample_rate = engine->deviceSampleRate;
             const bool decoderSrcActive = (info.input_sample_rate != info.engine_sample_rate);
+            const bool deviceSrcActive = (info.engine_sample_rate != info.device_sample_rate);
+            info.is_bypassed = (!decoderSrcActive && !deviceSrcActive) ? 1 : 0;
             if (info.is_bypassed)
             {
                 info.mode = 0;

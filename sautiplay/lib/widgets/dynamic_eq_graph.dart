@@ -49,7 +49,7 @@ class DynamicEqGraph extends StatelessWidget {
     super.key,
     required this.bands,
     this.isEnabled = true,
-    this.height = 135.0,
+    this.height = 160.0,
     this.primaryColor,
     this.selectedBandIndex = 0,
     this.onBandSelected,
@@ -106,7 +106,8 @@ class DynamicEqGraph extends StatelessWidget {
                 int closestBand = 0;
                 double minDiff = double.infinity;
                 for (int i = 0; i < bands.length; i++) {
-                  final bandLog = math.log(bands[i].freqHz.clamp(minFreq, maxFreq));
+                  final bandLog =
+                      math.log(bands[i].freqHz.clamp(minFreq, maxFreq));
                   final diff = (tapLog - bandLog).abs();
                   if (diff < minDiff) {
                     minDiff = diff;
@@ -170,9 +171,7 @@ class DynamicEqGraph extends StatelessWidget {
           ),
           const SizedBox(width: 5),
           Text(
-            isEnabled
-                ? '$activeCount/${bands.length} Active'
-                : 'Bypassed',
+            isEnabled ? '$activeCount/${bands.length} Active' : 'Bypassed',
             style: TextStyle(
               color: isEnabled ? Colors.white70 : Colors.white38,
               fontSize: 10,
@@ -306,7 +305,8 @@ class _DynamicEqPainter extends CustomPainter {
       final band = bands[b];
       if (!band.enabled) continue;
 
-      final color = DynamicEqGraph.bandColors[b % DynamicEqGraph.bandColors.length];
+      final color =
+          DynamicEqGraph.bandColors[b % DynamicEqGraph.bandColors.length];
       final isSelected = b == selectedBandIndex;
       final hasDynamics =
           band.mode != DynamicEqMode.staticMode && band.rangeDb > 0.01;
@@ -422,12 +422,12 @@ class _DynamicEqPainter extends CustomPainter {
       final band = bands[b];
       if (!band.enabled) continue;
 
-      final color = DynamicEqGraph.bandColors[b % DynamicEqGraph.bandColors.length];
+      final color =
+          DynamicEqGraph.bandColors[b % DynamicEqGraph.bandColors.length];
       final isSelected = b == selectedBandIndex;
       final freq = band.freqHz.clamp(minFreq, maxFreq);
 
-      final logRatio =
-          math.log(freq / minFreq) / math.log(maxFreq / minFreq);
+      final logRatio = math.log(freq / minFreq) / math.log(maxFreq / minFreq);
       final handleX = paddingLeft + logRatio * graphWidth;
 
       // Net gain at center frequency
@@ -581,8 +581,7 @@ class _DynamicEqPainter extends CustomPainter {
       final freq = tick['f'] as double;
       final label = tick['l'] as String;
 
-      final logRatio =
-          math.log(freq / minFreq) / math.log(maxFreq / minFreq);
+      final logRatio = math.log(freq / minFreq) / math.log(maxFreq / minFreq);
       final x = paddingLeft + logRatio * graphWidth;
 
       canvas.drawLine(
@@ -634,7 +633,8 @@ class _DynamicEqPainter extends CustomPainter {
       while (currentSegmentPos < segmentLength) {
         final remainingInState =
             (drawing ? dashLength : dashSpace) - accumulatedDistance;
-        final step = math.min(remainingInState, segmentLength - currentSegmentPos);
+        final step =
+            math.min(remainingInState, segmentLength - currentSegmentPos);
 
         final startFraction = currentSegmentPos / segmentLength;
         final endFraction = (currentSegmentPos + step) / segmentLength;
