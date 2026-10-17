@@ -48,8 +48,8 @@ dependencies:
   crypto: ^3.0.3
   http: ^1.2.0
 
-  # Desktop Media Controls & Notifications
-  proximity_sensor: ^1.4.0
+  proximity_sensor:
+    path: ../dependencies/proximity_sensor
   system_tray: ^2.0.3
   local_notifier: ^0.1.6
   youtube_scrape_api: ^0.1.1

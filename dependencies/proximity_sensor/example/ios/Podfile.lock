@@ -1,0 +1,22 @@
+PODS:
+  - Flutter (1.0.0)
+  - proximity_sensor (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - proximity_sensor (from `.symlinks/plugins/proximity_sensor/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  proximity_sensor:
+    :path: ".symlinks/plugins/proximity_sensor/ios"
+
+SPEC CHECKSUMS:
+  Flutter: 434fef37c0980e73bb6479ef766c45957d4b510c
+  proximity_sensor: 87bc974f9d94b03b4b5911ff1f93a61e561e6183
+
+PODFILE CHECKSUM: aafe91acc616949ddb318b77800a7f51bffa2a4c
+
+COCOAPODS: 1.10.1

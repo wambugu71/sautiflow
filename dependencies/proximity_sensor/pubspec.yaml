@@ -1,0 +1,25 @@
+name: proximity_sensor
+description: simple and easy to use flutter plugin package for proximity sensor (only)
+version: 1.4.0
+homepage: https://github.com/jeremyko/flutter-proximity-sensor-plugin
+
+environment:    
+    sdk: '>=2.12.0 <4.0.0'
+    flutter: '>=1.20.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.jeremyko.proximity_sensor
+        pluginClass: ProximitySensorPlugin
+      ios:
+        pluginClass: SwiftProximitySensorPlugin
