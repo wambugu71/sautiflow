@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:material_3_expressive/components/progress_indicators/m3e_progress_indicators.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'package:sautiplay/isolate_player.dart';

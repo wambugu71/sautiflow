@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Base contract for all localized strings across SautiPlay.
 abstract class AppStrings {

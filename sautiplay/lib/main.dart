@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart'; // Added
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'database/migration_helper.dart';
@@ -13,8 +13,6 @@ import 'database/preferences_store.dart';
 import 'package:showcaseview/showcaseview.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
-import 'package:material_3_expressive/components/navigation_bar/enums/m3e_nav_bar_enums.dart';
-import 'package:material_3_expressive/components/navigation_bar/models/m3e_navigation_bar_destination.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -22,7 +20,8 @@ import 'package:sautiflow/sautiflow.dart';
 import 'services/app_theme_service.dart';
 import 'services/artwork_theme_service.dart';
 import 'services/file_deletion_helper.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_localizations/flutter_localizations.dart'
+    hide GlobalMaterialLocalizations;
 import 'services/app_locale_service.dart';
 import 'services/proximity_gesture_service.dart';
 import 'l10n/app_strings.dart';
@@ -210,6 +209,10 @@ class _DemoAppState extends State<DemoApp> with SingleTickerProviderStateMixin {
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
+        // ignore: deprecated_member_use
+        appBuilder: (context, child) => MaterialUiCompatibilityBridge(
+          child: child ?? const SizedBox.shrink(),
+        ),
         home: const PlayerShell(),
       ),
     );
@@ -3219,6 +3222,12 @@ void _showNowPlayingScreen() {
                                 curArtistId = _currentUiQueue[idx].artistId;
                               }
                               _openArtistProfile(meta.artist, artistId: curArtistId);
+                            },
+                            onSeek: (p) {
+                              if (finalDurationSecs > 0) {
+                                _player.seekTo(Duration(
+                                    milliseconds: (p * finalDurationSecs * 1000).toInt()));
+                              }
                             },
                           ),
                         );

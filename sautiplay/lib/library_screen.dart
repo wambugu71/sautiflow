@@ -6,11 +6,10 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:path/path.dart' as p;
-import 'package:permission_handler/permission_handler.dart';
 import 'package:share_plus/share_plus.dart';
 import 'database/preferences_store.dart';
 
@@ -2563,16 +2562,31 @@ class LibraryScreenState extends State<LibraryScreen>
                                       childElementBorderRadius: 16,
                                       onTap: (i) => _handleQuickAccessTap(i),
                                       children: [
-                                        _buildLikedSongsHeroCard(
-                                            isDesktop: isDesktop),
-                                        _buildCachedStreamsHeroCard(
-                                            isDesktop: isDesktop),
-                                        _buildPlaylistsHeroCard(
-                                            isDesktop: isDesktop),
-                                        _buildNetworkStreamsHeroCard(
-                                            isDesktop: isDesktop),
-                                        _buildShuffleAllHeroCard(primaryColor,
-                                            isDesktop: isDesktop),
+                                        M3ECarouselItem(
+                                          image: _buildLikedSongsHeroCard(
+                                              isDesktop: isDesktop),
+                                          onTap: () => _handleQuickAccessTap(0),
+                                        ),
+                                        M3ECarouselItem(
+                                          image: _buildCachedStreamsHeroCard(
+                                              isDesktop: isDesktop),
+                                          onTap: () => _handleQuickAccessTap(1),
+                                        ),
+                                        M3ECarouselItem(
+                                          image: _buildPlaylistsHeroCard(
+                                              isDesktop: isDesktop),
+                                          onTap: () => _handleQuickAccessTap(2),
+                                        ),
+                                        M3ECarouselItem(
+                                          image: _buildNetworkStreamsHeroCard(
+                                              isDesktop: isDesktop),
+                                          onTap: () => _handleQuickAccessTap(3),
+                                        ),
+                                        M3ECarouselItem(
+                                          image: _buildShuffleAllHeroCard(primaryColor,
+                                              isDesktop: isDesktop),
+                                          onTap: () => _handleQuickAccessTap(4),
+                                        ),
                                       ],
                                     ),
                                   ),

@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sautiplay/services/waveform_extractor_service.dart';
 import 'package:sautiplay/widgets/waveform_seek_bar_widget.dart';

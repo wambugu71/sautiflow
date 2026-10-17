@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 class RaceSoundstageVisualizer extends StatefulWidget {
   final double delayMs; // e.g. 0.05 to 0.40 ms

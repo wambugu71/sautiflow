@@ -30,7 +30,6 @@ dependencies:
     path: ../dependencies/youtube_explode_dart
   flutter_lyric: ^3.0.2
   shimmer: ^3.0.0
-  loading_indicator_m3e: ^0.1.1
   file_selector: ^1.1.0
   text_scroll: ^0.2.1
   marquee: ^2.2.1
@@ -41,9 +40,10 @@ dependencies:
   material_color_utilities: ^0.13.0
   showcaseview: ^3.0.0
   package_info_plus: ^9.0.1
-  material_3_expressive:
-    path: ../dependencies/material_3_expressive
+  material_ui: ^1.7.0
+  material_3_expressive: ^1.1.7
   flutter_m3shapes_extended: ^1.2.0
+  m3e_seekbar: ^1.0.1
   url_launcher: ^6.3.1
   crypto: ^3.0.3
   http: ^1.2.0
@@ -78,6 +78,7 @@ dev_dependencies:
   drift_dev: ^2.34.0
   build_runner: ^2.15.1
 
+  metadata_god: any
 flutter:
   uses-material-design: true
   assets:

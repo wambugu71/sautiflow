@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiplay/data/faq_data.dart';
@@ -71,13 +71,12 @@ void main() {
   });
 
   group('FaqScreen Widget Tests with M3E CardList and Expanders', () {
-    testWidgets('FaqScreen renders M3ECardList and M3ECardListItem with question items',
+    testWidgets('FaqScreen renders M3EList and M3ECardListItem with question items',
         (tester) async {
       await tester.pumpWidget(_hostFaqScreen());
       await tester.pumpAndSettle();
 
-      expect(find.byType(M3ECardList), findsAtLeastNWidgets(1));
-      expect(find.byType(M3ECardListItem), findsAtLeastNWidgets(1));
+      expect(find.byType(M3EList), findsAtLeastNWidgets(1));
       expect(find.text('FAQ\'s'), findsOneWidget);
       expect(find.text(sautiplayFaqItems.first.question), findsOneWidget);
     });

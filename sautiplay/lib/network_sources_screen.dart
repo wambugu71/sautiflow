@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:path/path.dart' as p;
@@ -362,7 +362,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                           subtitle:
                               'No compatible audio files found in this folder.',
                         )
-                      : M3ECardList.builder(
+                      : M3EList.scrollable(
                           itemCount: _ftpEntries.length,
                           itemBuilder: (context, index) {
                             final item = _ftpEntries[index];
@@ -574,7 +574,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
           renderers.isEmpty
               ? _buildCardPlaceholder(
                   'No DLNA Speakers or Smart TVs found yet. Tap Scan to search local Wi-Fi.')
-              : M3ECardList(
+              : M3EList(
                   itemCount: renderers.length,
                   itemBuilder: (context, index) {
                     final r = renderers[index];
@@ -625,7 +625,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
           servers.isEmpty
               ? _buildCardPlaceholder(
                   'No DLNA Media Servers detected on your local network.')
-              : M3ECardList(
+              : M3EList(
                   itemCount: servers.length,
                   itemBuilder: (context, index) {
                     final s = servers[index];

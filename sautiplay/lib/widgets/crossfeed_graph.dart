@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../services/app_theme_service.dart';
 
 /// A real-time frequency response visualization graph for Crossfeed algorithms.

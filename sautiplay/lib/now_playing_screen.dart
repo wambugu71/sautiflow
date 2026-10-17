@@ -6,11 +6,11 @@ import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
-import 'package:loading_indicator_m3e/loading_indicator_m3e.dart';
-import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:material_3_expressive/material_3_expressive.dart' hide M3EHapticFeedback;
+import 'package:m3e_seekbar/m3e_seekbar.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'database/preferences_store.dart';
@@ -1405,14 +1405,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 44, 12, 12),
                     child: _isLoadingLyrics
-                        ? Center(
-                            child: LoadingIndicatorM3E(
-                              color:
-                                  AppThemeService.instance.currentData.primary,
-                              containerColor: AppThemeService
-                                  .instance.currentData.primary
-                                  .withAlpha(50),
-                            ),
+                        ? const Center(
+                            child: M3ELoadingIndicator(),
                           )
                         : SyncedLyricsWidget(
                             lyricsRaw: _lyricsRaw ?? '',
@@ -2290,10 +2284,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       final isDesktop = constraints.maxWidth >= 800;
 
                       final pureLyrics = _isLoadingLyrics
-                          ? Center(
-                              child: LoadingIndicatorM3E(
-                                  color: primaryColor,
-                                  containerColor: primaryColor.withAlpha(50)))
+                          ? const Center(
+                              child: M3ELoadingIndicator(),
+                            )
                           : SyncedLyricsWidget(
                               lyricsRaw: _lyricsRaw ?? '',
                               currentPosition:
@@ -4132,15 +4125,27 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       );
     }
 
+    final isPlaying = widget.statusNotifier.value.isPlaying;
+    final clampedPos = displayPosMs.clamp(0.0, maxMs);
+
     final Widget sliderWidget = _useWavySlider
-        ? M3ESlider.wavy(
-            value: displayPosMs.clamp(0.0, maxMs),
+        ? M3EWavySeekbar(
+            value: clampedPos,
             min: 0.0,
             max: maxMs,
-            trackThickness: isMobile ? 8.0 : 10.0,
-            cornerRadius: 8,
-            thumbLength: isMobile ? 24.0 : 28.0,
-            showValueIndicator: false,
+            isPlaying: isPlaying,
+            waveLength: 20.0,
+            lineAmplitude: isMobile ? 3.0 : 3.5,
+            strokeWidth: isMobile ? 2.5 : 3.0,
+            height: isMobile ? 36.0 : 40.0,
+            activeColor: primaryColor,
+            inactiveColor: primaryColor.withValues(alpha: 0.2),
+            thumbColor: primaryColor,
+            handleShape: M3ESeekbarHandleShape.circle,
+            handleRadius: isMobile ? 8.0 : 10.0,
+            decoration: const M3ESeekbarDecoration(
+              haptic: M3EHapticFeedback.light,
+            ),
             onChanged: (v) {
               _isDragging = true;
               _dragPositionMs = v;
@@ -4159,14 +4164,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               });
             },
           )
-        : M3ESlider(
-            value: displayPosMs.clamp(0.0, maxMs),
+        : M3ESeekbar(
+            value: clampedPos,
             min: 0.0,
             max: maxMs,
-            trackThickness: isMobile ? 8.0 : 10.0,
-            cornerRadius: 8,
-            thumbLength: isMobile ? 24.0 : 28.0,
-            showValueIndicator: false,
+            trackHeight: isMobile ? 4.0 : 6.0,
+            activeColor: primaryColor,
+            inactiveColor: primaryColor.withValues(alpha: 0.2),
+            thumbColor: primaryColor,
+            handleShape: M3ESeekbarHandleShape.circle,
+            handleRadius: isMobile ? 8.0 : 10.0,
+            label: _fmt(Duration(milliseconds: clampedPos.toInt())),
+            decoration: const M3ESeekbarDecoration(
+              haptic: M3EHapticFeedback.light,
+            ),
             onChanged: (v) {
               _isDragging = true;
               _dragPositionMs = v;

@@ -7,3 +7,9 @@ analyzer:
     - "example/**"
     - "sautiplay/**"
     - "test_*.dart"
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+    - linux/**

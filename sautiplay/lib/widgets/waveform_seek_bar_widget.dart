@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// An interactive, high-performance waveform seek bar widget.
 /// Optimized for 60-120Hz smooth rendering with geometry caching,

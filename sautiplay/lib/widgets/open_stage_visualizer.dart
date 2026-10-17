@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// A rich, real-time soundstage visualizer for the OpenStage crossfeed algorithm.
 ///

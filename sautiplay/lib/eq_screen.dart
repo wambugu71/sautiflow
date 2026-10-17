@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:path/path.dart' as p;
@@ -4753,7 +4753,7 @@ class _EqScreenState extends State<EqScreen>
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
+                  child: M3EList(
                     itemCount: 4,
                     onTap: (index) {
                       switch (index) {
@@ -4895,7 +4895,7 @@ class _EqScreenState extends State<EqScreen>
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
+                  child: M3EList(
                     itemCount: 5,
                     onTap: (index) {
                       switch (index) {
@@ -5062,7 +5062,7 @@ class _EqScreenState extends State<EqScreen>
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
+                  child: M3EList(
                     itemCount: 5,
                     onTap: (index) {
                       switch (index) {
@@ -5285,7 +5285,7 @@ class _EqScreenState extends State<EqScreen>
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
+                  child: M3EList(
                     itemCount: 2,
                     onTap: (index) {
                       switch (index) {
@@ -5367,7 +5367,7 @@ class _EqScreenState extends State<EqScreen>
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
+                  child: M3EList(
                     itemCount: 6,
                     onTap: (index) {
                       switch (index) {
@@ -5569,7 +5569,7 @@ class _EqScreenState extends State<EqScreen>
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
+                  child: M3EList(
                     itemCount: 5,
                     onTap: (index) {
                       switch (index) {
@@ -5759,7 +5759,7 @@ class _EqScreenState extends State<EqScreen>
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
+                  child: M3EList(
                     itemCount: 2,
                     onTap: (index) {
                       switch (index) {
@@ -5843,7 +5843,7 @@ class _EqScreenState extends State<EqScreen>
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: M3ECardList(
+                  child: M3EList(
                     itemCount: 1,
                     onTap: (index) {
                       _openDetailScreen(

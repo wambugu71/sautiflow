@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 
@@ -234,7 +234,7 @@ class _FaqScreenState extends State<FaqScreen> {
             ),
           )
         else
-          M3ECardList(
+          M3EList(
             key: ValueKey('faq_${_selectedCategory}_$_searchQuery'),
             itemCount: filtered.length,
             color: cardColor,

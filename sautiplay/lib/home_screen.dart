@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dart_ytmusic_api/dart_ytmusic_api.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:shimmer/shimmer.dart';
@@ -843,6 +843,8 @@ class _HomeScreenState extends State<HomeScreen>
       M3ECarouselType.hero => isDesktop ? 344 : 304,
       M3ECarouselType.contained => isDesktop ? 288 : 252,
       M3ECarouselType.uncontained => isDesktop ? 284 : 256,
+      M3ECarouselType.uncontainedMultiAspect => isDesktop ? 284 : 256,
+      M3ECarouselType.fullScreen => isDesktop ? 344 : 304,
     };
 
     return SizedBox(
@@ -861,7 +863,10 @@ class _HomeScreenState extends State<HomeScreen>
         },
         children: [
           for (final item in section.contents)
-            _buildOverlayTile(item, compact: type != M3ECarouselType.hero),
+            M3ECarouselItem(
+              image: _buildOverlayTile(item, compact: type != M3ECarouselType.hero),
+              onTap: () => _openItem(item),
+            ),
         ],
       ),
     );

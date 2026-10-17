@@ -1,7 +1,8 @@
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
-import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:material_3_expressive/material_3_expressive.dart' hide M3EHapticFeedback;
+import 'package:m3e_seekbar/m3e_seekbar.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
@@ -18,6 +19,7 @@ class MiniPlayer extends StatefulWidget {
   final VoidCallback? onPrevious;
   final VoidCallback onTap;
   final VoidCallback? onArtistTap;
+  final ValueChanged<double>? onSeek;
 
   const MiniPlayer({
     super.key,
@@ -32,6 +34,7 @@ class MiniPlayer extends StatefulWidget {
     this.onPrevious,
     required this.onTap,
     this.onArtistTap,
+    this.onSeek,
   });
 
   @override
@@ -161,22 +164,44 @@ class _MiniPlayerState extends State<MiniPlayer>
               ValueListenableBuilder<bool>(
                 valueListenable: AppStateService.instance.useWavySliderNotifier,
                 builder: (context, useWavy, _) {
+                  final progressVal = widget.progress.clamp(0.0, 1.0);
                   if (useWavy) {
-                    return M3EProgressIndicator.linearWavy(
-                      //wavelength: 60,
-                      //waveSpeed: 25,
-                      strokeWidth: 4,
-                      value: widget.progress.clamp(0.0, 1.0),
-                      linearSize: M3EProgressIndicatorSize.s,
-                      trackColor: Colors.transparent,
-                      color: primaryColor,
+                    return SizedBox(
+                      height: 10.0,
+                      child: M3EWavySeekbar(
+                        value: progressVal,
+                        min: 0.0,
+                        max: 1.0,
+                        isPlaying: widget.isPlaying,
+                        waveLength: 16.0,
+                        lineAmplitude: 1.8,
+                        strokeWidth: 2.0,
+                        height: 10.0,
+                        activeColor: primaryColor,
+                        inactiveColor: primaryColor.withValues(alpha: 0.15),
+                        thumbColor: primaryColor,
+                        handleShape: M3ESeekbarHandleShape.rectangle,
+                        handleWidth: 3.0,
+                        handleHeight: 6.0,
+                        onChanged: widget.onSeek ?? (_) {},
+                      ),
                     );
                   }
-                  return M3EProgressIndicator.linear(
-                    value: widget.progress.clamp(0.0, 1.0),
-                    linearSize: M3EProgressIndicatorSize.s,
-                    trackColor: Colors.transparent,
-                    color: primaryColor,
+                  return SizedBox(
+                    height: 4.0,
+                    child: M3ESeekbar(
+                      value: progressVal,
+                      min: 0.0,
+                      max: 1.0,
+                      trackHeight: 3.0,
+                      activeColor: primaryColor,
+                      inactiveColor: primaryColor.withValues(alpha: 0.15),
+                      thumbColor: primaryColor,
+                      handleShape: M3ESeekbarHandleShape.rectangle,
+                      handleWidth: 3.0,
+                      handleHeight: 5.0,
+                      onChanged: widget.onSeek ?? (_) {},
+                    ),
                   );
                 },
               ),
