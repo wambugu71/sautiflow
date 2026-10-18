@@ -9,91 +9,91 @@ import '../services/fft_processor.dart';
 
 enum GlslShaderStyle {
   cyberTunnel(
-    displayName: 'Cyber Tunnel',
+    displayName: 'Tunnel',
     assetPath: 'shaders/audio_cyber_tunnel.frag',
   ),
   plasmaSphere(
-    displayName: 'Plasma Sphere',
+    displayName: 'Orb',
     assetPath: 'shaders/audio_plasma_sphere.frag',
   ),
   neonSpectrum(
-    displayName: 'Liquid Spectrum',
+    displayName: 'Liquid',
     assetPath: 'shaders/audio_neon_spectrum.frag',
   ),
   warpVortex(
-    displayName: 'Hyper Warp Vortex',
+    displayName: 'Vortex',
     assetPath: 'shaders/audio_warp_vortex.frag',
   ),
   solarFlare(
-    displayName: 'Solar Flare Ring',
+    displayName: 'Flare',
     assetPath: 'shaders/audio_solar_flare.frag',
   ),
   cyberGrid(
-    displayName: 'Synthwave Grid',
+    displayName: 'Grid',
     assetPath: 'shaders/audio_cyber_grid.frag',
   ),
   quantumNebula(
-    displayName: 'Cosmic Nebula',
+    displayName: 'Nebula',
     assetPath: 'shaders/audio_quantum_nebula.frag',
   ),
   electricRing(
-    displayName: 'Electric Arc Ring',
+    displayName: 'Lightning',
     assetPath: 'shaders/audio_electric_ring.frag',
   ),
   equalizerBars3D(
-    displayName: '3D Equalizer Bars',
+    displayName: 'Bars',
     assetPath: 'shaders/audio_bars_3d.frag',
   ),
   kaleidoscope(
-    displayName: 'Prismatic Mandala',
+    displayName: 'Kaleidoscope',
     assetPath: 'shaders/audio_kaleidoscope.frag',
   ),
   cyberLattice(
-    displayName: 'Crystal Lattice',
+    displayName: 'Crystals',
     assetPath: 'shaders/audio_lattice.frag',
   ),
   biolumWaves(
-    displayName: 'Ocean Bioluminescence',
+    displayName: 'Ocean',
     assetPath: 'shaders/audio_biolum_waves.frag',
   ),
   sonicStarburst(
-    displayName: 'Sonic Starburst',
+    displayName: 'Starburst',
     assetPath: 'shaders/audio_starburst.frag',
   ),
   matrixRain(
-    displayName: 'Audio Matrix Rain',
+    displayName: 'Matrix',
     assetPath: 'shaders/audio_matrix_rain.frag',
   ),
   vaporwaveSun(
-    displayName: 'Vaporwave Horizon',
+    displayName: 'Sunset',
     assetPath: 'shaders/audio_vaporwave_sun.frag',
   ),
   cyberCity(
-    displayName: 'Cyber Synthwave City',
+    displayName: 'Skyline',
     assetPath: 'shaders/audio_cyber_city.frag',
   ),
   quantumAurora(
-    displayName: 'Quantum Aurora Borealis',
+    displayName: 'Aurora',
     assetPath: 'shaders/audio_quantum_aurora.frag',
   ),
   blackHole(
-    displayName: 'Black Hole Event Horizon',
+    displayName: 'Eclipse',
     assetPath: 'shaders/audio_black_hole.frag',
   ),
   cymatics(
-    displayName: 'Cymatics Sound Resonance',
+    displayName: 'Ripples',
     assetPath: 'shaders/audio_cymatics.frag',
   ),
   particleVortex(
-    displayName: 'Particle Warp Tunnel',
+    displayName: 'Starfield',
     assetPath: 'shaders/audio_particle_vortex.frag',
   ),
   dnaHelix(
-    displayName: 'Bio-Reactor DNA Helix',
+    displayName: 'Helix',
     assetPath: 'shaders/audio_dna_helix.frag',
   ),
   supernova(
-    displayName: 'Supernova Pulsar Core',
+    displayName: 'Supernova',
     assetPath: 'shaders/audio_supernova.frag',
   );
 
@@ -106,9 +106,63 @@ enum GlslShaderStyle {
   });
 
   static GlslShaderStyle fromString(String id) {
+    final lower = id.toLowerCase().trim();
     return GlslShaderStyle.values.firstWhere(
-      (e) => e.name == id || e.assetPath.endsWith('$id.frag'),
-      orElse: () => GlslShaderStyle.cyberTunnel,
+      (e) =>
+          e.name == id ||
+          e.name.toLowerCase() == lower ||
+          e.displayName.toLowerCase() == lower ||
+          e.assetPath.endsWith('$id.frag'),
+      orElse: () {
+        switch (lower) {
+          case 'cyber tunnel':
+            return GlslShaderStyle.cyberTunnel;
+          case 'plasma sphere':
+            return GlslShaderStyle.plasmaSphere;
+          case 'liquid spectrum':
+            return GlslShaderStyle.neonSpectrum;
+          case 'hyper warp vortex':
+            return GlslShaderStyle.warpVortex;
+          case 'solar flare ring':
+            return GlslShaderStyle.solarFlare;
+          case 'synthwave grid':
+            return GlslShaderStyle.cyberGrid;
+          case 'cosmic nebula':
+            return GlslShaderStyle.quantumNebula;
+          case 'electric arc ring':
+            return GlslShaderStyle.electricRing;
+          case '3d equalizer bars':
+            return GlslShaderStyle.equalizerBars3D;
+          case 'prismatic mandala':
+            return GlslShaderStyle.kaleidoscope;
+          case 'crystal lattice':
+            return GlslShaderStyle.cyberLattice;
+          case 'ocean bioluminescence':
+            return GlslShaderStyle.biolumWaves;
+          case 'sonic starburst':
+            return GlslShaderStyle.sonicStarburst;
+          case 'audio matrix rain':
+            return GlslShaderStyle.matrixRain;
+          case 'vaporwave horizon':
+            return GlslShaderStyle.vaporwaveSun;
+          case 'cyber synthwave city':
+            return GlslShaderStyle.cyberCity;
+          case 'quantum aurora borealis':
+            return GlslShaderStyle.quantumAurora;
+          case 'black hole event horizon':
+            return GlslShaderStyle.blackHole;
+          case 'cymatics sound resonance':
+            return GlslShaderStyle.cymatics;
+          case 'particle warp tunnel':
+            return GlslShaderStyle.particleVortex;
+          case 'bio-reactor dna helix':
+            return GlslShaderStyle.dnaHelix;
+          case 'supernova pulsar core':
+            return GlslShaderStyle.supernova;
+          default:
+            return GlslShaderStyle.cyberTunnel;
+        }
+      },
     );
   }
 }

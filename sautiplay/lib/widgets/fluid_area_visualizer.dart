@@ -4,10 +4,10 @@ import 'package:flutter/scheduler.dart';
 
 /// Supported visual themes for the fluid area spectrum visualizer.
 enum FluidAreaTheme {
-  neon('Neon Wave', Icons.auto_awesome_rounded),
-  fire('Fire Glow', Icons.local_fire_department_rounded),
-  aurora('Aurora Borealis', Icons.waves_rounded),
-  ocean('Ocean Deep', Icons.water_rounded),
+  neon('Neon', Icons.auto_awesome_rounded),
+  fire('Fire', Icons.local_fire_department_rounded),
+  aurora('Aurora', Icons.waves_rounded),
+  ocean('Ocean', Icons.water_rounded),
   minimal('Minimal', Icons.horizontal_rule_rounded);
 
   final String displayName;
@@ -18,7 +18,9 @@ enum FluidAreaTheme {
     if (val == null) return FluidAreaTheme.minimal;
     final lower = val.toLowerCase().trim();
     for (final theme in FluidAreaTheme.values) {
-      if (theme.name == lower || theme.displayName.toLowerCase() == lower) {
+      if (theme.name == lower ||
+          theme.displayName.toLowerCase() == lower ||
+          lower.contains(theme.name)) {
         return theme;
       }
     }

@@ -51,7 +51,8 @@ class AudioVisualizerHost extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (analyzerType == 'oscilloscope' ||
-        analyzerType == 'Dual Oscilloscope') {
+        analyzerType == 'Dual Oscilloscope' ||
+        analyzerType == 'Waveform') {
       return RepaintBoundary(
         child: DualOscilloscopeVisualizer(
           player: player,
@@ -65,7 +66,9 @@ class AudioVisualizerHost extends StatelessWidget {
     }
 
     if (analyzerType == 'vectorscope' ||
-        analyzerType == 'Stereo Vectorscope') {
+        analyzerType == 'Stereo Vectorscope' ||
+        analyzerType == 'Stereo Radar' ||
+        analyzerType == 'Radar') {
       return RepaintBoundary(
         child: StereoVectorscopeGraph(
           width: 1.5,
@@ -81,7 +84,10 @@ class AudioVisualizerHost extends StatelessWidget {
     }
 
     for (final style in GlslShaderStyle.values) {
-      if (analyzerType == style.name || analyzerType == style.displayName) {
+      if (analyzerType == style.name ||
+          analyzerType == style.displayName ||
+          analyzerType.toLowerCase() == style.name.toLowerCase() ||
+          analyzerType.toLowerCase() == style.displayName.toLowerCase()) {
         return GlslAudioVisualizerWidget(
           analyzerStream: player.analyzerStream,
           isPlaying: isPlaying,
@@ -232,24 +238,32 @@ class _FullscreenSpectrumVisualizerState
 
   String get _visualizerLabel {
     if (_currentAnalyzerType == 'oscilloscope' ||
-        _currentAnalyzerType == 'Dual Oscilloscope') {
-      return 'Dual Oscilloscope';
+        _currentAnalyzerType == 'Dual Oscilloscope' ||
+        _currentAnalyzerType == 'Waveform') {
+      return 'Waveform';
     }
     if (_currentAnalyzerType == 'vectorscope' ||
-        _currentAnalyzerType == 'Stereo Vectorscope') {
-      return 'Stereo Vectorscope';
+        _currentAnalyzerType == 'Stereo Vectorscope' ||
+        _currentAnalyzerType == 'Stereo Radar' ||
+        _currentAnalyzerType == 'Radar') {
+      return 'Radar';
     }
-    if (_currentAnalyzerType == 'area') {
-      return 'Fluid Waves (${_currentSpectrumStyle.toUpperCase()})';
+    if (_currentAnalyzerType == 'area' ||
+        _currentAnalyzerType == 'Waves') {
+      return 'Waves (${_currentSpectrumStyle.toUpperCase()})';
     }
-    if (_currentAnalyzerType == 'bar' || _currentAnalyzerType == 'dots') {
-      return 'Physics Dots (${_currentSpectrumStyle.toUpperCase()})';
+    if (_currentAnalyzerType == 'bar' ||
+        _currentAnalyzerType == 'dots' ||
+        _currentAnalyzerType == 'Dots') {
+      return 'Dots (${_currentSpectrumStyle.toUpperCase()})';
     }
     final glslMatch = GlslShaderStyle.values.firstWhere(
       (s) =>
           s.name == _currentAnalyzerType ||
-          s.displayName == _currentAnalyzerType,
-      orElse: () => GlslShaderStyle.cyberTunnel,
+          s.displayName == _currentAnalyzerType ||
+          s.displayName.toLowerCase() == _currentAnalyzerType.toLowerCase() ||
+          s.name.toLowerCase() == _currentAnalyzerType.toLowerCase(),
+      orElse: () => GlslShaderStyle.fromString(_currentAnalyzerType),
     );
     return glslMatch.displayName;
   }
@@ -437,7 +451,7 @@ class _FullscreenSpectrumVisualizerState
                                   label: 'Visualizer Modes',
                                   entries: [
                                     M3EMenuEntry(
-                                      label: 'Fluid Waves (60-120Hz)',
+                                      label: 'Waves',
                                       leading: Icon(
                                         Icons.water_rounded,
                                         color: _currentAnalyzerType == 'area'
@@ -449,7 +463,7 @@ class _FullscreenSpectrumVisualizerState
                                           _selectAnalyzerType('area'),
                                     ),
                                     M3EMenuEntry(
-                                      label: 'Physics Dots & Bars',
+                                      label: 'Dots',
                                       leading: Icon(
                                         Icons.grain_rounded,
                                         color: _currentAnalyzerType == 'dots' ||
@@ -462,7 +476,7 @@ class _FullscreenSpectrumVisualizerState
                                           _selectAnalyzerType('dots'),
                                     ),
                                     M3EMenuEntry(
-                                      label: 'Dual Oscilloscope',
+                                      label: 'Waveform',
                                       leading: Icon(
                                         Icons.waves_rounded,
                                         color: _currentAnalyzerType ==
@@ -475,7 +489,7 @@ class _FullscreenSpectrumVisualizerState
                                           _selectAnalyzerType('oscilloscope'),
                                     ),
                                     M3EMenuEntry(
-                                      label: 'Stereo Vectorscope',
+                                      label: 'Radar',
                                       leading: Icon(
                                         Icons.radar_rounded,
                                         color: _currentAnalyzerType ==

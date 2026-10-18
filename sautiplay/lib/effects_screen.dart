@@ -141,21 +141,31 @@ class _EffectsScreenState extends State<EffectsScreen> {
 
   String get _visualizerLabel {
     if (_currentAnalyzerType == 'oscilloscope' ||
-        _currentAnalyzerType == 'Dual Oscilloscope') {
-      return 'Dual Oscilloscope';
+        _currentAnalyzerType == 'Dual Oscilloscope' ||
+        _currentAnalyzerType == 'Waveform') {
+      return 'Waveform';
     } else if (_currentAnalyzerType == 'vectorscope' ||
-        _currentAnalyzerType == 'Stereo Vectorscope') {
-      return 'Stereo Radar';
-    } else if (_currentAnalyzerType == 'area') {
-      return 'Flowing Wave';
-    } else if (_currentAnalyzerType == 'bar') {
-      return 'Dot Spectrum';
+        _currentAnalyzerType == 'Stereo Vectorscope' ||
+        _currentAnalyzerType == 'Stereo Radar' ||
+        _currentAnalyzerType == 'Radar') {
+      return 'Radar';
+    } else if (_currentAnalyzerType == 'area' ||
+        _currentAnalyzerType == 'Flowing Wave' ||
+        _currentAnalyzerType == 'Waves') {
+      return 'Waves';
+    } else if (_currentAnalyzerType == 'bar' ||
+        _currentAnalyzerType == 'dots' ||
+        _currentAnalyzerType == 'Dot Spectrum' ||
+        _currentAnalyzerType == 'Dots') {
+      return 'Dots';
     }
     final glslMatch = GlslShaderStyle.values.firstWhere(
       (s) =>
           s.name == _currentAnalyzerType ||
-          s.displayName == _currentAnalyzerType,
-      orElse: () => GlslShaderStyle.cyberTunnel,
+          s.displayName == _currentAnalyzerType ||
+          s.displayName.toLowerCase() == _currentAnalyzerType.toLowerCase() ||
+          s.name.toLowerCase() == _currentAnalyzerType.toLowerCase(),
+      orElse: () => GlslShaderStyle.fromString(_currentAnalyzerType),
     );
     return glslMatch.displayName;
   }
@@ -524,7 +534,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         label: 'Visualizer Styles',
                                         entries: [
                                           M3EMenuEntry(
-                                            label: 'Dual Oscilloscope',
+                                            label: 'Waveform',
                                             leading: Icon(
                                                 Icons.waves_rounded,
                                                 color: _currentAnalyzerType ==
@@ -541,7 +551,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                             },
                                           ),
                                           M3EMenuEntry(
-                                            label: 'Stereo Radar',
+                                            label: 'Radar',
                                             leading: Icon(
                                                 Icons.radar_rounded,
                                                 color: _currentAnalyzerType ==
@@ -558,7 +568,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                             },
                                           ),
                                           M3EMenuEntry(
-                                            label: 'Flowing Wave',
+                                            label: 'Waves',
                                             leading: Icon(
                                                 Icons.show_chart_rounded,
                                                 color: _currentAnalyzerType ==
@@ -574,7 +584,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                             },
                                           ),
                                           M3EMenuEntry(
-                                            label: 'Dot Spectrum',
+                                            label: 'Dots',
                                             leading: Icon(
                                                 Icons.grain_rounded,
                                                 color: _currentAnalyzerType ==

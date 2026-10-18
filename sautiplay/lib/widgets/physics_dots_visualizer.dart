@@ -6,8 +6,8 @@ import 'package:flutter/scheduler.dart';
 enum PhysicsDotsTheme {
   neon('Neon', Icons.auto_awesome_rounded),
   fire('Fire', Icons.local_fire_department_rounded),
-  matrix('Studio LED', Icons.equalizer_rounded),
-  pill('Pill Capsules', Icons.lens_blur_rounded),
+  matrix('LED', Icons.equalizer_rounded),
+  pill('Capsules', Icons.lens_blur_rounded),
   minimal('Minimal', Icons.horizontal_rule_rounded);
 
   final String displayName;
@@ -18,7 +18,9 @@ enum PhysicsDotsTheme {
     if (val == null) return PhysicsDotsTheme.minimal;
     final lower = val.toLowerCase().trim();
     for (final theme in PhysicsDotsTheme.values) {
-      if (theme.name == lower || theme.displayName.toLowerCase() == lower) {
+      if (theme.name == lower ||
+          theme.displayName.toLowerCase() == lower ||
+          lower.contains(theme.name)) {
         return theme;
       }
     }
