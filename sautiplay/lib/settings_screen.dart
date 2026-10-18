@@ -193,15 +193,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _useM3EAlbumArtShape = false;
   StreamSubscription<bool>? _useM3EShapeSub;
 
-  // Typography & Variable Font UI Settings
+  // Typography & Font UI Settings
   String _fontFamily = 'System';
   bool _useM3ETypography = true;
-  double _fontRond = 0.0;
-  double _bodyFontRond = 0.0;
   StreamSubscription<String>? _fontFamilySub;
   StreamSubscription<bool>? _useM3ETypographySub;
-  StreamSubscription<double>? _fontRondSub;
-  StreamSubscription<double>? _bodyFontRondSub;
 
   // App version state
   String _appVersion = 'v0.6.31';
@@ -239,8 +235,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
     _fontFamily = AppThemeService.instance.fontFamily;
     _useM3ETypography = AppThemeService.instance.useM3ETypography;
-    _fontRond = AppThemeService.instance.fontRond;
-    _bodyFontRond = AppThemeService.instance.bodyFontRond;
     _fontFamilySub = AppThemeService.instance.fontFamilyChanged.stream
         .listen((family) {
       if (mounted) {
@@ -251,18 +245,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         .listen((enabled) {
       if (mounted) {
         setState(() => _useM3ETypography = enabled);
-      }
-    });
-    _fontRondSub = AppThemeService.instance.fontRondChanged.stream
-        .listen((rond) {
-      if (mounted) {
-        setState(() => _fontRond = rond);
-      }
-    });
-    _bodyFontRondSub = AppThemeService.instance.bodyFontRondChanged.stream
-        .listen((bodyRond) {
-      if (mounted) {
-        setState(() => _bodyFontRond = bodyRond);
       }
     });
     _loadUiSettings();
@@ -343,8 +325,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _proximitySettingsSub?.cancel();
     _fontFamilySub?.cancel();
     _useM3ETypographySub?.cancel();
-    _fontRondSub?.cancel();
-    _bodyFontRondSub?.cancel();
     super.dispose();
   }
 
@@ -460,8 +440,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _useM3EAlbumArtShape = AppThemeService.instance.useM3EAlbumArtShape;
       _fontFamily = AppThemeService.instance.fontFamily;
       _useM3ETypography = AppThemeService.instance.useM3ETypography;
-      _fontRond = AppThemeService.instance.fontRond;
-      _bodyFontRond = AppThemeService.instance.bodyFontRond;
       _audioFocusSettings = focusSaved;
     });
 
@@ -1077,14 +1055,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 20),
             // ── TYPOGRAPHY & MATERIAL 3 EXPRESSIVE FONTS ────────────────────
+            // ── TYPOGRAPHY & FONTS ──────────────────────────────────────────
             _buildSectionHeader('TYPOGRAPHY & FONTS'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
                   title: 'Material 3 Expressive Scale',
-                  subtitle:
-                      'Elevated 15-role typography with increased weights, optical sizes, and variable font axes',
+                  subtitle: 'Emphasized typographic hierarchy and weights',
                   secondary: _buildLeadingIcon(Icons.text_fields_rounded),
                   value: _useM3ETypography,
                   onChanged: (val) {
@@ -1097,371 +1075,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   padding: EdgeInsets.symmetric(horizontal: 16.0),
                   child: M3EDivider(),
                 ),
-                // Live interactive typography specimen card
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: isDarkTheme
-                          ? Colors.black.withAlpha(50)
-                          : Colors.black.withAlpha(8),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: context.outlineColor.withAlpha(45),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.auto_awesome_rounded,
-                                    color: accent, size: 16),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'TYPOGRAPHIC SPECIMEN',
-                                  style: TextStyle(
-                                    color: accent,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.8,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: accent.withAlpha(25),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                    color: accent.withAlpha(70), width: 1),
-                              ),
-                              child: Text(
-                                _fontFamily == 'System'
-                                    ? 'System Default'
-                                    : _fontFamily,
-                                style: TextStyle(
-                                  color: accent,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'SautiPlay Expressive Sound',
-                          style: M3ETypographyService.getPreviewStyle(
-                            _fontFamily,
-                            baseStyle: TextStyle(
-                              color: textPrimaryColor,
-                              fontSize: _useM3ETypography ? 22 : 19,
-                              fontWeight: _useM3ETypography
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
-                              height: 1.2,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '96 kHz • 24-bit Lossless FLAC Master',
-                          style: M3ETypographyService.getPreviewStyle(
-                            _fontFamily,
-                            baseStyle: TextStyle(
-                              color: accent,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'The quick brown fox jumps over the lazy dog. Pristine sound reproduction with elevated Material 3 Expressive typographic scale.',
-                          style: M3ETypographyService.getPreviewStyle(
-                            _fontFamily,
-                            baseStyle: TextStyle(
-                              color: mutedText,
-                              fontSize: 12,
-                              height: 1.35,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: M3EDivider(),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.font_download_outlined,
-                              color: accent, size: 18),
-                          const SizedBox(width: 8),
-                          Text(
-                            'SELECTABLE FONTS',
-                            style: TextStyle(
-                              color: textPrimaryColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        '${M3ETypographyService.availableFonts.length} typefaces',
-                        style: TextStyle(color: mutedText, fontSize: 11),
-                      ),
-                    ],
-                  ),
-                ),
-                // Horizontal scrollable font selection cards
-                SizedBox(
-                  height: 145,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: M3ETypographyService.availableFonts.length,
-                    itemBuilder: (context, index) {
-                      final font = M3ETypographyService.availableFonts[index];
-                      final isSelected = _fontFamily == font.id;
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() => _fontFamily = font.id);
-                          setSubState(() {});
-                          AppThemeService.instance.saveFontFamily(font.id);
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          curve: Curves.easeOutCubic,
-                          width: 120,
-                          margin: const EdgeInsets.only(right: 12, bottom: 12),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? accent.withAlpha(25)
-                                : (isDarkTheme
-                                    ? Colors.black.withAlpha(30)
-                                    : Colors.black.withAlpha(6)),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isSelected
-                                  ? accent
-                                  : (isDarkTheme
-                                      ? Colors.white.withAlpha(18)
-                                      : Colors.black.withAlpha(15)),
-                              width: isSelected ? 2.0 : 1.0,
-                            ),
-                            boxShadow: isSelected
-                                ? [
-                                    BoxShadow(
-                                      color: accent.withAlpha(60),
-                                      blurRadius: 10,
-                                      spreadRadius: 1,
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: isSelected
-                                          ? accent.withAlpha(40)
-                                          : (isDarkTheme
-                                              ? Colors.white.withAlpha(12)
-                                              : Colors.black.withAlpha(8)),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      font.category,
-                                      style: TextStyle(
-                                        color: isSelected ? accent : mutedText,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                  if (isSelected)
-                                    Container(
-                                      width: 16,
-                                      height: 16,
-                                      decoration: BoxDecoration(
-                                        color: accent,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(
-                                        Icons.check,
-                                        color: Colors.white,
-                                        size: 10,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              Center(
-                                child: Text(
-                                  'Aa',
-                                  style: M3ETypographyService.getPreviewStyle(
-                                    font.id,
-                                    baseStyle: TextStyle(
-                                      color: isSelected
-                                          ? accent
-                                          : textPrimaryColor,
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                font.name,
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? accent
-                                      : textPrimaryColor,
-                                  fontSize: 11,
-                                  fontWeight: isSelected
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: M3EDivider(),
-                ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        children: [
-                          _buildLeadingIcon(Icons.rounded_corner_rounded),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Variable Corner Roundness (ROND)',
-                                  style: TextStyle(
-                                    color: textPrimaryColor,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Adjusts glyph corner curvature for variable fonts like Google Sans Flex',
-                                  style: TextStyle(
-                                    color: mutedText,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Text(
-                            _fontRond == 0.0
-                                ? 'Sharp (0)'
-                                : '${_fontRond.toInt()}',
-                            style: TextStyle(
-                              color: accent,
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      M3ESlider(
-                        value: _fontRond,
-                        min: 0.0,
-                        max: 100.0,
-                        divisions: 10,
-                        onChanged: (val) {
-                          setState(() => _fontRond = val);
-                          setSubState(() {});
-                          AppThemeService.instance.saveFontRond(val);
-                        },
-                      ),
-                      Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('0.0 (Crisp / Sharp)',
-                              style: TextStyle(
-                                  color: mutedText, fontSize: 11)),
-                          Text('50.0 (Soft)',
-                              style: TextStyle(
-                                  color: mutedText, fontSize: 11)),
-                          Text('100.0 (Fully Rounded)',
-                              style: TextStyle(
-                                  color: mutedText, fontSize: 11)),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          _buildLeadingIcon(Icons.format_size_rounded),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Body & Label Roundness (bodyRond)',
-                                  style: TextStyle(
-                                    color: textPrimaryColor,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                          Row(
+                            children: [
+                              _buildLeadingIcon(Icons.font_download_outlined),
+                              const SizedBox(width: 14),
+                              Text(
+                                'Font Family',
+                                style: TextStyle(
+                                  color: textPrimaryColor,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Soften body/label text while keeping display headings crisp',
-                                  style: TextStyle(
-                                    color: mutedText,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                           Text(
-                            _bodyFontRond == 0.0
-                                ? '0'
-                                : '${_bodyFontRond.toInt()}',
+                            _fontFamily == 'System'
+                                ? 'System Default'
+                                : _fontFamily,
                             style: TextStyle(
                               color: accent,
                               fontSize: 13,
@@ -1470,17 +1109,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      M3ESlider(
-                        value: _bodyFontRond,
-                        min: 0.0,
-                        max: 100.0,
-                        divisions: 10,
-                        onChanged: (val) {
-                          setState(() => _bodyFontRond = val);
-                          setSubState(() {});
-                          AppThemeService.instance.saveBodyFontRond(val);
-                        },
+                      const SizedBox(height: 12),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        child: Row(
+                          children:
+                              M3ETypographyService.availableFonts.map((font) {
+                            final isSelected = _fontFamily == font.id;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8.0),
+                              child: M3EChip(
+                                label: font.name,
+                                type: M3EChipType.filter,
+                                selected: isSelected,
+                                onPressed: () {
+                                  setState(() => _fontFamily = font.id);
+                                  setSubState(() {});
+                                  AppThemeService.instance
+                                      .saveFontFamily(font.id);
+                                },
+                              ),
+                            );
+                          }).toList(),
+                        ),
                       ),
                     ],
                   ),
