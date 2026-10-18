@@ -253,7 +253,7 @@ class _QueueScreenState extends State<QueueScreen>
       backgroundColor: bgColor,
       body: Column(
         children: [
-          const SizedBox(height: 30),
+          const SizedBox(height: 24),
           // Expressive Material 3 Top Header
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),

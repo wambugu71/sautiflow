@@ -12,13 +12,12 @@ import 'services/app_theme_service.dart';
 import 'services/audio_hardware_inspector.dart';
 import 'services/audio_profile_service.dart';
 import 'services/fft_processor.dart';
-import 'widgets/dual_oscilloscope_visualizer.dart';
 import 'widgets/fluid_area_visualizer.dart';
-import 'widgets/glsl_audio_visualizer.dart';
 import 'widgets/physics_dots_visualizer.dart';
+import 'widgets/glsl_audio_visualizer.dart';
 import 'widgets/autoeq_selector_widget.dart';
 import 'widgets/profile_selector.dart';
-import 'widgets/stereo_vectorscope_graph.dart';
+import 'widgets/fullscreen_spectrum_visualizer.dart';
 import 'l10n/app_strings.dart';
 
 class EffectsScreen extends StatefulWidget {
@@ -310,83 +309,78 @@ class _EffectsScreenState extends State<EffectsScreen> {
     }
   }
 
-  Widget _buildVisualizer(Color primaryColor,
-      List<double> currentAnalyzerValues, List<double> peakValues) {
-    final int maxFreq = _currentMaxFreq;
+  Widget _buildVisualizer(
+    Color primaryColor,
+    List<double> currentAnalyzerValues,
+    List<double> peakValues, {
+    double height = 160.0,
+    double width = double.infinity,
+  }) {
+    return AudioVisualizerHost(
+      player: widget.player,
+      analyzerType: _currentAnalyzerType,
+      spectrumStyle: _currentSpectrumStyle,
+      primaryColor: primaryColor,
+      currentAnalyzerValues: currentAnalyzerValues,
+      peakValues: peakValues,
+      height: height,
+      width: width,
+      isPlaying: _isPlaying,
+      maxFreq: _currentMaxFreq,
+      showGrids: widget.analyzerShowGrids,
+      logScale: widget.analyzerLogScale,
+      autoFit: widget.analyzerAutoFit,
+      onThemeChanged: (newTheme) {
+        setState(() {
+          _currentSpectrumStyle = newTheme;
+        });
+        PreferencesStore.instance.setString('spectrum_style', newTheme);
+      },
+    );
+  }
 
-    if (_currentAnalyzerType == 'oscilloscope' ||
-        _currentAnalyzerType == 'Dual Oscilloscope') {
-      return RepaintBoundary(
-        child: DualOscilloscopeVisualizer(
-          player: widget.player,
-          stereoStream: widget.player.analyzerStereoStream,
-          analyzerStream: widget.player.analyzerStream,
-          isPlaying: _isPlaying,
-          primaryColor: primaryColor,
-          height: 160.0,
-        ),
-      );
-    }
-
-    if (_currentAnalyzerType == 'vectorscope' ||
-        _currentAnalyzerType == 'Stereo Vectorscope') {
-      return RepaintBoundary(
-        child: StereoVectorscopeGraph(
-          width: 1.5,
-          isEnabled: true,
-          height: 160.0,
-          primaryColor: primaryColor,
-          analyzerStream: widget.player.analyzerStream,
-        ),
-      );
-    }
-
-    for (final style in GlslShaderStyle.values) {
-      if (_currentAnalyzerType == style.name ||
-          _currentAnalyzerType == style.displayName) {
-        return GlslAudioVisualizerWidget(
-          analyzerStream: widget.player.analyzerStream,
-          isPlaying: _isPlaying,
-          style: style,
-          primaryColor: primaryColor,
-          height: 160.0,
-        );
-      }
-    }
-
-    if (_currentAnalyzerType == 'area') {
-      return FluidAreaVisualizer(
-        values: currentAnalyzerValues,
-        primaryColor: primaryColor,
-        height: 160.0,
-        themeName: _currentSpectrumStyle,
-        showGrids: widget.analyzerShowGrids,
-        logScale: widget.analyzerLogScale,
-        autoFit: widget.analyzerAutoFit,
-        maxFreq: maxFreq,
-        onThemeChanged: (newTheme) {
-          setState(() {
-            _currentSpectrumStyle = newTheme;
-          });
+  void _openFullscreenVisualizer(BuildContext context, Color primaryColor) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierColor: Colors.black.withValues(alpha: 0.88),
+        barrierDismissible: true,
+        transitionDuration: const Duration(milliseconds: 320),
+        reverseTransitionDuration: const Duration(milliseconds: 280),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return FullscreenSpectrumVisualizer(
+            player: widget.player,
+            analyzerValuesNotifier: _analyzerValuesNotifier,
+            peakValuesNotifier: _peakValuesNotifier,
+            primaryColor: primaryColor,
+            initialAnalyzerType: _currentAnalyzerType,
+            initialSpectrumStyle: _currentSpectrumStyle,
+            isPlaying: _isPlaying,
+            maxFreq: _currentMaxFreq,
+            sampleRate: _currentlyUsedSampleRate,
+            analyzerShowGrids: widget.analyzerShowGrids,
+            analyzerLogScale: widget.analyzerLogScale,
+            analyzerAutoFit: widget.analyzerAutoFit,
+            onAnalyzerTypeChanged: (newType) {
+              setState(() => _currentAnalyzerType = newType);
+            },
+            onSpectrumStyleChanged: (newStyle) {
+              setState(() => _currentSpectrumStyle = newStyle);
+            },
+          );
         },
-      );
-    } else {
-      return PhysicsDotsVisualizer(
-        values: currentAnalyzerValues,
-        primaryColor: primaryColor,
-        height: 160.0,
-        themeName: _currentSpectrumStyle,
-        showGrids: widget.analyzerShowGrids,
-        logScale: widget.analyzerLogScale,
-        autoFit: widget.analyzerAutoFit,
-        maxFreq: maxFreq,
-        onThemeChanged: (newTheme) {
-          setState(() {
-            _currentSpectrumStyle = newTheme;
-          });
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic,
+            ),
+            child: child,
+          );
         },
-      );
-    }
+      ),
+    );
   }
 
   @override
@@ -840,20 +834,62 @@ class _EffectsScreenState extends State<EffectsScreen> {
                       Padding(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16.0, vertical: 8.0),
-                        child: ValueListenableBuilder<List<double>>(
-                          valueListenable: _analyzerValuesNotifier,
-                          builder: (context, analyzerVals, _) {
-                            return RepaintBoundary(
-                              child: SizedBox(
-                                height: 160,
-                                child: _buildVisualizer(
-                                  primaryColor,
-                                  analyzerVals,
-                                  _peakValuesNotifier.value,
-                                ),
+                        child: Hero(
+                          tag: 'spectrum_analyzer_hero',
+                          child: Material(
+                            color: Colors.transparent,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: Stack(
+                                children: [
+                                  // Live Visualizer with double-tap gesture to expand
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onDoubleTap: () => _openFullscreenVisualizer(
+                                        context, primaryColor),
+                                    child: ValueListenableBuilder<List<double>>(
+                                      valueListenable: _analyzerValuesNotifier,
+                                      builder: (context, analyzerVals, _) {
+                                        return RepaintBoundary(
+                                          child: SizedBox(
+                                            height: 160,
+                                            child: _buildVisualizer(
+                                              primaryColor,
+                                              analyzerVals,
+                                              _peakValuesNotifier.value,
+                                              height: 160,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  // Floating Fullscreen Expand Button in Top-Right
+                                  Positioned(
+                                    top: 6,
+                                    right: 6,
+                                    child: Material(
+                                      color: Colors.black.withValues(alpha: 0.45),
+                                      shape: const CircleBorder(),
+                                      child: InkWell(
+                                        customBorder: const CircleBorder(),
+                                        onTap: () => _openFullscreenVisualizer(
+                                            context, primaryColor),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(6.0),
+                                          child: Icon(
+                                            Icons.fullscreen_rounded,
+                                            size: 18,
+                                            color: Colors.white70,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            );
-                          },
+                            ),
+                          ),
                         ),
                       ),
                       Padding(
@@ -867,15 +903,32 @@ class _EffectsScreenState extends State<EffectsScreen> {
                           ),
                         ),
                       ),
+                      // Interactive pull-down handle to expand to full screen
                       Padding(
                         padding: const EdgeInsets.only(top: 4, bottom: 2),
                         child: Center(
-                          child: Container(
-                            width: 36,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.35),
-                              borderRadius: BorderRadius.circular(2),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => _openFullscreenVisualizer(
+                                context, primaryColor),
+                            onVerticalDragEnd: (details) {
+                              if (details.primaryVelocity != null &&
+                                  details.primaryVelocity! > 100) {
+                                _openFullscreenVisualizer(
+                                    context, primaryColor);
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16.0, vertical: 6.0),
+                              child: Container(
+                                width: 44,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.35),
+                                  borderRadius: BorderRadius.circular(2.5),
+                                ),
+                              ),
                             ),
                           ),
                         ),
