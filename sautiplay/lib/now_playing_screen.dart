@@ -9,7 +9,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
-import 'package:material_3_expressive/material_3_expressive.dart' hide M3EHapticFeedback;
+import 'package:material_3_expressive/material_3_expressive.dart'
+    hide M3EHapticFeedback;
 import 'package:m3e_seekbar/m3e_seekbar.dart';
 import 'package:sautiflow/sautiflow.dart';
 
@@ -111,7 +112,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   late final PageController _pageController;
 
   // ── High-Refresh-Rate (60-120Hz) Smooth Playhead Interpolator ─────────────
-  final ValueNotifier<double> _smoothPositionNotifier = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> _smoothPositionNotifier =
+      ValueNotifier<double>(0.0);
   Ticker? _smoothPositionTicker;
   final Stopwatch _smoothStopwatch = Stopwatch();
   double _anchorPosMs = 0.0;
@@ -386,7 +388,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         ? overrideSecs.toDouble()
         : status.durationSeconds;
     final maxMs = baseDurationSecs > 0 ? baseDurationSecs * 1000.0 : 1.0;
-    final current = (_anchorPosMs + (elapsedMs * _currentRate)).clamp(0.0, maxMs);
+    final current =
+        (_anchorPosMs + (elapsedMs * _currentRate)).clamp(0.0, maxMs);
     if ((_smoothPositionNotifier.value - current).abs() >= 0.5) {
       _smoothPositionNotifier.value = current;
     }
@@ -668,7 +671,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (depthStr == null) {
         switch (pipelineState.inputFormat) {
           case 0:
-            depthStr = '32 bit float';
+            depthStr = '32 bit';
             break;
           case 3:
             depthStr = '24 bit';
@@ -706,8 +709,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _buildAudioInfoBadgeText(String trackPosition) {
     final posPart =
         trackPosition.trim().isNotEmpty ? '${trackPosition.trim()} ' : '';
-    final depthPart = _originalBitDepth.isNotEmpty ? '$_originalBitDepth ' : '';
-    return '$posPart$depthPart$_sampleRate'.toUpperCase().trim();
+    final depthPart = _originalBitDepth.isNotEmpty ? '$_originalBitDepth' : '';
+
+    return '$posPart$depthPart $_sampleRate'.toUpperCase().trim();
   }
 
   Future<void> _fetchLyrics() async {
@@ -822,7 +826,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             _showLyricsOverlayOnAlbumArt = true;
             _showLyrics = true;
           });
-          PreferencesStore.instance.setBool('now_playing_show_lyrics_overlay', true);
+          PreferencesStore.instance
+              .setBool('now_playing_show_lyrics_overlay', true);
           PreferencesStore.instance.setBool('now_playing_show_lyrics', true);
 
           ScaffoldMessenger.of(context).showSnackBar(
@@ -979,10 +984,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           }
                           final curIdx =
                               widget.statusNotifier.value.currentIndex;
-                          final curTrack = (curIdx >= 0 &&
-                                  curIdx < widget.queue.length)
-                              ? widget.queue[curIdx]
-                              : null;
+                          final curTrack =
+                              (curIdx >= 0 && curIdx < widget.queue.length)
+                                  ? widget.queue[curIdx]
+                                  : null;
                           final vid = curTrack?.videoId.isNotEmpty == true
                               ? curTrack!.videoId
                               : (widget.videoId ?? '');
@@ -995,7 +1000,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
                           return AnimatedBuilder(
                             animation: Listenable.merge([
-                              CachedStreamService.instance.cachedStreamsNotifier,
+                              CachedStreamService
+                                  .instance.cachedStreamsNotifier,
                               CachedStreamService
                                   .instance.activeDownloadsNotifier,
                             ]),
@@ -1063,9 +1069,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     _showRemoveCacheConfirmation(
                                         context, cachedItem, trackTitle);
                                   } else if (!isDownloading) {
-                                    final streamUrl = widget.getStreamUrl != null
-                                        ? widget.getStreamUrl!(curIdx)
-                                        : null;
+                                    final streamUrl =
+                                        widget.getStreamUrl != null
+                                            ? widget.getStreamUrl!(curIdx)
+                                            : null;
                                     final messenger =
                                         ScaffoldMessenger.of(context);
                                     messenger.showSnackBar(
@@ -1098,9 +1105,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                               content: Row(
                                                 children: [
                                                   const Icon(
-                                                      Icons.check_circle_rounded,
-                                                      color:
-                                                          Colors.greenAccent,
+                                                      Icons
+                                                          .check_circle_rounded,
+                                                      color: Colors.greenAccent,
                                                       size: 20),
                                                   const SizedBox(width: 8),
                                                   Expanded(
@@ -1133,10 +1140,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           );
                         }(),
                         () {
-                          final curIdx = widget.statusNotifier.value.currentIndex;
-                          final curTrack = (curIdx >= 0 && curIdx < widget.queue.length)
-                              ? widget.queue[curIdx]
-                              : null;
+                          final curIdx =
+                              widget.statusNotifier.value.currentIndex;
+                          final curTrack =
+                              (curIdx >= 0 && curIdx < widget.queue.length)
+                                  ? widget.queue[curIdx]
+                                  : null;
                           final dynArtist = widget.getArtist != null
                               ? widget.getArtist!(curIdx)
                               : (curTrack?.artist ?? widget.artist);
@@ -1166,7 +1175,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             ),
                             onTap: () {
                               Navigator.pop(sheetContext);
-                              _openArtistProfile(curArtist, artistId: curArtistId);
+                              _openArtistProfile(curArtist,
+                                  artistId: curArtistId);
                             },
                           );
                         }(),
@@ -1235,7 +1245,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                       () => _showLyricsOverlayOnAlbumArt = val);
                                   setState(
                                       () => _showLyricsOverlayOnAlbumArt = val);
-                                  PreferencesStore.instance.setBool('now_playing_show_lyrics_overlay', val);
+                                  PreferencesStore.instance.setBool(
+                                      'now_playing_show_lyrics_overlay', val);
                                 },
                         ),
                         if (_isCustomLyricsLoaded)
@@ -1482,7 +1493,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             size: 18, color: Colors.white70),
                         onPressed: () {
                           setState(() => _showLyricsOverlayOnAlbumArt = false);
-                          PreferencesStore.instance.setBool('now_playing_show_lyrics_overlay', false);
+                          PreferencesStore.instance.setBool(
+                              'now_playing_show_lyrics_overlay', false);
                         },
                         tooltip: 'Hide Lyrics Overlay',
                       ),
@@ -1559,8 +1571,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         CachedStreamService.instance.activeDownloadsNotifier,
       ]),
       builder: (context, _) {
-        final cachedItem =
-            CachedStreamService.instance.getCachedItem(videoId);
+        final cachedItem = CachedStreamService.instance.getCachedItem(videoId);
         final isCached = cachedItem != null;
         final isDownloading =
             CachedStreamService.instance.isDownloading(videoId);
@@ -1635,8 +1646,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               color: Colors.greenAccent, size: 20),
                           const SizedBox(width: 8),
                           Expanded(
-                            child:
-                                Text('Saved "$title" to offline downloads'),
+                            child: Text('Saved "$title" to offline downloads'),
                           ),
                         ],
                       ),
@@ -2194,7 +2204,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ? _dragPositionMs.clamp(0.0, maxMs)
             : (_pendingSeekMs?.clamp(0.0, maxMs) ?? posMs.clamp(0.0, maxMs));
 
-        final curTrack = (status.currentIndex >= 0 && status.currentIndex < widget.queue.length)
+        final curTrack = (status.currentIndex >= 0 &&
+                status.currentIndex < widget.queue.length)
             ? widget.queue[status.currentIndex]
             : null;
         final rawTitle = widget.getTitle(status.currentIndex);
@@ -2231,12 +2242,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 // Immersive Dynamic Background Layer (Optimized GPU-friendly blurred background)
                 Positioned.fill(
                   child: RepaintBoundary(
-                    child: (widget.albumArt != null && widget.albumArt!.isNotEmpty)
+                    child: (widget.albumArt != null &&
+                            widget.albumArt!.isNotEmpty)
                         ? Stack(
                             fit: StackFit.expand,
                             children: [
                               ImageFiltered(
-                                imageFilter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                                imageFilter:
+                                    ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                                 child: Image.memory(
                                   widget.albumArt!,
                                   fit: BoxFit.cover,
@@ -2408,12 +2421,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 // Album Art Image wrapped in RepaintBoundary
                                                 Positioned.fill(
                                                   child: RepaintBoundary(
-                                                    child: _buildAlbumArtContainer(
+                                                    child:
+                                                        _buildAlbumArtContainer(
                                                       isDesktop: true,
-                                                      albumArtShape: albumArtShape,
+                                                      albumArtShape:
+                                                          albumArtShape,
                                                       useM3EShape: useM3EShape,
-                                                      surfaceColor: surfaceColor,
-                                                      primaryColor: primaryColor,
+                                                      surfaceColor:
+                                                          surfaceColor,
+                                                      primaryColor:
+                                                          primaryColor,
                                                     ),
                                                   ),
                                                 ),
@@ -2456,9 +2473,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                             .start,
                                                     children: [
                                                       RepaintBoundary(
-                                                        child: AdaptiveMarqueeText(
+                                                        child:
+                                                            AdaptiveMarqueeText(
                                                           text: title,
-                                                          style: const TextStyle(
+                                                          style:
+                                                              const TextStyle(
                                                             fontSize: 32,
                                                             fontWeight:
                                                                 FontWeight.bold,
@@ -2471,29 +2490,57 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                       ),
                                                       const SizedBox(height: 6),
                                                       InkWell(
-                                                        onTap: () => _openArtistProfile(subtitle, artistId: dynamicArtistId),
-                                                        borderRadius: BorderRadius.circular(8),
+                                                        onTap: () =>
+                                                            _openArtistProfile(
+                                                                subtitle,
+                                                                artistId:
+                                                                    dynamicArtistId),
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(8),
                                                         child: Padding(
-                                                          padding: const EdgeInsets.symmetric(vertical: 2.0),
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .symmetric(
+                                                                  vertical:
+                                                                      2.0),
                                                           child: Row(
-                                                            mainAxisSize: MainAxisSize.min,
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
                                                             children: [
                                                               Flexible(
                                                                 child: Text(
                                                                   subtitle,
-                                                                  style: TextStyle(
-                                                                    fontSize: 18,
-                                                                    fontWeight: FontWeight.w600,
-                                                                    color: Colors.white.withValues(alpha: 0.85),
+                                                                  style:
+                                                                      TextStyle(
+                                                                    fontSize:
+                                                                        18,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w600,
+                                                                    color: Colors
+                                                                        .white
+                                                                        .withValues(
+                                                                            alpha:
+                                                                                0.85),
                                                                   ),
                                                                   maxLines: 1,
-                                                                  overflow: TextOverflow.ellipsis,
+                                                                  overflow:
+                                                                      TextOverflow
+                                                                          .ellipsis,
                                                                 ),
                                                               ),
-                                                              const SizedBox(width: 4),
+                                                              const SizedBox(
+                                                                  width: 4),
                                                               Icon(
-                                                                Icons.chevron_right_rounded,
-                                                                color: Colors.white.withValues(alpha: 0.6),
+                                                                Icons
+                                                                    .chevron_right_rounded,
+                                                                color: Colors
+                                                                    .white
+                                                                    .withValues(
+                                                                        alpha:
+                                                                            0.6),
                                                                 size: 20,
                                                               ),
                                                             ],
@@ -2567,7 +2614,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                           title,
                                                                       artist:
                                                                           subtitle,
-                                                                        artistId: dynamicArtistId,
+                                                                      artistId:
+                                                                          dynamicArtistId,
                                                                       thumbnailUrl: widget.albumArt ==
                                                                               null
                                                                           ? null
@@ -2594,14 +2642,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                 .thumb_down_outlined),
                                                             onPressed: () {},
                                                           ),
-                                                          if (widget.sourceType == 'online') ...[
-                                                            const SizedBox(width: 12),
+                                                          if (widget
+                                                                  .sourceType ==
+                                                              'online') ...[
+                                                            const SizedBox(
+                                                                width: 12),
                                                             _buildStreamCacheButton(
-                                                              curTrack: curTrack,
+                                                              curTrack:
+                                                                  curTrack,
                                                               status: status,
                                                               title: title,
-                                                              subtitle: subtitle,
-                                                              primaryColor: primaryColor,
+                                                              subtitle:
+                                                                  subtitle,
+                                                              primaryColor:
+                                                                  primaryColor,
                                                             ),
                                                           ],
                                                         ],
@@ -2748,7 +2802,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   onPressed: () {
                                                     setState(() => _showLyrics =
                                                         !_showLyrics);
-                                                    PreferencesStore.instance.setBool('now_playing_show_lyrics', _showLyrics);
+                                                    PreferencesStore.instance
+                                                        .setBool(
+                                                            'now_playing_show_lyrics',
+                                                            _showLyrics);
                                                   },
                                                 ),
                                                 M3EToolbarWidget(
@@ -2778,7 +2835,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   onPressed: () {
                                                     widget.player.seekTo(Duration(
                                                         milliseconds:
-                                                            (_smoothPositionNotifier.value -
+                                                            (_smoothPositionNotifier
+                                                                        .value -
                                                                     10000)
                                                                 .toInt()
                                                                 .clamp(
@@ -2865,7 +2923,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   onPressed: () {
                                                     widget.player.seekTo(Duration(
                                                         milliseconds:
-                                                            (_smoothPositionNotifier.value +
+                                                            (_smoothPositionNotifier
+                                                                        .value +
                                                                     10000)
                                                                 .toInt()
                                                                 .clamp(
@@ -2881,27 +2940,36 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
                                           // Seek Bar & Diagnostic Info Chip wrapped in RepaintBoundary
                                           RepaintBoundary(
-                                            child: ValueListenableBuilder<double>(
-                                              valueListenable: _smoothPositionNotifier,
-                                              builder: (context, smoothPosMs, _) {
-                                                final effectivePosMs = _isDragging
-                                                    ? _dragPositionMs.clamp(0.0, maxMs)
-                                                    : (_pendingSeekMs?.clamp(0.0, maxMs) ??
-                                                        smoothPosMs.clamp(0.0, maxMs));
+                                            child:
+                                                ValueListenableBuilder<double>(
+                                              valueListenable:
+                                                  _smoothPositionNotifier,
+                                              builder:
+                                                  (context, smoothPosMs, _) {
+                                                final effectivePosMs =
+                                                    _isDragging
+                                                        ? _dragPositionMs.clamp(
+                                                            0.0, maxMs)
+                                                        : (_pendingSeekMs
+                                                                ?.clamp(0.0,
+                                                                    maxMs) ??
+                                                            smoothPosMs.clamp(
+                                                                0.0, maxMs));
                                                 return Column(
                                                   children: [
                                                     if (_abRepeatState >= 1)
                                                       _buildAbRegionLabels(
                                                           maxMs: maxMs),
                                                     LayoutBuilder(
-                                                      builder:
-                                                          (context, constraints) {
+                                                      builder: (context,
+                                                          constraints) {
                                                         return _buildSeekBarWidget(
                                                           displayPosMs:
                                                               effectivePosMs,
                                                           maxMs: maxMs,
                                                           totalWidth:
-                                                              constraints.maxWidth,
+                                                              constraints
+                                                                  .maxWidth,
                                                           isMobile: false,
                                                           primaryColor:
                                                               primaryColor,
@@ -2921,36 +2989,47 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                       .toInt())),
                                                           style: const TextStyle(
                                                               fontSize: 14,
-                                                              color: Colors.white,
+                                                              color:
+                                                                  Colors.white,
                                                               fontWeight:
-                                                                  FontWeight.bold),
+                                                                  FontWeight
+                                                                      .bold),
                                                         ),
                                                         // M3E Audio Diagnostic Badge Chip
                                                         M3EChip(
                                                           leading: Icon(
                                                             Icons.info,
-                                                            size: 13,
+                                                            size: 8,
                                                             color: primaryColor,
                                                           ),
                                                           label:
                                                               _buildAudioInfoBadgeText(
                                                                   trackPosition),
-                                                          onPressed: () =>
-                                                              showAudioEngineDiagnosticPanel(
-                                                                  context,
-                                                                  widget.player,
-                                                                  filePath: widget.videoId != null &&
-                                                                          widget.videoId!.startsWith('file://')
-                                                                      ? Uri.tryParse(widget.videoId!)?.toFilePath()
-                                                                      : widget.videoId),
+                                                          onPressed: () => showAudioEngineDiagnosticPanel(
+                                                              context,
+                                                              widget.player,
+                                                              filePath: widget.videoId !=
+                                                                          null &&
+                                                                      widget
+                                                                          .videoId!
+                                                                          .startsWith(
+                                                                              'file://')
+                                                                  ? Uri.tryParse(
+                                                                          widget
+                                                                              .videoId!)
+                                                                      ?.toFilePath()
+                                                                  : widget
+                                                                      .videoId),
                                                         ),
                                                         Text(
                                                           _fmt(duration),
                                                           style: const TextStyle(
                                                               fontSize: 14,
-                                                              color: Colors.white,
+                                                              color:
+                                                                  Colors.white,
                                                               fontWeight:
-                                                                  FontWeight.bold),
+                                                                  FontWeight
+                                                                      .bold),
                                                         ),
                                                       ],
                                                     ),
@@ -3123,7 +3202,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                     text: title,
                                                     style: const TextStyle(
                                                       fontSize: 22,
-                                                      fontWeight: FontWeight.bold,
+                                                      fontWeight:
+                                                          FontWeight.bold,
                                                       color: textLight,
                                                     ),
                                                     blankSpace: 40.0,
@@ -3132,26 +3212,37 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                                 const SizedBox(height: 4),
                                                 InkWell(
-                                                  onTap: () => _openArtistProfile(subtitle, artistId: dynamicArtistId),
-                                                  borderRadius: BorderRadius.circular(6),
+                                                  onTap: () =>
+                                                      _openArtistProfile(
+                                                          subtitle,
+                                                          artistId:
+                                                              dynamicArtistId),
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
                                                   child: Row(
-                                                    mainAxisSize: MainAxisSize.min,
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
                                                     children: [
                                                       Flexible(
                                                         child: Text(
                                                           subtitle,
-                                                          style: const TextStyle(
+                                                          style:
+                                                              const TextStyle(
                                                             fontSize: 15,
-                                                            fontWeight: FontWeight.w600,
-                                                            color: Colors.white70,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                            color:
+                                                                Colors.white70,
                                                           ),
                                                           maxLines: 1,
-                                                          overflow: TextOverflow.ellipsis,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
                                                         ),
                                                       ),
                                                       const SizedBox(width: 4),
                                                       const Icon(
-                                                        Icons.chevron_right_rounded,
+                                                        Icons
+                                                            .chevron_right_rounded,
                                                         color: Colors.white54,
                                                         size: 16,
                                                       ),
@@ -3222,7 +3313,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                 title: title,
                                                                 artist:
                                                                     subtitle,
-                                                                  artistId: dynamicArtistId,
+                                                                artistId:
+                                                                    dynamicArtistId,
                                                                 thumbnailUrl:
                                                                     widget.albumArt ==
                                                                             null
@@ -3249,14 +3341,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                           .thumb_down_outlined),
                                                       onPressed: () {},
                                                     ),
-                                                    if (widget.sourceType == 'online') ...[
+                                                    if (widget.sourceType ==
+                                                        'online') ...[
                                                       const SizedBox(width: 8),
                                                       _buildStreamCacheButton(
                                                         curTrack: curTrack,
                                                         status: status,
                                                         title: title,
                                                         subtitle: subtitle,
-                                                        primaryColor: primaryColor,
+                                                        primaryColor:
+                                                            primaryColor,
                                                       ),
                                                     ],
                                                   ],
@@ -3290,8 +3384,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                           _showLyrics =
                                                               _showLyricsOverlayOnAlbumArt;
                                                         });
-                                                        PreferencesStore.instance.setBool('now_playing_show_lyrics_overlay', _showLyricsOverlayOnAlbumArt);
-                                                        PreferencesStore.instance.setBool('now_playing_show_lyrics', _showLyrics);
+                                                        PreferencesStore
+                                                            .instance
+                                                            .setBool(
+                                                                'now_playing_show_lyrics_overlay',
+                                                                _showLyricsOverlayOnAlbumArt);
+                                                        PreferencesStore
+                                                            .instance
+                                                            .setBool(
+                                                                'now_playing_show_lyrics',
+                                                                _showLyrics);
                                                       },
                                                     ),
                                                     const SizedBox(width: 8),
@@ -3337,7 +3439,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         size: 28),
                                     onPressed: () {
                                       final target =
-                                          (_smoothPositionNotifier.value - 10000)
+                                          (_smoothPositionNotifier.value -
+                                                  10000)
                                               .clamp(0.0, maxMs);
                                       _pendingSeekMs = target;
                                       _anchorPosMs = target;
@@ -3347,7 +3450,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                           milliseconds: target.toInt()));
                                       _seekTimeoutTimer?.cancel();
                                       _seekTimeoutTimer = Timer(
-                                          const Duration(milliseconds: 1500), () {
+                                          const Duration(milliseconds: 1500),
+                                          () {
                                         if (mounted) {
                                           setState(() => _pendingSeekMs = null);
                                         }
@@ -3416,7 +3520,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         size: 28),
                                     onPressed: () {
                                       final target =
-                                          (_smoothPositionNotifier.value + 10000)
+                                          (_smoothPositionNotifier.value +
+                                                  10000)
                                               .clamp(0.0, maxMs);
                                       _pendingSeekMs = target;
                                       _anchorPosMs = target;
@@ -3426,7 +3531,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                           milliseconds: target.toInt()));
                                       _seekTimeoutTimer?.cancel();
                                       _seekTimeoutTimer = Timer(
-                                          const Duration(milliseconds: 1500), () {
+                                          const Duration(milliseconds: 1500),
+                                          () {
                                         if (mounted) {
                                           setState(() => _pendingSeekMs = null);
                                         }
@@ -3482,32 +3588,38 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                             ),
                                             Flexible(
                                               child: Padding(
-                                                padding: const EdgeInsets.symmetric(
-                                                    horizontal: 4.0),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 4.0),
                                                 child: M3EChip(
                                                   leading: Icon(
-                                                      Icons.info_outline_rounded,
+                                                      Icons
+                                                          .info_outline_rounded,
                                                       size: 10,
                                                       color: primaryColor),
-                                                  label: _buildAudioInfoBadgeText(
-                                                      trackPosition),
-                                                  onPressed: () =>
-                                                      showAudioEngineDiagnosticPanel(
-                                                          context,
-                                                          widget.player,
-                                                          filePath: widget.videoId != null &&
-                                                                  widget.videoId!.startsWith('file://')
-                                                              ? Uri.tryParse(widget.videoId!)?.toFilePath()
-                                                              : widget.videoId),
+                                                  label:
+                                                      _buildAudioInfoBadgeText(
+                                                          trackPosition),
+                                                  onPressed: () => showAudioEngineDiagnosticPanel(
+                                                      context, widget.player,
+                                                      filePath: widget.videoId !=
+                                                                  null &&
+                                                              widget.videoId!
+                                                                  .startsWith(
+                                                                      'file://')
+                                                          ? Uri.tryParse(widget
+                                                                  .videoId!)
+                                                              ?.toFilePath()
+                                                          : widget.videoId),
                                                 ),
                                               ),
                                             ),
                                             Text(
                                               _fmt(duration),
                                               style: const TextStyle(
-                                                  fontSize: 8,
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold),
+                                                fontSize: 8,
+                                                color: Colors.white,
+                                              ),
                                             ),
                                           ],
                                         ),

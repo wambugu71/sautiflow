@@ -4,17 +4,19 @@ import 'package:material_3_expressive/components/progress_indicators/m3e_progres
 import 'package:sautiflow/sautiflow.dart';
 import 'package:sautiplay/isolate_player.dart';
 import 'package:sautiplay/services/app_state_service.dart';
+import 'package:sautiplay/services/app_theme_service.dart';
 import 'package:sautiplay/services/audio_hardware_inspector.dart';
 
 /// Shows the Developer & Audiophile Audio Engine Diagnostic Panel as a glassmorphic bottom sheet.
 void showAudioEngineDiagnosticPanel(
     BuildContext context, IsolateAudioPlayer player,
     {String? filePath}) {
+  final isDark = context.isDark;
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.65),
+    barrierColor: Colors.black.withValues(alpha: isDark ? 0.65 : 0.35),
     builder: (ctx) =>
         AudioEngineDiagnosticPanel(player: player, filePath: filePath),
   );
@@ -39,6 +41,7 @@ class _AudioEngineDiagnosticPanelState
     extends State<AudioEngineDiagnosticPanel> {
   Timer? _telemetryTimer;
   StreamSubscription<AudioHardwareSpecs>? _hardwareSub;
+  StreamSubscription<AppThemeId>? _themeSub;
   AudioHardwareSpecs? _hardwareSpecs;
   Map<String, dynamic>? _telemetry;
   bool _loading = true;
@@ -47,6 +50,12 @@ class _AudioEngineDiagnosticPanelState
   @override
   void initState() {
     super.initState();
+    _themeSub = AppThemeService.instance.themeChanged.stream.listen((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+
     _hardwareSpecs = AudioHardwareInspector.currentSpecs;
     _hardwareSub =
         AudioHardwareInspector.hardwareStream(widget.player).listen((specs) {
@@ -76,6 +85,7 @@ class _AudioEngineDiagnosticPanelState
 
   @override
   void dispose() {
+    _themeSub?.cancel();
     _telemetryTimer?.cancel();
     _hardwareSub?.cancel();
     widget.player.setTruePeakMeterEnabled(false);
@@ -106,18 +116,40 @@ class _AudioEngineDiagnosticPanelState
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
+    final theme = Theme.of(context);
+    final hasAppTheme =
+        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>() != null;
+    final appTheme = context.appTheme;
+    final isDark =
+        hasAppTheme ? context.isDark : (theme.brightness == Brightness.dark);
+    final primary = hasAppTheme ? appTheme.primary : theme.colorScheme.primary;
+    final textPrimary = hasAppTheme
+        ? context.textPrimary
+        : (isDark ? Colors.white : const Color(0xFF1A1A2E));
+    final outlineColor = hasAppTheme
+        ? context.outlineColor
+        : textPrimary.withValues(alpha: 0.12);
+
+    final sheetSurface = isDark
+        ? (appTheme.id == AppThemeId.amoledBlack
+            ? const Color(0xFF0A0A0A)
+            : appTheme.cardDark)
+        : appTheme.cardDark;
 
     return Container(
       constraints: BoxConstraints(
         maxHeight: mediaQuery.size.height * 0.90,
       ),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F121A).withValues(alpha: 0.96),
+        color: sheetSurface.withValues(alpha: isDark ? 0.96 : 0.98),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        border: Border.all(color: const Color(0xFF2A324B), width: 1.2),
+        border: Border.all(
+          color: isDark ? primary.withValues(alpha: 0.25) : outlineColor,
+          width: 1.2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.cyanAccent.withValues(alpha: 0.12),
+            color: primary.withValues(alpha: isDark ? 0.15 : 0.08),
             blurRadius: 32,
             spreadRadius: 2,
           )
@@ -134,7 +166,7 @@ class _AudioEngineDiagnosticPanelState
               width: 42,
               height: 5,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: isDark ? Colors.white24 : Colors.black26,
                 borderRadius: BorderRadius.circular(2.5),
               ),
             ),
@@ -149,10 +181,10 @@ class _AudioEngineDiagnosticPanelState
                 Expanded(
                   child: Row(
                     children: [
-                      const Text(
+                      Text(
                         'Audio Info & Diagnostics',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: textPrimary,
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
                           letterSpacing: 1.1,
@@ -162,17 +194,21 @@ class _AudioEngineDiagnosticPanelState
                       Container(
                         width: 7,
                         height: 7,
-                        decoration: const BoxDecoration(
-                          color: Colors.greenAccent,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF4ADE80)
+                              : const Color(0xFF16A34A),
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 6),
-                      const Text(
+                      Text(
                         'LIVE',
                         style: TextStyle(
                           fontFamily: 'monospace',
-                          color: Colors.greenAccent,
+                          color: isDark
+                              ? const Color(0xFF4ADE80)
+                              : const Color(0xFF16A34A),
                           fontWeight: FontWeight.bold,
                           fontSize: 10,
                           letterSpacing: 0.8,
@@ -185,14 +221,19 @@ class _AudioEngineDiagnosticPanelState
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF222B40),
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.black.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Center(
                     child: IconButton(
                       padding: EdgeInsets.zero,
-                      icon: const Icon(Icons.close_rounded,
-                          color: Colors.white70, size: 20),
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: textPrimary.withValues(alpha: 0.7),
+                        size: 20,
+                      ),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                   ),
@@ -201,7 +242,7 @@ class _AudioEngineDiagnosticPanelState
             ),
           ),
 
-          const Divider(color: Color(0xFF222B40), height: 1),
+          Divider(color: outlineColor, height: 1),
 
           // Body
           Flexible(
@@ -217,7 +258,11 @@ class _AudioEngineDiagnosticPanelState
                           padding: const EdgeInsets.all(20),
                           child: Text(
                             'Engine Telemetry Error: $_error',
-                            style: const TextStyle(color: Colors.redAccent),
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.redAccent
+                                  : const Color(0xFFDC2626),
+                            ),
                           ),
                         )
                       : _buildDiagnosticsContent(context),
@@ -384,6 +429,19 @@ class _AudioEngineDiagnosticPanelState
     final String resamplerAlgo =
         _formatResamplerAlgo(t['resampleAlgorithm']?.toString());
 
+    final appTheme = context.appTheme;
+    final isDark = context.isDark;
+    final primary = appTheme.primary;
+    final textPrimary = context.textPrimary;
+    final textMuted = context.textMuted;
+    final outlineColor = context.outlineColor;
+
+    final cardBg = isDark
+        ? (appTheme.id == AppThemeId.amoledBlack
+            ? const Color(0xFF000000)
+            : appTheme.bgDark.withValues(alpha: 0.7))
+        : appTheme.bgDark.withValues(alpha: 0.6);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -394,7 +452,15 @@ class _AudioEngineDiagnosticPanelState
 
         // 2. Per-Node Latency Breakdown Card (Source -> DAC)
         _buildPerNodeLatencyCard(
-            nodeLatencies, totalEndToEndLatencyMs, sumDspSamples),
+          nodeLatencies,
+          totalEndToEndLatencyMs,
+          sumDspSamples,
+          cardBg: cardBg,
+          outlineColor: outlineColor,
+          isDark: isDark,
+          textPrimary: textPrimary,
+          textMuted: textMuted,
+        ),
 
         const SizedBox(height: 16),
 
@@ -402,9 +468,11 @@ class _AudioEngineDiagnosticPanelState
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFF080A10),
+            color: cardBg,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF1E2638)),
+            border: Border.all(
+              color: isDark ? textPrimary.withValues(alpha: 0.08) : outlineColor,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -412,100 +480,98 @@ class _AudioEngineDiagnosticPanelState
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'DSP Status',
                     style: TextStyle(
                       fontFamily: 'monospace',
-                      color: Colors.white70,
+                      color: textPrimary.withValues(alpha: 0.85),
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.5,
                     ),
                   ),
-                  /*  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: isSrcActive
-                          ? Colors.amber.withValues(alpha: 0.2)
-                          : Colors.greenAccent.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      isSrcActive ? 'SRC ACTIVE' : 'BIT-PERFECT',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        color: isSrcActive
-                            ? Colors.amberAccent
-                            : Colors.greenAccent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ), */
                 ],
               ),
               const SizedBox(height: 12),
-              const Divider(color: Color(0xFF1B2336), height: 1),
+              Divider(
+                color: isDark
+                    ? textPrimary.withValues(alpha: 0.08)
+                    : outlineColor,
+                height: 1,
+              ),
               const SizedBox(height: 12),
               _buildTelemetryRow('Device', activeDeviceName,
-                  isValueActive: true),
+                  isValueActive: true, context: context),
               _buildTelemetryRow('Device Type', specs.deviceType,
-                  isValueActive: true),
+                  isValueActive: true, context: context),
               if (specs.bluetoothCodec != null)
                 _buildTelemetryRow(
                   'BT Codec',
                   specs.formattedBtCodec ?? specs.bluetoothCodec!,
                   isValueActive: true,
+                  context: context,
                 ),
-              _buildTelemetryRow('File Format', fileType, isValueActive: true),
+              _buildTelemetryRow('File Format', fileType,
+                  isValueActive: true, context: context),
               _buildTelemetryRow('Bitrate', bitrateDisplay,
-                  isValueActive: bitrateKbps > 0),
+                  isValueActive: bitrateKbps > 0, context: context),
               if (fileSizeBytes > 0)
                 _buildTelemetryRow('File Size',
                     '${(fileSizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB',
-                    isValueActive: true),
+                    isValueActive: true, context: context),
               _buildTelemetryRow('ReplayGain', replayGainDisplay,
-                  isValueActive: hasReplayGain),
+                  isValueActive: hasReplayGain, context: context),
               _buildTelemetryRow('Source',
-                  '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit PCM'),
+                  '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit PCM',
+                  context: context),
               _buildTelemetryRow('Decoder',
-                  '${(srcRate / 1000.0).toStringAsFixed(1)} kHz PCM'),
+                  '${(srcRate / 1000.0).toStringAsFixed(1)} kHz PCM',
+                  context: context),
               _buildTelemetryRow('DSP',
-                  '${(dspRate / 1000.0).toStringAsFixed(1)} kHz Float32 ($dspChannels ch)'),
+                  '${(dspRate / 1000.0).toStringAsFixed(1)} kHz Float32 ($dspChannels ch)',
+                  context: context),
               _buildTelemetryRow('Output',
-                  '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit (${specs.deviceType})'),
+                  '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit (${specs.deviceType})',
+                  context: context),
               if (specs.socName != null && specs.socName!.isNotEmpty)
                 _buildTelemetryRow('SoC Processor', specs.socName!,
-                    isValueActive: true),
+                    isValueActive: true, context: context),
               if (specs.dspHardware != null && specs.dspHardware!.isNotEmpty)
                 _buildTelemetryRow('DSP Hardware', specs.dspHardware!,
-                    isValueActive: true),
+                    isValueActive: true, context: context),
               _buildTelemetryRow('Backend',
-                  '$backend (${specs.isDirectPcm ? "Hi-Res Bit-Perfect" : (isExclusive ? "Exclusive" : "Shared")})'),
+                  '$backend (${specs.isDirectPcm ? "Hi-Res Bit-Perfect" : (isExclusive ? "Exclusive" : "Shared")})',
+                  context: context),
               _buildTelemetryRow(
                   'Buffer',
                   periodCount > 1
                       ? '$periodFrames frames × $periodCount periods (${periodFrames * periodCount} total)'
-                      : '$periodFrames frames'),
+                      : '$periodFrames frames',
+                  context: context),
               _buildTelemetryRow('Total Latency',
-                  '${totalEndToEndLatencyMs.toStringAsFixed(2)} ms (DSP: ${sumDspMs.toStringAsFixed(2)} ms + Hardware: ${hwLatencyMs.toStringAsFixed(2)} ms)'),
+                  '${totalEndToEndLatencyMs.toStringAsFixed(2)} ms (DSP: ${sumDspMs.toStringAsFixed(2)} ms + Hardware: ${hwLatencyMs.toStringAsFixed(2)} ms)',
+                  context: context),
               _buildTelemetryRow(
                   'SRC',
                   isSrcActive
                       ? 'ON (${(srcRate / 1000.0).toStringAsFixed(1)} → ${(dacRate / 1000.0).toStringAsFixed(1)} kHz)'
-                      : 'OFF'),
-              _buildTelemetryRow('Resampler', resamplerAlgo),
+                      : 'OFF',
+                  context: context),
+              _buildTelemetryRow('Resampler', resamplerAlgo,
+                  context: context),
               _buildTelemetryRow(
                   'True-Peak', '${truePeakDBTP.toStringAsFixed(1)} dBTP',
                   isValueActive: truePeakDBTP > -90.0,
-                  isWarning: truePeakDBTP > -0.5),
+                  isWarning: truePeakDBTP > -0.5,
+                  context: context),
               _buildTelemetryRow('Loudness (LUFS)',
-                  'Mom: ${((t['momentaryLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)} / Int: ${((t['integratedLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)}'),
+                  'Mom: ${((t['momentaryLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)} / Int: ${((t['integratedLUFS'] as num?)?.toDouble() ?? -100.0).toStringAsFixed(1)}',
+                  context: context),
               _buildTelemetryRow(
                 'Normalizer',
                 normDisplay,
                 isValueActive: normOn,
+                context: context,
                 trailing: InkWell(
                   onTap: () => _toggleNormalizer(normOn, normTarget),
                   borderRadius: BorderRadius.circular(6),
@@ -514,13 +580,17 @@ class _AudioEngineDiagnosticPanelState
                         const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: normOn
-                          ? Colors.cyanAccent.withValues(alpha: 0.15)
-                          : Colors.white.withValues(alpha: 0.08),
+                          ? primary.withValues(alpha: isDark ? 0.15 : 0.12)
+                          : (isDark
+                              ? Colors.white.withValues(alpha: 0.08)
+                              : Colors.black.withValues(alpha: 0.05)),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
                         color: normOn
-                            ? Colors.cyanAccent.withValues(alpha: 0.4)
-                            : Colors.white.withValues(alpha: 0.2),
+                            ? primary.withValues(alpha: isDark ? 0.4 : 0.3)
+                            : (isDark
+                                ? Colors.white.withValues(alpha: 0.2)
+                                : Colors.black.withValues(alpha: 0.12)),
                         width: 0.8,
                       ),
                     ),
@@ -528,7 +598,7 @@ class _AudioEngineDiagnosticPanelState
                       normOn ? 'TOGGLE' : 'ENABLE',
                       style: TextStyle(
                         fontFamily: 'monospace',
-                        color: normOn ? Colors.cyanAccent : Colors.white70,
+                        color: normOn ? primary : textMuted,
                         fontSize: 9,
                         fontWeight: FontWeight.bold,
                       ),
@@ -541,19 +611,21 @@ class _AudioEngineDiagnosticPanelState
                   isValueActive:
                       ((t['limiterGainReductionDB'] as num?)?.toDouble() ??
                               0.0) <
-                          -0.1),
+                          -0.1,
+                  context: context),
               _buildTelemetryRow('EQ', eqOn ? 'ON' : 'OFF',
-                  isValueActive: eqOn),
+                  isValueActive: eqOn, context: context),
               _buildTelemetryRow('Crossfeed', crossfeedAlgo,
-                  isValueActive: crossfeedAlgo != 'OFF'),
+                  isValueActive: crossfeedAlgo != 'OFF', context: context),
               _buildTelemetryRow('Reverb', reverbOn ? 'ON' : 'OFF',
-                  isValueActive: reverbOn),
+                  isValueActive: reverbOn, context: context),
               _buildTelemetryRow('Sauti DSP', sautiDspOn ? 'ON' : 'OFF',
-                  isValueActive: sautiDspOn),
+                  isValueActive: sautiDspOn, context: context),
               _buildTelemetryRow(
                 'Limiter',
                 limiterDisplay,
                 isValueActive: limiterOn,
+                context: context,
                 trailing: InkWell(
                   onTap: () => _showLimiterSelectionSheet(
                       context, lookaheadOn, simpleLimiterOn,
@@ -564,13 +636,17 @@ class _AudioEngineDiagnosticPanelState
                         const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: limiterOn
-                          ? Colors.cyanAccent.withValues(alpha: 0.15)
-                          : Colors.white.withValues(alpha: 0.08),
+                          ? primary.withValues(alpha: isDark ? 0.15 : 0.12)
+                          : (isDark
+                              ? Colors.white.withValues(alpha: 0.08)
+                              : Colors.black.withValues(alpha: 0.05)),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
                         color: limiterOn
-                            ? Colors.cyanAccent.withValues(alpha: 0.4)
-                            : Colors.white.withValues(alpha: 0.2),
+                            ? primary.withValues(alpha: isDark ? 0.4 : 0.3)
+                            : (isDark
+                                ? Colors.white.withValues(alpha: 0.2)
+                                : Colors.black.withValues(alpha: 0.12)),
                         width: 0.8,
                       ),
                     ),
@@ -578,7 +654,7 @@ class _AudioEngineDiagnosticPanelState
                       limiterOn ? 'CONFIG' : 'ENABLE',
                       style: TextStyle(
                         fontFamily: 'monospace',
-                        color: limiterOn ? Colors.cyanAccent : Colors.white70,
+                        color: limiterOn ? primary : textMuted,
                         fontSize: 9,
                         fontWeight: FontWeight.bold,
                       ),
@@ -593,6 +669,7 @@ class _AudioEngineDiagnosticPanelState
                     : (clippedCount > 0 ? 'RECOMMENDED' : 'INACTIVE'),
                 isValueActive: isAntiClipActive,
                 isWarning: !isAntiClipActive && clippedCount > 0,
+                context: context,
                 trailing: !isAntiClipActive
                     ? InkWell(
                         onTap: () => _applyAntiClippingNormalizerAndLimiter(),
@@ -601,18 +678,26 @@ class _AudioEngineDiagnosticPanelState
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: Colors.amberAccent.withValues(alpha: 0.15),
+                            color: (isDark
+                                    ? Colors.amberAccent
+                                    : const Color(0xFFD97706))
+                                .withValues(alpha: isDark ? 0.15 : 0.12),
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(
-                              color: Colors.amberAccent.withValues(alpha: 0.4),
+                              color: (isDark
+                                      ? Colors.amberAccent
+                                      : const Color(0xFFD97706))
+                                  .withValues(alpha: 0.4),
                               width: 0.8,
                             ),
                           ),
-                          child: const Text(
+                          child: Text(
                             'APPLY -12dB',
                             style: TextStyle(
                               fontFamily: 'monospace',
-                              color: Colors.amberAccent,
+                              color: isDark
+                                  ? Colors.amberAccent
+                                  : const Color(0xFFD97706),
                               fontSize: 9,
                               fontWeight: FontWeight.bold,
                             ),
@@ -625,6 +710,7 @@ class _AudioEngineDiagnosticPanelState
                 'Clipping',
                 '$clippedCount samples',
                 isWarning: clippedCount > 0,
+                context: context,
                 trailing: clippedCount > 0
                     ? InkWell(
                         onTap: () {
@@ -636,18 +722,26 @@ class _AudioEngineDiagnosticPanelState
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: Colors.redAccent.withValues(alpha: 0.2),
+                            color: (isDark
+                                    ? Colors.redAccent
+                                    : const Color(0xFFDC2626))
+                                .withValues(alpha: isDark ? 0.18 : 0.12),
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(
-                              color: Colors.redAccent.withValues(alpha: 0.5),
+                              color: (isDark
+                                      ? Colors.redAccent
+                                      : const Color(0xFFDC2626))
+                                  .withValues(alpha: 0.5),
                               width: 0.8,
                             ),
                           ),
-                          child: const Text(
+                          child: Text(
                             'RESET',
                             style: TextStyle(
                               fontFamily: 'monospace',
-                              color: Colors.redAccent,
+                              color: isDark
+                                  ? Colors.redAccent
+                                  : const Color(0xFFDC2626),
                               fontSize: 9,
                               fontWeight: FontWeight.bold,
                             ),
@@ -661,9 +755,15 @@ class _AudioEngineDiagnosticPanelState
                 '$underrunCount',
                 isValueActive: underrunCount > 0,
                 isWarning: underrunCount > 0,
+                context: context,
               ),
               const SizedBox(height: 12),
-              const Divider(color: Color(0xFF1B2336), height: 1),
+              Divider(
+                color: isDark
+                    ? textPrimary.withValues(alpha: 0.08)
+                    : outlineColor,
+                height: 1,
+              ),
               const SizedBox(height: 8),
             ],
           ),
@@ -674,287 +774,29 @@ class _AudioEngineDiagnosticPanelState
     );
   }
 
-  /// Builds a dedicated, sleek hardware output device card
-  /* Widget _buildHardwareDeviceCard(
-      AudioHardwareSpecs specs, String activeDeviceName) {
-    final deviceIcon = _getDeviceIcon(specs.deviceType);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0C101A),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF1E2840)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Header Row with Icon, Device Name, and Live badge
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.cyanAccent.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  deviceIcon,
-                  color: Colors.cyanAccent,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Text(
-                          'HARDWARE OUTPUT',
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            color: Colors.cyanAccent,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        /* if (specs.isHiResAudio) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: Colors.amber.withValues(alpha: 0.4),
-                                width: 0.8,
-                              ),
-                            ),
-                            child: const Text(
-                              'HI-RES',
-                              style: TextStyle(
-                                fontFamily: 'monospace',
-                                color: Colors.amberAccent,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],*/
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      activeDeviceName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.greenAccent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: Colors.greenAccent.withValues(alpha: 0.3),
-                    width: 0.8,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: Colors.greenAccent,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    const Text(
-                      'ACTIVE',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        color: Colors.greenAccent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Divider(color: Color(0xFF1A2234), height: 1),
-          const SizedBox(height: 12),
-
-          // Wrap of specs badges
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildMiniSpecBadge(
-                icon: Icons.alt_route_rounded,
-                label: 'Route',
-                value: specs.deviceType,
-                highlight: true,
-              ),
-              _buildMiniSpecBadge(
-                icon: Icons.developer_board_rounded,
-                label: 'Backend',
-                value: specs.backendName,
-              ),
-              _buildMiniSpecBadge(
-                icon: Icons.speed_rounded,
-                label: 'Format',
-                value:
-                    '${specs.formattedSampleRate} / ${specs.formattedBitDepth}',
-                highlight: specs.isHiResAudio,
-              ),
-              _buildMiniSpecBadge(
-                icon: (specs.isDirectPcm || specs.isExclusiveMode)
-                    ? Icons.lock_outline_rounded
-                    : Icons.lock_open_rounded,
-                label: 'Mode',
-                value: specs.isDirectPcm
-                    ? 'Direct Hi-Res'
-                    : (specs.isExclusiveMode ? 'Bit-Perfect' : 'Shared Mixer'),
-                highlight: specs.isDirectPcm || specs.isExclusiveMode,
-              ),
-              if (specs.dspHardware != null && specs.dspHardware!.isNotEmpty)
-                _buildMiniSpecBadge(
-                  icon: Icons.memory_rounded,
-                  label: 'DSP',
-                  value: specs.dspHardware!,
-                  highlight: true,
-                ),
-              if (specs.bluetoothCodec != null)
-                _buildMiniSpecBadge(
-                  icon: Icons.bluetooth_audio_rounded,
-                  label: 'BT Codec',
-                  value: specs.formattedBtCodec ?? specs.bluetoothCodec!,
-                  highlight: specs.bluetoothCodec == 'LDAC' ||
-                      specs.bluetoothCodec == 'aptX HD' ||
-                      specs.bluetoothCodec == 'LC3',
-                ),
-              _buildMiniSpecBadge(
-                icon: Icons.timer_outlined,
-                label: 'HW Latency',
-                value: specs.formattedLatency,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMiniSpecBadge({
-    required IconData icon,
-    required String label,
-    required String value,
-    bool highlight = false,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: highlight
-            ? Colors.cyanAccent.withValues(alpha: 0.1)
-            : const Color(0xFF141A29),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: highlight
-              ? Colors.cyanAccent.withValues(alpha: 0.4)
-              : const Color(0xFF232D42),
-          width: 0.8,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 13,
-            color: highlight ? Colors.cyanAccent : Colors.white60,
-          ),
-          const SizedBox(width: 6),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                label.toUpperCase(),
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  color: highlight
-                      ? Colors.cyanAccent.withValues(alpha: 0.8)
-                      : Colors.white38,
-                  fontSize: 8,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Text(
-                value,
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  color: highlight ? Colors.white : Colors.white70,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  IconData _getDeviceIcon(String type) {
-    final lower = type.toLowerCase();
-    if (lower.contains('earpiece')) {
-      return Icons.phone_in_talk_rounded;
-    } else if (lower.contains('usb') || lower.contains('dac')) {
-      return Icons.usb_rounded;
-    } else if (lower.contains('3.5mm') ||
-        lower.contains('headphone') ||
-        lower.contains('headset') ||
-        lower.contains('jack')) {
-      return Icons.headphones_rounded;
-    } else if (lower.contains('bluetooth') ||
-        lower.contains('wireless') ||
-        lower.contains('buds') ||
-        lower.contains('airpods')) {
-      return Icons.bluetooth_audio_rounded;
-    } else if (lower.contains('hdmi') || lower.contains('tv')) {
-      return Icons.tv_rounded;
-    } else if (lower.contains('line') || lower.contains('aux')) {
-      return Icons.settings_input_component_rounded;
-    }
-    return Icons.speaker_rounded;
-  }
-*/
-
   Widget _buildPerNodeLatencyCard(
-      List<_NodeLatencyInfo> nodes, double totalMs, double dspSamples) {
+    List<_NodeLatencyInfo> nodes,
+    double totalMs,
+    double dspSamples, {
+    required Color cardBg,
+    required Color outlineColor,
+    required bool isDark,
+    required Color textPrimary,
+    required Color textMuted,
+  }) {
+    final successColor =
+        isDark ? const Color(0xFF4ADE80) : const Color(0xFF16A34A);
+    final accentMsColor =
+        isDark ? Colors.amberAccent : const Color(0xFFD97706);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF0C101A),
+        color: cardBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF1E2840)),
+        border: Border.all(
+          color: isDark ? textPrimary.withValues(alpha: 0.08) : outlineColor,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -962,25 +804,21 @@ class _AudioEngineDiagnosticPanelState
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Row(
-                children: [
-                  Text(
-                    'Chain Latency',
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                ],
+              Text(
+                'Chain Latency',
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  color: textPrimary.withValues(alpha: 0.85),
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
               ),
               Text(
                 '${totalMs.toStringAsFixed(2)} ms',
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'monospace',
-                  color: Colors.greenAccent,
+                  color: successColor,
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
                 ),
@@ -988,7 +826,12 @@ class _AudioEngineDiagnosticPanelState
             ],
           ),
           const SizedBox(height: 10),
-          const Divider(color: Color(0xFF1A2234), height: 1),
+          Divider(
+            color: isDark
+                ? textPrimary.withValues(alpha: 0.08)
+                : outlineColor,
+            height: 1,
+          ),
           const SizedBox(height: 10),
           ...nodes.map((node) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 3),
@@ -1001,7 +844,7 @@ class _AudioEngineDiagnosticPanelState
                           node.stepNumber,
                           style: TextStyle(
                             fontFamily: 'monospace',
-                            color: Colors.white.withValues(alpha: 0.4),
+                            color: textMuted.withValues(alpha: 0.6),
                             fontSize: 11,
                           ),
                         ),
@@ -1011,8 +854,8 @@ class _AudioEngineDiagnosticPanelState
                           style: TextStyle(
                             fontFamily: 'monospace',
                             color: node.latencyMs > 0
-                                ? Colors.white
-                                : Colors.white54,
+                                ? textPrimary
+                                : textMuted,
                             fontSize: 11,
                             fontWeight: node.latencyMs > 0
                                 ? FontWeight.bold
@@ -1028,8 +871,8 @@ class _AudioEngineDiagnosticPanelState
                       style: TextStyle(
                         fontFamily: 'monospace',
                         color: node.latencyMs > 0
-                            ? Colors.amberAccent
-                            : Colors.white38,
+                            ? accentMsColor
+                            : textMuted.withValues(alpha: 0.5),
                         fontSize: 11,
                       ),
                     ),
@@ -1047,12 +890,21 @@ class _AudioEngineDiagnosticPanelState
     bool isValueActive = false,
     bool isWarning = false,
     Widget? trailing,
+    required BuildContext context,
   }) {
-    Color valColor = Colors.white;
+    final appTheme = context.appTheme;
+    final isDark = context.isDark;
+    final primary = appTheme.primary;
+    final textPrimary = context.textPrimary;
+    final textMuted = context.textMuted;
+    final warningColor =
+        isDark ? Colors.redAccent : const Color(0xFFDC2626);
+
+    Color valColor = textPrimary;
     if (isWarning) {
-      valColor = Colors.redAccent;
+      valColor = warningColor;
     } else if (isValueActive) {
-      valColor = Colors.cyanAccent;
+      valColor = primary;
     }
 
     return Padding(
@@ -1064,7 +916,7 @@ class _AudioEngineDiagnosticPanelState
             label,
             style: TextStyle(
               fontFamily: 'monospace',
-              color: Colors.white.withValues(alpha: 0.5),
+              color: textMuted,
               fontSize: 12,
             ),
           ),
@@ -1106,11 +958,16 @@ class _AudioEngineDiagnosticPanelState
     widget.player.resetClippedSamplesCount();
     _fetchTelemetry();
     if (mounted) {
+      final appTheme = context.appTheme;
+      final textPrimary = context.textPrimary;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Look-Ahead True-Peak Limiter (-1.0 dBTP) activated'),
-          duration: Duration(seconds: 2),
-          backgroundColor: Color(0xFF1E2840),
+        SnackBar(
+          content: Text(
+            'Look-Ahead True-Peak Limiter (-1.0 dBTP) activated',
+            style: TextStyle(color: textPrimary),
+          ),
+          duration: const Duration(seconds: 2),
+          backgroundColor: appTheme.cardDark,
         ),
       );
     }
@@ -1125,11 +982,16 @@ class _AudioEngineDiagnosticPanelState
     widget.player.resetClippedSamplesCount();
     _fetchTelemetry();
     if (mounted) {
+      final appTheme = context.appTheme;
+      final textPrimary = context.textPrimary;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Anti-Clipping Limiter (95% ceiling) activated'),
-          duration: Duration(seconds: 2),
-          backgroundColor: Color(0xFF1E2840),
+        SnackBar(
+          content: Text(
+            'Anti-Clipping Limiter (95% ceiling) activated',
+            style: TextStyle(color: textPrimary),
+          ),
+          duration: const Duration(seconds: 2),
+          backgroundColor: appTheme.cardDark,
         ),
       );
     }
@@ -1154,13 +1016,16 @@ class _AudioEngineDiagnosticPanelState
     _fetchTelemetry();
 
     if (mounted) {
+      final appTheme = context.appTheme;
+      final textPrimary = context.textPrimary;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
             'Anti-Clip Guard active: Normalizer @ -12 dB + Look-Ahead Limiter (-1.0 dBTP)',
+            style: TextStyle(color: textPrimary),
           ),
-          duration: Duration(seconds: 2),
-          backgroundColor: Color(0xFF1E2840),
+          duration: const Duration(seconds: 2),
+          backgroundColor: appTheme.cardDark,
         ),
       );
     }
@@ -1178,15 +1043,18 @@ class _AudioEngineDiagnosticPanelState
     );
     _fetchTelemetry();
     if (mounted) {
+      final appTheme = context.appTheme;
+      final textPrimary = context.textPrimary;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             nextState
                 ? 'Loudness Normalizer enabled (${target.toStringAsFixed(1)} LUFS)'
                 : 'Loudness Normalizer disabled',
+            style: TextStyle(color: textPrimary),
           ),
           duration: const Duration(seconds: 2),
-          backgroundColor: const Color(0xFF1E2840),
+          backgroundColor: appTheme.cardDark,
         ),
       );
     }
@@ -1205,9 +1073,20 @@ class _AudioEngineDiagnosticPanelState
   void _showLimiterSelectionSheet(
       BuildContext context, bool lookaheadOn, bool simpleLimiterOn,
       {bool isAntiClipActive = false}) {
+    final appTheme = context.appTheme;
+    final isDark = context.isDark;
+    final primary = appTheme.primary;
+    final textPrimary = context.textPrimary;
+    final textMuted = context.textMuted;
+    final outlineColor = context.outlineColor;
+    final successColor =
+        isDark ? const Color(0xFF4ADE80) : const Color(0xFF16A34A);
+    final dangerColor =
+        isDark ? Colors.redAccent : const Color(0xFFDC2626);
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0F121A),
+      backgroundColor: appTheme.cardDark,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -1224,17 +1103,17 @@ class _AudioEngineDiagnosticPanelState
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.cyanAccent.withValues(alpha: 0.15),
+                        color: primary.withValues(alpha: isDark ? 0.15 : 0.12),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.shield_rounded,
-                          color: Colors.cyanAccent, size: 20),
+                      child: Icon(Icons.shield_rounded,
+                          color: primary, size: 20),
                     ),
                     const SizedBox(width: 12),
-                    const Text(
+                    Text(
                       'Limiter & Anti-Clipping Setup',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: textPrimary,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1249,25 +1128,25 @@ class _AudioEngineDiagnosticPanelState
                     borderRadius: BorderRadius.circular(12),
                     side: BorderSide(
                       color: isAntiClipActive
-                          ? Colors.cyanAccent
-                          : const Color(0xFF1E2840),
+                          ? primary
+                          : outlineColor,
                       width: isAntiClipActive ? 1.5 : 1.0,
                     ),
                   ),
                   tileColor: isAntiClipActive
-                      ? Colors.cyanAccent.withValues(alpha: 0.08)
+                      ? primary.withValues(alpha: isDark ? 0.1 : 0.06)
                       : null,
-                  leading: const Icon(Icons.security_rounded,
-                      color: Colors.cyanAccent),
-                  title: const Text('Anti-Clip Guard (-12 dB + Look-Ahead)',
+                  leading: Icon(Icons.security_rounded,
+                      color: primary),
+                  title: Text('Anti-Clip Guard (-12 dB + Look-Ahead)',
                       style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: const Text(
+                          color: textPrimary, fontWeight: FontWeight.bold)),
+                  subtitle: Text(
                       'Normalizer @ -12 dB LUFS + Look-Ahead Limiter (-1.0 dBTP). Provides 12 dB headroom and catches inter-sample peaks.',
-                      style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      style: TextStyle(color: textMuted, fontSize: 12)),
                   trailing: isAntiClipActive
-                      ? const Icon(Icons.check_circle_rounded,
-                          color: Colors.cyanAccent)
+                      ? Icon(Icons.check_circle_rounded,
+                          color: primary)
                       : null,
                   onTap: () {
                     Navigator.pop(ctx);
@@ -1282,21 +1161,21 @@ class _AudioEngineDiagnosticPanelState
                     borderRadius: BorderRadius.circular(12),
                     side: BorderSide(
                       color: lookaheadOn
-                          ? Colors.cyanAccent
-                          : const Color(0xFF1E2840),
+                          ? primary
+                          : outlineColor,
                     ),
                   ),
                   leading:
-                      const Icon(Icons.speed_rounded, color: Colors.cyanAccent),
-                  title: const Text('Look-Ahead True-Peak Limiter',
+                      Icon(Icons.speed_rounded, color: primary),
+                  title: Text('Look-Ahead True-Peak Limiter',
                       style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: const Text(
+                          color: textPrimary, fontWeight: FontWeight.bold)),
+                  subtitle: Text(
                       'True-peak brickwall limiting at -1.0 dBTP. Eliminates inter-sample clipping.',
-                      style: TextStyle(color: Colors.white60, fontSize: 12)),
+                      style: TextStyle(color: textMuted, fontSize: 12)),
                   trailing: lookaheadOn
-                      ? const Icon(Icons.check_circle_rounded,
-                          color: Colors.cyanAccent)
+                      ? Icon(Icons.check_circle_rounded,
+                          color: primary)
                       : null,
                   onTap: () {
                     Navigator.pop(ctx);
@@ -1311,21 +1190,21 @@ class _AudioEngineDiagnosticPanelState
                     borderRadius: BorderRadius.circular(12),
                     side: BorderSide(
                       color: simpleLimiterOn
-                          ? Colors.greenAccent
-                          : const Color(0xFF1E2840),
+                          ? successColor
+                          : outlineColor,
                     ),
                   ),
-                  leading: const Icon(Icons.compress_rounded,
-                      color: Colors.greenAccent),
-                  title: const Text('Anti-Clipping Limiter',
+                  leading: Icon(Icons.compress_rounded,
+                      color: successColor),
+                  title: Text('Anti-Clipping Limiter',
                       style: TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: const Text(
+                          color: textPrimary, fontWeight: FontWeight.bold)),
+                  subtitle: Text(
                       'Fast dynamic peak suppression at 95% threshold (2ms attack / 50ms release).',
-                      style: TextStyle(color: Colors.white60, fontSize: 12)),
+                      style: TextStyle(color: textMuted, fontSize: 12)),
                   trailing: simpleLimiterOn
-                      ? const Icon(Icons.check_circle_rounded,
-                          color: Colors.greenAccent)
+                      ? Icon(Icons.check_circle_rounded,
+                          color: successColor)
                       : null,
                   onTap: () {
                     Navigator.pop(ctx);
@@ -1339,15 +1218,19 @@ class _AudioEngineDiagnosticPanelState
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
-                      side: const BorderSide(color: Color(0xFF2A1515)),
+                      side: BorderSide(
+                        color: dangerColor.withValues(alpha: isDark ? 0.3 : 0.2),
+                      ),
                     ),
-                    leading: const Icon(Icons.power_settings_new_rounded,
-                        color: Colors.redAccent),
-                    title: const Text('Disable All Limiters',
-                        style: TextStyle(color: Colors.redAccent)),
-                    subtitle: const Text(
+                    leading: Icon(Icons.power_settings_new_rounded,
+                        color: dangerColor),
+                    title: Text('Disable All Limiters',
+                        style: TextStyle(color: dangerColor)),
+                    subtitle: Text(
                         'Unprotected output. High volumes or EQ boosts can cause digital clipping.',
-                        style: TextStyle(color: Colors.white38, fontSize: 12)),
+                        style: TextStyle(
+                            color: textMuted.withValues(alpha: 0.8),
+                            fontSize: 12)),
                     onTap: () {
                       Navigator.pop(ctx);
                       _disableLimiters();

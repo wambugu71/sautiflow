@@ -166,10 +166,9 @@ class _QueueScreenState extends State<QueueScreen>
     if (!_scrollController.position.hasContentDimensions) return;
 
     final viewportHeight = _scrollController.position.viewportDimension;
-    final targetOffset = ((playingIndex * itemHeight) -
-            (viewportHeight / 2) +
-            (itemHeight / 2))
-        .clamp(
+    final targetOffset =
+        ((playingIndex * itemHeight) - (viewportHeight / 2) + (itemHeight / 2))
+            .clamp(
       0.0,
       _scrollController.position.maxScrollExtent,
     );
@@ -254,6 +253,7 @@ class _QueueScreenState extends State<QueueScreen>
       backgroundColor: bgColor,
       body: Column(
         children: [
+          const SizedBox(height: 30),
           // Expressive Material 3 Top Header
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -430,301 +430,312 @@ class _QueueScreenState extends State<QueueScreen>
                           padding: const EdgeInsets.symmetric(horizontal: 12.0)
                               .copyWith(bottom: 140),
                           itemCount: itemCount,
-                    itemBuilder: (context, index) {
-                      final actualIndex = _showUpcomingOnly && playingIndex >= 0
-                          ? index + playingIndex
-                          : index;
-                      final track = widget.queue[actualIndex];
-                      final isPlaying = (playingIndex == actualIndex) ||
-                          (widget.videoId != null &&
-                              track.videoId == widget.videoId);
+                          itemBuilder: (context, index) {
+                            final actualIndex =
+                                _showUpcomingOnly && playingIndex >= 0
+                                    ? index + playingIndex
+                                    : index;
+                            final track = widget.queue[actualIndex];
+                            final isPlaying = (playingIndex == actualIndex) ||
+                                (widget.videoId != null &&
+                                    track.videoId == widget.videoId);
 
-                      final isFirst = index == 0;
-                      final isLast = index == itemCount - 1;
+                            final isFirst = index == 0;
+                            final isLast = index == itemCount - 1;
 
-                      final borderRadius = BorderRadius.only(
-                        topLeft: Radius.circular(isFirst ? 20 : 6),
-                        topRight: Radius.circular(isFirst ? 20 : 6),
-                        bottomLeft: Radius.circular(isLast ? 20 : 6),
-                        bottomRight: Radius.circular(isLast ? 20 : 6),
-                      );
+                            final borderRadius = BorderRadius.only(
+                              topLeft: Radius.circular(isFirst ? 20 : 6),
+                              topRight: Radius.circular(isFirst ? 20 : 6),
+                              bottomLeft: Radius.circular(isLast ? 20 : 6),
+                              bottomRight: Radius.circular(isLast ? 20 : 6),
+                            );
 
-                      final itemKey = ValueKey(
-                          '${track.videoId}_${actualIndex}_${widget.queue.length}');
+                            final itemKey = ValueKey(
+                                '${track.videoId}_${actualIndex}_${widget.queue.length}');
 
-                      return Padding(
-                        key: itemKey,
-                        padding: const EdgeInsets.only(bottom: 3.0),
-                        child: Material(
-                          color: isPlaying
-                              ? primaryColor.withValues(alpha: 0.14)
-                              : context.cardDark,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: borderRadius,
-                            side: BorderSide(
-                              color: isPlaying
-                                  ? primaryColor.withValues(alpha: 0.45)
-                                  : outlineColor.withValues(alpha: 0.12),
-                              width: isPlaying ? 1.5 : 1.0,
-                            ),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: InkWell(
-                            onTap: () => _handleTrackTap(actualIndex),
-                            onLongPress: () => _showTrackInfo(context, track),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 10,
-                              ),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 22,
-                                    child: Text(
-                                      '${actualIndex + 1}',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: isPlaying
-                                            ? primaryColor
-                                            : textDark,
-                                        fontSize: 12,
-                                        fontWeight: isPlaying
-                                            ? FontWeight.bold
-                                            : FontWeight.w600,
-                                      ),
-                                    ),
+                            return Padding(
+                              key: itemKey,
+                              padding: const EdgeInsets.only(bottom: 3.0),
+                              child: Material(
+                                color: isPlaying
+                                    ? primaryColor.withValues(alpha: 0.14)
+                                    : context.cardDark,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: borderRadius,
+                                  side: BorderSide(
+                                    color: isPlaying
+                                        ? primaryColor.withValues(alpha: 0.45)
+                                        : outlineColor.withValues(alpha: 0.12),
+                                    width: isPlaying ? 1.5 : 1.0,
                                   ),
-                                  const SizedBox(width: 10),
-                                  _QueueTrackArtwork(
-                                    track: track,
-                                    isPlaying: isPlaying,
-                                    albumArt: widget.albumArt,
-                                    primaryColor: primaryColor,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          track.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: isPlaying
-                                                ? primaryColor
-                                                : textPrimary,
-                                            fontSize: 14,
-                                            fontWeight: isPlaying
-                                                ? FontWeight.bold
-                                                : FontWeight.w500,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          track.artist,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: textDark,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  if (track.durationSeconds != null &&
-                                      track.durationSeconds! > 0)
-                                    Padding(
-                                      padding:
-                                          const EdgeInsets.only(right: 6.0),
-                                      child: Text(
-                                        _formatDuration(
-                                            track.durationSeconds),
-                                        style: TextStyle(
-                                          color: Colors.white
-                                              .withValues(alpha: 0.35),
-                                          fontSize: 11.5,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.vertical_align_top_rounded,
-                                          size: 18,
-                                        ),
-                                        visualDensity: VisualDensity.compact,
-                                        padding: const EdgeInsets.all(4),
-                                        constraints: const BoxConstraints(
-                                          minWidth: 28,
-                                          minHeight: 28,
-                                        ),
-                                        color: textDark,
-                                        tooltip: 'Move to Top',
-                                        onPressed: () => widget.onReorderQueue(
-                                            actualIndex, 0),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.vertical_align_bottom_rounded,
-                                          size: 18,
-                                        ),
-                                        visualDensity: VisualDensity.compact,
-                                        padding: const EdgeInsets.all(4),
-                                        constraints: const BoxConstraints(
-                                          minWidth: 28,
-                                          minHeight: 28,
-                                        ),
-                                        color: textDark,
-                                        tooltip: 'Move to Bottom',
-                                        onPressed: () => widget.onReorderQueue(
-                                          actualIndex,
-                                          widget.queue.length,
-                                        ),
-                                      ),
-                                      //if (widget.onRemoveFromQueue != null)
-                                  
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                // Floating Scroll Helper Dock
-                if (playingIndex >= 0)
-                  Positioned(
-                    bottom: 70,
-                    right: 16,
-                    child: AnimatedSlide(
-                      duration: const Duration(milliseconds: 260),
-                      curve: Curves.easeOutCubic,
-                      offset: _showScrollHelper
-                          ? Offset.zero
-                          : const Offset(0, 1.8),
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 220),
-                        curve: Curves.easeInOut,
-                        opacity: _showScrollHelper ? 1.0 : 0.0,
-                        child: IgnorePointer(
-                          ignoring: !_showScrollHelper,
-                          child: Material(
-                            elevation: 6,
-                            shadowColor: Colors.black.withValues(alpha: 0.45),
-                            color: primaryColor,
-                            borderRadius: BorderRadius.circular(24),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (_currentScrollItemIndex > 15) ...[
-                                  InkWell(
-                                    borderRadius: const BorderRadius.horizontal(
-                                      left: Radius.circular(24),
-                                    ),
-                                    onTap: () {
-                                      _scrollController.animateTo(
-                                        0,
-                                        duration:
-                                            const Duration(milliseconds: 350),
-                                        curve: Curves.easeOutCubic,
-                                      );
-                                    },
-                                    child: Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          12, 9, 8, 9),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.arrow_upward_rounded,
-                                            size: 16,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .onPrimary,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            'Top',
-                                            style: TextStyle(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onPrimary,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  Container(
-                                    width: 1,
-                                    height: 16,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onPrimary
-                                        .withValues(alpha: 0.25),
-                                  ),
-                                ],
-                                InkWell(
-                                  borderRadius: BorderRadius.horizontal(
-                                    left: Radius.circular(
-                                        _currentScrollItemIndex > 15 ? 0 : 24),
-                                    right: const Radius.circular(24),
-                                  ),
-                                  onTap: () =>
-                                      _scrollToPlayingItem(animate: true),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: () => _handleTrackTap(actualIndex),
+                                  onLongPress: () =>
+                                      _showTrackInfo(context, track),
                                   child: Padding(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 13,
-                                      vertical: 9,
+                                      horizontal: 14,
+                                      vertical: 10,
                                     ),
                                     child: Row(
-                                      mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Icon(
-                                          Icons.my_location_rounded,
-                                          size: 16,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onPrimary,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Playing #${playingIndex + 1}',
-                                          style: TextStyle(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .onPrimary,
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.bold,
+                                        SizedBox(
+                                          width: 22,
+                                          child: Text(
+                                            '${actualIndex + 1}',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: isPlaying
+                                                  ? primaryColor
+                                                  : textDark,
+                                              fontSize: 12,
+                                              fontWeight: isPlaying
+                                                  ? FontWeight.bold
+                                                  : FontWeight.w600,
+                                            ),
                                           ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        _QueueTrackArtwork(
+                                          track: track,
+                                          isPlaying: isPlaying,
+                                          albumArt: widget.albumArt,
+                                          primaryColor: primaryColor,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                track.title,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: isPlaying
+                                                      ? primaryColor
+                                                      : textPrimary,
+                                                  fontSize: 14,
+                                                  fontWeight: isPlaying
+                                                      ? FontWeight.bold
+                                                      : FontWeight.w500,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                track.artist,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: textDark,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        if (track.durationSeconds != null &&
+                                            track.durationSeconds! > 0)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                                right: 6.0),
+                                            child: Text(
+                                              _formatDuration(
+                                                  track.durationSeconds),
+                                              style: TextStyle(
+                                                color: Colors.white
+                                                    .withValues(alpha: 0.35),
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons
+                                                    .vertical_align_top_rounded,
+                                                size: 18,
+                                              ),
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              padding: const EdgeInsets.all(4),
+                                              constraints: const BoxConstraints(
+                                                minWidth: 28,
+                                                minHeight: 28,
+                                              ),
+                                              color: textDark,
+                                              tooltip: 'Move to Top',
+                                              onPressed: () =>
+                                                  widget.onReorderQueue(
+                                                      actualIndex, 0),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons
+                                                    .vertical_align_bottom_rounded,
+                                                size: 18,
+                                              ),
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              padding: const EdgeInsets.all(4),
+                                              constraints: const BoxConstraints(
+                                                minWidth: 28,
+                                                minHeight: 28,
+                                              ),
+                                              color: textDark,
+                                              tooltip: 'Move to Bottom',
+                                              onPressed: () =>
+                                                  widget.onReorderQueue(
+                                                actualIndex,
+                                                widget.queue.length,
+                                              ),
+                                            ),
+                                            //if (widget.onRemoveFromQueue != null)
+                                          ],
                                         ),
                                       ],
                                     ),
                                   ),
                                 ),
-                              ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      // Floating Scroll Helper Dock
+                      if (playingIndex >= 0)
+                        Positioned(
+                          bottom: 70,
+                          right: 16,
+                          child: AnimatedSlide(
+                            duration: const Duration(milliseconds: 260),
+                            curve: Curves.easeOutCubic,
+                            offset: _showScrollHelper
+                                ? Offset.zero
+                                : const Offset(0, 1.8),
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 220),
+                              curve: Curves.easeInOut,
+                              opacity: _showScrollHelper ? 1.0 : 0.0,
+                              child: IgnorePointer(
+                                ignoring: !_showScrollHelper,
+                                child: Material(
+                                  elevation: 6,
+                                  shadowColor:
+                                      Colors.black.withValues(alpha: 0.45),
+                                  color: primaryColor,
+                                  borderRadius: BorderRadius.circular(24),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (_currentScrollItemIndex > 15) ...[
+                                        InkWell(
+                                          borderRadius:
+                                              const BorderRadius.horizontal(
+                                            left: Radius.circular(24),
+                                          ),
+                                          onTap: () {
+                                            _scrollController.animateTo(
+                                              0,
+                                              duration: const Duration(
+                                                  milliseconds: 350),
+                                              curve: Curves.easeOutCubic,
+                                            );
+                                          },
+                                          child: Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                                12, 9, 8, 9),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.arrow_upward_rounded,
+                                                  size: 16,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onPrimary,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  'Top',
+                                                  style: TextStyle(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onPrimary,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        Container(
+                                          width: 1,
+                                          height: 16,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onPrimary
+                                              .withValues(alpha: 0.25),
+                                        ),
+                                      ],
+                                      InkWell(
+                                        borderRadius: BorderRadius.horizontal(
+                                          left: Radius.circular(
+                                              _currentScrollItemIndex > 15
+                                                  ? 0
+                                                  : 24),
+                                          right: const Radius.circular(24),
+                                        ),
+                                        onTap: () =>
+                                            _scrollToPlayingItem(animate: true),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 13,
+                                            vertical: 9,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.my_location_rounded,
+                                                size: 16,
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .onPrimary,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                'Playing #${playingIndex + 1}',
+                                                style: TextStyle(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onPrimary,
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
+                    ],
                   ),
-              ],
-            ),
           ),
         ],
       ),

@@ -10,7 +10,8 @@ import 'database/preferences_store.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
-import 'package:material_3_expressive/material_3_expressive.dart' hide M3EHapticFeedback;
+import 'package:material_3_expressive/material_3_expressive.dart'
+    hide M3EHapticFeedback;
 import 'package:m3e_seekbar/m3e_seekbar.dart';
 
 import 'eq_screen.dart';
@@ -20,6 +21,7 @@ import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
 import 'services/app_locale_service.dart';
+import 'services/m3e_typography_service.dart';
 import 'l10n/app_strings.dart';
 import 'services/cached_stream_service.dart';
 import 'services/lastfm_service.dart';
@@ -191,6 +193,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _useM3EAlbumArtShape = false;
   StreamSubscription<bool>? _useM3EShapeSub;
 
+  // Typography & Variable Font UI Settings
+  String _fontFamily = 'System';
+  bool _useM3ETypography = true;
+  double _fontRond = 0.0;
+  double _bodyFontRond = 0.0;
+  StreamSubscription<String>? _fontFamilySub;
+  StreamSubscription<bool>? _useM3ETypographySub;
+  StreamSubscription<double>? _fontRondSub;
+  StreamSubscription<double>? _bodyFontRondSub;
+
   // App version state
   String _appVersion = 'v0.6.31';
   bool _autoCheckUpdates = true;
@@ -223,6 +235,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
         .listen((enabled) {
       if (mounted) {
         setState(() => _useM3EAlbumArtShape = enabled);
+      }
+    });
+    _fontFamily = AppThemeService.instance.fontFamily;
+    _useM3ETypography = AppThemeService.instance.useM3ETypography;
+    _fontRond = AppThemeService.instance.fontRond;
+    _bodyFontRond = AppThemeService.instance.bodyFontRond;
+    _fontFamilySub = AppThemeService.instance.fontFamilyChanged.stream
+        .listen((family) {
+      if (mounted) {
+        setState(() => _fontFamily = family);
+      }
+    });
+    _useM3ETypographySub = AppThemeService.instance.useM3ETypographyChanged.stream
+        .listen((enabled) {
+      if (mounted) {
+        setState(() => _useM3ETypography = enabled);
+      }
+    });
+    _fontRondSub = AppThemeService.instance.fontRondChanged.stream
+        .listen((rond) {
+      if (mounted) {
+        setState(() => _fontRond = rond);
+      }
+    });
+    _bodyFontRondSub = AppThemeService.instance.bodyFontRondChanged.stream
+        .listen((bodyRond) {
+      if (mounted) {
+        setState(() => _bodyFontRond = bodyRond);
       }
     });
     _loadUiSettings();
@@ -295,12 +335,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _useM3EShapeSub?.cancel();
     _audioSettingsSub?.cancel();
-    _audioFocusSub?.cancel();
-    _proximitySettingsSub?.cancel();
     _playerStatusSub?.cancel();
     _lastFmAuthSub?.cancel();
-    _useM3EShapeSub?.cancel();
+    _audioFocusSub?.cancel();
+    _proximitySettingsSub?.cancel();
+    _fontFamilySub?.cancel();
+    _useM3ETypographySub?.cancel();
+    _fontRondSub?.cancel();
+    _bodyFontRondSub?.cancel();
     super.dispose();
   }
 
@@ -414,6 +458,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _useWaveformSeekBar = waveformSaved;
       _useWavySlider = wavySaved;
       _useM3EAlbumArtShape = AppThemeService.instance.useM3EAlbumArtShape;
+      _fontFamily = AppThemeService.instance.fontFamily;
+      _useM3ETypography = AppThemeService.instance.useM3ETypography;
+      _fontRond = AppThemeService.instance.fontRond;
+      _bodyFontRond = AppThemeService.instance.bodyFontRond;
       _audioFocusSettings = focusSaved;
     });
 
@@ -1028,6 +1076,418 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 20),
+            // ── TYPOGRAPHY & MATERIAL 3 EXPRESSIVE FONTS ────────────────────
+            _buildSectionHeader('TYPOGRAPHY & FONTS'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildM3ESwitchTile(
+                  title: 'Material 3 Expressive Scale',
+                  subtitle:
+                      'Elevated 15-role typography with increased weights, optical sizes, and variable font axes',
+                  secondary: _buildLeadingIcon(Icons.text_fields_rounded),
+                  value: _useM3ETypography,
+                  onChanged: (val) {
+                    setState(() => _useM3ETypography = val);
+                    setSubState(() {});
+                    AppThemeService.instance.saveUseM3ETypography(val);
+                  },
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: M3EDivider(),
+                ),
+                // Live interactive typography specimen card
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: isDarkTheme
+                          ? Colors.black.withAlpha(50)
+                          : Colors.black.withAlpha(8),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: context.outlineColor.withAlpha(45),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.auto_awesome_rounded,
+                                    color: accent, size: 16),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'TYPOGRAPHIC SPECIMEN',
+                                  style: TextStyle(
+                                    color: accent,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: accent.withAlpha(25),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: accent.withAlpha(70), width: 1),
+                              ),
+                              child: Text(
+                                _fontFamily == 'System'
+                                    ? 'System Default'
+                                    : _fontFamily,
+                                style: TextStyle(
+                                  color: accent,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'SautiPlay Expressive Sound',
+                          style: M3ETypographyService.getPreviewStyle(
+                            _fontFamily,
+                            baseStyle: TextStyle(
+                              color: textPrimaryColor,
+                              fontSize: _useM3ETypography ? 22 : 19,
+                              fontWeight: _useM3ETypography
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                              height: 1.2,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '96 kHz • 24-bit Lossless FLAC Master',
+                          style: M3ETypographyService.getPreviewStyle(
+                            _fontFamily,
+                            baseStyle: TextStyle(
+                              color: accent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'The quick brown fox jumps over the lazy dog. Pristine sound reproduction with elevated Material 3 Expressive typographic scale.',
+                          style: M3ETypographyService.getPreviewStyle(
+                            _fontFamily,
+                            baseStyle: TextStyle(
+                              color: mutedText,
+                              fontSize: 12,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: M3EDivider(),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.font_download_outlined,
+                              color: accent, size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            'SELECTABLE FONTS',
+                            style: TextStyle(
+                              color: textPrimaryColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        '${M3ETypographyService.availableFonts.length} typefaces',
+                        style: TextStyle(color: mutedText, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                // Horizontal scrollable font selection cards
+                SizedBox(
+                  height: 145,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: M3ETypographyService.availableFonts.length,
+                    itemBuilder: (context, index) {
+                      final font = M3ETypographyService.availableFonts[index];
+                      final isSelected = _fontFamily == font.id;
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() => _fontFamily = font.id);
+                          setSubState(() {});
+                          AppThemeService.instance.saveFontFamily(font.id);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeOutCubic,
+                          width: 120,
+                          margin: const EdgeInsets.only(right: 12, bottom: 12),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? accent.withAlpha(25)
+                                : (isDarkTheme
+                                    ? Colors.black.withAlpha(30)
+                                    : Colors.black.withAlpha(6)),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isSelected
+                                  ? accent
+                                  : (isDarkTheme
+                                      ? Colors.white.withAlpha(18)
+                                      : Colors.black.withAlpha(15)),
+                              width: isSelected ? 2.0 : 1.0,
+                            ),
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                      color: accent.withAlpha(60),
+                                      blurRadius: 10,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? accent.withAlpha(40)
+                                          : (isDarkTheme
+                                              ? Colors.white.withAlpha(12)
+                                              : Colors.black.withAlpha(8)),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      font.category,
+                                      style: TextStyle(
+                                        color: isSelected ? accent : mutedText,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isSelected)
+                                    Container(
+                                      width: 16,
+                                      height: 16,
+                                      decoration: BoxDecoration(
+                                        color: accent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.check,
+                                        color: Colors.white,
+                                        size: 10,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              Center(
+                                child: Text(
+                                  'Aa',
+                                  style: M3ETypographyService.getPreviewStyle(
+                                    font.id,
+                                    baseStyle: TextStyle(
+                                      color: isSelected
+                                          ? accent
+                                          : textPrimaryColor,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                font.name,
+                                style: TextStyle(
+                                  color: isSelected
+                                      ? accent
+                                      : textPrimaryColor,
+                                  fontSize: 11,
+                                  fontWeight: isSelected
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: M3EDivider(),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _buildLeadingIcon(Icons.rounded_corner_rounded),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Variable Corner Roundness (ROND)',
+                                  style: TextStyle(
+                                    color: textPrimaryColor,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Adjusts glyph corner curvature for variable fonts like Google Sans Flex',
+                                  style: TextStyle(
+                                    color: mutedText,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            _fontRond == 0.0
+                                ? 'Sharp (0)'
+                                : '${_fontRond.toInt()}',
+                            style: TextStyle(
+                              color: accent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      M3ESlider(
+                        value: _fontRond,
+                        min: 0.0,
+                        max: 100.0,
+                        divisions: 10,
+                        onChanged: (val) {
+                          setState(() => _fontRond = val);
+                          setSubState(() {});
+                          AppThemeService.instance.saveFontRond(val);
+                        },
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('0.0 (Crisp / Sharp)',
+                              style: TextStyle(
+                                  color: mutedText, fontSize: 11)),
+                          Text('50.0 (Soft)',
+                              style: TextStyle(
+                                  color: mutedText, fontSize: 11)),
+                          Text('100.0 (Fully Rounded)',
+                              style: TextStyle(
+                                  color: mutedText, fontSize: 11)),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          _buildLeadingIcon(Icons.format_size_rounded),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Body & Label Roundness (bodyRond)',
+                                  style: TextStyle(
+                                    color: textPrimaryColor,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Soften body/label text while keeping display headings crisp',
+                                  style: TextStyle(
+                                    color: mutedText,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            _bodyFontRond == 0.0
+                                ? '0'
+                                : '${_bodyFontRond.toInt()}',
+                            style: TextStyle(
+                              color: accent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      M3ESlider(
+                        value: _bodyFontRond,
+                        min: 0.0,
+                        max: 100.0,
+                        divisions: 10,
+                        onChanged: (val) {
+                          setState(() => _bodyFontRond = val);
+                          setSubState(() {});
+                          AppThemeService.instance.saveBodyFontRond(val);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
             // ── NOW PLAYING ALBUM ART SHAPE SECTION ─────────────────────────
             _buildSectionHeader('ALBUM ART SHAPE'),
             const SizedBox(height: 8),
@@ -1151,7 +1611,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             _useWavySlider
                                 ? M3EWavySeekbar(
-                                    value: _previewSliderValue.clamp(0.0, 100.0),
+                                    value:
+                                        _previewSliderValue.clamp(0.0, 100.0),
                                     min: 0.0,
                                     max: 100.0,
                                     isPlaying: true,
@@ -1160,7 +1621,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     strokeWidth: 2.5,
                                     height: 36.0,
                                     activeColor: _primary,
-                                    inactiveColor: _primary.withValues(alpha: 0.2),
+                                    inactiveColor:
+                                        _primary.withValues(alpha: 0.2),
                                     thumbColor: _primary,
                                     handleShape: M3ESeekbarHandleShape.circle,
                                     handleRadius: 8.0,
@@ -1173,12 +1635,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     },
                                   )
                                 : M3ESeekbar(
-                                    value: _previewSliderValue.clamp(0.0, 100.0),
+                                    value:
+                                        _previewSliderValue.clamp(0.0, 100.0),
                                     min: 0.0,
                                     max: 100.0,
                                     trackHeight: 4.0,
                                     activeColor: _primary,
-                                    inactiveColor: _primary.withValues(alpha: 0.2),
+                                    inactiveColor:
+                                        _primary.withValues(alpha: 0.2),
                                     thumbColor: _primary,
                                     handleShape: M3ESeekbarHandleShape.circle,
                                     handleRadius: 8.0,
@@ -1939,43 +2403,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 20),
                       SizedBox(
+                        height: 40,
                         width: double.infinity,
-                        child: M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment<int>(
-                              value: 10,
-                              label: '10-Band',
-                              icon: Icon(Icons.graphic_eq_rounded, size: 16),
-                            ),
-                            M3ESegment<int>(
-                              value: 16,
-                              label: '16-Band',
-                              icon: Icon(Icons.equalizer_rounded, size: 16),
-                            ),
-                            M3ESegment<int>(
-                              value: 32,
-                              label: '32-Band',
-                              icon: Icon(Icons.tune_rounded, size: 16),
-                            ),
-                          ],
-                          selected: {_eqBandCount},
-                          onSelectionChanged: (newSelection) async {
-                            if (newSelection.isNotEmpty) {
-                              final count = newSelection.first;
-                              setState(() => _eqBandCount = count);
-                              setSubState(() {});
-                              final state =
-                                  await AppStateService.instance.loadEqBands();
-                              await AppStateService.instance.saveEqBands(
-                                enabled: state.enabled,
-                                preset: state.preset,
-                                gains: List.filled(count, 0.0),
-                                preampDb: state.preampDb,
-                                bandCount: count,
-                              );
-                            }
-                          },
+                        child: // ListView(
+                            //    ScrollDirection: Axis.horizontal,
+                            //children: [
+                            M3EChipGroup(
+                          groupLabel: 'Graphic  Equalizer  Bands',
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: <Widget>[
+                              M3EChip(
+                                type: M3EChipType.filter,
+                                selected: (_eqBandCount == 10) ? true : false,
+                                label: '10-Band',
+                                onPressed: () async {
+                                  final count = 10;
+                                  setState(() => _eqBandCount = count);
+                                  setSubState(() {});
+                                  final state = await AppStateService.instance
+                                      .loadEqBands();
+                                  await AppStateService.instance.saveEqBands(
+                                    enabled: state.enabled,
+                                    preset: state.preset,
+                                    gains: List.filled(count, 0.0),
+                                    preampDb: state.preampDb,
+                                    bandCount: count,
+                                  );
+                                },
+                              ),
+                              M3EChip(
+                                type: M3EChipType.filter,
+                                label: '16-Band',
+                                selected: (_eqBandCount == 16) ? true : false,
+                                onPressed: () async {
+                                  final count = 16;
+                                  setState(() => _eqBandCount = count);
+                                  setSubState(() {});
+                                  final state = await AppStateService.instance
+                                      .loadEqBands();
+                                  await AppStateService.instance.saveEqBands(
+                                    enabled: state.enabled,
+                                    preset: state.preset,
+                                    gains: List.filled(count, 0.0),
+                                    preampDb: state.preampDb,
+                                    bandCount: count,
+                                  );
+                                },
+                              ),
+                              M3EChip(
+                                type: M3EChipType.filter,
+                                label: '32-Band',
+                                selected: (_eqBandCount == 32) ? true : false,
+                                onPressed: () async {
+                                  final count = 32;
+                                  setState(() => _eqBandCount = count);
+                                  setSubState(() {});
+                                  final state = await AppStateService.instance
+                                      .loadEqBands();
+                                  await AppStateService.instance.saveEqBands(
+                                    enabled: state.enabled,
+                                    preset: state.preset,
+                                    gains: List.filled(count, 0.0),
+                                    preampDb: state.preampDb,
+                                    bandCount: count,
+                                  );
+                                },
+                              )
+                            ],
+                          ),
                         ),
+                        //   ]),
                       ),
                     ],
                   ),
@@ -2019,48 +2518,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 20),
                       SizedBox(
-                        width: double.infinity,
-                        child: M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment<int>(
-                              value: 0,
-                              label: 'Stereo (Whole)',
-                              icon: Icon(Icons.link_rounded, size: 16),
+                          width: double.infinity,
+                          child: M3EChipGroup(
+                            groupLabel: 'Eq routing',
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: <Widget>[
+                                M3EChip(
+                                  selected:
+                                      (_eqChannelMode == 0) ? true : false,
+                                  type: M3EChipType.filter,
+                                  label: 'Stereo',
+                                  onPressed: () async {
+                                    final mode = 0;
+                                    setState(() => _eqChannelMode = mode);
+                                    setSubState(() {});
+                                    widget.player
+                                        .setMultibandEqChannelMode(mode);
+                                    final ext = await AppStateService.instance
+                                        .loadEqExtendedSettings(
+                                            bandCount: _eqBandCount);
+                                    await AppStateService.instance
+                                        .saveEqExtendedSettings(
+                                      channelMode: mode,
+                                      gainsRight: ext.gainsRight,
+                                      sliderLinkMode: ext.sliderLinkMode,
+                                      topology: ext.topology,
+                                    );
+                                  },
+                                ),
+                                M3EChip(
+                                  selected:
+                                      (_eqChannelMode == 1) ? true : false,
+                                  label: '2-way Dual L,R',
+                                  type: M3EChipType.filter,
+                                  onPressed: () async {
+                                    final mode = 1;
+                                    setState(() => _eqChannelMode = mode);
+                                    setSubState(() {});
+                                    widget.player
+                                        .setMultibandEqChannelMode(mode);
+                                    final ext = await AppStateService.instance
+                                        .loadEqExtendedSettings(
+                                            bandCount: _eqBandCount);
+                                    await AppStateService.instance
+                                        .saveEqExtendedSettings(
+                                      channelMode: mode,
+                                      gainsRight: ext.gainsRight,
+                                      sliderLinkMode: ext.sliderLinkMode,
+                                      topology: ext.topology,
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
-                            M3ESegment<int>(
-                              value: 1,
-                              label: '2-Way Dual L/R',
-                              icon: Icon(Icons.call_split_rounded, size: 16),
-                            ),
-                          ],
-                          selected: {_eqChannelMode},
-                          onSelectionChanged: (newSelection) async {
-                            if (newSelection.isNotEmpty) {
-                              final mode = newSelection.first;
-                              setState(() => _eqChannelMode = mode);
-                              setSubState(() {});
-                              widget.player.setMultibandEqChannelMode(mode);
-                              final ext = await AppStateService.instance
-                                  .loadEqExtendedSettings(
-                                      bandCount: _eqBandCount);
-                              await AppStateService.instance
-                                  .saveEqExtendedSettings(
-                                channelMode: mode,
-                                gainsRight: ext.gainsRight,
-                                sliderLinkMode: ext.sliderLinkMode,
-                                topology: ext.topology,
-                              );
-                            }
-                          },
-                        ),
-                      ),
+                          )),
                     ],
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 24),
-            _buildSectionHeader('SLIDER ADJUSTMENT COUPLING (WMP STYLE)'),
+            _buildSectionHeader('SLIDER ADJUSTMENT COUPLING'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
@@ -2099,43 +2619,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 20),
                       SizedBox(
                         width: double.infinity,
-                        child: M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment<int>(
-                              value: 0,
-                              label: 'Single (1)',
-                              icon: Icon(Icons.radio_button_checked_rounded,
-                                  size: 15),
-                            ),
-                            M3ESegment<int>(
-                              value: 1,
-                              label: 'Loose Group (3)',
-                              icon: Icon(Icons.waves_rounded, size: 15),
-                            ),
-                            M3ESegment<int>(
-                              value: 2,
-                              label: 'Tight Group (5)',
-                              icon: Icon(Icons.water_rounded, size: 15),
-                            ),
-                          ],
-                          selected: {_eqSliderLinkMode},
-                          onSelectionChanged: (newSelection) async {
-                            if (newSelection.isNotEmpty) {
-                              final mode = newSelection.first;
-                              setState(() => _eqSliderLinkMode = mode);
-                              setSubState(() {});
-                              final ext = await AppStateService.instance
-                                  .loadEqExtendedSettings(
-                                      bandCount: _eqBandCount);
-                              await AppStateService.instance
-                                  .saveEqExtendedSettings(
-                                channelMode: ext.channelMode,
-                                gainsRight: ext.gainsRight,
-                                sliderLinkMode: mode,
-                                topology: ext.topology,
-                              );
-                            }
-                          },
+                        child: M3EChipGroup(
+                          groupLabel: 'Filters',
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: <Widget>[
+                              M3EChip(
+                                selected: _eqSliderLinkMode == 0 ? true : false,
+                                type: M3EChipType.filter,
+                                label: 'Single',
+                                onPressed: () async {
+                                  // if (newSelection.isNotEmpty) {
+                                  final mode = 0;
+                                  setState(() => _eqSliderLinkMode = mode);
+                                  setSubState(() {});
+                                  final ext = await AppStateService.instance
+                                      .loadEqExtendedSettings(
+                                          bandCount: _eqBandCount);
+                                  await AppStateService.instance
+                                      .saveEqExtendedSettings(
+                                    channelMode: ext.channelMode,
+                                    gainsRight: ext.gainsRight,
+                                    sliderLinkMode: mode,
+                                    topology: ext.topology,
+                                  );
+                                },
+                              ),
+                              M3EChip(
+                                selected: _eqSliderLinkMode == 1 ? true : false,
+                                label: 'Loose group',
+                                type: M3EChipType.filter,
+                                onPressed: () async {
+                                  // if (newSelection.isNotEmpty) {
+                                  final mode = 1;
+                                  setState(() => _eqSliderLinkMode = mode);
+                                  setSubState(() {});
+                                  final ext = await AppStateService.instance
+                                      .loadEqExtendedSettings(
+                                          bandCount: _eqBandCount);
+                                  await AppStateService.instance
+                                      .saveEqExtendedSettings(
+                                    channelMode: ext.channelMode,
+                                    gainsRight: ext.gainsRight,
+                                    sliderLinkMode: mode,
+                                    topology: ext.topology,
+                                  );
+                                },
+                              ),
+                              M3EChip(
+                                selected: _eqSliderLinkMode == 2 ? true : false,
+                                type: M3EChipType.filter,
+                                label: 'Tight group',
+                                onPressed: () async {
+                                  // if (newSelection.isNotEmpty) {
+                                  final mode = 2;
+                                  setState(() => _eqSliderLinkMode = mode);
+                                  setSubState(() {});
+                                  final ext = await AppStateService.instance
+                                      .loadEqExtendedSettings(
+                                          bandCount: _eqBandCount);
+                                  await AppStateService.instance
+                                      .saveEqExtendedSettings(
+                                    channelMode: ext.channelMode,
+                                    gainsRight: ext.gainsRight,
+                                    sliderLinkMode: mode,
+                                    topology: ext.topology,
+                                  );
+                                },
+                              )
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -2144,7 +2698,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 24),
-            _buildSectionHeader('FILTER ARCHITECTURE & TOPOLOGY'),
+            _buildSectionHeader('FILTER ARCHITECTURE'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
@@ -2183,43 +2737,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 20),
                       SizedBox(
                         width: double.infinity,
-                        child: M3ESegmentedButton<int>(
-                          segments: const [
-                            M3ESegment<int>(
-                              value: 0,
-                              label: 'Matrix Decoupled',
-                              icon: Icon(Icons.auto_fix_high_rounded, size: 15),
-                            ),
-                            M3ESegment<int>(
-                              value: 1,
-                              label: 'Parallel Bank',
-                              icon: Icon(Icons.layers_rounded, size: 15),
-                            ),
-                            M3ESegment<int>(
-                              value: 2,
-                              label: 'Legacy Cascade',
-                              icon: Icon(Icons.history_rounded, size: 15),
-                            ),
-                          ],
-                          selected: {_eqTopology},
-                          onSelectionChanged: (newSelection) async {
-                            if (newSelection.isNotEmpty) {
-                              final top = newSelection.first;
-                              setState(() => _eqTopology = top);
-                              setSubState(() {});
-                              widget.player.setMultibandEqMode(top);
-                              final ext = await AppStateService.instance
-                                  .loadEqExtendedSettings(
-                                      bandCount: _eqBandCount);
-                              await AppStateService.instance
-                                  .saveEqExtendedSettings(
-                                channelMode: ext.channelMode,
-                                gainsRight: ext.gainsRight,
-                                sliderLinkMode: ext.sliderLinkMode,
-                                topology: top,
-                              );
-                            }
-                          },
+                        child: M3EChipGroup(
+                          groupLabel: 'Filters',
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: <Widget>[
+                              M3EChip(
+                                selected: _eqTopology == 0 ? true : false,
+                                type: M3EChipType.filter,
+                                label: 'Matrix Decoupled',
+                                onPressed: () async {
+                                  final top = 0;
+                                  setState(() => _eqTopology = top);
+                                  setSubState(() {});
+                                  widget.player.setMultibandEqMode(top);
+                                  final ext = await AppStateService.instance
+                                      .loadEqExtendedSettings(
+                                          bandCount: _eqBandCount);
+                                  await AppStateService.instance
+                                      .saveEqExtendedSettings(
+                                    channelMode: ext.channelMode,
+                                    gainsRight: ext.gainsRight,
+                                    sliderLinkMode: ext.sliderLinkMode,
+                                    topology: top,
+                                  );
+                                },
+                              ),
+                              M3EChip(
+                                selected: _eqTopology == 1 ? true : false,
+                                type: M3EChipType.filter,
+                                label: 'Parallel Bank',
+                                onPressed: () async {
+                                  final top = 1;
+                                  setState(() => _eqTopology = top);
+                                  setSubState(() {});
+                                  widget.player.setMultibandEqMode(top);
+                                  final ext = await AppStateService.instance
+                                      .loadEqExtendedSettings(
+                                          bandCount: _eqBandCount);
+                                  await AppStateService.instance
+                                      .saveEqExtendedSettings(
+                                    channelMode: ext.channelMode,
+                                    gainsRight: ext.gainsRight,
+                                    sliderLinkMode: ext.sliderLinkMode,
+                                    topology: top,
+                                  );
+                                },
+                              ),
+                              M3EChip(
+                                selected: _eqTopology == 2 ? true : false,
+                                label: 'Legacy Cascade',
+                                type: M3EChipType.filter,
+                                onPressed: () async {
+                                  final top = 2;
+                                  setState(() => _eqTopology = top);
+                                  setSubState(() {});
+                                  widget.player.setMultibandEqMode(top);
+                                  final ext = await AppStateService.instance
+                                      .loadEqExtendedSettings(
+                                          bandCount: _eqBandCount);
+                                  await AppStateService.instance
+                                      .saveEqExtendedSettings(
+                                    channelMode: ext.channelMode,
+                                    gainsRight: ext.gainsRight,
+                                    sliderLinkMode: ext.sliderLinkMode,
+                                    topology: top,
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -2237,9 +2825,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildVisualizationSubScreen() {
     return StatefulBuilder(
       builder: (context, setSubState) {
-        final isArea = widget.analyzerType == 'area';
-        final activeStyleName = widget.spectrumStyle.toLowerCase();
-
         return _buildSubScreenLayout(
           title: 'Visualizer',
           children: [
@@ -2343,212 +2928,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
 
-            const SizedBox(height: 20),
-
-            // ── SPECTRUM ENGINE & RENDERING CARD ──────────────────────────
-            _buildSectionHeader('SPECTRUM DISPLAY & STYLE'),
-            const SizedBox(height: 8),
-            _buildCardContainer(
-              children: [
-                _buildM3ESwitchTile(
-                  title: 'Spectrum Analyzer',
-                  subtitle: 'Real-time audio frequency visualizer',
-                  secondary: _buildLeadingIcon(Icons.bar_chart_rounded),
-                  value: widget.analyzerEnabled,
-                  onChanged: (v) {
-                    widget.onAnalyzerEnabledChanged(v);
-                    setSubState(() {});
-                  },
-                ),
-                if (widget.analyzerEnabled) ...[
-                  const M3EDivider(),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20.0, vertical: 16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Visual Style',
-                          style: TextStyle(
-                            color: _textPrimary,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Frequency bars or continuous wave',
-                          style: TextStyle(color: _textDark, fontSize: 12),
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          child: M3ESegmentedButton<String>(
-                            segments: const [
-                              M3ESegment(
-                                value: 'bar',
-                                label: 'Bars',
-                                icon: Icon(Icons.bar_chart_rounded, size: 18),
-                              ),
-                              M3ESegment(
-                                value: 'area',
-                                label: 'Wave',
-                                icon: Icon(Icons.show_chart_rounded, size: 18),
-                              ),
-                            ],
-                            selected: {isArea ? 'area' : 'bar'},
-                            onSelectionChanged: (val) {
-                              if (val.isNotEmpty) {
-                                widget.onAnalyzerTypeChanged(val.first);
-                                setSubState(() {});
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const M3EDivider(),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20.0, vertical: 16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Color Theme',
-                          style: TextStyle(
-                            color: _textPrimary,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Gradient color preset for spectrum bars',
-                          style: TextStyle(color: _textDark, fontSize: 12),
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          child: M3ESegmentedButton<String>(
-                            segments: const [
-                              M3ESegment(
-                                value: 'neon',
-                                label: 'Neon',
-                                icon:
-                                    Icon(Icons.auto_awesome_rounded, size: 16),
-                              ),
-                              M3ESegment(
-                                value: 'fire',
-                                label: 'Fire',
-                                icon: Icon(Icons.local_fire_department_rounded,
-                                    size: 16),
-                              ),
-                              M3ESegment(
-                                value: 'minimal',
-                                label: 'Clean',
-                                icon: Icon(Icons.horizontal_rule_rounded,
-                                    size: 16),
-                              ),
-                              M3ESegment(
-                                value: 'pill',
-                                label: 'Pill',
-                                icon: Icon(Icons.lens_blur_rounded, size: 16),
-                              ),
-                            ],
-                            selected: {
-                              ['neon', 'fire', 'minimal', 'pill']
-                                      .contains(activeStyleName)
-                                  ? activeStyleName
-                                  : 'minimal'
-                            },
-                            onSelectionChanged: (val) {
-                              if (val.isNotEmpty) {
-                                widget.onSpectrumStyleChanged(val.first);
-                                setSubState(() {});
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const M3EDivider(),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20.0, vertical: 14.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Visualizer Presets',
-                              style: TextStyle(
-                                color: _textPrimary,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Quick 1-tap style configurations',
-                              style: TextStyle(color: _textDark, fontSize: 12),
-                            ),
-                          ],
-                        ),
-                        M3EMenu(
-                          anchorBuilder: (context, open) => M3EButton.icon(
-                            onPressed: open,
-                            icon: const Icon(Icons.auto_fix_high_rounded,
-                                size: 16),
-                            label: const Text('Presets'),
-                          ),
-                          children: [
-                            M3EMenuGroup.entries(
-                              entries: [
-                                M3EMenuEntry(
-                                  label: 'Balanced (Bars • Neon)',
-                                  leading: const Icon(Icons.bar_chart_rounded,
-                                      size: 18),
-                                  onPressed: () => _applyVisualizerPreset(
-                                      'balanced', setSubState),
-                                ),
-                                M3EMenuEntry(
-                                  label: 'Smooth Wave (Fire)',
-                                  leading: const Icon(Icons.show_chart_rounded,
-                                      size: 18),
-                                  onPressed: () => _applyVisualizerPreset(
-                                      'smooth_curve', setSubState),
-                                ),
-                                M3EMenuEntry(
-                                  label: 'Studio Detail (Pills)',
-                                  leading: const Icon(Icons.lens_blur_rounded,
-                                      size: 18),
-                                  onPressed: () => _applyVisualizerPreset(
-                                      'audiophile_precision', setSubState),
-                                ),
-                                M3EMenuEntry(
-                                  label: 'Minimalist (Clean Wave)',
-                                  leading: const Icon(
-                                      Icons.horizontal_rule_rounded,
-                                      size: 18),
-                                  onPressed: () => _applyVisualizerPreset(
-                                      'minimalist', setSubState),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
+            //const SizedBox(height: 20),
 
             const SizedBox(height: 20),
 
@@ -2617,30 +2997,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         const SizedBox(height: 12),
                         SizedBox(
-                          width: double.infinity,
-                          child: M3ESegmentedButton<bool>(
-                            segments: const [
-                              M3ESegment(
-                                value: true,
-                                label: 'Logarithmic',
-                                icon: Icon(Icons.tune_rounded, size: 16),
+                            width: double.infinity,
+                            child: M3EChipGroup(
+                              groupLabel: 'Filters',
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: <Widget>[
+                                  M3EChip(
+                                    type: M3EChipType.filter,
+                                    label: 'Logarithmic',
+                                    onPressed: () {
+                                      //if (val.isNotEmpty) {
+                                      widget.onAnalyzerLogScaleChanged(true);
+                                      setSubState(() {});
+                                    },
+                                  ),
+                                  M3EChip(
+                                      label: 'Linear',
+                                      type: M3EChipType.filter,
+                                      onPressed: () {
+                                        //if (val.isNotEmpty) {
+                                        widget.onAnalyzerLogScaleChanged(false);
+                                        setSubState(() {});
+                                      }),
+                                ],
                               ),
-                              M3ESegment(
-                                value: false,
-                                label: 'Linear',
-                                icon:
-                                    Icon(Icons.linear_scale_rounded, size: 16),
-                              ),
-                            ],
-                            selected: {widget.analyzerLogScale},
-                            onSelectionChanged: (val) {
-                              if (val.isNotEmpty) {
-                                widget.onAnalyzerLogScaleChanged(val.first);
-                                setSubState(() {});
-                              }
-                            },
-                          ),
-                        ),
+                            )),
                       ],
                     ),
                   ),
@@ -2719,6 +3102,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  // ignore: unused_element
   void _applyVisualizerPreset(String preset, StateSetter setSubState) {
     switch (preset) {
       case 'balanced':
@@ -3173,7 +3557,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildM3ESwitchTile(
                   title: 'Resume Music After Call',
                   subtitle:
-                      'Automatically resumes song playback when phone call or voice call ends',
+                      'Automatically resumes song playback when phone call ends',
                   secondary: _buildLeadingIcon(Icons.phone_in_talk_rounded),
                   value: _audioFocusSettings.resumeAfterCall,
                   onChanged: (v) {
@@ -3243,7 +3627,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     permanentFocusLossAction: 'pause'));
                               },
                               child: Text(
-                                'Pause Playback',
+                                'Pause',
                                 style: TextStyle(
                                   color: _audioFocusSettings
                                               .permanentFocusLossAction ==
@@ -3279,7 +3663,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     permanentFocusLossAction: 'stop'));
                               },
                               child: Text(
-                                'Stop & Release',
+                                'Stop',
                                 style: TextStyle(
                                   color: _audioFocusSettings
                                               .permanentFocusLossAction ==
@@ -3387,10 +3771,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 10),
                         _buildGestureRow('1 Click', 'Play / Pause toggle'),
                         const SizedBox(height: 6),
-                        _buildGestureRow('2 Clicks (double press)',
-                            'Next song in current playlist'),
+                        _buildGestureRow(
+                            '2 double click)', 'Next song in current playlist'),
                         const SizedBox(height: 6),
-                        _buildGestureRow('3 Clicks (triple press)',
+                        _buildGestureRow('3 triple click)',
                             'Previous song in current playlist'),
                       ],
                     ),
@@ -3411,7 +3795,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               children: [
                                 _buildLeadingIcon(Icons.speed_rounded),
                                 const SizedBox(width: 16),
-                                Text('Multi-Press Speed Window',
+                                Text('Multi-Press Speed',
                                     style: TextStyle(
                                         color: _textPrimary,
                                         fontSize: 16,
@@ -3467,12 +3851,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             const SizedBox(height: 24),
-            _buildSectionHeader('AIR GESTURES & PROXIMITY SENSOR'),
+            _buildSectionHeader('AIR GESTURES'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 _buildM3ESwitchTile(
-                  title: 'Proximity Wave Gestures',
+                  title: 'Wave Gestures',
                   subtitle: _proximitySettings.enabled
                       ? 'Wave hand over device to skip or replay tracks'
                       : 'Control playback touch-free using device proximity sensor',
@@ -3568,7 +3952,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               children: [
                                 _buildLeadingIcon(Icons.speed_rounded),
                                 const SizedBox(width: 16),
-                                Text('Double-Wave Detection Window',
+                                Text('Wave Detection Window',
                                     style: TextStyle(
                                         color: _textPrimary,
                                         fontSize: 16,

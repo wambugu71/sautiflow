@@ -5,6 +5,7 @@ import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:material_3_expressive/components/navigation_bar/styles/m3e_navigation_bar_theme.dart';
 import '../database/preferences_store.dart';
+import 'm3e_typography_service.dart';
 
 import 'artwork_theme_service.dart';
 
@@ -54,11 +55,31 @@ class AppThemeData {
   }
 
   /// Builds a full M3EThemeData from this palette for Material 3 Expressive components.
-  M3EThemeData toM3EThemeData() {
+  M3EThemeData toM3EThemeData({
+    String? fontFamily,
+    double? rond,
+    double? bodyRond,
+    bool? useM3ETypography,
+  }) {
+    final activeFont = fontFamily ?? AppThemeService.instance.fontFamily;
+    final activeRond = rond ?? AppThemeService.instance.fontRond;
+    final activeBodyRond = bodyRond ?? AppThemeService.instance.bodyFontRond;
+    final activeUseM3E =
+        useM3ETypography ?? AppThemeService.instance.useM3ETypography;
+
     final isDark = bgDark.computeLuminance() < 0.15;
     final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
     final textMuted = isDark ? textDark : const Color(0xFF64748B);
     final borderAlpha = isDark ? 0.12 : 0.08;
+
+    final baseTextTheme = isDark ? ThemeData.dark().textTheme : ThemeData.light().textTheme;
+    final resolvedTextTheme = M3ETypographyService.resolveTextTheme(
+      baseTextTheme,
+      fontFamily: activeFont,
+      useM3E: activeUseM3E,
+      rond: activeRond,
+      bodyRond: activeBodyRond,
+    );
 
     final m3eScheme = M3EColorScheme(
       brightness: isDark ? Brightness.dark : Brightness.light,
@@ -109,6 +130,7 @@ class AppThemeData {
 
     return M3EThemeData(
       colorScheme: m3eScheme,
+      typeScale: M3ETypeScale.fromTextTheme(resolvedTextTheme),
       cardTheme: const M3ECardTheme(),
       listTheme: const M3EListTheme(),
       dialogTheme: const M3EDialogTheme(),
@@ -121,13 +143,33 @@ class AppThemeData {
     );
   }
 
-  /// Builds a full MaterialApp ThemeData from this palette.
-  ThemeData toThemeData() {
+  /// Builds a full MaterialApp ThemeData from this palette with responsive
+  /// Material 3 Expressive typography and custom selectable fonts.
+  ThemeData toThemeData({
+    String? fontFamily,
+    double? rond,
+    double? bodyRond,
+    bool? useM3ETypography,
+  }) {
+    final activeFont = fontFamily ?? AppThemeService.instance.fontFamily;
+    final activeRond = rond ?? AppThemeService.instance.fontRond;
+    final activeBodyRond = bodyRond ?? AppThemeService.instance.bodyFontRond;
+    final activeUseM3E =
+        useM3ETypography ?? AppThemeService.instance.useM3ETypography;
+
     final isDark = bgDark.computeLuminance() < 0.15;
     final base = isDark ? ThemeData.dark() : ThemeData.light();
     final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
     final textMuted = isDark ? textDark : const Color(0xFF64748B);
     final borderAlpha = isDark ? 0.12 : 0.08;
+
+    final resolvedTextTheme = M3ETypographyService.resolveTextTheme(
+      base.textTheme,
+      fontFamily: activeFont,
+      useM3E: activeUseM3E,
+      rond: activeRond,
+      bodyRond: activeBodyRond,
+    );
 
     final colorScheme = isDark
         ? ColorScheme.dark(
@@ -164,9 +206,7 @@ class AppThemeData {
           );
 
     return base.copyWith(
-      textTheme: base.textTheme.apply(
-        fontFamilyFallback: const ['Noto Sans Ethiopic', 'Nyala', 'Ebrima'],
-      ),
+      textTheme: resolvedTextTheme,
       brightness: isDark ? Brightness.dark : Brightness.light,
       scaffoldBackgroundColor: bgDark,
       colorScheme: colorScheme,
@@ -332,6 +372,10 @@ class AppThemeService {
   ];
 
   static const _kUseM3EAlbumArtShapeKey = 'sp_use_m3e_album_art_shape';
+  static const _kFontFamilyKey = 'sp_font_family';
+  static const _kUseM3ETypographyKey = 'sp_use_m3e_typography';
+  static const _kFontRondKey = 'sp_font_rond';
+  static const _kBodyFontRondKey = 'sp_body_font_rond';
 
   /// Broadcast stream – emits the new [AppThemeId] whenever the theme changes.
   final StreamController<AppThemeId> themeChanged =
@@ -345,6 +389,22 @@ class AppThemeService {
   final StreamController<bool> useM3EAlbumArtShapeChanged =
       StreamController<bool>.broadcast();
 
+  /// Broadcast stream – emits the selected font family name.
+  final StreamController<String> fontFamilyChanged =
+      StreamController<String>.broadcast();
+
+  /// Broadcast stream – emits whether Material 3 Expressive typography scale is active.
+  final StreamController<bool> useM3ETypographyChanged =
+      StreamController<bool>.broadcast();
+
+  /// Broadcast stream – emits the global corner roundness (ROND axis).
+  final StreamController<double> fontRondChanged =
+      StreamController<double>.broadcast();
+
+  /// Broadcast stream – emits the body corner roundness (bodyRond axis).
+  final StreamController<double> bodyFontRondChanged =
+      StreamController<double>.broadcast();
+
   AppThemeId _current = AppThemeId.darkBlue;
   AppThemeId get current => _current;
 
@@ -353,6 +413,18 @@ class AppThemeService {
 
   bool _useM3EAlbumArtShape = false;
   bool get useM3EAlbumArtShape => _useM3EAlbumArtShape;
+
+  String _fontFamily = 'System';
+  String get fontFamily => _fontFamily;
+
+  bool _useM3ETypography = true;
+  bool get useM3ETypography => _useM3ETypography;
+
+  double _fontRond = 0.0;
+  double get fontRond => _fontRond;
+
+  double _bodyFontRond = 0.0;
+  double get bodyFontRond => _bodyFontRond;
 
   AppThemeData get currentData {
     final base = themes.firstWhere((t) => t.id == _current);
@@ -389,6 +461,22 @@ class AppThemeService {
     if (savedUseM3EShape != null) {
       _useM3EAlbumArtShape = savedUseM3EShape;
     }
+    final savedFont = prefs.getString(_kFontFamilyKey);
+    if (savedFont != null && savedFont.isNotEmpty) {
+      _fontFamily = savedFont;
+    }
+    final savedM3E = prefs.getBool(_kUseM3ETypographyKey);
+    if (savedM3E != null) {
+      _useM3ETypography = savedM3E;
+    }
+    final savedRond = prefs.getDouble(_kFontRondKey);
+    if (savedRond != null) {
+      _fontRond = savedRond;
+    }
+    final savedBodyRond = prefs.getDouble(_kBodyFontRondKey);
+    if (savedBodyRond != null) {
+      _bodyFontRond = savedBodyRond;
+    }
   }
 
   Future<void> saveTheme(AppThemeId id) async {
@@ -409,6 +497,30 @@ class AppThemeService {
     useM3EAlbumArtShapeChanged.add(enabled);
   }
 
+  Future<void> saveFontFamily(String family) async {
+    _fontFamily = family;
+    await PreferencesStore.instance.setString(_kFontFamilyKey, family);
+    fontFamilyChanged.add(family);
+  }
+
+  Future<void> saveUseM3ETypography(bool enabled) async {
+    _useM3ETypography = enabled;
+    await PreferencesStore.instance.setBool(_kUseM3ETypographyKey, enabled);
+    useM3ETypographyChanged.add(enabled);
+  }
+
+  Future<void> saveFontRond(double rond) async {
+    _fontRond = rond;
+    await PreferencesStore.instance.setDouble(_kFontRondKey, rond);
+    fontRondChanged.add(rond);
+  }
+
+  Future<void> saveBodyFontRond(double bodyRond) async {
+    _bodyFontRond = bodyRond;
+    await PreferencesStore.instance.setDouble(_kBodyFontRondKey, bodyRond);
+    bodyFontRondChanged.add(bodyRond);
+  }
+
   static AppThemeData dataFor(AppThemeId id) =>
       themes.firstWhere((t) => t.id == id);
 }
@@ -418,12 +530,20 @@ class AppThemeProvider extends InheritedWidget {
   final AppThemeData themeData;
   final Shapes albumArtShape;
   final bool useM3EAlbumArtShape;
+  final String fontFamily;
+  final bool useM3ETypography;
+  final double fontRond;
+  final double bodyFontRond;
 
   const AppThemeProvider({
     super.key,
     required this.themeData,
     this.albumArtShape = Shapes.slanted,
     this.useM3EAlbumArtShape = false,
+    this.fontFamily = 'System',
+    this.useM3ETypography = true,
+    this.fontRond = 0.0,
+    this.bodyFontRond = 0.0,
     required super.child,
   });
 
@@ -446,6 +566,31 @@ class AppThemeProvider extends InheritedWidget {
         AppThemeService.instance.useM3EAlbumArtShape;
   }
 
+  static String ofFontFamily(BuildContext context) {
+    final provider =
+        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>();
+    return provider?.fontFamily ?? AppThemeService.instance.fontFamily;
+  }
+
+  static bool ofUseM3ETypography(BuildContext context) {
+    final provider =
+        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>();
+    return provider?.useM3ETypography ??
+        AppThemeService.instance.useM3ETypography;
+  }
+
+  static double ofFontRond(BuildContext context) {
+    final provider =
+        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>();
+    return provider?.fontRond ?? AppThemeService.instance.fontRond;
+  }
+
+  static double ofBodyFontRond(BuildContext context) {
+    final provider =
+        context.dependOnInheritedWidgetOfExactType<AppThemeProvider>();
+    return provider?.bodyFontRond ?? AppThemeService.instance.bodyFontRond;
+  }
+
   @override
   bool updateShouldNotify(AppThemeProvider oldWidget) =>
       themeData.id != oldWidget.themeData.id ||
@@ -453,7 +598,11 @@ class AppThemeProvider extends InheritedWidget {
       themeData.bgDark != oldWidget.themeData.bgDark ||
       themeData.cardDark != oldWidget.themeData.cardDark ||
       albumArtShape != oldWidget.albumArtShape ||
-      useM3EAlbumArtShape != oldWidget.useM3EAlbumArtShape;
+      useM3EAlbumArtShape != oldWidget.useM3EAlbumArtShape ||
+      fontFamily != oldWidget.fontFamily ||
+      useM3ETypography != oldWidget.useM3ETypography ||
+      fontRond != oldWidget.fontRond ||
+      bodyFontRond != oldWidget.bodyFontRond;
 }
 
 // ─── BuildContext Extension for Reactive Theme Tokens ─────────────────────────
@@ -461,6 +610,11 @@ extension AppThemeContextExtension on BuildContext {
   AppThemeData get appTheme => AppThemeProvider.of(this);
   Shapes get albumArtShape => AppThemeProvider.ofShape(this);
   bool get useM3EAlbumArtShape => AppThemeProvider.ofUseM3EShape(this);
+  String get fontFamily => AppThemeProvider.ofFontFamily(this);
+  bool get useM3ETypography => AppThemeProvider.ofUseM3ETypography(this);
+  double get fontRond => AppThemeProvider.ofFontRond(this);
+  double get bodyFontRond => AppThemeProvider.ofBodyFontRond(this);
+  TextTheme get emphasizedTextTheme => Theme.of(this).textTheme.emphasized;
   Color get bgDark => appTheme.bgDark;
   Color get cardDark => appTheme.cardDark;
   Color get surfaceDarkerColor => appTheme.cardDark.withValues(alpha: 0.8);

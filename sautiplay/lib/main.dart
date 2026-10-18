@@ -92,10 +92,18 @@ class _DemoAppState extends State<DemoApp> with SingleTickerProviderStateMixin {
   AppThemeData _toThemeData = AppThemeService.themes.first;
   Shapes _albumArtShape = Shapes.slanted;
   bool _useM3EAlbumArtShape = false;
+  String _fontFamily = 'System';
+  bool _useM3ETypography = true;
+  double _fontRond = 0.0;
+  double _bodyFontRond = 0.0;
   Locale? _locale;
   StreamSubscription<AppThemeId>? _themeSub;
   StreamSubscription<Shapes>? _shapeSub;
   StreamSubscription<bool>? _useM3EShapeSub;
+  StreamSubscription<String>? _fontFamilySub;
+  StreamSubscription<bool>? _useM3ETypographySub;
+  StreamSubscription<double>? _fontRondSub;
+  StreamSubscription<double>? _bodyFontRondSub;
   StreamSubscription<Locale?>? _localeSub;
 
   @override
@@ -143,6 +151,38 @@ class _DemoAppState extends State<DemoApp> with SingleTickerProviderStateMixin {
         });
       }
     });
+    _fontFamilySub = AppThemeService.instance.fontFamilyChanged.stream
+        .listen((family) {
+      if (mounted) {
+        setState(() {
+          _fontFamily = family;
+        });
+      }
+    });
+    _useM3ETypographySub = AppThemeService.instance.useM3ETypographyChanged.stream
+        .listen((enabled) {
+      if (mounted) {
+        setState(() {
+          _useM3ETypography = enabled;
+        });
+      }
+    });
+    _fontRondSub = AppThemeService.instance.fontRondChanged.stream
+        .listen((rond) {
+      if (mounted) {
+        setState(() {
+          _fontRond = rond;
+        });
+      }
+    });
+    _bodyFontRondSub = AppThemeService.instance.bodyFontRondChanged.stream
+        .listen((bodyRond) {
+      if (mounted) {
+        setState(() {
+          _bodyFontRond = bodyRond;
+        });
+      }
+    });
     _localeSub = AppLocaleService.instance.localeChanged.stream.listen((loc) {
       if (mounted) {
         setState(() {
@@ -161,6 +201,10 @@ class _DemoAppState extends State<DemoApp> with SingleTickerProviderStateMixin {
         _currentThemeData = _toThemeData;
         _albumArtShape = AppThemeService.instance.albumArtShape;
         _useM3EAlbumArtShape = AppThemeService.instance.useM3EAlbumArtShape;
+        _fontFamily = AppThemeService.instance.fontFamily;
+        _useM3ETypography = AppThemeService.instance.useM3ETypography;
+        _fontRond = AppThemeService.instance.fontRond;
+        _bodyFontRond = AppThemeService.instance.bodyFontRond;
       });
     }
   }
@@ -180,6 +224,10 @@ class _DemoAppState extends State<DemoApp> with SingleTickerProviderStateMixin {
     _themeSub?.cancel();
     _shapeSub?.cancel();
     _useM3EShapeSub?.cancel();
+    _fontFamilySub?.cancel();
+    _useM3ETypographySub?.cancel();
+    _fontRondSub?.cancel();
+    _bodyFontRondSub?.cancel();
     _localeSub?.cancel();
     super.dispose();
   }
@@ -190,13 +238,27 @@ class _DemoAppState extends State<DemoApp> with SingleTickerProviderStateMixin {
       themeData: _currentThemeData,
       albumArtShape: _albumArtShape,
       useM3EAlbumArtShape: _useM3EAlbumArtShape,
+      fontFamily: _fontFamily,
+      useM3ETypography: _useM3ETypography,
+      fontRond: _fontRond,
+      bodyFontRond: _bodyFontRond,
       child: M3EMaterialApp(
         title: 'SautiPlay',
-        data: _currentThemeData.toM3EThemeData(),
+        data: _currentThemeData.toM3EThemeData(
+          fontFamily: _fontFamily,
+          rond: _fontRond,
+          bodyRond: _bodyFontRond,
+          useM3ETypography: _useM3ETypography,
+        ),
         autoTheming: false,
         dynamicColoring: false,
         drawUnderSystemBars: false,
-        theme: _currentThemeData.toThemeData(),
+        theme: _currentThemeData.toThemeData(
+          fontFamily: _fontFamily,
+          rond: _fontRond,
+          bodyRond: _bodyFontRond,
+          useM3ETypography: _useM3ETypography,
+        ),
         themeAnimationDuration: Duration.zero,
         locale: _locale,
         supportedLocales: const [

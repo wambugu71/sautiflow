@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
-import 'package:material_3_expressive/material_3_expressive.dart' hide M3EHapticFeedback;
+import 'package:material_3_expressive/material_3_expressive.dart'
+    hide M3EHapticFeedback;
 import 'package:m3e_seekbar/m3e_seekbar.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
@@ -146,7 +147,7 @@ class _MiniPlayerState extends State<MiniPlayer>
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: cardColor,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(8),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
@@ -161,49 +162,53 @@ class _MiniPlayerState extends State<MiniPlayer>
           ),
           child: Column(
             children: [
-              ValueListenableBuilder<bool>(
-                valueListenable: AppStateService.instance.useWavySliderNotifier,
-                builder: (context, useWavy, _) {
-                  final progressVal = widget.progress.clamp(0.0, 1.0);
-                  if (useWavy) {
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: ValueListenableBuilder<bool>(
+                  valueListenable:
+                      AppStateService.instance.useWavySliderNotifier,
+                  builder: (context, useWavy, _) {
+                    final progressVal = widget.progress.clamp(0.0, 1.0);
+                    if (useWavy) {
+                      return SizedBox(
+                        height: 10.0,
+                        child: M3EWavySeekbar(
+                          value: progressVal,
+                          min: 0.0,
+                          max: 1.0,
+                          isPlaying: widget.isPlaying,
+                          waveLength: 16.0,
+                          lineAmplitude: 1.8,
+                          strokeWidth: 2.0,
+                          height: 10.0,
+                          activeColor: primaryColor,
+                          inactiveColor: primaryColor.withValues(alpha: 0.15),
+                          thumbColor: primaryColor,
+                          handleShape: M3ESeekbarHandleShape.rectangle,
+                          handleWidth: 3.0,
+                          handleHeight: 6.0,
+                          onChanged: widget.onSeek ?? (_) {},
+                        ),
+                      );
+                    }
                     return SizedBox(
-                      height: 10.0,
-                      child: M3EWavySeekbar(
+                      height: 4.0,
+                      child: M3ESeekbar(
                         value: progressVal,
                         min: 0.0,
                         max: 1.0,
-                        isPlaying: widget.isPlaying,
-                        waveLength: 16.0,
-                        lineAmplitude: 1.8,
-                        strokeWidth: 2.0,
-                        height: 10.0,
+                        trackHeight: 3.0,
                         activeColor: primaryColor,
                         inactiveColor: primaryColor.withValues(alpha: 0.15),
                         thumbColor: primaryColor,
                         handleShape: M3ESeekbarHandleShape.rectangle,
                         handleWidth: 3.0,
-                        handleHeight: 6.0,
+                        handleHeight: 5.0,
                         onChanged: widget.onSeek ?? (_) {},
                       ),
                     );
-                  }
-                  return SizedBox(
-                    height: 4.0,
-                    child: M3ESeekbar(
-                      value: progressVal,
-                      min: 0.0,
-                      max: 1.0,
-                      trackHeight: 3.0,
-                      activeColor: primaryColor,
-                      inactiveColor: primaryColor.withValues(alpha: 0.15),
-                      thumbColor: primaryColor,
-                      handleShape: M3ESeekbarHandleShape.rectangle,
-                      handleWidth: 3.0,
-                      handleHeight: 5.0,
-                      onChanged: widget.onSeek ?? (_) {},
-                    ),
-                  );
-                },
+                  },
+                ),
               ),
               // Main content
               Expanded(

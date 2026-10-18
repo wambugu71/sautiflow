@@ -44,6 +44,7 @@ dependencies:
   material_3_expressive: ^1.1.7
   flutter_m3shapes_extended: ^1.2.0
   m3e_seekbar: ^1.0.1
+  m3e_typography: ^0.0.1
   url_launcher: ^6.3.1
   crypto: ^3.0.3
   http: ^1.2.0
@@ -61,6 +62,7 @@ dependencies:
   path_provider: ^2.1.5
   drift: ^2.34.4
   drift_flutter: ^0.3.1
+  google_fonts: ^9.0.0
 
 dependency_overrides:
   uuid: ^4.5.1
