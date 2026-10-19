@@ -200,7 +200,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   StreamSubscription<bool>? _useM3ETypographySub;
 
   // App version state
-  String _appVersion = 'v0.6.31';
+  String _appVersion = 'v0.6.32';
   bool _autoCheckUpdates = true;
 
   // Changelog loaded from assets/CHANGELOG.md
@@ -392,7 +392,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final focusSaved = await AppStateService.instance.loadAudioFocusSettings();
     final proxSaved = await AppStateService.instance.loadProximitySettings();
 
-    String versionStr = 'v0.6.31';
+    String versionStr = 'v0.6.32';
     try {
       final info = await PackageInfo.fromPlatform();
       versionStr = 'v${info.version}';

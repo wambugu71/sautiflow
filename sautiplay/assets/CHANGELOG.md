@@ -1,3 +1,16 @@
+## v0.6.32 — 2026-10-19
+- Cytomic SVF 64-Bit Parametric EQ: Andy Simper trapezoidal SVF filters with Orfanidis Nyquist de-cramping and zero zipper noise
+- Matrix-Compensated Graphic EQ: Matrix-inverted band interaction compensation, monotonic PCHIP spline graph, dual-channel L/R controls, and slider coupling
+- Audiophile Tone & Psychoacoustic Clarity: Baxandall proportional-Q tone controls, Quad 650 Hz tilt seesaw, and harmonic clarity master
+- 3 Studio Reverb Engines: 8-channel Hadamard FDN, Keith Barr recirculating ring, and David Griesinger Spin & Wander tank
+- Per-Track Loudness & Seamless Crossfade: Persistent loudness caching, instant BS.1770 seeding on jumps, anti-blast protection, and loudness-aware crossfades
+- High-Refresh Visualizers: 120 Hz fullscreen spectrum overlay with Hero return animation and dual-channel hardware-vsync oscilloscope (X-Y Lissajous, split trace)
+- Material 3 Expressive Polish: M3E typography scale with 12 selectable fonts, compact chip selector, and m3e_seekbar with AOSP wavy mode
+- Proximity Wave Gestures: Hands-free air wave track navigation with optical jitter rejection, pocket safety, and haptics
+- Low-Latency Exclusive Mode: 256-frame hardware buffers for AAudio MMAP & WASAPI, dynamic ring-buffering, and active DSP in auto-rate mode
+- Real-Time Safety & Resampling: 64-tap SWR sinc resampler with dynamic mid-stream recovery, true lookahead limiter, and 24-in-32 calibrated dither
+- AutoEQ Engine Alignment: Clean PEQ/GEQ profile switching, automatic preamp headroom restoration, and extended filter types
+
 ## v0.6.31 — 2026-10-01
 - 7-Zone Studio Mastering: Clean signal chain with zero intermodulation, post-saturation reverb, and true-peak limiter protection
 - Drift SQLite Persistence: Fast ACID-compliant storage for liked songs, recently played, playlists, and settings state
