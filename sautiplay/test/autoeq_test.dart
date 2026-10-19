@@ -15,10 +15,19 @@ class FakePlayerForAutoEq extends Fake implements IsolateAudioPlayer {
   bool multibandFxCleared = false;
   bool multibandEqEnabled = true;
   final Map<int, double> eqBandGains = {};
+  List<EqBandConfig> initializedFxBands = [];
+  List<double> initializedEqFreqs = [];
 
   @override
   void setGain(double g) {
     gain = g;
+  }
+
+  @override
+  void initMultibandFx(List<EqBandConfig> bands, {bool enabled = true}) {
+    initializedFxBands = List.from(bands);
+    multibandFxEnabled = enabled;
+    multibandFxCleared = false;
   }
 
   @override
@@ -29,6 +38,12 @@ class FakePlayerForAutoEq extends Fake implements IsolateAudioPlayer {
   @override
   void clearMultibandFx() {
     multibandFxCleared = true;
+    initializedFxBands.clear();
+  }
+
+  @override
+  void initMultibandEq(List<double> frequencies) {
+    initializedEqFreqs = List.from(frequencies);
   }
 
   @override
@@ -248,6 +263,182 @@ GraphicEQ: 20 0.2; 25 -0.5; 31.5 -1.2; 40 -1.8; 50 -2.5; 63 -3.2; 80 -4.0; 100 -
       final prefs = PreferencesStore.instance;
       expect(prefs.containsKey('sp_active_autoeq_profile_id_v2'), isFalse);
       expect(prefs.containsKey('sp_active_parametric_preset'), isFalse);
+    });
+
+    test('switching from PEQ profile to GEQ profile resets PEQ and applies GEQ', () async {
+      PreferencesStore.instance.setMockValues({});
+      final fakePlayer = FakePlayerForAutoEq();
+
+      final peqProfile = AutoEqProfileModel(
+        id: 'test_peq_1',
+        name: 'Sennheiser HD 600',
+        modelName: 'HD 600',
+        brand: 'Sennheiser',
+        type: AutoEqType.parametric,
+        preampDb: -6.5,
+        parametricBands: [
+          EqBandConfig(
+            type: EqBandType.peak,
+            frequencyHz: 1000.0,
+            gainDb: 3.0,
+            q: 1.4,
+          ),
+        ],
+      );
+
+      final geqProfile = AutoEqProfileModel(
+        id: 'test_geq_1',
+        name: 'Sony WH-1000XM4',
+        modelName: 'WH-1000XM4',
+        brand: 'Sony',
+        type: AutoEqType.graphic,
+        preampDb: -4.0,
+        rawGraphicPairs: {
+          32.0: 1.0,
+          64.0: 2.0,
+          1000.0: -1.5,
+        },
+      );
+
+      // 1. First, apply PEQ profile
+      await AutoEqService.instance.applyProfile(
+        player: fakePlayer,
+        profile: peqProfile,
+      );
+
+      expect(AutoEqService.instance.activeProfile?.id, peqProfile.id);
+      expect(fakePlayer.multibandFxEnabled, isTrue);
+      expect(fakePlayer.initializedFxBands.length, 1);
+      expect(fakePlayer.multibandEqEnabled, isFalse);
+
+      var pEq = await AppStateService.instance.loadParametricEq();
+      expect(pEq.enabled, isTrue);
+      expect(pEq.bands.length, 1);
+
+      // 2. Now change to GEQ profile
+      await AutoEqService.instance.applyProfile(
+        player: fakePlayer,
+        profile: geqProfile,
+      );
+
+      expect(AutoEqService.instance.activeProfile?.id, geqProfile.id);
+      // PEQ must be disabled and cleared!
+      expect(fakePlayer.multibandFxEnabled, isFalse);
+      expect(fakePlayer.multibandFxCleared, isTrue);
+      pEq = await AppStateService.instance.loadParametricEq();
+      expect(pEq.enabled, isFalse);
+      expect(pEq.bands, isEmpty);
+      expect(PreferencesStore.instance.containsKey('sp_active_parametric_preset'), isFalse);
+
+      // GEQ must be active!
+      expect(fakePlayer.multibandEqEnabled, isTrue);
+      final geq = await AppStateService.instance.loadEqBands();
+      expect(geq.enabled, isTrue);
+      expect(geq.preset, 'Sony WH-1000XM4');
+      expect(geq.preampDb, -4.0);
+    });
+
+    test('switching from GEQ profile to PEQ profile resets GEQ and applies PEQ', () async {
+      PreferencesStore.instance.setMockValues({});
+      final fakePlayer = FakePlayerForAutoEq();
+
+      final geqProfile = AutoEqProfileModel(
+        id: 'test_geq_2',
+        name: 'Sony WH-1000XM4',
+        modelName: 'WH-1000XM4',
+        brand: 'Sony',
+        type: AutoEqType.graphic,
+        preampDb: -4.0,
+        rawGraphicPairs: {
+          32.0: 1.0,
+          1000.0: -1.5,
+        },
+      );
+
+      final peqProfile = AutoEqProfileModel(
+        id: 'test_peq_2',
+        name: 'Sennheiser HD 600',
+        modelName: 'HD 600',
+        brand: 'Sennheiser',
+        type: AutoEqType.parametric,
+        preampDb: -6.5,
+        parametricBands: [
+          EqBandConfig(
+            type: EqBandType.peak,
+            frequencyHz: 1000.0,
+            gainDb: 3.0,
+            q: 1.4,
+          ),
+        ],
+      );
+
+      // 1. First, apply GEQ profile
+      await AutoEqService.instance.applyProfile(
+        player: fakePlayer,
+        profile: geqProfile,
+      );
+
+      expect(AutoEqService.instance.activeProfile?.id, geqProfile.id);
+      expect(fakePlayer.multibandEqEnabled, isTrue);
+      var geq = await AppStateService.instance.loadEqBands();
+      expect(geq.enabled, isTrue);
+
+      // 2. Now change to PEQ profile
+      await AutoEqService.instance.applyProfile(
+        player: fakePlayer,
+        profile: peqProfile,
+      );
+
+      expect(AutoEqService.instance.activeProfile?.id, peqProfile.id);
+      // GEQ must be disabled and zeroed!
+      expect(fakePlayer.multibandEqEnabled, isFalse);
+      expect(fakePlayer.eqBandGains.values.every((g) => g == 0.0), isTrue);
+      geq = await AppStateService.instance.loadEqBands();
+      expect(geq.enabled, isFalse);
+      expect(geq.preset, 'Flat');
+      expect(geq.gains.every((g) => g == 0.0), isTrue);
+
+      // PEQ must be active!
+      expect(fakePlayer.multibandFxEnabled, isTrue);
+      final pEq = await AppStateService.instance.loadParametricEq();
+      expect(pEq.enabled, isTrue);
+      expect(pEq.bands.length, 1);
+      expect(PreferencesStore.instance.getString('sp_active_parametric_preset'), 'Sennheiser HD 600');
+    });
+
+    test('switching from non-zero preamp profile to 0.0 dB profile resets player gain to 1.0', () async {
+      PreferencesStore.instance.setMockValues({});
+      final fakePlayer = FakePlayerForAutoEq();
+
+      final peqProfile = AutoEqProfileModel(
+        id: 'test_peq_preamp',
+        name: 'Sennheiser HD 600',
+        modelName: 'HD 600',
+        brand: 'Sennheiser',
+        type: AutoEqType.parametric,
+        preampDb: -6.0,
+        parametricBands: [
+          EqBandConfig(type: EqBandType.peak, frequencyHz: 1000.0, gainDb: 2.0, q: 1.0),
+        ],
+      );
+
+      final flatPreampProfile = AutoEqProfileModel(
+        id: 'test_peq_zero_preamp',
+        name: 'Zero Preamp Profile',
+        modelName: 'Zero Preamp',
+        brand: 'Generic',
+        type: AutoEqType.parametric,
+        preampDb: 0.0,
+        parametricBands: [
+          EqBandConfig(type: EqBandType.peak, frequencyHz: 2000.0, gainDb: 1.0, q: 1.0),
+        ],
+      );
+
+      await AutoEqService.instance.applyProfile(player: fakePlayer, profile: peqProfile);
+      expect(fakePlayer.gain, closeTo(0.501, 0.01));
+
+      await AutoEqService.instance.applyProfile(player: fakePlayer, profile: flatPreampProfile);
+      expect(fakePlayer.gain, closeTo(1.0, 0.001));
     });
   });
 }

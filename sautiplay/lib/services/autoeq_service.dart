@@ -236,14 +236,27 @@ class AutoEqService {
     final prefs = PreferencesStore.instance;
     await prefs.setString(_kActiveProfileIdKey, profile.id);
 
-    // 1. Preamp Adjustment
-    if (profile.preampDb != 0.0) {
-      final linearGain = math.pow(10, profile.preampDb / 20.0).toDouble();
-      player.setGain(linearGain);
-    }
+    // 1. Preamp Adjustment (unconditionally applied to reset headroom properly if 0.0 dB)
+    final linearGain = math.pow(10, profile.preampDb / 20.0).toDouble();
+    player.setGain(linearGain);
 
     // 2. Differentiate and Route where it belongs
     if (profile.isParametric) {
+      // ─── Reset / Disable Graphic EQ (GEQ) Engine so it is not active with PEQ ───
+      final geqFreqs = customGraphicFrequencies ?? _getStandardFrequencies(targetGraphicBands);
+      final zeroGains = List<double>.filled(geqFreqs.length, 0.0);
+      for (int i = 0; i < geqFreqs.length; i++) {
+        player.setMultibandEqBandGain(i, 0.0);
+      }
+      player.setMultibandEqEnabled(false);
+      await AppStateService.instance.saveEqBands(
+        enabled: false,
+        preset: 'Flat',
+        gains: zeroGains,
+        preampDb: profile.preampDb,
+        bandCount: geqFreqs.length,
+      );
+
       // ─── Route to Parametric EQ Engine ───
       List<EqBandConfig> bands = profile.parametricBands;
       if (bands.isEmpty && profile.rawContent != null) {
@@ -271,6 +284,15 @@ class AutoEqService {
         await prefs.setString('sp_active_parametric_preset', profile.name);
       }
     } else {
+      // ─── Reset / Disable Parametric EQ (PEQ) Engine so it is not active with GEQ ───
+      player.setMultibandFxEnabled(false);
+      player.clearMultibandFx();
+      await AppStateService.instance.saveParametricEq(
+        enabled: false,
+        bands: const [],
+      );
+      await prefs.remove('sp_active_parametric_preset');
+
       // ─── Route to Graphic EQ Engine ───
       List<double> freqs = customGraphicFrequencies ?? _getStandardFrequencies(targetGraphicBands);
       List<double> gains = [];

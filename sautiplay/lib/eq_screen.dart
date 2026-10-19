@@ -3080,11 +3080,11 @@ class _EqScreenState extends State<EqScreen>
         _activePreset = eqBands.preset;
         _preampDb = eqBands.preampDb;
         _setupFrequencies(eqBands.bandCount);
-        if (eqBands.gains.length == _eqGains.length) {
-          for (int i = 0; i < _eqGains.length; i++) {
-            _eqGains[i] = eqBands.gains[i];
-          }
-        }
+        _eqGains = List.generate(
+          _eqFrequencies.length,
+          (i) => i < eqBands.gains.length ? eqBands.gains[i] : 0.0,
+        );
+        _eqGainsRight = List<double>.from(_eqGains);
 
         _parametricEqEnabled = pEq.enabled;
         _parametricPreset = pPreset;
@@ -7937,6 +7937,8 @@ class _EqScreenState extends State<EqScreen>
         _parametricBands.clear();
         _parametricBands.addAll(newBands);
         _parametricEqEnabled = true;
+        _masterEqEnabled = false;
+        widget.player.setMultibandEqEnabled(false);
         createdProfileName =
             (profileName != null && profileName.trim().isNotEmpty)
                 ? profileName.trim()
