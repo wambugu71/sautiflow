@@ -178,6 +178,7 @@ extern "C"
     AE_API int ae_get_loudness_crossfade_enabled(AudioEngineHandle *engine);
     AE_API void ae_set_next_replay_gain(AudioEngineHandle *engine, float gain_db);
     AE_API void ae_set_next_replay_gain_with_peak(AudioEngineHandle *engine, float gain_db, float peak);
+    AE_API void ae_set_current_track_loudness(AudioEngineHandle *engine, float gain_db, float peak);
     AE_API float ae_get_next_replay_gain_linear(AudioEngineHandle *engine);
 
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);

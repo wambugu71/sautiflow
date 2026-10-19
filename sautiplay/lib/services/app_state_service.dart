@@ -1667,6 +1667,33 @@ class AppStateService {
     );
   }
 
+  // ── Track-Level Loudness & Limiter Disk Cache ──────────────────────────────
+  static const _kTrackLoudnessPrefix = 'sp_track_lufs_';
+
+  Future<void> saveTrackLoudness(String uri, {required double lufs, required double peak}) async {
+    if (uri.isEmpty || lufs < -70.0 || !lufs.isFinite) return;
+    final prefs = PreferencesStore.instance;
+    final key = '$_kTrackLoudnessPrefix${uri.hashCode}';
+    await prefs.setString(key, '${lufs.toStringAsFixed(2)};${peak.toStringAsFixed(3)}');
+  }
+
+  ({double lufs, double peak})? getTrackLoudness(String uri) {
+    if (uri.isEmpty) return null;
+    final prefs = PreferencesStore.instance;
+    final key = '$_kTrackLoudnessPrefix${uri.hashCode}';
+    final val = prefs.getString(key);
+    if (val == null) return null;
+    final parts = val.split(';');
+    if (parts.length >= 2) {
+      final lufs = double.tryParse(parts[0]);
+      final peak = double.tryParse(parts[1]);
+      if (lufs != null && peak != null) {
+        return (lufs: lufs, peak: peak);
+      }
+    }
+    return null;
+  }
+
   // ─── Online Streaming & Bandwidth Settings ─────────────────────────────────
   static const _kStreamingQualityPreset = 'sp_streaming_quality_preset_v2';
   static const _kPreferNativeAac = 'sp_prefer_native_aac';

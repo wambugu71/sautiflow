@@ -1180,9 +1180,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     });
   }
 
-  /// Pre-reads the ReplayGain value for the next track in the queue and
-  /// forwards it to the engine so loudness-aware crossfade can compensate
-  /// before the blend even starts.
+  /// Pre-reads the ReplayGain and Loudness Normalizer values for the next track in the queue and
+  /// forwards them to the engine so loudness-aware crossfade and gapless transitions compensate
+  /// before the blend or transition even starts.
   Future<void> _prefetchNextTrackReplayGain(int currentIndex) async {
     final nextIndex = currentIndex + 1;
     if (nextIndex >= _playlist.length) return;
@@ -1192,15 +1192,14 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (_onlineTrackMetadata.containsKey(nextSource.uri) ||
         nextSource.uri.scheme == 'http' ||
         nextSource.uri.scheme == 'https') {
-      _player.setNextReplayGain(0.0);
+      _player.setNextReplayGainWithPeak(0.0, 1.0);
       return;
     }
 
+    final loudnessNorm = await AppStateService.instance.loadLoudnessNormalizer();
+    final cached = AppStateService.instance.getTrackLoudness(nextSource.uri.toString());
+
     final rgState = await AppStateService.instance.loadReplayGainSettings();
-    if (rgState.mode == ReplayGainMode.none) {
-      _player.setNextReplayGain(0.0);
-      return;
-    }
 
     String? filePath;
     final uri = nextSource.uri;
@@ -1213,35 +1212,52 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       }
     }
 
-    if (filePath == null) {
-      _player.setNextReplayGain(0.0);
-      return;
+    double rgDb = 0.0;
+    double trackPeak = 1.0;
+    if (filePath != null && rgState.mode != ReplayGainMode.none) {
+      try {
+        final tags = await _player.readFileTags(filePath);
+        double? rgTrack = (tags != null && tags['trackGain'] != null && (tags['trackGain'] as num) != 0.0)
+            ? (tags['trackGain'] as num).toDouble()
+            : null;
+        double? rgAlbum = (tags != null && tags['albumGain'] != null && (tags['albumGain'] as num) != 0.0)
+            ? (tags['albumGain'] as num).toDouble()
+            : null;
+
+        if (rgTrack == null && rgAlbum == null) {
+          final meta =
+              await _readLocalTrackMetadataOffload(filePath, getImage: false);
+          rgTrack = meta.rgTrack;
+          rgAlbum = meta.rgAlbum;
+        }
+
+        final found = (rgState.mode == ReplayGainMode.album)
+            ? (rgAlbum ?? rgTrack)
+            : (rgTrack ?? rgAlbum);
+        rgDb = (found ?? 0.0) + rgState.preamp;
+      } catch (_) {}
     }
 
-    double rgDb = 0.0;
-    try {
-      final tags = await _player.readFileTags(filePath);
-      double? rgTrack = (tags != null && tags['trackGain'] != null && (tags['trackGain'] as num) != 0.0)
-          ? (tags['trackGain'] as num).toDouble()
-          : null;
-      double? rgAlbum = (tags != null && tags['albumGain'] != null && (tags['albumGain'] as num) != 0.0)
-          ? (tags['albumGain'] as num).toDouble()
-          : null;
-
-      if (rgTrack == null && rgAlbum == null) {
-        final meta =
-            await _readLocalTrackMetadataOffload(filePath, getImage: false);
-        rgTrack = meta.rgTrack;
-        rgAlbum = meta.rgAlbum;
+    if (loudnessNorm.enabled) {
+      if (cached != null) {
+        final normDb = (loudnessNorm.targetLUFS - cached.lufs).clamp(-24.0, 6.0);
+        _player.setNextReplayGainWithPeak(normDb, cached.peak);
+        return;
+      } else if (rgDb != 0.0) {
+        _player.setNextReplayGainWithPeak(rgDb, trackPeak);
+        return;
+      } else {
+        final defaultDb = (loudnessNorm.targetLUFS - (-10.0)).clamp(-12.0, 0.0);
+        _player.setNextReplayGainWithPeak(defaultDb, 1.0);
+        return;
       }
+    }
 
-      final found = (rgState.mode == ReplayGainMode.album)
-          ? (rgAlbum ?? rgTrack)
-          : (rgTrack ?? rgAlbum);
-      rgDb = (found ?? 0.0) + rgState.preamp;
-    } catch (_) {}
-
-    _player.setNextReplayGain(rgDb);
+    if (rgState.mode != ReplayGainMode.none) {
+      _player.setNextReplayGainWithPeak(rgDb, trackPeak);
+    } else {
+      _player.setNextReplayGainWithPeak(0.0, 1.0);
+    }
   }
 
   /// Lookahead pre-fetch pipeline: pre-reads ReplayGain for loudness crossfade

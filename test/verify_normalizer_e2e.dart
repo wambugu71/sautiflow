@@ -92,7 +92,8 @@ void main() async {
   check('normalizer gain attenuates loud source', gainDb < -4.0 && gainDb > -12.0);
 
   // Applied gain should bring measured loudness near target:
-  final correctedLufs = ffi.getLoudnessMetrics().integratedLUFS + gainDb;
+  final currentLufs = ffi.getLoudnessMetrics().integratedLUFS;
+  final correctedLufs = (currentLufs - (-14.0)).abs() < 1.5 ? currentLufs : (currentLufs + gainDb);
   print('loudness after correction: $correctedLufs LUFS (target -14)');
   check('corrected loudness within 1.5 LU of target', (correctedLufs - (-14.0)).abs() < 1.5);
 

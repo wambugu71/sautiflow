@@ -251,6 +251,10 @@ class MiniAudioPlayer {
       _engine.setLoudnessCrossfadeEnabled(enabled);
   bool getLoudnessCrossfadeEnabled() => _engine.getLoudnessCrossfadeEnabled();
   void setNextReplayGain(double gainDb) => _engine.setNextReplayGain(gainDb);
+  void setNextReplayGainWithPeak(double gainDb, double peak) =>
+      _engine.setNextReplayGainWithPeak(gainDb, peak);
+  void setCurrentTrackLoudness(double gainDb, [double peak = 0.0]) =>
+      _engine.setCurrentTrackLoudness(gainDb, peak);
 
   PlayerStatus get status => _engine.getStatus();
   double get deviceLatencyMs => _engine.getDeviceLatencyMs();

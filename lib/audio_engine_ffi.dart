@@ -2589,10 +2589,20 @@ class AudioEngineFFI {
           _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
         'ae_set_next_replay_gain',
       );
+      _setNextReplayGainWithPeak =
+          _lib.lookupFunction<_SetTwoFloatsNative, _SetTwoFloatsDart>(
+        'ae_set_next_replay_gain_with_peak',
+      );
+      _setCurrentTrackLoudness =
+          _lib.lookupFunction<_SetTwoFloatsNative, _SetTwoFloatsDart>(
+        'ae_set_current_track_loudness',
+      );
     } catch (_) {
       _setLoudnessCrossfadeEnabled = null;
       _getLoudnessCrossfadeEnabled = null;
       _setNextReplayGain = null;
+      _setNextReplayGainWithPeak = null;
+      _setCurrentTrackLoudness = null;
     }
 
     try {
@@ -3449,6 +3459,8 @@ class AudioEngineFFI {
   _SetIntDart? _setLoudnessCrossfadeEnabled;
   _GetIntDart? _getLoudnessCrossfadeEnabled;
   _SetSingleFloatDart? _setNextReplayGain;
+  _SetTwoFloatsDart? _setNextReplayGainWithPeak;
+  _SetTwoFloatsDart? _setCurrentTrackLoudness;
   _ReadFileTagsDart? _readFileTags;
   _ReadFileMetadataDart? _readFileMetadata;
   _FreeMetadataPictureDart? _freeMetadataPicture;
@@ -4076,6 +4088,16 @@ class AudioEngineFFI {
   void setNextReplayGain(double gainDb) {
     if (_engine == ffi.nullptr || _setNextReplayGain == null) return;
     _setNextReplayGain!(_engine, gainDb);
+  }
+
+  void setNextReplayGainWithPeak(double gainDb, double peak) {
+    if (_engine == ffi.nullptr || _setNextReplayGainWithPeak == null) return;
+    _setNextReplayGainWithPeak!(_engine, gainDb, peak);
+  }
+
+  void setCurrentTrackLoudness(double gainDb, [double peak = 0.0]) {
+    if (_engine == ffi.nullptr || _setCurrentTrackLoudness == null) return;
+    _setCurrentTrackLoudness!(_engine, gainDb, peak);
   }
 
   TrackNativeInfo? inspectFile(String path) {

@@ -30,6 +30,53 @@ class IsolateAudioPlayer {
   PlayerStatus? _lastStatus;
   bool _isPlaying = false;
   double _currentGain = 1.0;
+  List<AudioSource> _sources = [];
+  double _loudnessTargetLUFS = -14.0;
+  bool _loudnessNormalizerEnabled = true;
+  LoopMode _loopMode = LoopMode.off;
+
+  void _prearmTrackLoudnessForIndex(int targetIndex) {
+    if (!_loudnessNormalizerEnabled) return;
+    if (targetIndex < 0 || targetIndex >= _sources.length) return;
+    final src = _sources[targetIndex];
+    final uriStr = src.uri.toString();
+    final cached = AppStateService.instance.getTrackLoudness(uriStr);
+    if (cached != null) {
+      final gainDb = (_loudnessTargetLUFS - cached.lufs).clamp(-24.0, 6.0);
+      setCurrentTrackLoudness(gainDb, cached.peak);
+    } else {
+      // Safe modern mastering baseline (-10 LUFS)
+      final defaultDb = (_loudnessTargetLUFS - (-10.0)).clamp(-12.0, 0.0);
+      setCurrentTrackLoudness(defaultDb, 1.0);
+    }
+  }
+
+  void _prearmNextTrackLoudness(int currentIdx) {
+    if (!_loudnessNormalizerEnabled) return;
+    if (_sources.isEmpty) return;
+
+    int nextIdx = currentIdx + 1;
+    if (nextIdx >= _sources.length) {
+      if (_loopMode == LoopMode.all) {
+        nextIdx = 0;
+      } else {
+        return;
+      }
+    }
+
+    if (nextIdx >= 0 && nextIdx < _sources.length) {
+      final nextSrc = _sources[nextIdx];
+      final uriStr = nextSrc.uri.toString();
+      final cached = AppStateService.instance.getTrackLoudness(uriStr);
+      if (cached != null) {
+        final gainDb = (_loudnessTargetLUFS - cached.lufs).clamp(-24.0, 6.0);
+        setNextReplayGainWithPeak(gainDb, cached.peak);
+      } else {
+        final defaultDb = (_loudnessTargetLUFS - (-10.0)).clamp(-12.0, 0.0);
+        setNextReplayGainWithPeak(defaultDb, 1.0);
+      }
+    }
+  }
 
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
@@ -82,6 +129,12 @@ class IsolateAudioPlayer {
       _IsolateInitData(_receivePort.sendPort, token, false),
       onError: _errorPort!.sendPort,
     );
+
+    try {
+      final lNorm = await AppStateService.instance.loadLoudnessNormalizer();
+      _loudnessNormalizerEnabled = lNorm.enabled;
+      _loudnessTargetLUFS = lNorm.targetLUFS;
+    } catch (_) {}
 
     // Initialize system audio controller on the main isolate
     if (enableSystemAudio) {
@@ -140,15 +193,28 @@ class IsolateAudioPlayer {
         _flushPendingCommands();
         if (!_ready.isCompleted) _ready.complete();
       } else if (message is PlayerStatus) {
+        final prevIndex = _lastStatus?.currentIndex;
         _lastStatus = message;
         _isPlaying = message.isPlaying;
         _statusController.add(message);
+        if (prevIndex != message.currentIndex && message.currentIndex >= 0) {
+          _prearmNextTrackLoudness(message.currentIndex);
+        }
       } else if (message is Float32List) {
         _analyzerController.add(message);
       } else if (message is StreamTelemetry) {
         _lastTelemetry = message;
         _telemetryController.add(message);
       } else if (message is Map) {
+        if (message['type'] == 'trackLoudnessMeasured') {
+          final uri = message['uri'] as String?;
+          final lufs = (message['lufs'] as num?)?.toDouble();
+          final peak = (message['peak'] as num?)?.toDouble() ?? 0.0;
+          if (uri != null && lufs != null) {
+            AppStateService.instance.saveTrackLoudness(uri, lufs: lufs, peak: peak);
+          }
+          return;
+        }
         if (message.containsKey('_replyId')) {
           final reqId = message['_replyId'] as int;
           final completer = _pendingRequests.remove(reqId);
@@ -277,13 +343,19 @@ class IsolateAudioPlayer {
     _send({'cmd': 'stop'});
   }
 
-  void load(AudioSource source) => _send({'cmd': 'load', 'source': source});
+  void load(AudioSource source) {
+    _sources = [source];
+    _prearmTrackLoudnessForIndex(0);
+    _send({'cmd': 'load', 'source': source});
+  }
 
   void setAudioSources(List<AudioSource> sources,
       {int initialIndex = 0,
       Duration? initialPosition,
       bool useLazyPreparation = true,
       bool autoPlay = true}) {
+    _sources = List<AudioSource>.from(sources);
+    _prearmTrackLoudnessForIndex(initialIndex);
     _send({
       'cmd': 'setAudioSources',
       'sources': sources,
@@ -292,12 +364,18 @@ class IsolateAudioPlayer {
       'lazy': useLazyPreparation,
       'autoPlay': autoPlay,
     });
+    _prearmNextTrackLoudness(initialIndex);
   }
 
-  void addAudioSource(AudioSource source) =>
-      _send({'cmd': 'addAudioSource', 'source': source});
+  void addAudioSource(AudioSource source) {
+    _sources.add(source);
+    _send({'cmd': 'addAudioSource', 'source': source});
+  }
 
   void seekTo(Duration position, {int? index}) {
+    if (index != null && index != _lastStatus?.currentIndex) {
+      _prearmTrackLoudnessForIndex(index);
+    }
     _send({
       'cmd': 'seekTo',
       'position': position.inMilliseconds,
@@ -735,11 +813,15 @@ class IsolateAudioPlayer {
 
   // ── Release 1 Quality Foundation API ────────────────────────────────────────
 
-  void setLoudnessNormalizerEnabled(bool enabled) =>
-      _send({'cmd': 'setLoudnessNormalizerEnabled', 'enabled': enabled});
+  void setLoudnessNormalizerEnabled(bool enabled) {
+    _loudnessNormalizerEnabled = enabled;
+    _send({'cmd': 'setLoudnessNormalizerEnabled', 'enabled': enabled});
+  }
 
-  void setLoudnessNormalizerTarget(double targetLUFS) =>
-      _send({'cmd': 'setLoudnessNormalizerTarget', 'targetLUFS': targetLUFS});
+  void setLoudnessNormalizerTarget(double targetLUFS) {
+    _loudnessTargetLUFS = targetLUFS;
+    _send({'cmd': 'setLoudnessNormalizerTarget', 'targetLUFS': targetLUFS});
+  }
 
   void resetLoudnessMeter() => _send({'cmd': 'resetLoudnessMeter'});
 
@@ -1687,8 +1769,10 @@ class IsolateAudioPlayer {
     );
   }
 
-  void setLoopMode(LoopMode mode) =>
-      _send({'cmd': 'setLoopMode', 'mode': mode.index});
+  void setLoopMode(LoopMode mode) {
+    _loopMode = mode;
+    _send({'cmd': 'setLoopMode', 'mode': mode.index});
+  }
   void setShuffleModeEnabled(bool enabled) =>
       _send({'cmd': 'setShuffle', 'enabled': enabled});
   void setCrossfadeEnabled(bool enabled) =>
@@ -1699,12 +1783,49 @@ class IsolateAudioPlayer {
       _send({'cmd': 'setLoudnessCrossfadeEnabled', 'enabled': enabled});
   void setNextReplayGain(double gainDb) =>
       _send({'cmd': 'setNextReplayGain', 'gainDb': gainDb});
-  void next() => _send({'cmd': 'next'});
-  void previous() => _send({'cmd': 'previous'});
-  void moveAudioSource(int oldIndex, int newIndex) =>
-      _send({'cmd': 'move', 'oldIndex': oldIndex, 'newIndex': newIndex});
-  void removeAudioSourceAt(int index) =>
-      _send({'cmd': 'removeAudioSourceAt', 'index': index});
+  void setNextReplayGainWithPeak(double gainDb, double peak) =>
+      _send({'cmd': 'setNextReplayGainWithPeak', 'gainDb': gainDb, 'peak': peak});
+  void setCurrentTrackLoudness(double gainDb, [double peak = 0.0]) =>
+      _send({'cmd': 'setCurrentTrackLoudness', 'gainDb': gainDb, 'peak': peak});
+  void next() {
+    final curr = _lastStatus?.currentIndex ?? -1;
+    if (curr >= 0) {
+      int nextIdx = curr + 1;
+      if (nextIdx >= _sources.length && _loopMode == LoopMode.all) {
+        nextIdx = 0;
+      }
+      _prearmTrackLoudnessForIndex(nextIdx);
+    }
+    _send({'cmd': 'next'});
+  }
+  void previous() {
+    final curr = _lastStatus?.currentIndex ?? -1;
+    if (curr >= 0) {
+      final posSec = _lastStatus?.positionSeconds ?? 0.0;
+      int targetIdx = curr;
+      if (posSec <= 3.0 && curr > 0) {
+        targetIdx = curr - 1;
+      }
+      _prearmTrackLoudnessForIndex(targetIdx);
+    }
+    _send({'cmd': 'previous'});
+  }
+  void moveAudioSource(int oldIndex, int newIndex) {
+    if (oldIndex >= 0 &&
+        oldIndex < _sources.length &&
+        newIndex >= 0 &&
+        newIndex < _sources.length) {
+      final item = _sources.removeAt(oldIndex);
+      _sources.insert(newIndex, item);
+    }
+    _send({'cmd': 'move', 'oldIndex': oldIndex, 'newIndex': newIndex});
+  }
+  void removeAudioSourceAt(int index) {
+    if (index >= 0 && index < _sources.length) {
+      _sources.removeAt(index);
+    }
+    _send({'cmd': 'removeAudioSourceAt', 'index': index});
+  }
 
   /// Enable or disable A-B repeat loop.
   /// Set [enabled] to false (with any start/end) to clear the loop.
@@ -1744,8 +1865,38 @@ void _isolateEntry(_IsolateInitData initData) {
     'networkStreamingSupported': player.isNetworkStreamingSupported(),
   });
 
+  List<AudioSource> isolateSources = [];
+  int lastLoudnessSampleIndex = -1;
+  double lastLoudnessSampleSeconds = 0.0;
+
   player.statusStream.listen((status) {
     initData.sendPort.send(status);
+
+    if (status.isPlaying &&
+        status.currentIndex >= 0 &&
+        status.currentIndex < isolateSources.length) {
+      final posSec = status.positionSeconds;
+      if (status.currentIndex != lastLoudnessSampleIndex) {
+        lastLoudnessSampleIndex = status.currentIndex;
+        lastLoudnessSampleSeconds = 0.0;
+      }
+      if ((posSec >= 8.0 && lastLoudnessSampleSeconds < 8.0) ||
+          (posSec >= 30.0 && lastLoudnessSampleSeconds < 30.0)) {
+        lastLoudnessSampleSeconds = posSec;
+        try {
+          final qt = player.getQualityTelemetry();
+          if (qt.integratedLUFS > -60.0 && qt.integratedLUFS < 0.0) {
+            final src = isolateSources[status.currentIndex];
+            initData.sendPort.send({
+              'type': 'trackLoudnessMeasured',
+              'uri': src.uri.toString(),
+              'lufs': qt.integratedLUFS,
+              'peak': qt.truePeakDBTP,
+            });
+          }
+        } catch (_) {}
+      }
+    }
   });
 
   player.streamTelemetryStream.listen((tel) {
@@ -1768,7 +1919,6 @@ void _isolateEntry(_IsolateInitData initData) {
     initData.sendPort.send({'type': 'analyzerStereo', 'data': samples});
   });
 
-  List<AudioSource> isolateSources = [];
   final Map<String, TrackNativeInfo> fileInfoCache = {};
   final Map<String, NativeAudioMetadata> metadataCache = {};
 
@@ -2479,6 +2629,18 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setLoudnessNormalizerTarget':
           player.setLoudnessNormalizerTarget(
               (message['targetLUFS'] as num).toDouble());
+          break;
+        case 'setCurrentTrackLoudness':
+          player.setCurrentTrackLoudness(
+            (message['gainDb'] as num?)?.toDouble() ?? 0.0,
+            (message['peak'] as num?)?.toDouble() ?? 0.0,
+          );
+          break;
+        case 'setNextReplayGainWithPeak':
+          player.setNextReplayGainWithPeak(
+            (message['gainDb'] as num?)?.toDouble() ?? 0.0,
+            (message['peak'] as num?)?.toDouble() ?? 0.0,
+          );
           break;
         case 'resetLoudnessMeter':
           player.resetLoudnessMeter();

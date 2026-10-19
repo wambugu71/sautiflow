@@ -221,8 +221,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                 ),
               ),
               if (isSelected)
-                Icon(Icons.check_rounded,
-                    size: 16, color: themePrimary),
+                Icon(Icons.check_rounded, size: 16, color: themePrimary),
             ],
           ),
         );
@@ -430,406 +429,392 @@ class _EffectsScreenState extends State<EffectsScreen> {
                 // Safe area top padding
                 SizedBox(height: topPadding),
 
-                      // Title Bar (Always visible)
-                      SizedBox(
-                        height: titleBarHeight,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                          child: Row(
-                            children: [
-                              if (Navigator.canPop(context))
-                                const BackButton(color: Colors.white),
-                              Icon(Icons.tune_rounded,
-                                  color: primaryColor, size: 22),
-                              const SizedBox(width: 8),
-                              Text(
-                                context.strings.soundEffectsAndEq,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const Spacer(),
-                              // Quick toggle analyzer visualizer
-                              IconButton(
-                                icon: Icon(
-                                  widget.analyzerEnabled
-                                      ? Icons.equalizer
-                                      : Icons.equalizer_outlined,
-                                  color: widget.analyzerEnabled
-                                      ? primaryColor
-                                      : Colors.white38,
-                                  size: 22,
-                                ),
-                                tooltip: widget.analyzerEnabled
+                // Title Bar (Always visible)
+                SizedBox(
+                  height: titleBarHeight,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                    child: Row(
+                      children: [
+                        if (Navigator.canPop(context))
+                          const BackButton(color: Colors.white),
+                        Icon(Icons.tune_rounded, color: primaryColor, size: 22),
+                        const SizedBox(width: 8),
+                        Text(
+                          context.strings.soundEffectsAndEq,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        // Quick toggle analyzer visualizer
+                        // IconButton(
+                        //icon:
+                        Icon(
+                          widget.analyzerEnabled
+                              ? Icons.equalizer
+                              : Icons.equalizer_outlined,
+                          color: widget.analyzerEnabled
+                              ? primaryColor
+                              : Colors.white38,
+                          size: 22,
+                        ),
+                        /* tooltip: widget.analyzerEnabled
                                     ? 'Analyzer Active'
                                     : 'Analyzer Off',
                                 onPressed: () {
                                   _setupAnalyzer(!widget.analyzerEnabled);
                                 },
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      // Control Bar (Matching screenshot UI)
-                      SizedBox(
-                        height: controlBarHeight,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12.0, vertical: 2.0),
-                          child: Column(
-                            children: [
-                              // Row 1: Visualizer pill + Profile pill + Spacer + Save + Tune
-                              Row(
-                                children: [
-
-                                  // Visualizer Selector Pill Menu
-                                  M3EMenu(
-                                    anchorBuilder: (context, open) => InkWell(
-                                      onTap: open,
-                                      borderRadius: BorderRadius.circular(10),
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          borderRadius:
-                                              BorderRadius.circular(10),
-                                          color: context.cardDark,
-                                          border: Border.all(
-                                              color: context.outlineColor),
-                                        ),
-                                        height: 36,
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.grid_view_rounded,
-                                              color: primaryColor,
-                                              size: 16,
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              _visualizerLabel,
-                                              style: TextStyle(
-                                                color: primaryColor,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Icon(
-                                              Icons.keyboard_arrow_down_rounded,
-                                              color: primaryColor,
-                                              size: 18,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    children: [
-                                      M3EMenuGroup.entries(
-                                        label: 'Visualizer Styles',
-                                        entries: [
-                                          M3EMenuEntry(
-                                            label: 'Waveform',
-                                            leading: Icon(
-                                                Icons.waves_rounded,
-                                                color: _currentAnalyzerType ==
-                                                        'oscilloscope'
-                                                    ? primaryColor
-                                                    : null,
-                                                size: 18),
-                                            onPressed: () {
-                                              setState(() {
-                                                _currentAnalyzerType =
-                                                    'oscilloscope';
-                                              });
-                                              PreferencesStore.instance.setString('analyzer_type', 'oscilloscope');
-                                            },
-                                          ),
-                                          M3EMenuEntry(
-                                            label: 'Radar',
-                                            leading: Icon(
-                                                Icons.radar_rounded,
-                                                color: _currentAnalyzerType ==
-                                                        'vectorscope'
-                                                    ? primaryColor
-                                                    : null,
-                                                size: 18),
-                                            onPressed: () {
-                                              setState(() {
-                                                _currentAnalyzerType =
-                                                    'vectorscope';
-                                              });
-                                              PreferencesStore.instance.setString('analyzer_type', 'vectorscope');
-                                            },
-                                          ),
-                                          M3EMenuEntry(
-                                            label: 'Waves',
-                                            leading: Icon(
-                                                Icons.show_chart_rounded,
-                                                color: _currentAnalyzerType ==
-                                                        'area'
-                                                    ? primaryColor
-                                                    : null,
-                                                size: 18),
-                                            onPressed: () {
-                                              setState(() {
-                                                _currentAnalyzerType = 'area';
-                                              });
-                                              PreferencesStore.instance.setString('analyzer_type', 'area');
-                                            },
-                                          ),
-                                          M3EMenuEntry(
-                                            label: 'Dots',
-                                            leading: Icon(
-                                                Icons.grain_rounded,
-                                                color: _currentAnalyzerType ==
-                                                        'bar'
-                                                    ? primaryColor
-                                                    : null,
-                                                size: 18),
-                                            onPressed: () {
-                                              setState(() {
-                                                _currentAnalyzerType = 'bar';
-                                              });
-                                              PreferencesStore.instance.setString('analyzer_type', 'bar');
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                      if (_currentAnalyzerType == 'area')
-                                        M3EMenuGroup.entries(
-                                          label: 'Wave Color Themes',
-                                          entries: FluidAreaTheme.values
-                                              .map(
-                                                (theme) => M3EMenuEntry(
-                                                  label: theme.displayName,
-                                                  leading: Icon(
-                                                    theme.icon,
-                                                    size: 18,
-                                                    color: _currentSpectrumStyle ==
-                                                            theme.name
-                                                        ? primaryColor
-                                                        : null,
-                                                  ),
-                                                  onPressed: () {
-                                                    setState(() {
-                                                      _currentSpectrumStyle =
-                                                          theme.name;
-                                                    });
-                                                    PreferencesStore.instance
-                                                        .setString(
-                                                            'spectrum_style',
-                                                            theme.name);
-                                                  },
-                                                ),
-                                              )
-                                              .toList(),
-                                        ),
-                                      if (_currentAnalyzerType == 'bar')
-                                        M3EMenuGroup.entries(
-                                          label: 'Dot Color Themes',
-                                          entries: PhysicsDotsTheme.values
-                                              .map(
-                                                (theme) => M3EMenuEntry(
-                                                  label: theme.displayName,
-                                                  leading: Icon(
-                                                    theme.icon,
-                                                    size: 18,
-                                                    color: _currentSpectrumStyle ==
-                                                            theme.name
-                                                        ? primaryColor
-                                                        : null,
-                                                  ),
-                                                  onPressed: () {
-                                                    setState(() {
-                                                      _currentSpectrumStyle =
-                                                          theme.name;
-                                                    });
-                                                    PreferencesStore.instance
-                                                        .setString(
-                                                            'spectrum_style',
-                                                            theme.name);
-                                                  },
-                                                ),
-                                              )
-                                              .toList(),
-                                        ),
-                                      M3EMenuGroup.entries(
-                                        label: 'Animated Visualizers',
-                                        entries: GlslShaderStyle.values
-                                            .map(
-                                              (s) => M3EMenuEntry(
-                                                label: s.displayName,
-                                                leading: Icon(
-                                                    Icons.auto_awesome,
-                                                    color: _currentAnalyzerType ==
-                                                            s.name
-                                                        ? primaryColor
-                                                        : null,
-                                                    size: 18),
-                                                onPressed: () {
-                                                  setState(() {
-                                                    _currentAnalyzerType =
-                                                        s.name;
-                                                  });
-                                                  PreferencesStore.instance.setString('analyzer_type', s.name);
-                                                },
-                                              ),
-                                            )
-                                            .toList(),
-                                      ),
-                                    ],
-                                  ),
-
-                                  const SizedBox(width: 8),
-
-                                  // Audio Profile Selector Pill
-                                  Builder(
-                                    builder: (btnCtx) {
-                                      return InkWell(
-                                        onTap: () => _showProfileMenu(btnCtx),
-                                        borderRadius: BorderRadius.circular(10),
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                            color: context.cardDark,
-                                            border: Border.all(
-                                                color: context.outlineColor),
-                                          ),
-                                          height: 36,
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.bar_chart_rounded,
-                                                color: primaryColor,
-                                                size: 16,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              ConstrainedBox(
-                                                constraints:
-                                                    const BoxConstraints(
-                                                        maxWidth: 85),
-                                                child: Text(
-                                                  _selectedAudioProfile?.name ??
-                                                      'Flat',
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    color: context.textPrimary,
-                                                    fontSize: 13,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Icon(
-                                                Icons.keyboard_arrow_down_rounded,
-                                                color: context.textMuted,
-                                                size: 18,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-
-                                  const Spacer(),
-
-                                  // Save Audio Profile Button
-                                  InkWell(
-                                    onTap: () {
-                                      AudioProfileSelector.showSaveDialog(
-                                        context: context,
-                                        player: widget.player,
-                                        onProfileSaved: _loadAudioProfiles,
-                                      );
-                                    },
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Container(
-                                      width: 34,
-                                      height: 34,
-                                      decoration: BoxDecoration(
-                                        color: context.cardDark,
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                            color: context.outlineColor),
-                                      ),
-                                      child: Icon(
-                                        Icons.save_outlined,
-                                        color: context.textPrimary,
-                                        size: 17,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-
-                                  // Manage Audio Profiles (Tune) Button
-                                  InkWell(
-                                    onTap: () {
-                                      showDialog(
-                                        context: context,
-                                        builder: (dialogCtx) =>
-                                            AudioProfileManagerDialog(
-                                          player: widget.player,
-                                          onProfilesUpdated:
-                                              _loadAudioProfiles,
-                                        ),
-                                      );
-                                    },
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Container(
-                                      width: 34,
-                                      height: 34,
-                                      decoration: BoxDecoration(
-                                        color: context.cardDark,
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                            color: context.outlineColor),
-                                      ),
-                                      child: Icon(
-                                        Icons.tune_rounded,
-                                        color: context.textPrimary,
-                                        size: 17,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 8),
-
-                              // Row 2: AutoEQ Selector Widget
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: AutoEqSelectorWidget(
-                                      player: widget.player,
-                                      isCompact: true,
-                                      onProfileApplied: () {
-                                        setState(() {});
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
+                              ),*/
                       ],
                     ),
                   ),
+                ),
+
+                // Control Bar (Matching screenshot UI)
+                SizedBox(
+                  height: controlBarHeight,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12.0, vertical: 2.0),
+                    child: Column(
+                      children: [
+                        // Row 1: Visualizer pill + Profile pill + Spacer + Save + Tune
+                        Row(
+                          children: [
+                            // Visualizer Selector Pill Menu
+                            M3EMenu(
+                              anchorBuilder: (context, open) => InkWell(
+                                onTap: open,
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(10),
+                                    color: context.cardDark,
+                                    border:
+                                        Border.all(color: context.outlineColor),
+                                  ),
+                                  height: 36,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.grid_view_rounded,
+                                        color: primaryColor,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _visualizerLabel,
+                                        style: TextStyle(
+                                          color: primaryColor,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Icon(
+                                        Icons.keyboard_arrow_down_rounded,
+                                        color: primaryColor,
+                                        size: 18,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              children: [
+                                M3EMenuGroup.entries(
+                                  label: 'Visualizer Styles',
+                                  entries: [
+                                    M3EMenuEntry(
+                                      label: 'Waveform',
+                                      leading: Icon(Icons.waves_rounded,
+                                          color: _currentAnalyzerType ==
+                                                  'oscilloscope'
+                                              ? primaryColor
+                                              : null,
+                                          size: 18),
+                                      onPressed: () {
+                                        setState(() {
+                                          _currentAnalyzerType = 'oscilloscope';
+                                        });
+                                        PreferencesStore.instance.setString(
+                                            'analyzer_type', 'oscilloscope');
+                                      },
+                                    ),
+                                    M3EMenuEntry(
+                                      label: 'Radar',
+                                      leading: Icon(Icons.radar_rounded,
+                                          color: _currentAnalyzerType ==
+                                                  'vectorscope'
+                                              ? primaryColor
+                                              : null,
+                                          size: 18),
+                                      onPressed: () {
+                                        setState(() {
+                                          _currentAnalyzerType = 'vectorscope';
+                                        });
+                                        PreferencesStore.instance.setString(
+                                            'analyzer_type', 'vectorscope');
+                                      },
+                                    ),
+                                    M3EMenuEntry(
+                                      label: 'Waves',
+                                      leading: Icon(Icons.show_chart_rounded,
+                                          color: _currentAnalyzerType == 'area'
+                                              ? primaryColor
+                                              : null,
+                                          size: 18),
+                                      onPressed: () {
+                                        setState(() {
+                                          _currentAnalyzerType = 'area';
+                                        });
+                                        PreferencesStore.instance
+                                            .setString('analyzer_type', 'area');
+                                      },
+                                    ),
+                                    M3EMenuEntry(
+                                      label: 'Dots',
+                                      leading: Icon(Icons.grain_rounded,
+                                          color: _currentAnalyzerType == 'bar'
+                                              ? primaryColor
+                                              : null,
+                                          size: 18),
+                                      onPressed: () {
+                                        setState(() {
+                                          _currentAnalyzerType = 'bar';
+                                        });
+                                        PreferencesStore.instance
+                                            .setString('analyzer_type', 'bar');
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                if (_currentAnalyzerType == 'area')
+                                  M3EMenuGroup.entries(
+                                    label: 'Wave Color Themes',
+                                    entries: FluidAreaTheme.values
+                                        .map(
+                                          (theme) => M3EMenuEntry(
+                                            label: theme.displayName,
+                                            leading: Icon(
+                                              theme.icon,
+                                              size: 18,
+                                              color: _currentSpectrumStyle ==
+                                                      theme.name
+                                                  ? primaryColor
+                                                  : null,
+                                            ),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentSpectrumStyle =
+                                                    theme.name;
+                                              });
+                                              PreferencesStore.instance
+                                                  .setString('spectrum_style',
+                                                      theme.name);
+                                            },
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                if (_currentAnalyzerType == 'bar')
+                                  M3EMenuGroup.entries(
+                                    label: 'Dot Color Themes',
+                                    entries: PhysicsDotsTheme.values
+                                        .map(
+                                          (theme) => M3EMenuEntry(
+                                            label: theme.displayName,
+                                            leading: Icon(
+                                              theme.icon,
+                                              size: 18,
+                                              color: _currentSpectrumStyle ==
+                                                      theme.name
+                                                  ? primaryColor
+                                                  : null,
+                                            ),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentSpectrumStyle =
+                                                    theme.name;
+                                              });
+                                              PreferencesStore.instance
+                                                  .setString('spectrum_style',
+                                                      theme.name);
+                                            },
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                M3EMenuGroup.entries(
+                                  label: 'Animated Visualizers',
+                                  entries: GlslShaderStyle.values
+                                      .map(
+                                        (s) => M3EMenuEntry(
+                                          label: s.displayName,
+                                          leading: Icon(Icons.auto_awesome,
+                                              color:
+                                                  _currentAnalyzerType == s.name
+                                                      ? primaryColor
+                                                      : null,
+                                              size: 18),
+                                          onPressed: () {
+                                            setState(() {
+                                              _currentAnalyzerType = s.name;
+                                            });
+                                            PreferencesStore.instance.setString(
+                                                'analyzer_type', s.name);
+                                          },
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(width: 8),
+
+                            // Audio Profile Selector Pill
+                            Builder(
+                              builder: (btnCtx) {
+                                return InkWell(
+                                  onTap: () => _showProfileMenu(btnCtx),
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(10),
+                                      color: context.cardDark,
+                                      border: Border.all(
+                                          color: context.outlineColor),
+                                    ),
+                                    height: 36,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.bar_chart_rounded,
+                                          color: primaryColor,
+                                          size: 16,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                              maxWidth: 85),
+                                          child: Text(
+                                            _selectedAudioProfile?.name ??
+                                                'Flat',
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: context.textPrimary,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Icon(
+                                          Icons.keyboard_arrow_down_rounded,
+                                          color: context.textMuted,
+                                          size: 18,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+
+                            const Spacer(),
+
+                            // Save Audio Profile Button
+                            InkWell(
+                              onTap: () {
+                                AudioProfileSelector.showSaveDialog(
+                                  context: context,
+                                  player: widget.player,
+                                  onProfileSaved: _loadAudioProfiles,
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  color: context.cardDark,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border:
+                                      Border.all(color: context.outlineColor),
+                                ),
+                                child: Icon(
+                                  Icons.save_outlined,
+                                  color: context.textPrimary,
+                                  size: 17,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+
+                            // Manage Audio Profiles (Tune) Button
+                            InkWell(
+                              onTap: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (dialogCtx) =>
+                                      AudioProfileManagerDialog(
+                                    player: widget.player,
+                                    onProfilesUpdated: _loadAudioProfiles,
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  color: context.cardDark,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border:
+                                      Border.all(color: context.outlineColor),
+                                ),
+                                child: Icon(
+                                  Icons.tune_rounded,
+                                  color: context.textPrimary,
+                                  size: 17,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        // Row 2: AutoEQ Selector Widget
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AutoEqSelectorWidget(
+                                player: widget.player,
+                                isCompact: true,
+                                onProfileApplied: () {
+                                  setState(() {});
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
 
           // Realtime Visualizer Section (Fixed height, isolated RepaintBoundary)
           if (widget.analyzerEnabled)
@@ -855,8 +840,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                   // Live Visualizer with double-tap gesture to expand
                                   GestureDetector(
                                     behavior: HitTestBehavior.opaque,
-                                    onDoubleTap: () => _openFullscreenVisualizer(
-                                        context, primaryColor),
+                                    onDoubleTap: () =>
+                                        _openFullscreenVisualizer(
+                                            context, primaryColor),
                                     child: ValueListenableBuilder<List<double>>(
                                       valueListenable: _analyzerValuesNotifier,
                                       builder: (context, analyzerVals, _) {
@@ -879,7 +865,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                     top: 6,
                                     right: 6,
                                     child: Material(
-                                      color: Colors.black.withValues(alpha: 0.45),
+                                      color:
+                                          Colors.black.withValues(alpha: 0.45),
                                       shape: const CircleBorder(),
                                       child: InkWell(
                                         customBorder: const CircleBorder(),
