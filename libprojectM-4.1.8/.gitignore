@@ -1,0 +1,94 @@
+# ==============================================================================
+# libprojectM gitignore
+# ==============================================================================
+
+# -----------------------------
+# Build and binary outputs
+# -----------------------------
+/build/
+/build_*/
+/bin/
+/obj/
+/out/
+/x64/
+/x86/
+/ARM/
+/ARM64/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+*.cmake.orig
+
+# Compiled object and intermediate files
+*.o
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.exe
+
+# Archives / downloaded packages
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+vendor/glew/glew.zip
+
+# Whitelist required prebuilt GLEW runtime DLLs and import libraries for Windows
+!vendor/glew/glew-2.2.0/bin/
+!vendor/glew/glew-2.2.0/bin/**/
+!vendor/glew/glew-2.2.0/bin/**/*.dll
+!vendor/glew/glew-2.2.0/lib/
+!vendor/glew/glew-2.2.0/lib/**/
+!vendor/glew/glew-2.2.0/lib/**/*.lib
+
+# Android build outputs & caches
+.cxx/
+.gradle/
+local.properties
+captures/
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+**/android/.gradle/
+**/android/.cxx/
+**/android/build/
+**/android/.kotlin/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+.pub-cache/
+**/ephemeral/
+**/GeneratedPluginRegistrant.*
+**/doc/api/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*~

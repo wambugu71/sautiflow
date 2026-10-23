@@ -12,9 +12,12 @@ import 'services/app_theme_service.dart';
 import 'services/audio_hardware_inspector.dart';
 import 'services/audio_profile_service.dart';
 import 'services/fft_processor.dart';
+import 'package:projectm_visualizer/projectm_visualizer.dart';
 import 'widgets/fluid_area_visualizer.dart';
 import 'widgets/physics_dots_visualizer.dart';
-import 'widgets/glsl_audio_visualizer.dart';
+import 'widgets/projectm_preset_manager_dialog.dart';
+import 'services/projectm_preset_manager.dart';
+import 'services/visualizer_settings_service.dart';
 import 'widgets/autoeq_selector_widget.dart';
 import 'widgets/profile_selector.dart';
 import 'widgets/fullscreen_spectrum_visualizer.dart';
@@ -68,6 +71,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
   FftProcessor? _fftProcessor;
   late String _currentAnalyzerType;
   late String _currentSpectrumStyle;
+  bool _showVisualizerSection = true;
+  StreamSubscription? _visualizerSettingsSub;
 
   /// Effective sample rate currently used by audio engine & DAC hardware.
   int get _currentlyUsedSampleRate {
@@ -92,7 +97,33 @@ class _EffectsScreenState extends State<EffectsScreen> {
         .getString('analyzer_type', defaultValue: widget.analyzerType)!;
     _currentSpectrumStyle = PreferencesStore.instance
         .getString('spectrum_style', defaultValue: widget.spectrumStyle)!;
+    if (_currentAnalyzerType != 'oscilloscope' &&
+        _currentAnalyzerType != 'Dual Oscilloscope' &&
+        _currentAnalyzerType != 'Waveform' &&
+        _currentAnalyzerType != 'vectorscope' &&
+        _currentAnalyzerType != 'Stereo Vectorscope' &&
+        _currentAnalyzerType != 'Stereo Radar' &&
+        _currentAnalyzerType != 'Radar' &&
+        _currentAnalyzerType != 'area' &&
+        _currentAnalyzerType != 'Flowing Wave' &&
+        _currentAnalyzerType != 'Waves' &&
+        _currentAnalyzerType != 'bar' &&
+        _currentAnalyzerType != 'dots' &&
+        _currentAnalyzerType != 'Dot Spectrum' &&
+        _currentAnalyzerType != 'Dots' &&
+        _currentAnalyzerType != 'projectm') {
+      _currentAnalyzerType = 'projectm';
+      if (_currentSpectrumStyle == 'minimal' || _currentSpectrumStyle.isEmpty) {
+        _currentSpectrumStyle = ProjectMPresetLibrary.defaultPreset.id;
+      }
+      PreferencesStore.instance.setString('analyzer_type', 'projectm');
+      PreferencesStore.instance.setString('spectrum_style', _currentSpectrumStyle);
+    }
     _isPlaying = widget.player.isPlaying;
+
+    ProjectMPresetManager.instance.initialize().then((_) {
+      if (mounted) setState(() {});
+    });
 
     _hardwareSpecs = AudioHardwareInspector.currentSpecs;
     AudioHardwareInspector.inspectAsync(widget.player).then((specs) {
@@ -113,12 +144,30 @@ class _EffectsScreenState extends State<EffectsScreen> {
       }
     });
 
+    _showVisualizerSection =
+        VisualizerSettingsService.instance.effectsVisualizerEnabled;
+    _visualizerSettingsSub =
+        VisualizerSettingsService.instance.onSettingsChanged.listen((_) {
+      if (mounted) {
+        final enabled =
+            VisualizerSettingsService.instance.effectsVisualizerEnabled;
+        if (_showVisualizerSection != enabled) {
+          setState(() => _showVisualizerSection = enabled);
+          _setupAnalyzer(widget.isActive &&
+              widget.analyzerEnabled &&
+              _showVisualizerSection);
+        }
+      }
+    });
+
     _loadAudioProfiles();
     _profileSub = AudioProfileService.instance.activeProfileStream.listen((p) {
       if (mounted) setState(() => _selectedAudioProfile = p);
     });
 
-    _setupAnalyzer(widget.isActive && widget.analyzerEnabled);
+    _setupAnalyzer(widget.isActive &&
+        widget.analyzerEnabled &&
+        _showVisualizerSection);
     _statusSub = widget.player.statusStream.listen((status) {
       if (mounted && _isPlaying != status.isPlaying) {
         setState(() {
@@ -159,15 +208,12 @@ class _EffectsScreenState extends State<EffectsScreen> {
         _currentAnalyzerType == 'Dots') {
       return 'Dots';
     }
-    final glslMatch = GlslShaderStyle.values.firstWhere(
-      (s) =>
-          s.name == _currentAnalyzerType ||
-          s.displayName == _currentAnalyzerType ||
-          s.displayName.toLowerCase() == _currentAnalyzerType.toLowerCase() ||
-          s.name.toLowerCase() == _currentAnalyzerType.toLowerCase(),
-      orElse: () => GlslShaderStyle.fromString(_currentAnalyzerType),
+    final preset = ProjectMPresetLibrary.findById(
+      _currentSpectrumStyle.isNotEmpty && _currentSpectrumStyle != 'minimal'
+          ? _currentSpectrumStyle
+          : _currentAnalyzerType,
     );
-    return glslMatch.displayName;
+    return preset.displayName;
   }
 
   void _showProfileMenu(BuildContext btnContext) async {
@@ -260,6 +306,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
 
   @override
   void dispose() {
+    _visualizerSettingsSub?.cancel();
     _analyzerSub?.cancel();
     _statusSub?.cancel();
     _hardwareSub?.cancel();
@@ -284,6 +331,17 @@ class _EffectsScreenState extends State<EffectsScreen> {
         if (!_isPlaying) {
           _isPlaying = true;
         }
+
+        // Only compute CPU-intensive FFT for visualizers that actually render FFT bins
+        final isFftVisualizer = _currentAnalyzerType == 'area' ||
+            _currentAnalyzerType == 'dots' ||
+            _currentAnalyzerType == 'bar' ||
+            _currentAnalyzerType == 'Flowing Wave' ||
+            _currentAnalyzerType == 'Waves' ||
+            _currentAnalyzerType == 'Dot Spectrum' ||
+            _currentAnalyzerType == 'Dots';
+        if (!isFftVisualizer) return;
+
         if (_isScrolling) {
           _scrollThrottleCounter++;
           if (_scrollThrottleCounter % 3 != 0) return;
@@ -318,20 +376,27 @@ class _EffectsScreenState extends State<EffectsScreen> {
     }
   }
 
+  bool _isFullscreenVisualizerOpen = false;
+
   Widget _buildVisualizer(
-    Color primaryColor,
-    List<double> currentAnalyzerValues,
-    List<double> peakValues, {
+    Color primaryColor, {
     double height = 160.0,
     double width = double.infinity,
   }) {
+    if (_isFullscreenVisualizerOpen) {
+      return Container(
+        height: height,
+        width: width,
+        color: const Color(0xFF06080D),
+      );
+    }
     return AudioVisualizerHost(
       player: widget.player,
       analyzerType: _currentAnalyzerType,
       spectrumStyle: _currentSpectrumStyle,
       primaryColor: primaryColor,
-      currentAnalyzerValues: currentAnalyzerValues,
-      peakValues: peakValues,
+      analyzerValuesNotifier: _analyzerValuesNotifier,
+      peakValuesNotifier: _peakValuesNotifier,
       height: height,
       width: width,
       isPlaying: _isPlaying,
@@ -348,14 +413,15 @@ class _EffectsScreenState extends State<EffectsScreen> {
     );
   }
 
-  void _openFullscreenVisualizer(BuildContext context, Color primaryColor) {
-    Navigator.of(context).push(
+  void _openFullscreenVisualizer(BuildContext context, Color primaryColor) async {
+    setState(() => _isFullscreenVisualizerOpen = true);
+    await Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
         barrierColor: Colors.black.withValues(alpha: 0.88),
         barrierDismissible: true,
-        transitionDuration: const Duration(milliseconds: 320),
-        reverseTransitionDuration: const Duration(milliseconds: 280),
+        transitionDuration: const Duration(milliseconds: 240),
+        reverseTransitionDuration: const Duration(milliseconds: 200),
         pageBuilder: (context, animation, secondaryAnimation) {
           return FullscreenSpectrumVisualizer(
             player: widget.player,
@@ -390,6 +456,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
         },
       ),
     );
+    if (mounted) {
+      setState(() => _isFullscreenVisualizerOpen = false);
+    }
   }
 
   @override
@@ -486,46 +555,66 @@ class _EffectsScreenState extends State<EffectsScreen> {
                           children: [
                             // Visualizer Selector Pill Menu
                             M3EMenu(
-                              anchorBuilder: (context, open) => InkWell(
-                                onTap: open,
-                                borderRadius: BorderRadius.circular(10),
-                                child: Container(
-                                  decoration: BoxDecoration(
+                              anchorBuilder: (context, open) {
+                                final screenWidth =
+                                    MediaQuery.sizeOf(context).width;
+                                final isSmallScreen = screenWidth < 390;
+                                final maxLabelWidth = isSmallScreen
+                                    ? 52.0
+                                    : (screenWidth < 600 ? 68.0 : 130.0);
+                                return Tooltip(
+                                  message: 'Visualizer: $_visualizerLabel',
+                                  waitDuration:
+                                      const Duration(milliseconds: 600),
+                                  child: InkWell(
+                                    onTap: open,
                                     borderRadius: BorderRadius.circular(10),
-                                    color: context.cardDark,
-                                    border:
-                                        Border.all(color: context.outlineColor),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius:
+                                            BorderRadius.circular(10),
+                                        color: context.cardDark,
+                                        border: Border.all(
+                                            color: context.outlineColor),
+                                      ),
+                                      height: 36,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.grid_view_rounded,
+                                            color: primaryColor,
+                                            size: 16,
+                                          ),
+                                          const SizedBox(width: 5),
+                                          ConstrainedBox(
+                                            constraints: BoxConstraints(
+                                                maxWidth: maxLabelWidth),
+                                            child: Text(
+                                              _visualizerLabel,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: primaryColor,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 3),
+                                          Icon(
+                                            Icons.keyboard_arrow_down_rounded,
+                                            color: primaryColor,
+                                            size: 17,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                  height: 36,
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.grid_view_rounded,
-                                        color: primaryColor,
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        _visualizerLabel,
-                                        style: TextStyle(
-                                          color: primaryColor,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Icon(
-                                        Icons.keyboard_arrow_down_rounded,
-                                        color: primaryColor,
-                                        size: 18,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                                );
+                              },
                               children: [
                                 M3EMenuGroup.entries(
                                   label: 'Visualizer Styles',
@@ -592,8 +681,119 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                             .setString('analyzer_type', 'bar');
                                       },
                                     ),
+                                    M3EMenuEntry(
+                                      label: 'Milkdrop',
+                                      leading: Icon(Icons.auto_awesome_rounded,
+                                          color: _currentAnalyzerType == 'projectm'
+                                              ? primaryColor
+                                              : null,
+                                          size: 18),
+                                      onPressed: () {
+                                        setState(() {
+                                          _currentAnalyzerType = 'projectm';
+                                        });
+                                        PreferencesStore.instance
+                                            .setString('analyzer_type', 'projectm');
+                                      },
+                                    ),
                                   ],
                                 ),
+                                if (_currentAnalyzerType == 'projectm') ...[
+                                  M3EMenuGroup.entries(
+                                    label: 'Milkdrop Library & Downloads',
+                                    entries: [
+                                      M3EMenuEntry(
+                                        label: 'Browse & Download Presets...',
+                                        leading: Icon(
+                                          Icons.cloud_download_outlined,
+                                          size: 18,
+                                          color: primaryColor,
+                                        ),
+                                        onPressed: () {
+                                          ProjectMPresetManagerDialog.show(
+                                            context,
+                                            activePresetId:
+                                                _currentSpectrumStyle,
+                                            onPresetSelected: (preset) {
+                                              setState(() {
+                                                _currentAnalyzerType =
+                                                    'projectm';
+                                                _currentSpectrumStyle =
+                                                    preset.id;
+                                              });
+                                              PreferencesStore.instance
+                                                  .setString('analyzer_type',
+                                                      'projectm');
+                                              PreferencesStore.instance
+                                                  .setString('spectrum_style',
+                                                      preset.id);
+                                            },
+                                          );
+                                        },
+                                      ),
+                                      M3EMenuEntry(
+                                        label: 'Import .milk from Device...',
+                                        leading: Icon(
+                                          Icons.file_open_outlined,
+                                          size: 18,
+                                          color: primaryColor,
+                                        ),
+                                        onPressed: () async {
+                                          final summary =
+                                              await ProjectMPresetManager
+                                                  .instance
+                                                  .pickAndImportFromDisk();
+                                          if (summary
+                                                  .importedPresets.isNotEmpty &&
+                                              context.mounted) {
+                                            final first =
+                                                summary.importedPresets.first;
+                                            setState(() {
+                                              _currentAnalyzerType =
+                                                  'projectm';
+                                              _currentSpectrumStyle = first.id;
+                                            });
+                                            PreferencesStore.instance
+                                                .setString('analyzer_type',
+                                                    'projectm');
+                                            PreferencesStore.instance
+                                                .setString('spectrum_style',
+                                                    first.id);
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                  M3EMenuGroup.entries(
+                                    label:
+                                        'Milkdrop Presets (${ProjectMPresetLibrary.allWithCustom.length})',
+                                    entries: ProjectMPresetLibrary
+                                        .allWithCustom
+                                        .map(
+                                          (preset) => M3EMenuEntry(
+                                            label: preset.displayName,
+                                            leading: Icon(
+                                              Icons.auto_awesome_rounded,
+                                              size: 18,
+                                              color: _currentSpectrumStyle ==
+                                                      preset.id
+                                                  ? primaryColor
+                                                  : null,
+                                            ),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentSpectrumStyle =
+                                                    preset.id;
+                                              });
+                                              PreferencesStore.instance
+                                                  .setString('spectrum_style',
+                                                      preset.id);
+                                            },
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                ],
                                 if (_currentAnalyzerType == 'area')
                                   M3EMenuGroup.entries(
                                     label: 'Wave Color Themes',
@@ -650,28 +850,53 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         )
                                         .toList(),
                                   ),
+                                if (_currentAnalyzerType != 'projectm')
+                                  M3EMenuGroup.entries(
+                                    label: 'Milkdrop (projectM)',
+                                    entries: ProjectMPresetLibrary.allWithCustom
+                                        .take(4)
+                                        .map(
+                                          (preset) => M3EMenuEntry(
+                                            label: preset.displayName,
+                                            leading: const Icon(
+                                              Icons.auto_awesome_rounded,
+                                              size: 18,
+                                            ),
+                                            onPressed: () {
+                                              setState(() {
+                                                _currentAnalyzerType = 'projectm';
+                                                _currentSpectrumStyle = preset.id;
+                                              });
+                                              PreferencesStore.instance.setString(
+                                                  'analyzer_type', 'projectm');
+                                              PreferencesStore.instance.setString(
+                                                  'spectrum_style', preset.id);
+                                            },
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
                                 M3EMenuGroup.entries(
-                                  label: 'Animated Visualizers',
-                                  entries: GlslShaderStyle.values
-                                      .map(
-                                        (s) => M3EMenuEntry(
-                                          label: s.displayName,
-                                          leading: Icon(Icons.auto_awesome,
-                                              color:
-                                                  _currentAnalyzerType == s.name
-                                                      ? primaryColor
-                                                      : null,
-                                              size: 18),
-                                          onPressed: () {
-                                            setState(() {
-                                              _currentAnalyzerType = s.name;
-                                            });
-                                            PreferencesStore.instance.setString(
-                                                'analyzer_type', s.name);
-                                          },
-                                        ),
-                                      )
-                                      .toList(),
+                                  label: 'Display & Integration',
+                                  entries: [
+                                    M3EMenuEntry(
+                                      label: _showVisualizerSection
+                                          ? 'Hide Visualizer on Screen'
+                                          : 'Show Visualizer on Screen',
+                                      leading: Icon(
+                                        _showVisualizerSection
+                                            ? Icons.visibility_off_outlined
+                                            : Icons.visibility_outlined,
+                                        size: 18,
+                                        color: primaryColor,
+                                      ),
+                                      onPressed: () {
+                                        VisualizerSettingsService.instance
+                                            .setEffectsVisualizerEnabled(
+                                                !_showVisualizerSection);
+                                      },
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -681,49 +906,63 @@ class _EffectsScreenState extends State<EffectsScreen> {
                             // Audio Profile Selector Pill
                             Builder(
                               builder: (btnCtx) {
-                                return InkWell(
-                                  onTap: () => _showProfileMenu(btnCtx),
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(10),
-                                      color: context.cardDark,
-                                      border: Border.all(
-                                          color: context.outlineColor),
-                                    ),
-                                    height: 36,
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.bar_chart_rounded,
-                                          color: primaryColor,
-                                          size: 16,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        ConstrainedBox(
-                                          constraints: const BoxConstraints(
-                                              maxWidth: 85),
-                                          child: Text(
-                                            _selectedAudioProfile?.name ??
-                                                'Flat',
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              color: context.textPrimary,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
+                                final screenWidth =
+                                    MediaQuery.sizeOf(context).width;
+                                final isSmallScreen = screenWidth < 390;
+                                final maxProfileWidth = isSmallScreen
+                                    ? 58.0
+                                    : (screenWidth < 600 ? 76.0 : 130.0);
+                                return Tooltip(
+                                  message:
+                                      'Audio Profile: ${_selectedAudioProfile?.name ?? "Flat"}',
+                                  waitDuration:
+                                      const Duration(milliseconds: 600),
+                                  child: InkWell(
+                                    onTap: () => _showProfileMenu(btnCtx),
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius:
+                                            BorderRadius.circular(10),
+                                        color: context.cardDark,
+                                        border: Border.all(
+                                            color: context.outlineColor),
+                                      ),
+                                      height: 36,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.bar_chart_rounded,
+                                            color: primaryColor,
+                                            size: 16,
+                                          ),
+                                          const SizedBox(width: 5),
+                                          ConstrainedBox(
+                                            constraints: BoxConstraints(
+                                                maxWidth: maxProfileWidth),
+                                            child: Text(
+                                              _selectedAudioProfile?.name ??
+                                                  'Flat',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: context.textPrimary,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Icon(
-                                          Icons.keyboard_arrow_down_rounded,
-                                          color: context.textMuted,
-                                          size: 18,
-                                        ),
-                                      ],
+                                          const SizedBox(width: 3),
+                                          Icon(
+                                            Icons.keyboard_arrow_down_rounded,
+                                            color: context.textMuted,
+                                            size: 17,
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 );
@@ -817,7 +1056,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
           ),
 
           // Realtime Visualizer Section (Fixed height, isolated RepaintBoundary)
-          if (widget.analyzerEnabled)
+          if (widget.analyzerEnabled && _showVisualizerSection)
             SliverToBoxAdapter(
               child: RepaintBoundary(
                 key: const ValueKey('effects_visualizer_section'),
@@ -829,63 +1068,50 @@ class _EffectsScreenState extends State<EffectsScreen> {
                       Padding(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16.0, vertical: 8.0),
-                        child: Hero(
-                          tag: 'spectrum_analyzer_hero',
-                          child: Material(
-                            color: Colors.transparent,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              child: Stack(
-                                children: [
-                                  // Live Visualizer with double-tap gesture to expand
-                                  GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onDoubleTap: () =>
-                                        _openFullscreenVisualizer(
-                                            context, primaryColor),
-                                    child: ValueListenableBuilder<List<double>>(
-                                      valueListenable: _analyzerValuesNotifier,
-                                      builder: (context, analyzerVals, _) {
-                                        return RepaintBoundary(
-                                          child: SizedBox(
-                                            height: 160,
-                                            child: _buildVisualizer(
-                                              primaryColor,
-                                              analyzerVals,
-                                              _peakValuesNotifier.value,
-                                              height: 160,
-                                            ),
-                                          ),
-                                        );
-                                      },
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Stack(
+                            children: [
+                              // Live Visualizer with double-tap gesture to expand
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onDoubleTap: () =>
+                                    _openFullscreenVisualizer(
+                                        context, primaryColor),
+                                child: RepaintBoundary(
+                                  child: SizedBox(
+                                    height: 160,
+                                    child: _buildVisualizer(
+                                      primaryColor,
+                                      height: 160,
                                     ),
                                   ),
-                                  // Floating Fullscreen Expand Button in Top-Right
-                                  Positioned(
-                                    top: 6,
-                                    right: 6,
-                                    child: Material(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.45),
-                                      shape: const CircleBorder(),
-                                      child: InkWell(
-                                        customBorder: const CircleBorder(),
-                                        onTap: () => _openFullscreenVisualizer(
-                                            context, primaryColor),
-                                        child: const Padding(
-                                          padding: EdgeInsets.all(6.0),
-                                          child: Icon(
-                                            Icons.fullscreen_rounded,
-                                            size: 18,
-                                            color: Colors.white70,
-                                          ),
-                                        ),
+                                ),
+                              ),
+                              // Floating Fullscreen Expand Button in Top-Right
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Material(
+                                  color:
+                                      Colors.black.withValues(alpha: 0.45),
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () => _openFullscreenVisualizer(
+                                        context, primaryColor),
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(6.0),
+                                      child: Icon(
+                                        Icons.fullscreen_rounded,
+                                        size: 18,
+                                        color: Colors.white70,
                                       ),
                                     ),
                                   ),
-                                ],
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
                       ),

@@ -7,20 +7,26 @@ import 'package:sautiflow/sautiflow.dart';
 
 import '../isolate_player.dart';
 import '../database/preferences_store.dart';
+import 'package:projectm_visualizer/projectm_visualizer.dart';
 import 'dual_oscilloscope_visualizer.dart';
 import 'fluid_area_visualizer.dart';
-import 'glsl_audio_visualizer.dart';
 import 'physics_dots_visualizer.dart';
+import 'projectm_audio_visualizer.dart';
+import 'projectm_preset_manager_dialog.dart';
+import '../services/projectm_preset_manager.dart';
+import '../services/visualizer_settings_service.dart';
 import 'stereo_vectorscope_graph.dart';
 
 /// Unified host widget that renders any supported audio visualizer at a specified height/width.
-class AudioVisualizerHost extends StatelessWidget {
+class AudioVisualizerHost extends StatefulWidget {
   final IsolateAudioPlayer player;
   final String analyzerType;
   final String spectrumStyle;
   final Color primaryColor;
   final List<double> currentAnalyzerValues;
   final List<double> peakValues;
+  final ValueNotifier<List<double>>? analyzerValuesNotifier;
+  final ValueNotifier<List<double>>? peakValuesNotifier;
   final double height;
   final double width;
   final bool isPlaying;
@@ -36,8 +42,10 @@ class AudioVisualizerHost extends StatelessWidget {
     required this.analyzerType,
     required this.spectrumStyle,
     required this.primaryColor,
-    required this.currentAnalyzerValues,
-    required this.peakValues,
+    this.currentAnalyzerValues = const [],
+    this.peakValues = const [],
+    this.analyzerValuesNotifier,
+    this.peakValuesNotifier,
     this.height = 160.0,
     this.width = double.infinity,
     this.isPlaying = true,
@@ -49,81 +57,215 @@ class AudioVisualizerHost extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    if (analyzerType == 'oscilloscope' ||
-        analyzerType == 'Dual Oscilloscope' ||
-        analyzerType == 'Waveform') {
-      return RepaintBoundary(
-        child: DualOscilloscopeVisualizer(
-          player: player,
-          stereoStream: player.analyzerStereoStream,
-          analyzerStream: player.analyzerStream,
-          isPlaying: isPlaying,
-          primaryColor: primaryColor,
-          height: height,
-        ),
-      );
+  State<AudioVisualizerHost> createState() => _AudioVisualizerHostState();
+}
+
+class _AudioVisualizerHostState extends State<AudioVisualizerHost> {
+  bool _hasEverLoadedProjectM = false;
+  Timer? _autoChangeTimer;
+  StreamSubscription? _settingsSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _settingsSub =
+        VisualizerSettingsService.instance.onSettingsChanged.listen((_) {
+      if (mounted) _syncAutoChangeTimer();
+    });
+    _syncAutoChangeTimer();
+  }
+
+  void _syncAutoChangeTimer() {
+    _autoChangeTimer?.cancel();
+    _autoChangeTimer = null;
+    if (!widget.isPlaying ||
+        !VisualizerSettingsService.instance.autoChangeEnabled) {
+      return;
     }
 
-    if (analyzerType == 'vectorscope' ||
-        analyzerType == 'Stereo Vectorscope' ||
-        analyzerType == 'Stereo Radar' ||
-        analyzerType == 'Radar') {
-      return RepaintBoundary(
+    final intervalSec =
+        VisualizerSettingsService.instance.autoChangeIntervalSeconds;
+    _autoChangeTimer = Timer.periodic(Duration(seconds: intervalSec), (_) {
+      if (!mounted || !widget.isPlaying) return;
+      final next = VisualizerSettingsService.instance.getNextPresetId(
+        currentAnalyzerType: widget.analyzerType,
+        currentSpectrumStyle: widget.spectrumStyle,
+      );
+      if (next != widget.spectrumStyle) {
+        widget.onThemeChanged?.call(next);
+        PreferencesStore.instance.setString('spectrum_style', next);
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant AudioVisualizerHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPlaying != widget.isPlaying ||
+        oldWidget.analyzerType != widget.analyzerType) {
+      _syncAutoChangeTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoChangeTimer?.cancel();
+    _settingsSub?.cancel();
+    super.dispose();
+  }
+
+  bool _isProjectM(String type) {
+    if (type == 'projectm') return true;
+    const standardNonPm = {
+      'oscilloscope',
+      'Dual Oscilloscope',
+      'Waveform',
+      'vectorscope',
+      'Stereo Vectorscope',
+      'Stereo Radar',
+      'Radar',
+      'area',
+      'Waves',
+      'bar',
+      'dots',
+      'Dots',
+    };
+    return !standardNonPm.contains(type);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isPm = _isProjectM(widget.analyzerType);
+    if (isPm) {
+      _hasEverLoadedProjectM = true;
+    }
+
+    Widget? standardViz;
+    if (widget.analyzerType == 'oscilloscope' ||
+        widget.analyzerType == 'Dual Oscilloscope' ||
+        widget.analyzerType == 'Waveform') {
+      standardViz = RepaintBoundary(
+        child: DualOscilloscopeVisualizer(
+          player: widget.player,
+          stereoStream: widget.player.analyzerStereoStream,
+          analyzerStream: widget.player.analyzerStream,
+          isPlaying: widget.isPlaying,
+          primaryColor: widget.primaryColor,
+          height: widget.height,
+        ),
+      );
+    } else if (widget.analyzerType == 'vectorscope' ||
+        widget.analyzerType == 'Stereo Vectorscope' ||
+        widget.analyzerType == 'Stereo Radar' ||
+        widget.analyzerType == 'Radar') {
+      standardViz = RepaintBoundary(
         child: StereoVectorscopeGraph(
           width: 1.5,
           isEnabled: true,
-          height: height,
-          primaryColor: primaryColor,
-          analyzerStream: player.analyzerStream,
+          height: widget.height,
+          primaryColor: widget.primaryColor,
+          analyzerStream: widget.player.analyzerStream,
           live: true,
-          stereoAnalyzerStream: player.analyzerStereoStream,
-          statsProvider: () => player.getStereoStats(),
+          stereoAnalyzerStream: widget.player.analyzerStereoStream,
+          statsProvider: () => widget.player.getStereoStats(),
         ),
       );
-    }
+    } else if (widget.analyzerType == 'area' ||
+        widget.analyzerType == 'Waves') {
+      Widget buildArea(List<double> values) {
+        return FluidAreaVisualizer(
+          values: values,
+          primaryColor: widget.primaryColor,
+          height: widget.height,
+          themeName: widget.spectrumStyle,
+          showGrids: widget.showGrids,
+          logScale: widget.logScale,
+          autoFit: widget.autoFit,
+          maxFreq: widget.maxFreq,
+          onThemeChanged: widget.onThemeChanged,
+        );
+      }
 
-    for (final style in GlslShaderStyle.values) {
-      if (analyzerType == style.name ||
-          analyzerType == style.displayName ||
-          analyzerType.toLowerCase() == style.name.toLowerCase() ||
-          analyzerType.toLowerCase() == style.displayName.toLowerCase()) {
-        return GlslAudioVisualizerWidget(
-          analyzerStream: player.analyzerStream,
-          isPlaying: isPlaying,
-          style: style,
-          primaryColor: primaryColor,
-          height: height,
-          width: width,
+      if (widget.analyzerValuesNotifier != null) {
+        standardViz = RepaintBoundary(
+          child: ValueListenableBuilder<List<double>>(
+            valueListenable: widget.analyzerValuesNotifier!,
+            builder: (context, values, _) => buildArea(values),
+          ),
+        );
+      } else {
+        standardViz = RepaintBoundary(
+          child: buildArea(widget.currentAnalyzerValues),
+        );
+      }
+    } else if (widget.analyzerType == 'bar' ||
+        widget.analyzerType == 'dots' ||
+        widget.analyzerType == 'Dots') {
+      Widget buildDots(List<double> values) {
+        return PhysicsDotsVisualizer(
+          values: values,
+          primaryColor: widget.primaryColor,
+          height: widget.height,
+          themeName: widget.spectrumStyle,
+          showGrids: widget.showGrids,
+          logScale: widget.logScale,
+          autoFit: widget.autoFit,
+          maxFreq: widget.maxFreq,
+          onThemeChanged: widget.onThemeChanged,
+        );
+      }
+
+      if (widget.analyzerValuesNotifier != null) {
+        standardViz = RepaintBoundary(
+          child: ValueListenableBuilder<List<double>>(
+            valueListenable: widget.analyzerValuesNotifier!,
+            builder: (context, values, _) => buildDots(values),
+          ),
+        );
+      } else {
+        standardViz = RepaintBoundary(
+          child: buildDots(widget.currentAnalyzerValues),
         );
       }
     }
 
-    if (analyzerType == 'area') {
-      return FluidAreaVisualizer(
-        values: currentAnalyzerValues,
-        primaryColor: primaryColor,
-        height: height,
-        themeName: spectrumStyle,
-        showGrids: showGrids,
-        logScale: logScale,
-        autoFit: autoFit,
-        maxFreq: maxFreq,
-        onThemeChanged: onThemeChanged,
-      );
+    if (!_hasEverLoadedProjectM) {
+      return standardViz ?? const SizedBox.shrink();
     }
 
-    // Default: physics dots spectrum analyzer
-    return PhysicsDotsVisualizer(
-      values: currentAnalyzerValues,
-      primaryColor: primaryColor,
-      height: height,
-      themeName: spectrumStyle,
-      showGrids: showGrids,
-      logScale: logScale,
-      autoFit: autoFit,
-      maxFreq: maxFreq,
-      onThemeChanged: onThemeChanged,
+    final preset = ProjectMPresetLibrary.findById(
+      widget.spectrumStyle.isNotEmpty && widget.spectrumStyle != 'minimal'
+          ? widget.spectrumStyle
+          : widget.analyzerType,
+    );
+    final isCompact = widget.height <= 220;
+
+    final projectMViz = RepaintBoundary(
+      child: ProjectMAudioVisualizer(
+        key: const ValueKey('projectm_vis_host_instance'),
+        player: widget.player,
+        isPlaying: isPm && widget.isPlaying,
+        presetId: preset.id,
+        height: widget.height,
+        width: widget.width,
+        quality: isCompact ? VisualizerQuality.eco : VisualizerQuality.balanced,
+        fit: BoxFit.cover,
+      ),
+    );
+
+    if (standardViz == null) {
+      return projectMViz;
+    }
+
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        Offstage(
+          offstage: !isPm,
+          child: projectMViz,
+        ),
+        if (!isPm) standardViz,
+      ],
     );
   }
 }
@@ -183,6 +325,7 @@ class _FullscreenSpectrumVisualizerState
   late final Ticker _fpsTicker;
   DateTime? _lastTickTime;
   double _measuredFps = 60.0;
+  final ValueNotifier<double> _fpsNotifier = ValueNotifier<double>(60.0);
   int _fpsFrameCount = 0;
 
   // Swipe-down dismiss drag accumulator
@@ -212,7 +355,7 @@ class _FullscreenSpectrumVisualizerState
     _lastTickTime = now;
     _fpsFrameCount++;
     if (_fpsFrameCount % 30 == 0 && mounted) {
-      setState(() {});
+      _fpsNotifier.value = _measuredFps;
     }
   }
 
@@ -257,15 +400,12 @@ class _FullscreenSpectrumVisualizerState
         _currentAnalyzerType == 'Dots') {
       return 'Dots (${_currentSpectrumStyle.toUpperCase()})';
     }
-    final glslMatch = GlslShaderStyle.values.firstWhere(
-      (s) =>
-          s.name == _currentAnalyzerType ||
-          s.displayName == _currentAnalyzerType ||
-          s.displayName.toLowerCase() == _currentAnalyzerType.toLowerCase() ||
-          s.name.toLowerCase() == _currentAnalyzerType.toLowerCase(),
-      orElse: () => GlslShaderStyle.fromString(_currentAnalyzerType),
+    final preset = ProjectMPresetLibrary.findById(
+      _currentSpectrumStyle.isNotEmpty && _currentSpectrumStyle != 'minimal'
+          ? _currentSpectrumStyle
+          : _currentAnalyzerType,
     );
-    return glslMatch.displayName;
+    return 'Milkdrop: ${preset.displayName}';
   }
 
   void _selectAnalyzerType(String newType) {
@@ -289,6 +429,7 @@ class _FullscreenSpectrumVisualizerState
   @override
   void dispose() {
     _fpsTicker.dispose();
+    _fpsNotifier.dispose();
     _autoHideTimer?.cancel();
     super.dispose();
   }
@@ -328,37 +469,30 @@ class _FullscreenSpectrumVisualizerState
             children: [
               // 1. High-Performance Visualizer Canvas (Isolated RepaintBoundary)
               Positioned.fill(
-                child: Hero(
-                  tag: 'spectrum_analyzer_hero',
-                  child: Material(
-                    color: Colors.transparent,
-                    child: Container(
-                      color: const Color(0xFF06080D),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          return ValueListenableBuilder<List<double>>(
-                            valueListenable: widget.analyzerValuesNotifier,
-                            builder: (context, analyzerVals, _) {
-                              return AudioVisualizerHost(
-                                player: widget.player,
-                                analyzerType: _currentAnalyzerType,
-                                spectrumStyle: _currentSpectrumStyle,
-                                primaryColor: primaryColor,
-                                currentAnalyzerValues: analyzerVals,
-                                peakValues: widget.peakValuesNotifier.value,
-                                height: constraints.maxHeight,
-                                width: constraints.maxWidth,
-                                isPlaying: widget.isPlaying,
-                                maxFreq: widget.maxFreq,
-                                showGrids: widget.analyzerShowGrids,
-                                logScale: widget.analyzerLogScale,
-                                autoFit: widget.analyzerAutoFit,
-                                onThemeChanged: _selectSpectrumStyle,
-                              );
-                            },
-                          );
-                        },
-                      ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    color: const Color(0xFF06080D),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        return AudioVisualizerHost(
+                          player: widget.player,
+                          analyzerType: _currentAnalyzerType,
+                          spectrumStyle: _currentSpectrumStyle,
+                          primaryColor: primaryColor,
+                          analyzerValuesNotifier:
+                              widget.analyzerValuesNotifier,
+                          peakValuesNotifier: widget.peakValuesNotifier,
+                          height: constraints.maxHeight,
+                          width: constraints.maxWidth,
+                          isPlaying: widget.isPlaying,
+                          maxFreq: widget.maxFreq,
+                          showGrids: widget.analyzerShowGrids,
+                          logScale: widget.analyzerLogScale,
+                          autoFit: widget.analyzerAutoFit,
+                          onThemeChanged: _selectSpectrumStyle,
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -504,21 +638,106 @@ class _FullscreenSpectrumVisualizerState
                                   ],
                                 ),
                                 M3EMenuGroup.entries(
-                                  label: 'GLSL Hardware Shaders',
-                                  entries: GlslShaderStyle.values.map((style) {
-                                    final isSelected =
-                                        _currentAnalyzerType == style.name ||
+                                  label: 'Milkdrop Library & Downloads',
+                                  entries: [
+                                    M3EMenuEntry(
+                                      label: 'Browse & Download Presets...',
+                                      leading: Icon(
+                                        Icons.cloud_download_outlined,
+                                        size: 16,
+                                        color: primaryColor,
+                                      ),
+                                      onPressed: () {
+                                        _scheduleHudAutoHide();
+                                        ProjectMPresetManagerDialog.show(
+                                          context,
+                                          activePresetId: _currentSpectrumStyle,
+                                          onPresetSelected: (preset) {
+                                            setState(() {
+                                              _currentAnalyzerType = 'projectm';
+                                              _currentSpectrumStyle = preset.id;
+                                            });
+                                            PreferencesStore.instance.setString(
+                                                'analyzer_type', 'projectm');
+                                            PreferencesStore.instance.setString(
+                                                'spectrum_style', preset.id);
+                                            widget.onAnalyzerTypeChanged
+                                                ?.call('projectm');
+                                            widget.onSpectrumStyleChanged
+                                                ?.call(preset.id);
+                                            _scheduleHudAutoHide();
+                                          },
+                                        );
+                                      },
+                                    ),
+                                    M3EMenuEntry(
+                                      label: 'Import .milk from Device...',
+                                      leading: Icon(
+                                        Icons.file_open_outlined,
+                                        size: 16,
+                                        color: primaryColor,
+                                      ),
+                                      onPressed: () async {
+                                        _scheduleHudAutoHide();
+                                        final summary =
+                                            await ProjectMPresetManager.instance
+                                                .pickAndImportFromDisk();
+                                        if (summary
+                                                .importedPresets.isNotEmpty &&
+                                            mounted) {
+                                          final first =
+                                              summary.importedPresets.first;
+                                          setState(() {
+                                            _currentAnalyzerType = 'projectm';
+                                            _currentSpectrumStyle = first.id;
+                                          });
+                                          PreferencesStore.instance.setString(
+                                              'analyzer_type', 'projectm');
+                                          PreferencesStore.instance.setString(
+                                              'spectrum_style', first.id);
+                                          widget.onAnalyzerTypeChanged
+                                              ?.call('projectm');
+                                          widget.onSpectrumStyleChanged
+                                              ?.call(first.id);
+                                          _scheduleHudAutoHide();
+                                        }
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                M3EMenuGroup.entries(
+                                  label:
+                                      'Milkdrop Presets (${ProjectMPresetLibrary.allWithCustom.length})',
+                                  entries: ProjectMPresetLibrary.allWithCustom
+                                      .map((preset) {
+                                    final isSelected = (_currentAnalyzerType ==
+                                                'projectm' ||
                                             _currentAnalyzerType ==
-                                                style.displayName;
+                                                preset.id) &&
+                                        (_currentSpectrumStyle == preset.id ||
+                                            _currentAnalyzerType == preset.id);
                                     return M3EMenuEntry(
-                                      label: style.displayName,
+                                      label: preset.displayName,
                                       leading: Icon(
                                         Icons.auto_awesome_rounded,
                                         color: isSelected ? primaryColor : null,
                                         size: 16,
                                       ),
-                                      onPressed: () =>
-                                          _selectAnalyzerType(style.name),
+                                      onPressed: () {
+                                        setState(() {
+                                          _currentAnalyzerType = 'projectm';
+                                          _currentSpectrumStyle = preset.id;
+                                        });
+                                        PreferencesStore.instance.setString(
+                                            'analyzer_type', 'projectm');
+                                        PreferencesStore.instance.setString(
+                                            'spectrum_style', preset.id);
+                                        widget.onAnalyzerTypeChanged
+                                            ?.call('projectm');
+                                        widget.onSpectrumStyleChanged
+                                            ?.call(preset.id);
+                                        _scheduleHudAutoHide();
+                                      },
                                     );
                                   }).toList(),
                                 ),
@@ -540,30 +759,99 @@ class _FullscreenSpectrumVisualizerState
                                   color: Colors.white.withValues(alpha: 0.12),
                                 ),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    width: 6,
-                                    height: 6,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: _measuredFps >= 100
-                                          ? const Color(0xFF00E676)
-                                          : primaryColor,
+                              child: ValueListenableBuilder<double>(
+                                valueListenable: _fpsNotifier,
+                                builder: (context, fps, _) {
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 6,
+                                        height: 6,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: fps >= 100
+                                              ? const Color(0xFF00E676)
+                                              : primaryColor,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '${fps.round()} Hz • ${(widget.maxFreq / 1000).toStringAsFixed(1)}k Nyquist',
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: 0.3,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+
+                            // Milkdrop Presets Library & Downloader Button
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: () {
+                                  _scheduleHudAutoHide();
+                                  ProjectMPresetManagerDialog.show(
+                                    context,
+                                    activePresetId: _currentSpectrumStyle,
+                                    onPresetSelected: (preset) {
+                                      setState(() {
+                                        _currentAnalyzerType = 'projectm';
+                                        _currentSpectrumStyle = preset.id;
+                                      });
+                                      PreferencesStore.instance.setString(
+                                          'analyzer_type', 'projectm');
+                                      PreferencesStore.instance.setString(
+                                          'spectrum_style', preset.id);
+                                      widget.onAnalyzerTypeChanged
+                                          ?.call('projectm');
+                                      widget.onSpectrumStyleChanged
+                                          ?.call(preset.id);
+                                    },
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                    vertical: 5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.55),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: primaryColor.withValues(alpha: 0.4),
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '${_measuredFps.round()} Hz • ${(widget.maxFreq / 1000).toStringAsFixed(1)}k Nyquist',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 0.3,
-                                    ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.auto_awesome,
+                                        size: 14,
+                                        color: primaryColor,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        'Presets',
+                                        style: TextStyle(
+                                          color: Colors.white
+                                              .withValues(alpha: 0.9),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: 0.3,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           ],

@@ -53,12 +53,14 @@ import 'package:sautiplay/services/local_media_server.dart';
 import 'services/ftp_service.dart';
 import 'services/audio_hardware_inspector.dart';
 import 'services/app_update_service.dart';
+import 'services/projectm_preset_manager.dart';
 import 'streaming_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabaseMigrationHelper.migrateIfNeeded();
   await LikedSongsService.instance.init();
+  unawaited(ProjectMPresetManager.instance.initialize());
   // Metadata God removed in favor of audiotags
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);

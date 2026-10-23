@@ -16,7 +16,10 @@ dependencies:
   intl: ^0.20.2
   sautiflow:
     path: ../
+  projectm_visualizer:
+    path: ../libprojectM-4.1.8/flutter/projectm_visualizer
   file_picker: ^11.0.2
+  archive: ^4.0.2
   permission_handler: ^12.0.1
   fl_chart: ^1.2.0
 
@@ -89,29 +92,6 @@ flutter:
     - assets/hrirs/
     - assets/faq.json
     - assets/autoeq/
-  shaders:
-    - shaders/audio_cyber_tunnel.frag
-    - shaders/audio_plasma_sphere.frag
-    - shaders/audio_neon_spectrum.frag
-    - shaders/audio_warp_vortex.frag
-    - shaders/audio_solar_flare.frag
-    - shaders/audio_cyber_grid.frag
-    - shaders/audio_quantum_nebula.frag
-    - shaders/audio_electric_ring.frag
-    - shaders/audio_bars_3d.frag
-    - shaders/audio_kaleidoscope.frag
-    - shaders/audio_lattice.frag
-    - shaders/audio_biolum_waves.frag
-    - shaders/audio_starburst.frag
-    - shaders/audio_matrix_rain.frag
-    - shaders/audio_vaporwave_sun.frag
-    - shaders/audio_cyber_city.frag
-    - shaders/audio_quantum_aurora.frag
-    - shaders/audio_black_hole.frag
-    - shaders/audio_cymatics.frag
-    - shaders/audio_particle_vortex.frag
-    - shaders/audio_dna_helix.frag
-    - shaders/audio_supernova.frag
 
 flutter_launcher_icons:
   android: "launcher_icon"

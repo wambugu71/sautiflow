@@ -17,6 +17,7 @@ import 'package:m3e_seekbar/m3e_seekbar.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'widgets/app_m3e_widgets.dart';
+import 'widgets/album_art_shape_selector.dart';
 import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
@@ -29,8 +30,11 @@ import 'services/proximity_gesture_service.dart';
 import 'streaming_service.dart';
 import 'services/app_update_service.dart';
 import 'widgets/app_update_dialog.dart';
-import 'widgets/album_art_shape_selector.dart';
 import 'faq_screen.dart';
+import 'package:projectm_visualizer/projectm_visualizer.dart';
+import 'services/projectm_preset_manager.dart';
+import 'services/visualizer_settings_service.dart';
+import 'widgets/projectm_preset_manager_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -2581,6 +2585,466 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
 
             //const SizedBox(height: 20),
+
+            const SizedBox(height: 20),
+
+            // ── EFFECTS SCREEN DISPLAY & INTEGRATION CARD ──────────────────
+            _buildSectionHeader('EFFECTS SCREEN INTEGRATION'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildM3ESwitchTile(
+                  title: 'Show Visualizer on Effects Screen',
+                  subtitle:
+                      'Display real-time visualizer canvas above equalizer sliders (for all visualizers: Radar, Milkdrop, Waves, Dots, Waveform)',
+                  secondary:
+                      _buildLeadingIcon(Icons.view_carousel_rounded),
+                  value: VisualizerSettingsService
+                      .instance.effectsVisualizerEnabled,
+                  onChanged: (v) async {
+                    await VisualizerSettingsService.instance
+                        .setEffectsVisualizerEnabled(v);
+                    setSubState(() {});
+                  },
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // ── FRAME RATE & REFRESH CADENCE (HZ) CARD ────────────────────
+            _buildSectionHeader('FRAME RATE & PERFORMANCE (HZ)'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20.0, vertical: 14.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _buildLeadingIcon(Icons.speed_rounded),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Target Refresh Rate',
+                                  style: TextStyle(
+                                    color: _textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  VisualizerSettingsService.instance.targetFps == 30
+                                      ? '30 Hz: Battery Saver (50% GPU load)'
+                                      : VisualizerSettingsService.instance.targetFps == 120
+                                          ? '120 Hz: Ultra Smooth (High refresh / ProMotion)'
+                                          : '60 Hz: Balanced Smooth (Default)',
+                                  style: TextStyle(
+                                      color: _textDark, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [30, 60, 120].map((fps) {
+                            final isSelected =
+                                VisualizerSettingsService.instance.targetFps ==
+                                    fps;
+                            return ChoiceChip(
+                              label: Text('$fps Hz'),
+                              selected: isSelected,
+                              selectedColor:
+                                  _primary.withValues(alpha: 0.22),
+                              side: BorderSide(
+                                color: isSelected
+                                    ? _primary
+                                    : context.outlineColor,
+                              ),
+                              labelStyle: TextStyle(
+                                color: isSelected ? _primary : _textPrimary,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                fontSize: 13,
+                              ),
+                              onSelected: (_) async {
+                                await VisualizerSettingsService.instance
+                                    .setTargetFps(fps);
+                                setSubState(() {});
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const M3EDivider(),
+                AppSettingsValueTile(
+                  headline: 'Render Resolution & Detail',
+                  supportingText: _getVisualizerQualityDescription(
+                      VisualizerSettingsService.instance.quality),
+                  value: _getVisualizerQualityDisplayName(
+                      VisualizerSettingsService.instance.quality),
+                  leading: _buildLeadingIcon(Icons.high_quality_rounded),
+                  onTap: () => _showVisualizerQualityDialog(setSubState),
+                ),
+                const M3EDivider(),
+                _buildM3ESwitchTile(
+                  title: 'Smart Frame Throttling',
+                  subtitle:
+                      'Throttles rendering to 15 FPS when audio is paused or silent',
+                  secondary:
+                      _buildLeadingIcon(Icons.battery_saver_rounded),
+                  value:
+                      VisualizerSettingsService.instance.batterySaverEnabled,
+                  onChanged: (v) async {
+                    await VisualizerSettingsService.instance
+                        .setBatterySaverEnabled(v);
+                    setSubState(() {});
+                  },
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // ── PRESET AUTO-CYCLE & SHUFFLE CARD ──────────────────────────
+            _buildSectionHeader('PRESET AUTO-CYCLE & SHUFFLE'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildM3ESwitchTile(
+                  title: 'Auto-Cycle Presets',
+                  subtitle:
+                      'Automatically transitions to next preset/theme after interval',
+                  secondary: _buildLeadingIcon(Icons.shuffle_rounded),
+                  value:
+                      VisualizerSettingsService.instance.autoChangeEnabled,
+                  onChanged: (v) async {
+                    await VisualizerSettingsService.instance
+                        .setAutoChangeEnabled(v);
+                    setSubState(() {});
+                  },
+                ),
+                if (VisualizerSettingsService.instance.autoChangeEnabled) ...[
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20.0, vertical: 12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Cycle Interval',
+                              style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: _primary.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: _primary.withValues(alpha: 0.4)),
+                              ),
+                              child: Text(
+                                '${VisualizerSettingsService.instance.autoChangeIntervalSeconds} seconds',
+                                style: TextStyle(
+                                  color: _primary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Select duration between 5 and 20 seconds',
+                          style: TextStyle(color: _textDark, fontSize: 12),
+                        ),
+                        const SizedBox(height: 8),
+                        M3ESlider(
+                          value: VisualizerSettingsService
+                              .instance.autoChangeIntervalSeconds
+                              .toDouble()
+                              .clamp(5.0, 20.0),
+                          min: 5.0,
+                          max: 20.0,
+                          divisions: 15,
+                          onChanged: (v) {
+                            VisualizerSettingsService.instance
+                                .setAutoChangeIntervalSeconds(v.round());
+                            setSubState(() {});
+                          },
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('5s (Fast)',
+                                style:
+                                    TextStyle(fontSize: 11, color: _textDark)),
+                            Text('10s',
+                                style:
+                                    TextStyle(fontSize: 11, color: _textDark)),
+                            Text('20s (Relaxed)',
+                                style:
+                                    TextStyle(fontSize: 11, color: _textDark)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20.0, vertical: 12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Crossfade Blend Duration',
+                              style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: _primary.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: _primary.withValues(alpha: 0.4)),
+                              ),
+                              child: Text(
+                                '${VisualizerSettingsService.instance.softCutDuration.toStringAsFixed(1)}s',
+                                style: TextStyle(
+                                  color: _primary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Smooth interpolation time between equations',
+                          style: TextStyle(color: _textDark, fontSize: 12),
+                        ),
+                        const SizedBox(height: 8),
+                        M3ESlider(
+                          value: VisualizerSettingsService
+                              .instance.softCutDuration
+                              .clamp(0.5, 3.0),
+                          min: 0.5,
+                          max: 3.0,
+                          divisions: 25,
+                          onChanged: (v) {
+                            VisualizerSettingsService.instance
+                                .setSoftCutDuration(v);
+                            setSubState(() {});
+                          },
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('0.5s',
+                                style:
+                                    TextStyle(fontSize: 11, color: _textDark)),
+                            Text('1.5s (Balanced)',
+                                style:
+                                    TextStyle(fontSize: 11, color: _textDark)),
+                            Text('3.0s (Slow blend)',
+                                style:
+                                    TextStyle(fontSize: 11, color: _textDark)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // ── COMMUNITY PRESETS & GITHUB DOWNLOADS CARD ───────────────────
+            _buildSectionHeader('COMMUNITY PRESETS & GITHUB DOWNLOADS'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                ValueListenableBuilder<ProjectMPackStatus>(
+                  valueListenable:
+                      ProjectMPresetManager.instance.statusNotifier,
+                  builder: (context, status, _) {
+                    final isDownloading =
+                        status.state == PackDownloadState.downloading ||
+                            status.state == PackDownloadState.extracting;
+                    final isInstalled = ProjectMPresetManager
+                        .instance.isCuratedPackDownloaded;
+
+                    return Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              _buildLeadingIcon(isInstalled
+                                  ? Icons.verified_rounded
+                                  : Icons.cloud_download_rounded),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Curated Pack from GitHub',
+                                      style: TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      isInstalled
+                                          ? '${ProjectMPresetManager.instance.curatedPresetCount} community presets installed'
+                                          : status.message.isNotEmpty
+                                              ? status.message
+                                              : '400+ curated presets with textures (~30 MB)',
+                                      style: TextStyle(
+                                          color: _textDark, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isDownloading)
+                                IconButton(
+                                  icon: const Icon(Icons.cancel_rounded,
+                                      size: 22),
+                                  color: Colors.white70,
+                                  tooltip: 'Cancel Download',
+                                  onPressed: () => ProjectMPresetManager
+                                      .instance
+                                      .cancelDownload(),
+                                )
+                              else if (isInstalled)
+                                TextButton.icon(
+                                  icon: const Icon(Icons.refresh_rounded,
+                                      size: 16),
+                                  label: const Text('Re-download',
+                                      style: TextStyle(fontSize: 12)),
+                                  onPressed: () => ProjectMPresetManager
+                                      .instance
+                                      .downloadAndInstallCuratedPack(),
+                                )
+                              else
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _primary,
+                                    foregroundColor: Colors.black,
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 8),
+                                  ),
+                                  icon: const Icon(Icons.download_rounded,
+                                      size: 16),
+                                  label: const Text('Download',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12)),
+                                  onPressed: () => ProjectMPresetManager
+                                      .instance
+                                      .downloadAndInstallCuratedPack(),
+                                ),
+                            ],
+                          ),
+                          if (isDownloading) ...[
+                            const SizedBox(height: 12),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: LinearProgressIndicator(
+                                value: status.progress > 0
+                                    ? status.progress
+                                    : null,
+                                backgroundColor:
+                                    _primary.withValues(alpha: 0.15),
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(_primary),
+                                minHeight: 4,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                const M3EDivider(),
+                AppSettingsValueTile(
+                  headline: 'Preset Library Manager',
+                  supportingText:
+                      'Browse categories, search presets, or import local files',
+                  value:
+                      '${ProjectMPresetLibrary.allWithCustom.length} presets',
+                  leading:
+                      _buildLeadingIcon(Icons.auto_awesome_rounded),
+                  onTap: () {
+                    ProjectMPresetManagerDialog.show(
+                      context,
+                      activePresetId: widget.spectrumStyle,
+                      onPresetSelected: (preset) {
+                        widget.onSpectrumStyleChanged(preset.id);
+                        PreferencesStore.instance
+                            .setString('spectrum_style', preset.id);
+                        setSubState(() {});
+                      },
+                    );
+                  },
+                ),
+                const M3EDivider(),
+                AppSettingsValueTile(
+                  headline: 'Download from Custom URL...',
+                  supportingText:
+                      'Import preset .milk file or .zip from GitHub URL',
+                  value: 'Custom URL',
+                  leading: _buildLeadingIcon(Icons.link_rounded),
+                  onTap: () =>
+                      _showCustomGithubDownloadDialog(context, setSubState),
+                ),
+              ],
+            ),
 
             const SizedBox(height: 20),
 
@@ -6286,4 +6750,247 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+
+  String _getVisualizerQualityDisplayName(VisualizerQuality quality) {
+    switch (quality) {
+      case VisualizerQuality.eco:
+        return 'Eco (360p)';
+      case VisualizerQuality.balanced:
+        return 'Balanced (540p)';
+      case VisualizerQuality.high:
+        return 'High Definition (720p)';
+      case VisualizerQuality.native:
+        return 'Native Resolution';
+      case VisualizerQuality.custom:
+        return 'Custom';
+    }
+  }
+
+  String _getVisualizerQualityDescription(VisualizerQuality quality) {
+    switch (quality) {
+      case VisualizerQuality.eco:
+        return 'Low GPU load, optimal for thermal and battery life';
+      case VisualizerQuality.balanced:
+        return 'Crisp graphics with balanced shader overhead (Recommended)';
+      case VisualizerQuality.high:
+        return 'Sharp preset textures and dynamic light refraction';
+      case VisualizerQuality.native:
+        return 'Full native display pixel grid (demands more GPU power)';
+      case VisualizerQuality.custom:
+        return 'Custom user-specified resolution and mesh';
+    }
+  }
+
+  void _showVisualizerQualityDialog(StateSetter setSubState) {
+    final qualities = [
+      (
+        VisualizerQuality.eco,
+        'Eco (360p)',
+        'Low GPU load, optimal for thermal and battery life',
+      ),
+      (
+        VisualizerQuality.balanced,
+        'Balanced (540p)',
+        'Crisp graphics with balanced shader overhead (Recommended)',
+      ),
+      (
+        VisualizerQuality.high,
+        'High Definition (720p)',
+        'Sharp preset textures and dynamic light refraction',
+      ),
+      (
+        VisualizerQuality.native,
+        'Native Resolution',
+        'Full native display pixel grid (demands more GPU power)',
+      ),
+    ];
+
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'Render Resolution & Detail',
+          subtitle:
+              'Configures rendering canvas resolution and texture scaling for visualizers',
+          child: M3EList(
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: qualities.length,
+            onTap: (index) async {
+              final q = qualities[index].$1;
+              setDlgState(() {});
+              await VisualizerSettingsService.instance.setQuality(q);
+              setSubState(() {});
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = qualities[index];
+              final q = item.$1;
+              final isSelected =
+                  q == VisualizerSettingsService.instance.quality;
+              return M3EListItem(
+                headline: item.$2,
+                supportingText: item.$3,
+                selected: isSelected,
+                trailing: M3ERadio<VisualizerQuality>(
+                  value: q,
+                  groupValue: VisualizerSettingsService.instance.quality,
+                  onChanged: (val) async {
+                    setDlgState(() {});
+                    await VisualizerSettingsService.instance.setQuality(val);
+                    setSubState(() {});
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showCustomGithubDownloadDialog(
+    BuildContext context,
+    StateSetter setSubState,
+  ) {
+    final urlController = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          final themePrimary = _primary;
+          final cardDark = _cardDark;
+          return M3EDialog(
+            title: 'Download Presets from URL',
+            topDivider: true,
+            bottomDivider: true,
+            content: Material(
+              color: Colors.transparent,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Paste a direct GitHub release URL or raw link to a Milkdrop preset pack (.zip, .apk) or individual .milk file.',
+                      style: TextStyle(
+                        color: _textDark,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: urlController,
+                      style: TextStyle(color: _textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        labelText: 'GitHub / Direct Preset URL',
+                        hintText: 'https://github.com/.../presets.zip',
+                        hintStyle: TextStyle(
+                          color: _textDark.withValues(alpha: 0.5),
+                          fontSize: 12,
+                        ),
+                        labelStyle: TextStyle(color: _textDark),
+                        filled: true,
+                        fillColor: cardDark,
+                        prefixIcon: Icon(
+                          Icons.link_rounded,
+                          color: themePrimary,
+                          size: 20,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: themePrimary.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide:
+                              BorderSide(color: themePrimary, width: 1.5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: themePrimary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: themePrimary.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            size: 16,
+                            color: themePrimary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Supports Poweramp .apk packs, GitHub zip archives, and raw Milkdrop equations with embedded textures. Preset textures are unpacked in a background isolate.',
+                              style: TextStyle(
+                                color: _textDark,
+                                fontSize: 11,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx),
+                child: Text('Cancel', style: TextStyle(color: _textDark)),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: themePrimary,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                icon: const Icon(Icons.download_rounded, size: 16),
+                label: const Text(
+                  'Download & Install',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                onPressed: () {
+                  final url = urlController.text.trim();
+                  if (url.isEmpty || !url.startsWith('http')) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please enter a valid HTTP/HTTPS URL'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                    return;
+                  }
+                  Navigator.pop(dialogCtx);
+                  ProjectMPresetManager.instance.downloadCustomPackFromUrl(url);
+                  setSubState(() {});
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
+

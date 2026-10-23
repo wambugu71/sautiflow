@@ -1,0 +1,204 @@
+OpenGL vendor string: Intel
+OpenGL renderer string: Intel(R) HD Graphics 520
+OpenGL version string: 4.6.0 - Build 31.0.101.2115
+OpenGL extensions (GL_): 
+    GL_3DFX_texture_compression_FXT1, GL_AMD_depth_clamp_separate,
+    GL_AMD_vertex_shader_layer, GL_AMD_vertex_shader_viewport_index,
+    GL_ARB_ES2_compatibility, GL_ARB_ES3_1_compatibility,
+    GL_ARB_ES3_compatibility, GL_ARB_arrays_of_arrays, GL_ARB_base_instance,
+    GL_ARB_blend_func_extended, GL_ARB_buffer_storage, GL_ARB_cl_event,
+    GL_ARB_clear_buffer_object, GL_ARB_clear_texture, GL_ARB_clip_control,
+    GL_ARB_color_buffer_float, GL_ARB_compatibility,
+    GL_ARB_compressed_texture_pixel_storage, GL_ARB_compute_shader,
+    GL_ARB_conditional_render_inverted, GL_ARB_conservative_depth,
+    GL_ARB_copy_buffer, GL_ARB_copy_image, GL_ARB_cull_distance,
+    GL_ARB_debug_output, GL_ARB_depth_buffer_float, GL_ARB_depth_clamp,
+    GL_ARB_depth_texture, GL_ARB_derivative_control, GL_ARB_direct_state_access,
+    GL_ARB_draw_buffers, GL_ARB_draw_buffers_blend,
+    GL_ARB_draw_elements_base_vertex, GL_ARB_draw_indirect,
+    GL_ARB_draw_instanced, GL_ARB_enhanced_layouts,
+    GL_ARB_explicit_attrib_location, GL_ARB_explicit_uniform_location,
+    GL_ARB_fragment_coord_conventions, GL_ARB_fragment_layer_viewport,
+    GL_ARB_fragment_program, GL_ARB_fragment_program_shadow,
+    GL_ARB_fragment_shader, GL_ARB_fragment_shader_interlock,
+    GL_ARB_framebuffer_no_attachments, GL_ARB_framebuffer_object,
+    GL_ARB_framebuffer_sRGB, GL_ARB_geometry_shader4, GL_ARB_get_program_binary,
+    GL_ARB_get_texture_sub_image, GL_ARB_gl_spirv, GL_ARB_gpu_shader5,
+    GL_ARB_gpu_shader_fp64, GL_ARB_half_float_pixel, GL_ARB_half_float_vertex,
+    GL_ARB_indirect_parameters, GL_ARB_instanced_arrays,
+    GL_ARB_internalformat_query, GL_ARB_internalformat_query2,
+    GL_ARB_invalidate_subdata, GL_ARB_map_buffer_alignment,
+    GL_ARB_map_buffer_range, GL_ARB_multi_bind, GL_ARB_multi_draw_indirect,
+    GL_ARB_multisample, GL_ARB_multitexture, GL_ARB_occlusion_query,
+    GL_ARB_occlusion_query2, GL_ARB_pipeline_statistics_query,
+    GL_ARB_pixel_buffer_object, GL_ARB_point_parameters, GL_ARB_point_sprite,
+    GL_ARB_polygon_offset_clamp, GL_ARB_post_depth_coverage,
+    GL_ARB_program_interface_query, GL_ARB_provoking_vertex,
+    GL_ARB_query_buffer_object, GL_ARB_robust_buffer_access_behavior,
+    GL_ARB_robustness, GL_ARB_robustness_isolation, GL_ARB_sample_shading,
+    GL_ARB_sampler_objects, GL_ARB_seamless_cube_map,
+    GL_ARB_seamless_cubemap_per_texture, GL_ARB_separate_shader_objects,
+    GL_ARB_shader_atomic_counter_ops, GL_ARB_shader_atomic_counters,
+    GL_ARB_shader_bit_encoding, GL_ARB_shader_draw_parameters,
+    GL_ARB_shader_group_vote, GL_ARB_shader_image_load_store,
+    GL_ARB_shader_image_size, GL_ARB_shader_objects, GL_ARB_shader_precision,
+    GL_ARB_shader_stencil_export, GL_ARB_shader_storage_buffer_object,
+    GL_ARB_shader_subroutine, GL_ARB_shader_texture_image_samples,
+    GL_ARB_shading_language_100, GL_ARB_shading_language_420pack,
+    GL_ARB_shading_language_packing, GL_ARB_shadow, GL_ARB_spirv_extensions,
+    GL_ARB_stencil_texturing, GL_ARB_sync, GL_ARB_tessellation_shader,
+    GL_ARB_texture_barrier, GL_ARB_texture_border_clamp,
+    GL_ARB_texture_buffer_object, GL_ARB_texture_buffer_object_rgb32,
+    GL_ARB_texture_buffer_range, GL_ARB_texture_compression,
+    GL_ARB_texture_compression_bptc, GL_ARB_texture_compression_rgtc,
+    GL_ARB_texture_cube_map, GL_ARB_texture_cube_map_array,
+    GL_ARB_texture_env_add, GL_ARB_texture_env_combine,
+    GL_ARB_texture_env_crossbar, GL_ARB_texture_env_dot3,
+    GL_ARB_texture_filter_anisotropic, GL_ARB_texture_float,
+    GL_ARB_texture_gather, GL_ARB_texture_mirror_clamp_to_edge,
+    GL_ARB_texture_mirrored_repeat, GL_ARB_texture_multisample,
+    GL_ARB_texture_non_power_of_two, GL_ARB_texture_query_levels,
+    GL_ARB_texture_query_lod, GL_ARB_texture_rectangle, GL_ARB_texture_rg,
+    GL_ARB_texture_rgb10_a2ui, GL_ARB_texture_stencil8, GL_ARB_texture_storage,
+    GL_ARB_texture_storage_multisample, GL_ARB_texture_swizzle,
+    GL_ARB_texture_view, GL_ARB_timer_query, GL_ARB_transform_feedback2,
+    GL_ARB_transform_feedback3, GL_ARB_transform_feedback_instanced,
+    GL_ARB_transform_feedback_overflow_query, GL_ARB_transpose_matrix,
+    GL_ARB_uniform_buffer_object, GL_ARB_vertex_array_bgra,
+    GL_ARB_vertex_array_object, GL_ARB_vertex_attrib_64bit,
+    GL_ARB_vertex_attrib_binding, GL_ARB_vertex_buffer_object,
+    GL_ARB_vertex_program, GL_ARB_vertex_shader,
+    GL_ARB_vertex_type_10f_11f_11f_rev, GL_ARB_vertex_type_2_10_10_10_rev,
+    GL_ARB_viewport_array, GL_ARB_window_pos, GL_ATI_separate_stencil,
+    GL_EXT_abgr, GL_EXT_bgra, GL_EXT_blend_color,
+    GL_EXT_blend_equation_separate, GL_EXT_blend_func_separate,
+    GL_EXT_blend_minmax, GL_EXT_blend_subtract, GL_EXT_clip_volume_hint,
+    GL_EXT_compiled_vertex_array, GL_EXT_direct_state_access,
+    GL_EXT_draw_buffers2, GL_EXT_draw_range_elements, GL_EXT_fog_coord,
+    GL_EXT_framebuffer_blit, GL_EXT_framebuffer_multisample,
+    GL_EXT_framebuffer_object, GL_EXT_geometry_shader4,
+    GL_EXT_gpu_program_parameters, GL_EXT_gpu_shader4, GL_EXT_memory_object,
+    GL_EXT_memory_object_win32, GL_EXT_multi_draw_arrays,
+    GL_EXT_packed_depth_stencil, GL_EXT_packed_float, GL_EXT_packed_pixels,
+    GL_EXT_polygon_offset_clamp, GL_EXT_rescale_normal, GL_EXT_secondary_color,
+    GL_EXT_semaphore, GL_EXT_semaphore_win32, GL_EXT_separate_specular_color,
+    GL_EXT_shader_framebuffer_fetch, GL_EXT_shader_integer_mix,
+    GL_EXT_shadow_funcs, GL_EXT_stencil_two_side, GL_EXT_stencil_wrap,
+    GL_EXT_texture3D, GL_EXT_texture_array, GL_EXT_texture_compression_s3tc,
+    GL_EXT_texture_edge_clamp, GL_EXT_texture_env_add,
+    GL_EXT_texture_env_combine, GL_EXT_texture_filter_anisotropic,
+    GL_EXT_texture_integer, GL_EXT_texture_lod_bias, GL_EXT_texture_rectangle,
+    GL_EXT_texture_sRGB, GL_EXT_texture_sRGB_decode,
+    GL_EXT_texture_shared_exponent, GL_EXT_texture_snorm,
+    GL_EXT_texture_storage, GL_EXT_texture_swizzle, GL_EXT_timer_query,
+    GL_EXT_transform_feedback, GL_IBM_texture_mirrored_repeat,
+    GL_INTEL_conservative_rasterization, GL_INTEL_fragment_shader_ordering,
+    GL_INTEL_framebuffer_CMAA, GL_INTEL_map_texture,
+    GL_INTEL_multi_rate_fragment_shader, GL_INTEL_performance_query,
+    GL_KHR_blend_equation_advanced, GL_KHR_blend_equation_advanced_coherent,
+    GL_KHR_context_flush_control, GL_KHR_debug, GL_KHR_no_error,
+    GL_KHR_shader_subgroup, GL_KHR_shader_subgroup_arithmetic,
+    GL_KHR_shader_subgroup_ballot, GL_KHR_shader_subgroup_basic,
+    GL_KHR_shader_subgroup_clustered, GL_KHR_shader_subgroup_quad,
+    GL_KHR_shader_subgroup_shuffle, GL_KHR_shader_subgroup_shuffle_relative,
+    GL_KHR_shader_subgroup_vote, GL_KHR_texture_compression_astc_ldr,
+    GL_NV_blend_square, GL_NV_conditional_render, GL_NV_primitive_restart,
+    GL_NV_texgen_reflection, GL_SGIS_generate_mipmap,
+    GL_SGIS_texture_edge_clamp, GL_SGIS_texture_lod, GL_SUN_multi_draw_arrays,
+    GL_WIN_swap_hint, WGL_EXT_swap_control.
+GLU version string: 1.2.2.0 Microsoft Corporation
+GLU extensions (GLU_): 
+    GL_EXT_bgra.
+WGL extensions (WGL_): 
+    WGL_EXT_depth_float, WGL_ARB_buffer_region, WGL_ARB_extensions_string,
+    WGL_ARB_make_current_read, WGL_ARB_pixel_format, WGL_ARB_pbuffer,
+    WGL_EXT_extensions_string, WGL_EXT_swap_control, WGL_ARB_multisample,
+    WGL_ARB_pixel_format_float, WGL_ARB_framebuffer_sRGB,
+    WGL_ARB_create_context, WGL_ARB_create_context_profile,
+    WGL_EXT_pixel_format_packed_float, WGL_EXT_create_context_es_profile,
+    WGL_EXT_create_context_es2_profile, WGL_NV_DX_interop, WGL_NV_DX_interop2,
+    WGL_ARB_robustness_application_isolation,
+    WGL_ARB_robustness_share_group_isolation, WGL_ARB_create_context_robustness,
+    WGL_ARB_context_flush_control.
+ +-----+-------------------------+-----------------+----------+-----------------+----------+
+ |     |          visual         |      color      | ax dp st |      accum      |   layer  |
+ |  id | tp ac gd fm db sw st ms |  sz  r  g  b  a | bf th cl |  sz  r  g  b  a | ov un sw |
+ +-----+-------------------------+-----------------+----------+-----------------+----------+
+ |   1 | wp fu  .  i  .  .  .  . |  32  8  8  8  8 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ |   2 | wp fu  .  i  y  .  .  . |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |   3 | wp fu  .  i  .  .  .  . |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |   4 | wp fu  .  i  .  .  .  . |  32  8  8  8  8 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |   5 | wp fu  .  i  y  .  .  . |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |   6 | wp fu  .  i  .  .  .  . |  32  8  8  8  8 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ |   7 | wp fu  .  i  y  .  .  . |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |   8 | wp fu  .  i  y  .  .  . |  32 10 10 10  2 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |   9 | wp fu  .  i  y  x  .  . |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  10 | wp fu  .  i  y  x  .  . |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  11 | wp fu  .  i  y  x  .  . |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  12 | wp fu  .  i  y  x  .  . |  32 10 10 10  2 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |  13 | wp fu  .  i  y  c  .  . |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  14 | wp fu  .  i  y  c  .  . |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  15 | wp fu  .  i  y  c  .  . |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  16 | wp fu  .  i  .  .  .  2 |  32  8  8  8  8 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ |  17 | wp fu  .  i  y  x  .  2 |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  18 | wp fu  .  i  .  .  .  2 |  32  8  8  8  8 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ |  19 | wp fu  .  i  y  x  .  2 |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  20 | wp fu  .  i  .  .  .  2 |  32  8  8  8  8 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |  21 | wp fu  .  i  y  x  .  2 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  22 | wp fu  .  i  .  .  .  2 |  32  8  8  8  8 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ |  23 | wp fu  .  i  y  x  .  2 |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  24 | wp fu  .  i  .  .  .  2 |  32  8  8  8  8 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ |  25 | wp fu  .  i  y  x  .  2 |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  26 | wp fu  .  i  .  .  .  2 |  32  8  8  8  8 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |  27 | wp fu  .  i  y  x  .  2 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  28 | wp fu  .  i  .  .  .  4 |  32  8  8  8  8 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ |  29 | wp fu  .  i  y  x  .  4 |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  30 | wp fu  .  i  .  .  .  4 |  32  8  8  8  8 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ |  31 | wp fu  .  i  y  x  .  4 |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  32 | wp fu  .  i  .  .  .  4 |  32  8  8  8  8 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |  33 | wp fu  .  i  y  x  .  4 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  34 | wp fu  .  i  .  .  .  4 |  32  8  8  8  8 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ |  35 | wp fu  .  i  y  x  .  4 |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  36 | wp fu  .  i  .  .  .  4 |  32  8  8  8  8 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ |  37 | wp fu  .  i  y  x  .  4 |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  38 | wp fu  .  i  .  .  .  4 |  32  8  8  8  8 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |  39 | wp fu  .  i  y  x  .  4 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  40 | wp fu  .  i  y  c  .  4 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  41 | wp fu  .  i  .  .  .  8 |  32  8  8  8  8 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ |  42 | wp fu  .  i  y  x  .  8 |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  43 | wp fu  .  i  .  .  .  8 |  32  8  8  8  8 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ |  44 | wp fu  .  i  y  x  .  8 |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  45 | wp fu  .  i  .  .  .  8 |  32  8  8  8  8 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |  46 | wp fu  .  i  y  x  .  8 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  47 | wp fu  .  i  .  .  .  8 |  32  8  8  8  8 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ |  48 | wp fu  .  i  y  x  .  8 |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  49 | wp fu  .  i  .  .  .  8 |  32  8  8  8  8 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ |  50 | wp fu  .  i  y  x  .  8 |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  51 | wp fu  .  i  .  .  .  8 |  32  8  8  8  8 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |  52 | wp fu  .  i  y  x  .  8 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  53 | wp fu  .  i  y  c  .  8 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  54 | wp fu  .  i  .  .  . 16 |  32  8  8  8  8 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ |  55 | wp fu  .  i  y  x  . 16 |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  56 | wp fu  .  i  .  .  . 16 |  32  8  8  8  8 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ |  57 | wp fu  .  i  y  c  . 16 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  58 | wp fu  .  i  y  x  . 16 |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  59 | wp fu  .  i  .  .  . 16 |  32  8  8  8  8 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ |  60 | wp fu  .  i  y  x  . 16 |  32  8  8  8  8 |  . 24  8 |  64 16 16 16 16 |  .  .  . |
+ |  61 | wp fu  .  i  .  .  . 16 |  32  8  8  8  8 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ |  62 | wp fu  .  i  y  x  . 16 |  32  8  8  8  8 |  .  .  . |  64 16 16 16 16 |  .  .  . |
+ |  63 | wp fu  .  i  .  .  . 16 |  32  8  8  8  8 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ |  64 | wp fu  .  i  y  x  . 16 |  32  8  8  8  8 |  . 16  . |  64 16 16 16 16 |  .  .  . |
+ |  65 | wp fu  .  i  .  .  . 16 |  32  8  8  8  8 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ | 102 | pb fu  .  ?  .  .  .  . | 128 32 32 32 32 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ | 103 | pb fu  .  ?  .  .  .  . | 128 32 32 32 32 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ | 104 | pb fu  .  ?  .  .  .  . | 128 32 32 32 32 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ | 105 | pb fu  .  ?  .  .  .  . |  64 16 16 16 16 |  .  .  . |   .  .  .  .  . |  .  .  . |
+ | 106 | pb fu  .  ?  .  .  .  . |  64 16 16 16 16 |  . 16  . |   .  .  .  .  . |  .  .  . |
+ | 107 | pb fu  .  ?  .  .  .  . |  64 16 16 16 16 |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ | 108 | pb fu  .  p  .  .  .  . |  32 11 11 10  . |  .  .  . |   .  .  .  .  . |  .  .  . |
+ | 109 | pb fu  .  p  .  .  .  . |  32 11 11 10  . |  . 16  . |   .  .  .  .  . |  .  .  . |
+ | 110 | pb fu  .  p  .  .  .  . |  32 11 11 10  . |  . 24  8 |   .  .  .  .  . |  .  .  . |
+ +-----+-------------------------+-----------------+----------+-----------------+----------+
+ |     |          visual         |      color      | ax dp st |      accum      |   layer  |
+ |  id | tp ac gd fm db sw st ms |  sz  r  g  b  a | bf th cl |  sz  r  g  b  a | ov un sw |
+ +-----+-------------------------+-----------------+----------+-----------------+----------+

@@ -26,7 +26,7 @@ packages:
     source: hosted
     version: "2.0.3"
   archive:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: archive
       sha256: a96e8b390886ee8abb49b7bd3ac8df6f451c621619f52a26e815fdcf568959ff
@@ -1098,6 +1098,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.5.0"
+  projectm_visualizer:
+    dependency: "direct main"
+    description:
+      path: "../libprojectM-4.1.8/flutter/projectm_visualizer"
+      relative: true
+    source: path
+    version: "0.0.1"
   proximity_sensor:
     dependency: "direct main"
     description:
@@ -1573,5 +1580,5 @@ packages:
     source: hosted
     version: "0.1.1"
 sdks:
-  dart: ">=3.13.0 <4.0.0"
+  dart: ">=3.13.5 <4.0.0"
   flutter: ">=3.47.0"
