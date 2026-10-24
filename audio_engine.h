@@ -181,6 +181,46 @@ extern "C"
     AE_API void ae_set_current_track_loudness(AudioEngineHandle *engine, float gain_db, float peak);
     AE_API float ae_get_next_replay_gain_linear(AudioEngineHandle *engine);
 
+    // ==========================================
+    // Auto DJ & Automix Suite (Audiophile Opt-In)
+    // ==========================================
+    typedef enum AEAutomixStyle
+    {
+        AE_AUTOMIX_STYLE_BASS_SWAP = 0,    /* Audiophile LR4 isolator low-frequency swap on phrase drop */
+        AE_AUTOMIX_STYLE_BEAT_BLEND = 1,   /* Phase-locked equal-power raised cosine blend */
+        AE_AUTOMIX_STYLE_FILTER_SWEEP = 2, /* Resonant HPF sweep out / LPF sweep in */
+        AE_AUTOMIX_STYLE_SPACE_ECHO = 3,   /* Delay freeze reverb tail into clean drop */
+        AE_AUTOMIX_STYLE_DROP_CUT = 4,     /* Instant downbeat cut for disparate BPMs */
+        AE_AUTOMIX_STYLE_SMART_HYBRID = 5  /* Intelligent multi-stage hybrid: combines filter sweep, LR4 bass swap, and equal-power blend */
+    } AEAutomixStyle;
+
+    typedef struct AEAutomixConfig
+    {
+        int enabled;              /* 0 = off (standard bit-perfect audio path), 1 = on */
+        int style;                /* AEAutomixStyle */
+        int transition_bars;      /* 8, 16, or 32 bars (default 16) */
+        int tempo_sync_enabled;   /* 1 = pitch-preserved WSOLA tempo lock */
+        int key_lock_enabled;     /* 1 = Camelot harmonic key pitch shift */
+    } AEAutomixConfig;
+
+    typedef struct AEAutomixStatus
+    {
+        int is_active;
+        int style;
+        float progress;                /* 0.0 to 1.0 */
+        float deck_a_volume;
+        float deck_b_volume;
+        float deck_a_bass_gain;
+        float deck_b_bass_gain;
+        float deck_a_filter_cutoff_hz;
+        float deck_b_filter_cutoff_hz;
+    } AEAutomixStatus;
+
+    AE_API void ae_set_automix_config(AudioEngineHandle *engine, const AEAutomixConfig *config);
+    AE_API void ae_get_automix_config(AudioEngineHandle *engine, AEAutomixConfig *out_config);
+    AE_API AEAutomixStatus ae_get_automix_status(AudioEngineHandle *engine);
+    AE_API void ae_trigger_automix_transition(AudioEngineHandle *engine);
+
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);
     AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine);
     AE_API const char *ae_get_last_error(AudioEngineHandle *engine);

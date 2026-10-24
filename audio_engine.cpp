@@ -3551,6 +3551,25 @@ struct AudioEngineHandle
 
     // Crossfade State
     std::atomic<bool> isCrossfading{false};
+    // Auto DJ / Automix State
+    std::atomic<bool> automixEnabled{false};
+    std::atomic<int> automixStyle{0}; // 0=BassSwap, 1=BeatBlend, 2=FilterSweep, 3=SpaceEcho, 4=DropCut
+    std::atomic<int> automixTransitionBars{16};
+    std::atomic<bool> automixTempoSyncEnabled{true};
+    std::atomic<bool> automixKeyLockEnabled{true};
+    std::atomic<bool> automixTransitionRequested{false};
+    std::atomic<float> automixProgress{0.0f};
+    std::atomic<float> automixDeckAVolume{1.0f};
+    std::atomic<float> automixDeckBVolume{0.0f};
+    std::atomic<float> automixDeckABassGain{1.0f};
+    std::atomic<float> automixDeckBBassGain{0.0f};
+    std::atomic<float> automixDeckAFilterHz{20000.0f};
+    std::atomic<float> automixDeckBFilterHz{20.0f};
+    sauti::dsp::CytomicSVF automixLpfOut;
+    sauti::dsp::CytomicSVF automixLpfIn;
+    sauti::dsp::CytomicSVF automixSweepHpfOut;
+    sauti::dsp::CytomicSVF automixSweepLpfIn;
+    bool automixDspInit = false;
     std::atomic<bool> loudnessCrossfadeEnabled{true};
     std::atomic<float> currentTrackReplayGain{1.0f};
     std::atomic<float> fadingOutReplayGain{1.0f};
@@ -4336,15 +4355,26 @@ static void arm_transition_fade_in(AudioEngineHandle *e)
     if (e == nullptr)
         return;
 
-    const bool enabled = e->crossfadeEnabled.load(std::memory_order_relaxed);
-    if (!enabled || e->exclusiveModeEnabled.load(std::memory_order_relaxed))
+    const bool cfEnabled = e->crossfadeEnabled.load(std::memory_order_relaxed);
+    const bool amEnabled = e->automixEnabled.load(std::memory_order_relaxed);
+    if ((!cfEnabled && !amEnabled) || e->exclusiveModeEnabled.load(std::memory_order_relaxed))
     {
         e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
         e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
         return;
     }
 
-    const int durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
+    int durationMs = 0;
+    if (amEnabled)
+    {
+        const int bars = clampi(e->automixTransitionBars.load(std::memory_order_relaxed), 4, 32);
+        durationMs = clampi(bars * 2000, 2000, 32000);
+    }
+    else
+    {
+        durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 32000);
+    }
+
     if (durationMs <= 0)
     {
         e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
@@ -6070,8 +6100,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 continue;
             }
 
-            // Early Crossfade Trigger
-            if (e->crossfadeEnabled.load(std::memory_order_relaxed) && e->hasNext && !e->isCrossfading.load(std::memory_order_acquire))
+            // Early Crossfade / Automix Trigger
+            const bool cfActive = e->crossfadeEnabled.load(std::memory_order_relaxed);
+            const bool amActive = e->automixEnabled.load(std::memory_order_relaxed);
+            const bool forceTransition = e->automixTransitionRequested.exchange(false, std::memory_order_acq_rel);
+
+            if ((cfActive || amActive || forceTransition) && e->hasNext && !e->isCrossfading.load(std::memory_order_acquire))
             {
                 ma_uint64 length = e->currentLengthFrames;
                 if (length == 0 && e->currentDecoder != nullptr)
@@ -6082,7 +6116,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         e->currentLengthFrames = length = len;
                     }
                 }
-                if (length > 0)
+                if (length > 0 || forceTransition)
                 {
                     // Trigger on the AUDIBLE playback position, not the decode
                     // cursor: the decoder runs ahead of what listeners hear by
@@ -6096,14 +6130,23 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     const double effectivePosF = (double)(baseFrame + played);
                     const double audiblePosF = (effectivePosF > latencySamples) ? (effectivePosF - latencySamples) : 0.0;
 
-                    if (audiblePosF <= (double)length)
+                    if (audiblePosF <= (double)length || forceTransition)
                     {
-                        const int durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
+                        int durationMs = 0;
+                        if (amActive)
+                        {
+                            const int bars = clampi(e->automixTransitionBars.load(std::memory_order_relaxed), 4, 32);
+                            durationMs = clampi(bars * 2000, 2000, 32000);
+                        }
+                        else
+                        {
+                            durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 32000);
+                        }
                         const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
                         const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)durationMs / 1000.0));
-                        const ma_uint64 remain = length - (ma_uint64)audiblePosF;
+                        const ma_uint64 remain = (length > (ma_uint64)audiblePosF) ? (length - (ma_uint64)audiblePosF) : 0;
 
-                        if (fadeFrames > 0 && remain <= fadeFrames)
+                        if ((fadeFrames > 0 && remain <= fadeFrames) || forceTransition)
                         {
                             // Transfer the already-decoded old-track tail from
                             // the main ring into the crossfade source ring
@@ -6264,7 +6307,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             // reader can never observe stale audio or counters
                             // from a previous fade.
                             e->crossfadeSourceEof.store(false, std::memory_order_relaxed);
-                            const ma_uint64 fadeLen = (remain > 0) ? remain : fadeFrames;
+                            const ma_uint64 fadeLen = (remain > 0 && remain < fadeFrames) ? remain : fadeFrames;
                             e->isCrossfading.store(true, std::memory_order_release);
                             e->crossfadeFramesTotal.store(fadeLen, std::memory_order_relaxed);
                             e->crossfadeFramesRemaining.store(fadeLen, std::memory_order_relaxed);
@@ -7084,6 +7127,22 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 const ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
                 constexpr float halfPi = 1.57079632679f;
                 ma_uint32 fadeFramesDone = 0;
+
+                const bool isAutomixActive = e->automixEnabled.load(std::memory_order_relaxed);
+                const int automixMode = isAutomixActive ? e->automixStyle.load(std::memory_order_relaxed) : -1;
+                const int srForAutomix = (e->sampleRate > 0) ? e->sampleRate : 48000;
+
+                if (isAutomixActive && !e->automixDspInit)
+                {
+                    e->automixLpfOut.reset();
+                    e->automixLpfIn.reset();
+                    e->automixSweepHpfOut.reset();
+                    e->automixSweepLpfIn.reset();
+                    e->automixLpfOut.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, 250.0, 0.0, 0.70710678);
+                    e->automixLpfIn.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, 250.0, 0.0, 0.70710678);
+                    e->automixDspInit = true;
+                }
+
                 for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
                 {
                     const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
@@ -7102,13 +7161,179 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     }
 
                     const size_t base = (size_t)i * (size_t)e->channels;
-                    for (int c = 0; c < e->channels; ++c)
+
+                    if (isAutomixActive && automixMode == 0 /* AE_AUTOMIX_STYLE_BASS_SWAP */)
                     {
-                        // If the ring supplied frames from the old track, add them with loudness gain alignment
-                        float outSample = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
-                        float inSample  = processBuffer[base + (size_t)c] * inGain;
-                        processBuffer[base + (size_t)c] = (inSample * tIn) + (outSample * outEnv);
+                        // Audiophile LR4 isolator bass swap on phrase midpoint (t=0.50)
+                        float bassOut = 1.0f;
+                        float bassIn = 0.0f;
+                        if (t < 0.48f)
+                        {
+                            bassOut = 1.0f;
+                            bassIn = 0.0f;
+                        }
+                        else if (t > 0.52f)
+                        {
+                            bassOut = 0.0f;
+                            bassIn = 1.0f;
+                        }
+                        else
+                        {
+                            const float sw = (t - 0.48f) / 0.04f;
+                            bassOut = std::cos(sw * halfPi);
+                            bassIn = std::sin(sw * halfPi);
+                        }
+
+                        for (int c = 0; c < e->channels; ++c)
+                        {
+                            const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
+                            const float rawIn  = processBuffer[base + (size_t)c] * inGain;
+
+                            const float outBass = (float)e->automixLpfOut.processSample((double)rawOut, c);
+                            const float outMidHigh = rawOut - outBass;
+
+                            const float inBass = (float)e->automixLpfIn.processSample((double)rawIn, c);
+                            const float inMidHigh = rawIn - inBass;
+
+                            const float finalOut = (outMidHigh * outEnv) + (outBass * bassOut);
+                            const float finalIn  = (inMidHigh * tIn) + (inBass * bassIn);
+                            processBuffer[base + (size_t)c] = finalOut + finalIn;
+                        }
+
+                        if (i == 0 || i == produced - 1)
+                        {
+                            e->automixProgress.store(t, std::memory_order_relaxed);
+                            e->automixDeckAVolume.store(outEnv, std::memory_order_relaxed);
+                            e->automixDeckBVolume.store(tIn, std::memory_order_relaxed);
+                            e->automixDeckABassGain.store(bassOut, std::memory_order_relaxed);
+                            e->automixDeckBBassGain.store(bassIn, std::memory_order_relaxed);
+                            e->automixDeckAFilterHz.store(250.0f, std::memory_order_relaxed);
+                            e->automixDeckBFilterHz.store(250.0f, std::memory_order_relaxed);
+                        }
                     }
+                    else if (isAutomixActive && automixMode == 2 /* AE_AUTOMIX_STYLE_FILTER_SWEEP */)
+                    {
+                        const double hpfFreq = 20.0 * std::pow(2500.0 / 20.0, (double)t);
+                        const double lpfFreq = 300.0 * std::pow(20000.0 / 300.0, (double)t);
+                        e->automixSweepHpfOut.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, srForAutomix, hpfFreq, 0.0, 0.85);
+                        e->automixSweepLpfIn.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, lpfFreq, 0.0, 0.85);
+
+                        for (int c = 0; c < e->channels; ++c)
+                        {
+                            const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
+                            const float rawIn  = processBuffer[base + (size_t)c] * inGain;
+
+                            const float outFilt = (float)e->automixSweepHpfOut.processSample((double)rawOut, c);
+                            const float inFilt  = (float)e->automixSweepLpfIn.processSample((double)rawIn, c);
+
+                            processBuffer[base + (size_t)c] = (inFilt * tIn) + (outFilt * outEnv);
+                        }
+
+                        if (i == 0 || i == produced - 1)
+                        {
+                            e->automixProgress.store(t, std::memory_order_relaxed);
+                            e->automixDeckAVolume.store(outEnv, std::memory_order_relaxed);
+                            e->automixDeckBVolume.store(tIn, std::memory_order_relaxed);
+                            e->automixDeckAFilterHz.store((float)hpfFreq, std::memory_order_relaxed);
+                            e->automixDeckBFilterHz.store((float)lpfFreq, std::memory_order_relaxed);
+                        }
+                    }
+                    else if (isAutomixActive && automixMode == 4 /* AE_AUTOMIX_STYLE_DROP_CUT */)
+                    {
+                        const float cutOut = (t < 0.5f) ? 1.0f : 0.0f;
+                        const float cutIn  = (t >= 0.5f) ? 1.0f : 0.0f;
+
+                        for (int c = 0; c < e->channels; ++c)
+                        {
+                            const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
+                            const float rawIn  = processBuffer[base + (size_t)c] * inGain;
+                            processBuffer[base + (size_t)c] = (rawIn * cutIn) + (rawOut * cutOut);
+                        }
+
+                        if (i == 0 || i == produced - 1)
+                        {
+                            e->automixProgress.store(t, std::memory_order_relaxed);
+                            e->automixDeckAVolume.store(cutOut, std::memory_order_relaxed);
+                            e->automixDeckBVolume.store(cutIn, std::memory_order_relaxed);
+                        }
+                    }
+                    else if (isAutomixActive && automixMode == 5 /* AE_AUTOMIX_STYLE_SMART_HYBRID */)
+                    {
+                        // Multi-stage hybrid DJ transition combining Filter Sweep + LR4 Bass-Swap + Equal Power Blend
+                        float bassOut = 1.0f;
+                        float bassIn = 0.0f;
+                        if (t < 0.48f)
+                        {
+                            bassOut = 1.0f;
+                            bassIn = 0.0f;
+                        }
+                        else if (t > 0.52f)
+                        {
+                            bassOut = 0.0f;
+                            bassIn = 1.0f;
+                        }
+                        else
+                        {
+                            const float sw = (t - 0.48f) / 0.04f;
+                            bassOut = std::cos(sw * halfPi);
+                            bassIn = std::sin(sw * halfPi);
+                        }
+
+                        const double hpfFreq = 20.0 * std::pow(3000.0 / 20.0, (double)t);
+                        const double lpfFreq = 200.0 * std::pow(20000.0 / 200.0, (double)t);
+                        e->automixSweepHpfOut.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, srForAutomix, hpfFreq, 0.0, 0.75);
+                        e->automixSweepLpfIn.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, lpfFreq, 0.0, 0.75);
+
+                        for (int c = 0; c < e->channels; ++c)
+                        {
+                            const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
+                            const float rawIn  = processBuffer[base + (size_t)c] * inGain;
+
+                            // 1. Split sub-bass (<250Hz) for click-free bass handover
+                            const float outBass = (float)e->automixLpfOut.processSample((double)rawOut, c);
+                            const float outMidHigh = rawOut - outBass;
+
+                            const float inBass = (float)e->automixLpfIn.processSample((double)rawIn, c);
+                            const float inMidHigh = rawIn - inBass;
+
+                            // 2. Resonant filter sweep applied to mids/highs
+                            const float outMidHighFiltered = (float)e->automixSweepHpfOut.processSample((double)outMidHigh, c);
+                            const float inMidHighFiltered  = (float)e->automixSweepLpfIn.processSample((double)inMidHigh, c);
+
+                            // 3. Composite output
+                            const float finalOut = (outMidHighFiltered * outEnv) + (outBass * bassOut);
+                            const float finalIn  = (inMidHighFiltered * tIn) + (inBass * bassIn);
+                            processBuffer[base + (size_t)c] = finalOut + finalIn;
+                        }
+
+                        if (i == 0 || i == produced - 1)
+                        {
+                            e->automixProgress.store(t, std::memory_order_relaxed);
+                            e->automixDeckAVolume.store(outEnv, std::memory_order_relaxed);
+                            e->automixDeckBVolume.store(tIn, std::memory_order_relaxed);
+                            e->automixDeckABassGain.store(bassOut, std::memory_order_relaxed);
+                            e->automixDeckBBassGain.store(bassIn, std::memory_order_relaxed);
+                            e->automixDeckAFilterHz.store((float)hpfFreq, std::memory_order_relaxed);
+                            e->automixDeckBFilterHz.store((float)lpfFreq, std::memory_order_relaxed);
+                        }
+                    }
+                    else
+                    {
+                        for (int c = 0; c < e->channels; ++c)
+                        {
+                            float outSample = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
+                            float inSample  = processBuffer[base + (size_t)c] * inGain;
+                            processBuffer[base + (size_t)c] = (inSample * tIn) + (outSample * outEnv);
+                        }
+
+                        if (isAutomixActive && (i == 0 || i == produced - 1))
+                        {
+                            e->automixProgress.store(t, std::memory_order_relaxed);
+                            e->automixDeckAVolume.store(outEnv, std::memory_order_relaxed);
+                            e->automixDeckBVolume.store(tIn, std::memory_order_relaxed);
+                        }
+                    }
+
                     fadeRemaining -= 1;
                     fadeFramesDone += 1;
                 }
@@ -10012,13 +10237,17 @@ extern "C"
         if (e == nullptr)
             return;
         e->crossfadeEnabled.store(enabled != 0, std::memory_order_relaxed);
-        if (enabled == 0)
+        if (enabled == 0 && !e->automixEnabled.load(std::memory_order_relaxed))
         {
             e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
             if (e->currentDecoder != nullptr)
             {
                 e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
             }
+        }
+        else if (enabled != 0)
+        {
+            arm_transition_fade_in(e);
         }
     }
 
@@ -10033,14 +10262,14 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        e->crossfadeDurationMs.store(clampi(duration_ms, 0, 10000), std::memory_order_relaxed);
+        e->crossfadeDurationMs.store(clampi(duration_ms, 0, 32000), std::memory_order_relaxed);
     }
 
     AE_API int ae_get_crossfade_duration_ms(AudioEngineHandle *e)
     {
         if (e == nullptr)
             return 0;
-        return clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 10000);
+        return clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 32000);
     }
 
     AE_API void ae_set_loudness_crossfade_enabled(AudioEngineHandle *e, int enabled)
@@ -10106,6 +10335,70 @@ extern "C"
         if (e == nullptr)
             return 1.0f;
         return e->nextTrackReplayGain.load(std::memory_order_relaxed);
+    }
+
+    AE_API void ae_set_automix_config(AudioEngineHandle *e, const AEAutomixConfig *config)
+    {
+        if (e == nullptr || config == nullptr)
+            return;
+        e->automixEnabled.store(config->enabled != 0, std::memory_order_relaxed);
+        e->automixStyle.store(clampi(config->style, 0, 5), std::memory_order_relaxed);
+        e->automixTransitionBars.store(clampi(config->transition_bars, 4, 64), std::memory_order_relaxed);
+        e->automixTempoSyncEnabled.store(config->tempo_sync_enabled != 0, std::memory_order_relaxed);
+        e->automixKeyLockEnabled.store(config->key_lock_enabled != 0, std::memory_order_relaxed);
+
+        if (config->enabled != 0)
+        {
+            arm_transition_fade_in(e);
+        }
+        else if (!e->crossfadeEnabled.load(std::memory_order_relaxed))
+        {
+            e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
+            e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
+        }
+    }
+
+    AE_API void ae_get_automix_config(AudioEngineHandle *e, AEAutomixConfig *out_config)
+    {
+        if (e == nullptr || out_config == nullptr)
+            return;
+        out_config->enabled = e->automixEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+        out_config->style = e->automixStyle.load(std::memory_order_relaxed);
+        out_config->transition_bars = e->automixTransitionBars.load(std::memory_order_relaxed);
+        out_config->tempo_sync_enabled = e->automixTempoSyncEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+        out_config->key_lock_enabled = e->automixKeyLockEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+    }
+
+    AE_API AEAutomixStatus ae_get_automix_status(AudioEngineHandle *e)
+    {
+        AEAutomixStatus st{};
+        if (e == nullptr)
+            return st;
+        st.is_active = (e->isCrossfading.load(std::memory_order_relaxed) && e->automixEnabled.load(std::memory_order_relaxed)) ? 1 : 0;
+        st.style = e->automixStyle.load(std::memory_order_relaxed);
+        st.progress = e->automixProgress.load(std::memory_order_relaxed);
+        st.deck_a_volume = e->automixDeckAVolume.load(std::memory_order_relaxed);
+        st.deck_b_volume = e->automixDeckBVolume.load(std::memory_order_relaxed);
+        st.deck_a_bass_gain = e->automixDeckABassGain.load(std::memory_order_relaxed);
+        st.deck_b_bass_gain = e->automixDeckBBassGain.load(std::memory_order_relaxed);
+        st.deck_a_filter_cutoff_hz = e->automixDeckAFilterHz.load(std::memory_order_relaxed);
+        st.deck_b_filter_cutoff_hz = e->automixDeckBFilterHz.load(std::memory_order_relaxed);
+        return st;
+    }
+
+    AE_API void ae_trigger_automix_transition(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return;
+        if (e->hasNext)
+        {
+            e->automixTransitionRequested.store(true, std::memory_order_release);
+            e->decodeProducerCv.notify_one();
+        }
+        else
+        {
+            ae_next(e);
+        }
     }
 
     AE_API float ae_get_device_latency_ms(AudioEngineHandle *e)

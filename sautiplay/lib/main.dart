@@ -774,6 +774,16 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       _player.setPitch(savedPitch);
     }
 
+    // Apply saved Auto DJ & Automix configuration
+    final automixSaved = await AppStateService.instance.loadAutomixConfig();
+    _player.setAutomixConfig(AutomixConfig(
+      enabled: automixSaved.enabled,
+      style: AutomixStyle.fromString(automixSaved.style),
+      transitionBars: automixSaved.transitionBars,
+      tempoSyncEnabled: automixSaved.tempoSync,
+      keyLockEnabled: automixSaved.harmonicKeyLock,
+    ));
+
     // Apply Sauti DSP Suite settings
     await EqScreen.applySavedStateToEngine(_player);
 

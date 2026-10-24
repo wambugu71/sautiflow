@@ -30,7 +30,10 @@ export 'audio_engine_ffi.dart'
         DiffusionReverbParams,
         ToneCrossoverParams,
         ToneMode,
-        MultibandMasteringParams;
+        MultibandMasteringParams,
+        AutomixStyle,
+        AutomixConfig,
+        AutomixStatus;
 export 'src/filters_api.dart';
 export 'src/m3u_parser.dart' show M3uParser, M3uEntry;
 export 'src/mini_audio_player.dart' show MiniAudioPlayer;

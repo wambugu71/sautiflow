@@ -188,6 +188,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Loudness-Aware Crossfade
   bool _loudnessCrossfadeEnabled = true;
 
+  // Auto DJ & Automix Settings
+  bool _automixEnabled = false;
+  String _automixStyle = 'bass_swap';
+  int _automixTransitionBars = 16;
+  bool _automixTempoSync = true;
+  bool _automixHarmonicKeyLock = true;
+
   // Waveform & Slider Seek Bar UI Settings
   bool _useWaveformSeekBar = false;
   bool _useWavySlider = true;
@@ -447,6 +454,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _audioFocusSettings = focusSaved;
     });
 
+    final automixCfg = await AppStateService.instance.loadAutomixConfig();
+    if (mounted) {
+      setState(() {
+        _automixEnabled = automixCfg.enabled;
+        _automixStyle = automixCfg.style;
+        _automixTransitionBars = automixCfg.transitionBars;
+        _automixTempoSync = automixCfg.tempoSync;
+        _automixHarmonicKeyLock = automixCfg.harmonicKeyLock;
+      });
+    }
+
+    widget.player.setAutomixConfig(AutomixConfig(
+      enabled: automixCfg.enabled,
+      style: AutomixStyle.fromString(automixCfg.style),
+      transitionBars: automixCfg.transitionBars,
+      tempoSyncEnabled: automixCfg.tempoSync,
+      keyLockEnabled: automixCfg.harmonicKeyLock,
+    ));
+
     final loudnessNorm =
         await AppStateService.instance.loadLoudnessNormalizer();
     final lookaheadLim = await AppStateService.instance.loadLookaheadLimiter();
@@ -522,6 +548,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       safetyAttenuationDb: _safetyAttenuationDb,
     );
     _applySpeakerProtectionSettings();
+  }
+
+  void _applyAutomixConfig() {
+    final cfg = AutomixConfig(
+      enabled: _automixEnabled,
+      style: AutomixStyle.fromString(_automixStyle),
+      transitionBars: _automixTransitionBars,
+      tempoSyncEnabled: _automixTempoSync,
+      keyLockEnabled: _automixHarmonicKeyLock,
+    );
+    widget.player.setAutomixConfig(cfg);
+    AppStateService.instance.saveAutomixConfig(
+      enabled: _automixEnabled,
+      style: _automixStyle,
+      transitionBars: _automixTransitionBars,
+      tempoSync: _automixTempoSync,
+      harmonicKeyLock: _automixHarmonicKeyLock,
+    );
   }
 
   void _applySpeakerProtectionSettings() {
@@ -3400,6 +3444,232 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _persistUiSettings();
                   },
                 ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _buildSectionHeader('AUTO DJ & AUTOMIX (SMART MIXING)'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildM3ESwitchTile(
+                  title: 'Auto DJ & Automix Mode',
+                  subtitle: _automixEnabled
+                      ? 'Phrase-matched intelligent transitions active'
+                      : 'Disabled (standard bit-perfect / gapless playback)',
+                  secondary: _buildLeadingIcon(
+                    Icons.album_rounded,
+                    _automixEnabled ? _primary : _textDark,
+                  ),
+                  value: _automixEnabled,
+                  onChanged: (val) {
+                    setState(() => _automixEnabled = val);
+                    setSubState(() {});
+                    _applyAutomixConfig();
+                  },
+                ),
+                if (_automixEnabled) ...[
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Transition Style',
+                          style: TextStyle(
+                            color: _textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'DSP curve and frequency crossover algorithm for track blending.',
+                          style: TextStyle(color: _textDark, fontSize: 12),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ChoiceChip(
+                              label: const Text('Smart Auto (Hybrid)'),
+                              selected: _automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto',
+                              selectedColor: _primary.withValues(alpha: 0.22),
+                              side: BorderSide(
+                                color: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? _primary : context.outlineColor,
+                              ),
+                              labelStyle: TextStyle(
+                                color: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? _primary : _textPrimary,
+                                fontWeight: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 12,
+                              ),
+                              onSelected: (_) {
+                                setState(() => _automixStyle = 'smart_hybrid');
+                                setSubState(() {});
+                                _applyAutomixConfig();
+                              },
+                            ),
+                            ChoiceChip(
+                              label: const Text('Bass-Swap (LR4)'),
+                              selected: _automixStyle == 'bass_swap',
+                              selectedColor: _primary.withValues(alpha: 0.22),
+                              side: BorderSide(
+                                color: _automixStyle == 'bass_swap' ? _primary : context.outlineColor,
+                              ),
+                              labelStyle: TextStyle(
+                                color: _automixStyle == 'bass_swap' ? _primary : _textPrimary,
+                                fontWeight: _automixStyle == 'bass_swap' ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 12,
+                              ),
+                              onSelected: (_) {
+                                setState(() => _automixStyle = 'bass_swap');
+                                setSubState(() {});
+                                _applyAutomixConfig();
+                              },
+                            ),
+                            ChoiceChip(
+                              label: const Text('Beat Blend'),
+                              selected: _automixStyle == 'blend',
+                              selectedColor: _primary.withValues(alpha: 0.22),
+                              side: BorderSide(
+                                color: _automixStyle == 'blend' ? _primary : context.outlineColor,
+                              ),
+                              labelStyle: TextStyle(
+                                color: _automixStyle == 'blend' ? _primary : _textPrimary,
+                                fontWeight: _automixStyle == 'blend' ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 12,
+                              ),
+                              onSelected: (_) {
+                                setState(() => _automixStyle = 'blend');
+                                setSubState(() {});
+                                _applyAutomixConfig();
+                              },
+                            ),
+                            ChoiceChip(
+                              label: const Text('Filter Sweep'),
+                              selected: _automixStyle == 'filter',
+                              selectedColor: _primary.withValues(alpha: 0.22),
+                              side: BorderSide(
+                                color: _automixStyle == 'filter' ? _primary : context.outlineColor,
+                              ),
+                              labelStyle: TextStyle(
+                                color: _automixStyle == 'filter' ? _primary : _textPrimary,
+                                fontWeight: _automixStyle == 'filter' ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 12,
+                              ),
+                              onSelected: (_) {
+                                setState(() => _automixStyle = 'filter');
+                                setSubState(() {});
+                                _applyAutomixConfig();
+                              },
+                            ),
+                            ChoiceChip(
+                              label: const Text('Drop / Cut'),
+                              selected: _automixStyle == 'cut',
+                              selectedColor: _primary.withValues(alpha: 0.22),
+                              side: BorderSide(
+                                color: _automixStyle == 'cut' ? _primary : context.outlineColor,
+                              ),
+                              labelStyle: TextStyle(
+                                color: _automixStyle == 'cut' ? _primary : _textPrimary,
+                                fontWeight: _automixStyle == 'cut' ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 12,
+                              ),
+                              onSelected: (_) {
+                                setState(() => _automixStyle = 'cut');
+                                setSubState(() {});
+                                _applyAutomixConfig();
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const M3EDivider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Phrase Length',
+                          style: TextStyle(
+                            color: _textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Transition duration mapped to musical bars in 4/4 meter.',
+                          style: TextStyle(color: _textDark, fontSize: 12),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            for (final bars in [8, 16, 32]) ...[
+                              ChoiceChip(
+                                label: Text('$bars Bars'),
+                                selected: _automixTransitionBars == bars,
+                                selectedColor: _primary.withValues(alpha: 0.22),
+                                side: BorderSide(
+                                  color: _automixTransitionBars == bars ? _primary : context.outlineColor,
+                                ),
+                                labelStyle: TextStyle(
+                                  color: _automixTransitionBars == bars ? _primary : _textPrimary,
+                                  fontWeight: _automixTransitionBars == bars ? FontWeight.bold : FontWeight.normal,
+                                  fontSize: 12,
+                                ),
+                                onSelected: (_) {
+                                  setState(() => _automixTransitionBars = bars);
+                                  setSubState(() {});
+                                  _applyAutomixConfig();
+                                },
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const M3EDivider(),
+                  _buildM3ESwitchTile(
+                    title: 'Camelot Harmonic Key Lock',
+                    subtitle: _automixHarmonicKeyLock
+                        ? 'Pitch-shifts near-miss keys (±1 semitone) to prevent harmonic clash'
+                        : 'Plays at native song pitch',
+                    secondary: _buildLeadingIcon(
+                      Icons.music_note_rounded,
+                      _automixHarmonicKeyLock ? _primary : _textDark,
+                    ),
+                    value: _automixHarmonicKeyLock,
+                    onChanged: (val) {
+                      setState(() => _automixHarmonicKeyLock = val);
+                      setSubState(() {});
+                      _applyAutomixConfig();
+                    },
+                  ),
+                  const M3EDivider(),
+                  _buildM3ESwitchTile(
+                    title: 'Tempo Synchronization (WSOLA)',
+                    subtitle: _automixTempoSync
+                        ? 'Aligns incoming BPM smoothly using ScaleTempo DSP'
+                        : 'Plays at native track tempo',
+                    secondary: _buildLeadingIcon(
+                      Icons.speed_rounded,
+                      _automixTempoSync ? _primary : _textDark,
+                    ),
+                    value: _automixTempoSync,
+                    onChanged: (val) {
+                      setState(() => _automixTempoSync = val);
+                      setSubState(() {});
+                      _applyAutomixConfig();
+                    },
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 24),

@@ -1781,6 +1781,30 @@ class IsolateAudioPlayer {
       _send({'cmd': 'setCrossfadeDurationMs', 'durationMs': durationMs});
   void setLoudnessCrossfadeEnabled(bool enabled) =>
       _send({'cmd': 'setLoudnessCrossfadeEnabled', 'enabled': enabled});
+  void setAutomixConfig(AutomixConfig config) => _send({
+        'cmd': 'setAutomixConfig',
+        'enabled': config.enabled,
+        'style': config.style.value,
+        'transitionBars': config.transitionBars,
+        'tempoSyncEnabled': config.tempoSyncEnabled,
+        'keyLockEnabled': config.keyLockEnabled,
+      });
+  Future<AutomixStatus?> getAutomixStatus() async {
+    final response = await _request('getAutomixStatus');
+    if (response is! Map) return null;
+    return AutomixStatus(
+      isActive: response['isActive'] == true,
+      style: AutomixStyle.fromValue(response['style'] as int? ?? 0),
+      progress: (response['progress'] as num?)?.toDouble() ?? 0.0,
+      deckAVolume: (response['deckAVolume'] as num?)?.toDouble() ?? 1.0,
+      deckBVolume: (response['deckBVolume'] as num?)?.toDouble() ?? 0.0,
+      deckABassGain: (response['deckABassGain'] as num?)?.toDouble() ?? 1.0,
+      deckBBassGain: (response['deckBBassGain'] as num?)?.toDouble() ?? 0.0,
+      deckAFilterHz: (response['deckAFilterHz'] as num?)?.toDouble() ?? 20000.0,
+      deckBFilterHz: (response['deckBFilterHz'] as num?)?.toDouble() ?? 20.0,
+    );
+  }
+  void triggerAutomixTransition() => _send({'cmd': 'triggerAutomixTransition'});
   void setNextReplayGain(double gainDb) =>
       _send({'cmd': 'setNextReplayGain', 'gainDb': gainDb});
   void setNextReplayGainWithPeak(double gainDb, double peak) =>
@@ -2533,6 +2557,22 @@ void _isolateEntry(_IsolateInitData initData) {
                     : {'correlation': s.correlation, 'width': s.width});
             break;
           }
+        case 'getAutomixStatus':
+          {
+            final s = player.getAutomixStatus();
+            sendResponse(message, {
+              'isActive': s.isActive,
+              'style': s.style.value,
+              'progress': s.progress,
+              'deckAVolume': s.deckAVolume,
+              'deckBVolume': s.deckBVolume,
+              'deckABassGain': s.deckABassGain,
+              'deckBBassGain': s.deckBBassGain,
+              'deckAFilterHz': s.deckAFilterHz,
+              'deckBFilterHz': s.deckBFilterHz,
+            });
+            break;
+          }
         case 'setAnalyzerWindowType':
           final wtStr = message['windowType'] as String?;
           if (wtStr != null) {
@@ -2942,6 +2982,18 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setLoudnessCrossfadeEnabled':
           player.setLoudnessCrossfadeEnabled(message['enabled'] == true);
+          break;
+        case 'setAutomixConfig':
+          player.setAutomixConfig(AutomixConfig(
+            enabled: message['enabled'] == true,
+            style: AutomixStyle.fromValue((message['style'] as int?) ?? 0),
+            transitionBars: (message['transitionBars'] as int?) ?? 16,
+            tempoSyncEnabled: message['tempoSyncEnabled'] != false,
+            keyLockEnabled: message['keyLockEnabled'] != false,
+          ));
+          break;
+        case 'triggerAutomixTransition':
+          player.triggerAutomixTransition();
           break;
         case 'setNextReplayGain':
           player.setNextReplayGain(

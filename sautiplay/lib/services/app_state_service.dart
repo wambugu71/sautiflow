@@ -1295,6 +1295,47 @@ class AppStateService {
     );
   }
 
+  // ─── Auto DJ & Automix Settings ──────────────────────────────────────────
+  static const _kAutomixEnabled = 'sp_automix_enabled';
+  static const _kAutomixStyle = 'sp_automix_style'; // 'bass_swap', 'blend', 'filter', 'echo', 'cut'
+  static const _kAutomixBars = 'sp_automix_bars'; // 8, 16, 32
+  static const _kAutomixTempoSync = 'sp_automix_tempo_sync';
+  static const _kAutomixHarmonicKeyLock = 'sp_automix_key_lock';
+
+  Future<void> saveAutomixConfig({
+    required bool enabled,
+    required String style,
+    required int transitionBars,
+    required bool tempoSync,
+    required bool harmonicKeyLock,
+  }) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setBool(_kAutomixEnabled, enabled);
+    await prefs.setString(_kAutomixStyle, style);
+    await prefs.setInt(_kAutomixBars, transitionBars);
+    await prefs.setBool(_kAutomixTempoSync, tempoSync);
+    await prefs.setBool(_kAutomixHarmonicKeyLock, harmonicKeyLock);
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  Future<
+      ({
+        bool enabled,
+        String style,
+        int transitionBars,
+        bool tempoSync,
+        bool harmonicKeyLock,
+      })> loadAutomixConfig() async {
+    final prefs = PreferencesStore.instance;
+    return (
+      enabled: prefs.getBool(_kAutomixEnabled) ?? false,
+      style: prefs.getString(_kAutomixStyle) ?? 'bass_swap',
+      transitionBars: prefs.getInt(_kAutomixBars) ?? 16,
+      tempoSync: prefs.getBool(_kAutomixTempoSync) ?? true,
+      harmonicKeyLock: prefs.getBool(_kAutomixHarmonicKeyLock) ?? true,
+    );
+  }
+
   // ─── Settings – UI / Streaming preferences ───────────────────────────────
   static const _kStreamingQuality = 'sp_streaming_quality';
   static const _kGaplessPlayback = 'sp_gapless_playback';

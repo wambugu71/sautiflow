@@ -256,6 +256,12 @@ class MiniAudioPlayer {
   void setCurrentTrackLoudness(double gainDb, [double peak = 0.0]) =>
       _engine.setCurrentTrackLoudness(gainDb, peak);
 
+  // Auto DJ & Automix Suite
+  void setAutomixConfig(AutomixConfig config) => _engine.setAutomixConfig(config);
+  AutomixConfig getAutomixConfig() => _engine.getAutomixConfig();
+  AutomixStatus getAutomixStatus() => _engine.getAutomixStatus();
+  void triggerAutomixTransition() => _engine.triggerAutomixTransition();
+
   PlayerStatus get status => _engine.getStatus();
   double get deviceLatencyMs => _engine.getDeviceLatencyMs();
   double get engineLatencySamples => _engine.getEngineLatencySamples();

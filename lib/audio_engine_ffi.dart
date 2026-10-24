@@ -128,6 +128,134 @@ enum FftWindowType {
 }
 
 /// Mirrors CrossfeedAlgorithm in crossfeed_node.h — must stay in sync.
+
+/// Automix transition styling modes
+enum AutomixStyle {
+  smartHybrid(5, 'Smart Auto (Hybrid)'),
+  bassSwap(0, 'Bass-Swap (Audiophile LR4)'),
+  beatBlend(1, 'Beat-Matched Blend'),
+  filterSweep(2, 'Resonant Filter Sweep'),
+  spaceEcho(3, 'Space Echo-Out'),
+  dropCut(4, 'Downbeat Drop/Cut');
+
+  const AutomixStyle(this.value, this.label);
+  final int value;
+  final String label;
+
+  static AutomixStyle fromValue(int val) {
+    switch (val) {
+      case 0:
+        return AutomixStyle.bassSwap;
+      case 1:
+        return AutomixStyle.beatBlend;
+      case 2:
+        return AutomixStyle.filterSweep;
+      case 3:
+        return AutomixStyle.spaceEcho;
+      case 4:
+        return AutomixStyle.dropCut;
+      case 5:
+      default:
+        return AutomixStyle.smartHybrid;
+    }
+  }
+
+  static AutomixStyle fromString(String? str) {
+    if (str == null) return AutomixStyle.smartHybrid;
+    switch (str.toLowerCase().trim()) {
+      case 'bass_swap':
+      case 'bassswap':
+        return AutomixStyle.bassSwap;
+      case 'blend':
+      case 'beat_blend':
+        return AutomixStyle.beatBlend;
+      case 'filter':
+      case 'filter_sweep':
+        return AutomixStyle.filterSweep;
+      case 'echo':
+      case 'space_echo':
+        return AutomixStyle.spaceEcho;
+      case 'cut':
+      case 'drop_cut':
+        return AutomixStyle.dropCut;
+      case 'smart':
+      case 'auto':
+      case 'smart_hybrid':
+      case 'smarthybrid':
+      default:
+        return AutomixStyle.smartHybrid;
+    }
+  }
+}
+
+class AutomixConfig {
+  final bool enabled;
+  final AutomixStyle style;
+  final int transitionBars;
+  final bool tempoSyncEnabled;
+  final bool keyLockEnabled;
+
+  const AutomixConfig({
+    this.enabled = false,
+    this.style = AutomixStyle.bassSwap,
+    this.transitionBars = 16,
+    this.tempoSyncEnabled = true,
+    this.keyLockEnabled = true,
+  });
+
+  AutomixConfig copyWith({
+    bool? enabled,
+    AutomixStyle? style,
+    int? transitionBars,
+    bool? tempoSyncEnabled,
+    bool? keyLockEnabled,
+  }) {
+    return AutomixConfig(
+      enabled: enabled ?? this.enabled,
+      style: style ?? this.style,
+      transitionBars: transitionBars ?? this.transitionBars,
+      tempoSyncEnabled: tempoSyncEnabled ?? this.tempoSyncEnabled,
+      keyLockEnabled: keyLockEnabled ?? this.keyLockEnabled,
+    );
+  }
+}
+
+class AutomixStatus {
+  final bool isActive;
+  final AutomixStyle style;
+  final double progress;
+  final double deckAVolume;
+  final double deckBVolume;
+  final double deckABassGain;
+  final double deckBBassGain;
+  final double deckAFilterHz;
+  final double deckBFilterHz;
+
+  const AutomixStatus({
+    required this.isActive,
+    required this.style,
+    required this.progress,
+    required this.deckAVolume,
+    required this.deckBVolume,
+    required this.deckABassGain,
+    required this.deckBBassGain,
+    required this.deckAFilterHz,
+    required this.deckBFilterHz,
+  });
+
+  factory AutomixStatus.inactive() => const AutomixStatus(
+    isActive: false,
+    style: AutomixStyle.bassSwap,
+    progress: 0.0,
+    deckAVolume: 1.0,
+    deckBVolume: 0.0,
+    deckABassGain: 1.0,
+    deckBBassGain: 0.0,
+    deckAFilterHz: 20000.0,
+    deckBFilterHz: 20.0,
+  );
+}
+
 enum CrossfeedAlgorithm { off, simple, bs2b, meier, natural, race, openStage }
 
 /// Immutable value-class returned by [MiniaudioPlayer.getCrossfeedParams].
@@ -1223,6 +1351,53 @@ class AEQualityTelemetry {
   }
 }
 
+
+final class AEAutomixConfigNative extends ffi.Struct {
+  @ffi.Int32()
+  external int enabled;
+
+  @ffi.Int32()
+  external int style;
+
+  @ffi.Int32()
+  external int transition_bars;
+
+  @ffi.Int32()
+  external int tempo_sync_enabled;
+
+  @ffi.Int32()
+  external int key_lock_enabled;
+}
+
+final class AEAutomixStatusNative extends ffi.Struct {
+  @ffi.Int32()
+  external int is_active;
+
+  @ffi.Int32()
+  external int style;
+
+  @ffi.Float()
+  external double progress;
+
+  @ffi.Float()
+  external double deck_a_volume;
+
+  @ffi.Float()
+  external double deck_b_volume;
+
+  @ffi.Float()
+  external double deck_a_bass_gain;
+
+  @ffi.Float()
+  external double deck_b_bass_gain;
+
+  @ffi.Float()
+  external double deck_a_filter_cutoff_hz;
+
+  @ffi.Float()
+  external double deck_b_filter_cutoff_hz;
+}
+
 final class AEResamplingPolicyInfoNative extends ffi.Struct {
   @ffi.Int32()
   external int is_bypassed;
@@ -1738,6 +1913,27 @@ typedef _GetOpenStageParamsDart = void Function(
 
 // ─── CrossfeedNode new API ────────────────────────────────────────────────────
 // ae_set_crossfeed_algorithm(AudioEngineHandle*, int)
+
+typedef _SetAutomixConfigNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEAutomixConfigNative>);
+typedef _SetAutomixConfigDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEAutomixConfigNative>);
+
+typedef _GetAutomixConfigNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEAutomixConfigNative>);
+typedef _GetAutomixConfigDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEAutomixConfigNative>);
+
+typedef _GetAutomixStatusNative = AEAutomixStatusNative Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetAutomixStatusDart = AEAutomixStatusNative Function(
+    ffi.Pointer<ffi.Void>);
+
+typedef _TriggerAutomixTransitionNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>);
+typedef _TriggerAutomixTransitionDart = void Function(
+    ffi.Pointer<ffi.Void>);
+
 typedef _SetCrossfeedAlgorithmNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetCrossfeedAlgorithmDart = void Function(ffi.Pointer<ffi.Void>, int);
@@ -2577,6 +2773,27 @@ class AudioEngineFFI {
     );
 
     try {
+
+    try {
+      _setAutomixConfig = _lib.lookupFunction<_SetAutomixConfigNative, _SetAutomixConfigDart>(
+        'ae_set_automix_config',
+      );
+      _getAutomixConfig = _lib.lookupFunction<_GetAutomixConfigNative, _GetAutomixConfigDart>(
+        'ae_get_automix_config',
+      );
+      _getAutomixStatus = _lib.lookupFunction<_GetAutomixStatusNative, _GetAutomixStatusDart>(
+        'ae_get_automix_status',
+      );
+      _triggerAutomixTransition = _lib.lookupFunction<_TriggerAutomixTransitionNative, _TriggerAutomixTransitionDart>(
+        'ae_trigger_automix_transition',
+      );
+    } catch (_) {
+      _setAutomixConfig = null;
+      _getAutomixConfig = null;
+      _getAutomixStatus = null;
+      _triggerAutomixTransition = null;
+    }
+
       _setLoudnessCrossfadeEnabled =
           _lib.lookupFunction<_SetIntNative, _SetIntDart>(
         'ae_set_loudness_crossfade_enabled',
@@ -3456,6 +3673,12 @@ class AudioEngineFFI {
   late final _GetIntDart _getCrossfadeEnabled;
   late final _SetIntDart _setCrossfadeDurationMs;
   late final _GetIntDart _getCrossfadeDurationMs;
+
+  _SetAutomixConfigDart? _setAutomixConfig;
+  _GetAutomixConfigDart? _getAutomixConfig;
+  _GetAutomixStatusDart? _getAutomixStatus;
+  _TriggerAutomixTransitionDart? _triggerAutomixTransition;
+
   _SetIntDart? _setLoudnessCrossfadeEnabled;
   _GetIntDart? _getLoudnessCrossfadeEnabled;
   _SetSingleFloatDart? _setNextReplayGain;
@@ -4071,6 +4294,60 @@ class AudioEngineFFI {
   int getCrossfadeDurationMs() {
     if (_engine == ffi.nullptr) return 0;
     return _getCrossfadeDurationMs(_engine);
+  }
+
+
+  void setAutomixConfig(AutomixConfig config) {
+    if (_engine == ffi.nullptr || _setAutomixConfig == null) return;
+    using((arena) {
+      final pConfig = arena<AEAutomixConfigNative>();
+      pConfig.ref.enabled = config.enabled ? 1 : 0;
+      pConfig.ref.style = config.style.value;
+      pConfig.ref.transition_bars = config.transitionBars;
+      pConfig.ref.tempo_sync_enabled = config.tempoSyncEnabled ? 1 : 0;
+      pConfig.ref.key_lock_enabled = config.keyLockEnabled ? 1 : 0;
+      _setAutomixConfig!(_engine, pConfig);
+    });
+  }
+
+  AutomixConfig getAutomixConfig() {
+    if (_engine == ffi.nullptr || _getAutomixConfig == null) {
+      return const AutomixConfig();
+    }
+    return using((arena) {
+      final pConfig = arena<AEAutomixConfigNative>();
+      _getAutomixConfig!(_engine, pConfig);
+      return AutomixConfig(
+        enabled: pConfig.ref.enabled != 0,
+        style: AutomixStyle.fromValue(pConfig.ref.style),
+        transitionBars: pConfig.ref.transition_bars,
+        tempoSyncEnabled: pConfig.ref.tempo_sync_enabled != 0,
+        keyLockEnabled: pConfig.ref.key_lock_enabled != 0,
+      );
+    });
+  }
+
+  AutomixStatus getAutomixStatus() {
+    if (_engine == ffi.nullptr || _getAutomixStatus == null) {
+      return AutomixStatus.inactive();
+    }
+    final raw = _getAutomixStatus!(_engine);
+    return AutomixStatus(
+      isActive: raw.is_active != 0,
+      style: AutomixStyle.fromValue(raw.style),
+      progress: raw.progress,
+      deckAVolume: raw.deck_a_volume,
+      deckBVolume: raw.deck_b_volume,
+      deckABassGain: raw.deck_a_bass_gain,
+      deckBBassGain: raw.deck_b_bass_gain,
+      deckAFilterHz: raw.deck_a_filter_cutoff_hz,
+      deckBFilterHz: raw.deck_b_filter_cutoff_hz,
+    );
+  }
+
+  void triggerAutomixTransition() {
+    if (_engine == ffi.nullptr || _triggerAutomixTransition == null) return;
+    _triggerAutomixTransition!(_engine);
   }
 
   void setLoudnessCrossfadeEnabled(bool enabled) {
