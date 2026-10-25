@@ -3488,125 +3488,132 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           style: TextStyle(color: _textDark, fontSize: 12),
                         ),
                         const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            ChoiceChip(
-                              label: const Text('Smart Auto (Hybrid)'),
-                              selected: _automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto',
-                              selectedColor: _primary.withValues(alpha: 0.22),
-                              side: BorderSide(
-                                color: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? _primary : context.outlineColor,
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          child: Row(
+                            children: [
+                              ChoiceChip(
+                                label: const Text('Smart Auto (Hybrid)'),
+                                selected: _automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto',
+                                selectedColor: _primary.withValues(alpha: 0.22),
+                                side: BorderSide(
+                                  color: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? _primary : context.outlineColor,
+                                ),
+                                labelStyle: TextStyle(
+                                  color: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? _primary : _textPrimary,
+                                  fontWeight: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? FontWeight.bold : FontWeight.normal,
+                                  fontSize: 12,
+                                ),
+                                onSelected: (_) {
+                                  setState(() => _automixStyle = 'smart_hybrid');
+                                  setSubState(() {});
+                                  _applyAutomixConfig();
+                                },
                               ),
-                              labelStyle: TextStyle(
-                                color: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? _primary : _textPrimary,
-                                fontWeight: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? FontWeight.bold : FontWeight.normal,
-                                fontSize: 12,
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                label: const Text('Bass-Swap (LR4)'),
+                                selected: _automixStyle == 'bass_swap',
+                                selectedColor: _primary.withValues(alpha: 0.22),
+                                side: BorderSide(
+                                  color: _automixStyle == 'bass_swap' ? _primary : context.outlineColor,
+                                ),
+                                labelStyle: TextStyle(
+                                  color: _automixStyle == 'bass_swap' ? _primary : _textPrimary,
+                                  fontWeight: _automixStyle == 'bass_swap' ? FontWeight.bold : FontWeight.normal,
+                                  fontSize: 12,
+                                ),
+                                onSelected: (_) {
+                                  setState(() => _automixStyle = 'bass_swap');
+                                  setSubState(() {});
+                                  _applyAutomixConfig();
+                                },
                               ),
-                              onSelected: (_) {
-                                setState(() => _automixStyle = 'smart_hybrid');
-                                setSubState(() {});
-                                _applyAutomixConfig();
-                              },
-                            ),
-                            ChoiceChip(
-                              label: const Text('Bass-Swap (LR4)'),
-                              selected: _automixStyle == 'bass_swap',
-                              selectedColor: _primary.withValues(alpha: 0.22),
-                              side: BorderSide(
-                                color: _automixStyle == 'bass_swap' ? _primary : context.outlineColor,
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                label: const Text('Beat Blend'),
+                                selected: _automixStyle == 'blend',
+                                selectedColor: _primary.withValues(alpha: 0.22),
+                                side: BorderSide(
+                                  color: _automixStyle == 'blend' ? _primary : context.outlineColor,
+                                ),
+                                labelStyle: TextStyle(
+                                  color: _automixStyle == 'blend' ? _primary : _textPrimary,
+                                  fontWeight: _automixStyle == 'blend' ? FontWeight.bold : FontWeight.normal,
+                                  fontSize: 12,
+                                ),
+                                onSelected: (_) {
+                                  setState(() => _automixStyle = 'blend');
+                                  setSubState(() {});
+                                  _applyAutomixConfig();
+                                },
                               ),
-                              labelStyle: TextStyle(
-                                color: _automixStyle == 'bass_swap' ? _primary : _textPrimary,
-                                fontWeight: _automixStyle == 'bass_swap' ? FontWeight.bold : FontWeight.normal,
-                                fontSize: 12,
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                label: const Text('Filter Sweep'),
+                                selected: _automixStyle == 'filter',
+                                selectedColor: _primary.withValues(alpha: 0.22),
+                                side: BorderSide(
+                                  color: _automixStyle == 'filter' ? _primary : context.outlineColor,
+                                ),
+                                labelStyle: TextStyle(
+                                  color: _automixStyle == 'filter' ? _primary : _textPrimary,
+                                  fontWeight: _automixStyle == 'filter' ? FontWeight.bold : FontWeight.normal,
+                                  fontSize: 12,
+                                ),
+                                onSelected: (_) {
+                                  setState(() => _automixStyle = 'filter');
+                                  setSubState(() {});
+                                  _applyAutomixConfig();
+                                },
                               ),
-                              onSelected: (_) {
-                                setState(() => _automixStyle = 'bass_swap');
-                                setSubState(() {});
-                                _applyAutomixConfig();
-                              },
-                            ),
-                            ChoiceChip(
-                              label: const Text('Beat Blend'),
-                              selected: _automixStyle == 'blend',
-                              selectedColor: _primary.withValues(alpha: 0.22),
-                              side: BorderSide(
-                                color: _automixStyle == 'blend' ? _primary : context.outlineColor,
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                label: const Text('Space Echo'),
+                                selected: _automixStyle == 'space_echo' || _automixStyle == 'echo',
+                                selectedColor: _primary.withValues(alpha: 0.22),
+                                side: BorderSide(
+                                  color: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
+                                      ? _primary
+                                      : context.outlineColor,
+                                ),
+                                labelStyle: TextStyle(
+                                  color: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
+                                      ? _primary
+                                      : _textPrimary,
+                                  fontWeight: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  fontSize: 12,
+                                ),
+                                onSelected: (_) {
+                                  setState(() => _automixStyle = 'space_echo');
+                                  setSubState(() {});
+                                  _applyAutomixConfig();
+                                },
                               ),
-                              labelStyle: TextStyle(
-                                color: _automixStyle == 'blend' ? _primary : _textPrimary,
-                                fontWeight: _automixStyle == 'blend' ? FontWeight.bold : FontWeight.normal,
-                                fontSize: 12,
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                label: const Text('Drop / Cut'),
+                                selected: _automixStyle == 'cut',
+                                selectedColor: _primary.withValues(alpha: 0.22),
+                                side: BorderSide(
+                                  color: _automixStyle == 'cut' ? _primary : context.outlineColor,
+                                ),
+                                labelStyle: TextStyle(
+                                  color: _automixStyle == 'cut' ? _primary : _textPrimary,
+                                  fontWeight: _automixStyle == 'cut' ? FontWeight.bold : FontWeight.normal,
+                                  fontSize: 12,
+                                ),
+                                onSelected: (_) {
+                                  setState(() => _automixStyle = 'cut');
+                                  setSubState(() {});
+                                  _applyAutomixConfig();
+                                },
                               ),
-                              onSelected: (_) {
-                                setState(() => _automixStyle = 'blend');
-                                setSubState(() {});
-                                _applyAutomixConfig();
-                              },
-                            ),
-                            ChoiceChip(
-                              label: const Text('Filter Sweep'),
-                              selected: _automixStyle == 'filter',
-                              selectedColor: _primary.withValues(alpha: 0.22),
-                              side: BorderSide(
-                                color: _automixStyle == 'filter' ? _primary : context.outlineColor,
-                              ),
-                              labelStyle: TextStyle(
-                                color: _automixStyle == 'filter' ? _primary : _textPrimary,
-                                fontWeight: _automixStyle == 'filter' ? FontWeight.bold : FontWeight.normal,
-                                fontSize: 12,
-                              ),
-                              onSelected: (_) {
-                                setState(() => _automixStyle = 'filter');
-                                setSubState(() {});
-                                _applyAutomixConfig();
-                              },
-                            ),
-                            ChoiceChip(
-                              label: const Text('Space Echo'),
-                              selected: _automixStyle == 'space_echo' || _automixStyle == 'echo',
-                              selectedColor: _primary.withValues(alpha: 0.22),
-                              side: BorderSide(
-                                color: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
-                                    ? _primary
-                                    : context.outlineColor,
-                              ),
-                              labelStyle: TextStyle(
-                                color: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
-                                    ? _primary
-                                    : _textPrimary,
-                                fontWeight: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                                fontSize: 12,
-                              ),
-                              onSelected: (_) {
-                                setState(() => _automixStyle = 'space_echo');
-                                setSubState(() {});
-                                _applyAutomixConfig();
-                              },
-                            ),
-                            ChoiceChip(
-                              label: const Text('Drop / Cut'),
-                              selected: _automixStyle == 'cut',
-                              selectedColor: _primary.withValues(alpha: 0.22),
-                              side: BorderSide(
-                                color: _automixStyle == 'cut' ? _primary : context.outlineColor,
-                              ),
-                              labelStyle: TextStyle(
-                                color: _automixStyle == 'cut' ? _primary : _textPrimary,
-                                fontWeight: _automixStyle == 'cut' ? FontWeight.bold : FontWeight.normal,
-                                fontSize: 12,
-                              ),
-                              onSelected: (_) {
-                                setState(() => _automixStyle = 'cut');
-                                setSubState(() {});
-                                _applyAutomixConfig();
-                              },
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ],
                     ),
