@@ -4276,37 +4276,42 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               });
             },
           )
-        : M3ESeekbar(
-            value: clampedPos,
-            min: 0.0,
-            max: maxMs,
-            trackHeight: isMobile ? 4.0 : 6.0,
-            activeColor: primaryColor,
-            inactiveColor: primaryColor.withValues(alpha: 0.2),
-            thumbColor: primaryColor,
-            handleShape: M3ESeekbarHandleShape.circle,
-            handleRadius: isMobile ? 8.0 : 10.0,
-            label: _fmt(Duration(milliseconds: clampedPos.toInt())),
-            decoration: const M3ESeekbarDecoration(
-              haptic: M3EHapticFeedback.light,
+        : SizedBox(
+            height: isMobile ? 36.0 : 40.0,
+            child: Center(
+              child: M3ESeekbar(
+                value: clampedPos,
+                min: 0.0,
+                max: maxMs,
+                trackHeight: isMobile ? 4.0 : 6.0,
+                activeColor: primaryColor,
+                inactiveColor: primaryColor.withValues(alpha: 0.2),
+                thumbColor: primaryColor,
+                handleShape: M3ESeekbarHandleShape.circle,
+                handleRadius: isMobile ? 8.0 : 10.0,
+                label: _fmt(Duration(milliseconds: clampedPos.toInt())),
+                decoration: const M3ESeekbarDecoration(
+                  haptic: M3EHapticFeedback.light,
+                ),
+                onChanged: (v) {
+                  _isDragging = true;
+                  _dragPositionMs = v;
+                  _smoothPositionNotifier.value = v;
+                },
+                onChangeEnd: (v) {
+                  _seekTimeoutTimer?.cancel();
+                  _isDragging = false;
+                  _pendingSeekMs = v;
+                  _anchorPosMs = v;
+                  _smoothStopwatch.reset();
+                  _smoothPositionNotifier.value = v;
+                  widget.player.seekTo(Duration(milliseconds: v.toInt()));
+                  _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
+                    if (mounted) setState(() => _pendingSeekMs = null);
+                  });
+                },
+              ),
             ),
-            onChanged: (v) {
-              _isDragging = true;
-              _dragPositionMs = v;
-              _smoothPositionNotifier.value = v;
-            },
-            onChangeEnd: (v) {
-              _seekTimeoutTimer?.cancel();
-              _isDragging = false;
-              _pendingSeekMs = v;
-              _anchorPosMs = v;
-              _smoothStopwatch.reset();
-              _smoothPositionNotifier.value = v;
-              widget.player.seekTo(Duration(milliseconds: v.toInt()));
-              _seekTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
-                if (mounted) setState(() => _pendingSeekMs = null);
-              });
-            },
           );
 
     return Stack(
