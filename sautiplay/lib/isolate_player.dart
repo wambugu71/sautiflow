@@ -1805,6 +1805,8 @@ class IsolateAudioPlayer {
     );
   }
   void triggerAutomixTransition() => _send({'cmd': 'triggerAutomixTransition'});
+  void setTrackBpm(double bpm) => _send({'cmd': 'setTrackBpm', 'bpm': bpm});
+  void setNextTrackBpm(double bpm) => _send({'cmd': 'setNextTrackBpm', 'bpm': bpm});
   void setNextReplayGain(double gainDb) =>
       _send({'cmd': 'setNextReplayGain', 'gainDb': gainDb});
   void setNextReplayGainWithPeak(double gainDb, double peak) =>
@@ -2994,6 +2996,12 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'triggerAutomixTransition':
           player.triggerAutomixTransition();
+          break;
+        case 'setTrackBpm':
+          player.setTrackBpm((message['bpm'] as num?)?.toDouble() ?? 120.0);
+          break;
+        case 'setNextTrackBpm':
+          player.setNextTrackBpm((message['bpm'] as num?)?.toDouble() ?? 120.0);
           break;
         case 'setNextReplayGain':
           player.setNextReplayGain(

@@ -108,6 +108,32 @@ void main() {
   assert(status.deckAVolume == 1.0, 'status.deckAVolume failed');
   assert(status.deckBVolume == 0.0, 'status.deckBVolume failed');
 
+  // Test BPM APIs
+  engine.setTrackBpm(128.0);
+  assert((engine.getTrackBpm() - 128.0).abs() < 0.01, 'getTrackBpm failed');
+  engine.setNextTrackBpm(132.0);
+
+  // Test Space Echo and Beat Blend configurations
+  const spaceEchoCfg = AutomixConfig(
+    enabled: true,
+    style: AutomixStyle.spaceEcho,
+    transitionBars: 8,
+    tempoSyncEnabled: true,
+    keyLockEnabled: true,
+  );
+  engine.setAutomixConfig(spaceEchoCfg);
+  assert(engine.getAutomixConfig().style == AutomixStyle.spaceEcho);
+
+  const beatBlendCfg = AutomixConfig(
+    enabled: true,
+    style: AutomixStyle.beatBlend,
+    transitionBars: 16,
+    tempoSyncEnabled: true,
+    keyLockEnabled: true,
+  );
+  engine.setAutomixConfig(beatBlendCfg);
+  assert(engine.getAutomixConfig().style == AutomixStyle.beatBlend);
+
   engine.destroy();
   print('ALL AUTOMIX NATIVE & DART TESTS PASSED SUCCESSFULLY!');
 }

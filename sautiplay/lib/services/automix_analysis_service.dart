@@ -99,7 +99,7 @@ class AutomixAnalysisService {
 
     final numA = int.tryParse(keyA.replaceAll(RegExp(r'[^0-9]'), '')) ?? 8;
     final numB = int.tryParse(keyB.replaceAll(RegExp(r'[^0-9]'), '')) ?? 8;
-    final letterA = keyA.endsWith('A') ? 'A' : 'B';
+    final letterA = keyA.endsWith('B') ? 'B' : 'A';
     final letterB = keyB.endsWith('B') ? 'B' : 'A';
 
     // Relative Major / Minor (same number, different letter)
@@ -121,7 +121,7 @@ class AutomixAnalysisService {
       if (numB == boost) return CamelotHarmonicRelation.energyBoost;
     }
 
-    // Near-miss keys (can be shifted cleanly by ±1 semitone)
+    // Diagonal wheel modulation (e.g. 8A -> 9B or 8A -> 7B)
     final diff = (numA - numB).abs();
     if (diff == 1 || diff == 11) {
       return CamelotHarmonicRelation.nearMiss;

@@ -220,6 +220,9 @@ extern "C"
     AE_API void ae_get_automix_config(AudioEngineHandle *engine, AEAutomixConfig *out_config);
     AE_API AEAutomixStatus ae_get_automix_status(AudioEngineHandle *engine);
     AE_API void ae_trigger_automix_transition(AudioEngineHandle *engine);
+    AE_API void ae_set_track_bpm(AudioEngineHandle *engine, float bpm);
+    AE_API void ae_set_next_track_bpm(AudioEngineHandle *engine, float bpm);
+    AE_API float ae_get_track_bpm(AudioEngineHandle *engine);
 
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);
     AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine);

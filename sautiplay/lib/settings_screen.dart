@@ -3565,6 +3565,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               },
                             ),
                             ChoiceChip(
+                              label: const Text('Space Echo'),
+                              selected: _automixStyle == 'space_echo' || _automixStyle == 'echo',
+                              selectedColor: _primary.withValues(alpha: 0.22),
+                              side: BorderSide(
+                                color: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
+                                    ? _primary
+                                    : context.outlineColor,
+                              ),
+                              labelStyle: TextStyle(
+                                color: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
+                                    ? _primary
+                                    : _textPrimary,
+                                fontWeight: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                fontSize: 12,
+                              ),
+                              onSelected: (_) {
+                                setState(() => _automixStyle = 'space_echo');
+                                setSubState(() {});
+                                _applyAutomixConfig();
+                              },
+                            ),
+                            ChoiceChip(
                               label: const Text('Drop / Cut'),
                               selected: _automixStyle == 'cut',
                               selectedColor: _primary.withValues(alpha: 0.22),

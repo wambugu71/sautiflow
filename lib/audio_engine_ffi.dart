@@ -1934,6 +1934,15 @@ typedef _TriggerAutomixTransitionNative = ffi.Void Function(
 typedef _TriggerAutomixTransitionDart = void Function(
     ffi.Pointer<ffi.Void>);
 
+typedef _SetTrackBpmNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float);
+typedef _SetTrackBpmDart = void Function(
+    ffi.Pointer<ffi.Void>, double);
+typedef _GetTrackBpmNative = ffi.Float Function(
+    ffi.Pointer<ffi.Void>);
+typedef _GetTrackBpmDart = double Function(
+    ffi.Pointer<ffi.Void>);
+
 typedef _SetCrossfeedAlgorithmNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetCrossfeedAlgorithmDart = void Function(ffi.Pointer<ffi.Void>, int);
@@ -2787,11 +2796,23 @@ class AudioEngineFFI {
       _triggerAutomixTransition = _lib.lookupFunction<_TriggerAutomixTransitionNative, _TriggerAutomixTransitionDart>(
         'ae_trigger_automix_transition',
       );
+      _setTrackBpm = _lib.lookupFunction<_SetTrackBpmNative, _SetTrackBpmDart>(
+        'ae_set_track_bpm',
+      );
+      _setNextTrackBpm = _lib.lookupFunction<_SetTrackBpmNative, _SetTrackBpmDart>(
+        'ae_set_next_track_bpm',
+      );
+      _getTrackBpm = _lib.lookupFunction<_GetTrackBpmNative, _GetTrackBpmDart>(
+        'ae_get_track_bpm',
+      );
     } catch (_) {
       _setAutomixConfig = null;
       _getAutomixConfig = null;
       _getAutomixStatus = null;
       _triggerAutomixTransition = null;
+      _setTrackBpm = null;
+      _setNextTrackBpm = null;
+      _getTrackBpm = null;
     }
 
       _setLoudnessCrossfadeEnabled =
@@ -3678,6 +3699,9 @@ class AudioEngineFFI {
   _GetAutomixConfigDart? _getAutomixConfig;
   _GetAutomixStatusDart? _getAutomixStatus;
   _TriggerAutomixTransitionDart? _triggerAutomixTransition;
+  _SetTrackBpmDart? _setTrackBpm;
+  _SetTrackBpmDart? _setNextTrackBpm;
+  _GetTrackBpmDart? _getTrackBpm;
 
   _SetIntDart? _setLoudnessCrossfadeEnabled;
   _GetIntDart? _getLoudnessCrossfadeEnabled;
@@ -4348,6 +4372,21 @@ class AudioEngineFFI {
   void triggerAutomixTransition() {
     if (_engine == ffi.nullptr || _triggerAutomixTransition == null) return;
     _triggerAutomixTransition!(_engine);
+  }
+
+  void setTrackBpm(double bpm) {
+    if (_engine == ffi.nullptr || _setTrackBpm == null) return;
+    _setTrackBpm!(_engine, bpm);
+  }
+
+  void setNextTrackBpm(double bpm) {
+    if (_engine == ffi.nullptr || _setNextTrackBpm == null) return;
+    _setNextTrackBpm!(_engine, bpm);
+  }
+
+  double getTrackBpm() {
+    if (_engine == ffi.nullptr || _getTrackBpm == null) return 120.0;
+    return _getTrackBpm!(_engine);
   }
 
   void setLoudnessCrossfadeEnabled(bool enabled) {

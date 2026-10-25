@@ -261,6 +261,9 @@ class MiniAudioPlayer {
   AutomixConfig getAutomixConfig() => _engine.getAutomixConfig();
   AutomixStatus getAutomixStatus() => _engine.getAutomixStatus();
   void triggerAutomixTransition() => _engine.triggerAutomixTransition();
+  void setTrackBpm(double bpm) => _engine.setTrackBpm(bpm);
+  void setNextTrackBpm(double bpm) => _engine.setNextTrackBpm(bpm);
+  double getTrackBpm() => _engine.getTrackBpm();
 
   PlayerStatus get status => _engine.getStatus();
   double get deviceLatencyMs => _engine.getDeviceLatencyMs();
