@@ -4543,7 +4543,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : 'Connect YouTube Account',
                       subtitle: isAuthenticated
                           ? 'Active session • Bot immunity enabled'
-                          : 'Optional: Sign in or paste cookies to prevent bot challenge blocks',
+                          : 'Optional: 1-click sync from browser to bypass bot verification',
                       leading: _buildLeadingIcon(
                         isAuthenticated
                             ? Icons.verified_user_rounded

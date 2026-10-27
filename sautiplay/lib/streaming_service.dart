@@ -7,6 +7,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import 'services/app_state_service.dart';
 import 'services/authenticated_youtube_client.dart';
+import 'services/browser_cookie_sync_service.dart';
 import 'services/youtube_auth_service.dart';
 
 /// Supported audio streaming quality presets.
@@ -257,10 +258,25 @@ class StreamingService {
         debugPrint(
             '[StreamingService] Direct extraction attempt $attempt failed for $videoId: $e');
 
-        if (e is VideoUnplayableException &&
+        if ((e is VideoUnplayableException || e is VideoUnavailableException) &&
             !YouTubeAuthService.instance.hasAuth) {
           debugPrint(
-              '[StreamingService] ℹ️ YouTube bot verification challenged this request. Connecting an account in Settings provides 100% immunity.');
+              '[StreamingService] ℹ️ Bot verification triggered. Attempting seamless 1-click sync from browser session...');
+          try {
+            final syncRes = await BrowserCookieSyncService.instance.syncFromAnyBrowser();
+            if (syncRes.success) {
+              debugPrint(
+                  '[StreamingService] ✓ Seamlessly auto-synced session from ${syncRes.browserName}! Retrying extraction...');
+              return resolveStreamDetailed(
+                videoId,
+                quality: quality,
+                preferAac: preferAac,
+                allowFallback: allowFallback,
+              );
+            }
+          } catch (syncErr) {
+            debugPrint('[StreamingService] Seamless sync attempt error: $syncErr');
+          }
         }
 
         // Re-instantiate client safely if connection or state error occurred

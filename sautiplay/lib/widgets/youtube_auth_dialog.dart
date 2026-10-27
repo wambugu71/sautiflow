@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/youtube_auth_service.dart';
+import '../services/browser_cookie_sync_service.dart';
 
 /// Modal dialog for managing optional YouTube account connection and session cookies.
 class YouTubeAuthDialog extends StatefulWidget {
@@ -13,6 +14,7 @@ class YouTubeAuthDialog extends StatefulWidget {
 class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
   final TextEditingController _cookieController = TextEditingController();
   bool _isSaving = false;
+  bool _isSyncing = false;
   String? _statusMessage;
   bool _isError = false;
 
@@ -29,6 +31,45 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
   void dispose() {
     _cookieController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handle1ClickBrowserSync() async {
+    setState(() {
+      _isSyncing = true;
+      _statusMessage = 'Scanning installed browsers for active YouTube session...';
+      _isError = false;
+    });
+
+    final result = await BrowserCookieSyncService.instance.syncFromAnyBrowser();
+
+    if (!mounted) return;
+
+    if (result.success && result.cookieHeader != null) {
+      setState(() {
+        _isSyncing = false;
+        _cookieController.text = result.cookieHeader!;
+        _statusMessage = '✓ Successfully synced ${result.cookieCount} session cookies from ${result.browserName}! Connected.';
+        _isError = false;
+      });
+      await Future.delayed(const Duration(milliseconds: 1000));
+      if (mounted) Navigator.of(context).pop(true);
+    } else {
+      setState(() {
+        _isSyncing = false;
+        _statusMessage = result.errorMessage ?? 'Could not find an active YouTube session in browsers.';
+        _isError = true;
+      });
+    }
+  }
+
+  Future<void> _handleOpenYouTube() async {
+    await BrowserCookieSyncService.instance.openYouTubeSignInPage();
+    if (mounted) {
+      setState(() {
+        _statusMessage = 'Browser opened. Sign into YouTube/Google, then click "1-Click Sync".';
+        _isError = false;
+      });
+    }
   }
 
   Future<void> _handleSave() async {
@@ -103,8 +144,8 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       backgroundColor: theme.colorScheme.surface,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Padding(
+        constraints: const BoxConstraints(maxWidth: 540),
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -157,45 +198,104 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
               ),
               const SizedBox(height: 18),
 
-              // Description banner
+              // 1-Click Sync Hero Card
               Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: isConnected
-                      ? Colors.greenAccent.withValues(alpha: 0.08)
-                      : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                    colors: [
+                      primaryColor.withValues(alpha: 0.22),
+                      primaryColor.withValues(alpha: 0.08),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: isConnected
-                        ? Colors.greenAccent.withValues(alpha: 0.3)
-                        : theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                    color: primaryColor.withValues(alpha: 0.35),
                   ),
                 ),
-                child: Row(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      isConnected ? Icons.verified_user_rounded : Icons.info_outline_rounded,
-                      color: isConnected ? Colors.greenAccent : primaryColor,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        isConnected
-                            ? 'Your session cookies are active. All stream requests are authenticated directly with YouTube without bot detection or IP throttles.'
-                            : 'Login is optional. If YouTube blocks your network IP with "Sign in to confirm you\'re not a bot", pasting your session cookies instantly restores direct playback.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.4,
-                          color: theme.colorScheme.onSurface,
+                    Row(
+                      children: [
+                        Icon(Icons.bolt_rounded, color: primaryColor, size: 22),
+                        const SizedBox(width: 8),
+                        Text(
+                          '1-Click Browser Sync',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: theme.colorScheme.onSurface,
+                          ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Instantly imports your active YouTube login session from Firefox, Edge, or Chrome. No copying or pasting needed.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          ),
+                          icon: _isSyncing
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.sync_rounded, size: 16),
+                          label: Text(_isSyncing ? 'Syncing...' : '⚡ Sync from Browser'),
+                          onPressed: _isSyncing ? null : _handle1ClickBrowserSync,
+                        ),
+                        const SizedBox(width: 10),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          ),
+                          icon: const Icon(Icons.open_in_browser_rounded, size: 15),
+                          label: const Text('Sign in on Web', style: TextStyle(fontSize: 12)),
+                          onPressed: _handleOpenYouTube,
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
+
+              // Divider / or paste manually
+              Row(
+                children: [
+                  Expanded(child: Divider(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      'OR PASTE MANUALLY',
+                      style: TextStyle(
+                        fontSize: 11,
+                        letterSpacing: 0.8,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                  Expanded(child: Divider(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
+                ],
+              ),
+              const SizedBox(height: 14),
 
               // Cookie input field
               Row(
@@ -213,7 +313,7 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
                     icon: const Icon(Icons.content_paste_rounded, size: 16),
-                    label: const Text('Paste from Clipboard', style: TextStyle(fontSize: 12)),
+                    label: const Text('Paste Clipboard', style: TextStyle(fontSize: 12)),
                     onPressed: _handlePasteFromClipboard,
                   ),
                 ],
@@ -221,10 +321,10 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
               const SizedBox(height: 6),
               TextField(
                 controller: _cookieController,
-                maxLines: 4,
+                maxLines: 3,
                 style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
                 decoration: InputDecoration(
-                  hintText: 'Paste "VISITOR_INFO1_LIVE=...; LOGIN_INFO=...;" or exported cookies.txt here...',
+                  hintText: 'Paste "LOGIN_INFO=...; VISITOR_INFO1_LIVE=...;" or cookies.txt here...',
                   hintStyle: TextStyle(
                     fontSize: 12,
                     color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
