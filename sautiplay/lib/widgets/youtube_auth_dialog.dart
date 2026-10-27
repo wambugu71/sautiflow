@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/youtube_auth_service.dart';
 import '../services/browser_cookie_sync_service.dart';
+import 'youtube_webview_login_modal.dart';
 
 /// Modal dialog for managing optional YouTube account connection and session cookies.
 class YouTubeAuthDialog extends StatefulWidget {
@@ -299,33 +300,86 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
                 const SizedBox(height: 14),
               ] else ...[
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(16),
+                    gradient: LinearGradient(
+                      colors: [
+                        primaryColor.withValues(alpha: 0.22),
+                        primaryColor.withValues(alpha: 0.08),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                      color: primaryColor.withValues(alpha: 0.35),
                     ),
                   ),
-                  child: Row(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.phone_android_rounded, color: primaryColor, size: 20),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'On Android and iOS, SautiPlay streams directly via native mobile client protocols, which bypass YouTube bot blocks automatically. If you want to connect your account, paste your cookies below.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.4,
-                            color: theme.colorScheme.onSurface,
+                      Row(
+                        children: [
+                          Icon(Icons.smartphone_rounded, color: primaryColor, size: 22),
+                          const SizedBox(width: 8),
+                          Text(
+                            'In-App Google Sign-In',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: theme.colorScheme.onSurface,
+                            ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Sign into YouTube directly within the app. Cookies are intercepted and applied automatically.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.4,
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        ),
+                        icon: const Icon(Icons.login_rounded, size: 16),
+                        label: const Text('📱 Sign In to YouTube'),
+                        onPressed: () async {
+                          final nav = Navigator.of(context);
+                          final success = await YouTubeWebViewLoginModal.show(context);
+                          if (success == true && mounted) {
+                            nav.pop(true);
+                          }
+                        },
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(child: Divider(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        'OR PASTE MANUALLY',
+                        style: TextStyle(
+                          fontSize: 11,
+                          letterSpacing: 0.8,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                    Expanded(child: Divider(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
+                  ],
+                ),
+                const SizedBox(height: 14),
               ],
 
               // Cookie input field
