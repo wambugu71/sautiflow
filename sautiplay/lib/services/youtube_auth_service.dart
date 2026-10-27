@@ -5,8 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../database/preferences_store.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Service managing seamless 1-click Google/YouTube OAuth sign-in via Browser Loopback,
-/// session tokens, and bot mitigation headers.
+/// Service managing seamless optional Google/YouTube authentication,
+/// session tokens, cookie persistence, and bot mitigation headers.
 class YouTubeAuthService {
   static final YouTubeAuthService instance = YouTubeAuthService._internal();
 
@@ -33,7 +33,15 @@ class YouTubeAuthService {
   final ValueNotifier<String?> accountNameNotifier =
       ValueNotifier<String?>(null);
 
+  /// Callback triggered whenever auth state changes (e.g. cookie saved or signed out)
+  VoidCallback? onAuthStateChanged;
+
   bool _isInitialized = false;
+
+  bool get hasAuth => isAuthenticatedNotifier.value;
+
+  String? get currentCookie =>
+      PreferencesStore.instance.getString(_kCookieAuthKey);
 
   /// Initializes auth state from persistent storage.
   Future<void> init() async {
@@ -46,8 +54,8 @@ class YouTubeAuthService {
       final cookie = prefs.getString(_kCookieAuthKey);
       final accountName = prefs.getString(_kUserAccountNameKey);
 
-      if ((accessToken != null && accessToken.isNotEmpty) ||
-          (cookie != null && cookie.isNotEmpty)) {
+      if ((accessToken != null && accessToken.trim().isNotEmpty) ||
+          (cookie != null && cookie.trim().isNotEmpty)) {
         isAuthenticatedNotifier.value = true;
         accountNameNotifier.value = accountName ?? 'Authenticated Account';
       }
@@ -56,13 +64,70 @@ class YouTubeAuthService {
     }
   }
 
+  /// Synchronous retrieval of active Cookie / Bearer headers for instant HTTP client setup.
+  Map<String, String> getAuthHeadersSync() {
+    try {
+      final prefs = PreferencesStore.instance;
+      final cookie = prefs.getString(_kCookieAuthKey);
+      if (cookie != null && cookie.trim().isNotEmpty) {
+        return {'Cookie': cookie.trim()};
+      }
+      final token = prefs.getString(_kAccessTokenKey);
+      if (token != null && token.trim().isNotEmpty) {
+        return {'Authorization': 'Bearer ${token.trim()}'};
+      }
+    } catch (_) {}
+    return const {};
+  }
+
+  /// Sanitizes raw cookie strings, automatically handling Netscape / cookies.txt
+  /// export format as well as standard HTTP header "name=value; name2=val2" format.
+  static String sanitizeCookieString(String raw) {
+    raw = raw.trim();
+    if (raw.isEmpty) return '';
+
+    // If it's Netscape / cookies.txt format (tab-separated lines)
+    if (raw.contains('\t')) {
+      final lines = raw.split('\n');
+      final pairs = <String>[];
+      for (final line in lines) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+        final parts = trimmed.split('\t');
+        if (parts.length >= 7) {
+          final name = parts[5].trim();
+          final value = parts[6].trim();
+          if (name.isNotEmpty) {
+            pairs.add('$name=$value');
+          }
+        }
+      }
+      if (pairs.isNotEmpty) {
+        return pairs.join('; ');
+      }
+    }
+
+    // Otherwise, normalize standard "name=value; name2=value2"
+    return raw.replaceAll('\r', '').replaceAll('\n', ' ').trim();
+  }
+
+  /// Saves session cookie directly and notifies consumers (StreamingService).
+  Future<void> saveCookieAuth(String rawCookie) async {
+    final clean = sanitizeCookieString(rawCookie);
+    if (clean.isEmpty) return;
+
+    final prefs = PreferencesStore.instance;
+    await prefs.setString(_kCookieAuthKey, clean);
+    await prefs.setString(_kUserAccountNameKey, 'Connected YouTube Session');
+
+    isAuthenticatedNotifier.value = true;
+    accountNameNotifier.value = 'Connected YouTube Session';
+
+    debugPrint('[YouTubeAuthService] Session cookies saved successfully.');
+    onAuthStateChanged?.call();
+  }
+
   /// Initiates a 1-click Browser Loopback Google OAuth sign-in flow.
-  ///
-  /// 1. Binds a temporary local loopback HTTP server.
-  /// 2. Launches the user's browser to the Google sign-in consent page.
-  /// 3. Intercepts the OAuth authorization code on the loopback callback.
-  /// 4. Displays a success confirmation page in the browser.
-  /// 5. Exchanges the authorization code for tokens and persists them.
   Future<bool> signInWithBrowser({
     ValueChanged<String>? onStatusUpdate,
   }) async {
@@ -113,7 +178,6 @@ class YouTubeAuthService {
       final code = queryParams['code'];
       final error = queryParams['error'];
 
-      // Send response to browser
       request.response.headers.contentType = ContentType.html;
       if (code != null && code.isNotEmpty) {
         request.response.write('''
@@ -182,6 +246,7 @@ class YouTubeAuthService {
           isAuthenticatedNotifier.value = true;
           accountNameNotifier.value = 'YouTube User';
           onStatusUpdate?.call('Successfully signed in!');
+          onAuthStateChanged?.call();
           return true;
         } else {
           onStatusUpdate?.call('Failed to exchange authorization token.');
@@ -266,15 +331,6 @@ class YouTubeAuthService {
     }
   }
 
-  /// Saves session cookie / SAPISID token directly.
-  Future<void> saveCookieAuth(String cookieString) async {
-    final prefs = PreferencesStore.instance;
-    await prefs.setString(_kCookieAuthKey, cookieString.trim());
-    await prefs.setString(_kUserAccountNameKey, 'YouTube User (Cookie)');
-    isAuthenticatedNotifier.value = true;
-    accountNameNotifier.value = 'YouTube User (Cookie)';
-  }
-
   /// Saves custom Google Cloud OAuth credentials if provided.
   Future<void> saveCustomClientCredentials({
     required String clientId,
@@ -297,7 +353,7 @@ class YouTubeAuthService {
     );
   }
 
-  /// Disconnects account and clears tokens.
+  /// Disconnects account, clears session tokens and cookies.
   Future<void> signOut() async {
     try {
       final prefs = PreferencesStore.instance;
@@ -309,25 +365,17 @@ class YouTubeAuthService {
 
       isAuthenticatedNotifier.value = false;
       accountNameNotifier.value = null;
+
+      debugPrint('[YouTubeAuthService] Signed out / Session cookies cleared.');
+      onAuthStateChanged?.call();
     } catch (e) {
       debugPrint('[YouTubeAuthService] Error during sign out: $e');
     }
   }
 
-  /// Retrieves active Bearer token or Cookie headers.
+  /// Retrieves active Bearer token or Cookie headers asynchronously.
   Future<Map<String, String>> getAuthHeaders() async {
-    try {
-      final prefs = PreferencesStore.instance;
-      final token = prefs.getString(_kAccessTokenKey);
-      if (token != null && token.isNotEmpty) {
-        return {'Authorization': 'Bearer $token'};
-      }
-      final cookie = prefs.getString(_kCookieAuthKey);
-      if (cookie != null && cookie.isNotEmpty) {
-        return {'Cookie': cookie};
-      }
-    } catch (_) {}
-    return {};
+    return getAuthHeadersSync();
   }
 
   Future<void> _saveTokens({

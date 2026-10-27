@@ -47,6 +47,7 @@ import 'services/recently_played_service.dart';
 import 'settings_screen.dart';
 import 'shimmer_mini_player.dart';
 import 'widgets/app_showcase.dart';
+import 'widgets/sauti_icons.dart';
 import 'package:sautiplay/services/dlna_service.dart';
 import 'package:sautiplay/services/dlna_renderer_service.dart';
 import 'package:sautiplay/services/local_media_server.dart';
@@ -55,11 +56,14 @@ import 'services/audio_hardware_inspector.dart';
 import 'services/app_update_service.dart';
 import 'services/projectm_preset_manager.dart';
 import 'streaming_service.dart';
+import 'services/youtube_auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabaseMigrationHelper.migrateIfNeeded();
   await LikedSongsService.instance.init();
+  await YouTubeAuthService.instance.init();
+  StreamingService.ensureInitialized();
   unawaited(ProjectMPresetManager.instance.initialize());
   // Metadata God removed in favor of audiotags
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -3355,7 +3359,7 @@ void _showNowPlayingScreen() {
                           'Your offline audio vault. Browse local files, playlists, artists, albums & network sources.',
                       currentStep: 2,
                       totalSteps: 5,
-                      child: const Icon(Icons.library_music_rounded),
+                      child: const Icon(SautiIcons.playlists),
                     ),
                     label: context.strings.navLibrary,
                   ),
@@ -3367,7 +3371,7 @@ void _showNowPlayingScreen() {
                           'Tailor your sound with 10-band EQ, Sauti DSP Suite effects & real-time spectrum visualizers.',
                       currentStep: 3,
                       totalSteps: 5,
-                      child: const Icon(Icons.tune),
+                      child: const Icon(SautiIcons.audioEngine),
                     ),
                     label: context.strings.navEffects,
                   ),
@@ -3379,7 +3383,7 @@ void _showNowPlayingScreen() {
                           'Configure sample rates, exclusive mode, crossfade & re-trigger this tour anytime.',
                       currentStep: 5,
                       totalSteps: 5,
-                      child: const Icon(Icons.settings),
+                      child: const Icon(SautiIcons.settings),
                     ),
                     label: context.strings.navSettings,
                   ),

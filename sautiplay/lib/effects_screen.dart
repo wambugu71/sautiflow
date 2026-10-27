@@ -6,6 +6,7 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'database/preferences_store.dart';
 import 'eq_screen.dart';
+import 'widgets/sauti_icons.dart';
 import 'isolate_player.dart';
 import 'models/audio_profile.dart';
 import 'services/app_theme_service.dart';
@@ -507,7 +508,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                       children: [
                         if (Navigator.canPop(context))
                           const BackButton(color: Colors.white),
-                        Icon(Icons.tune_rounded, color: primaryColor, size: 22),
+                        Icon(SautiIcons.audioEngine, color: primaryColor, size: 22),
                         const SizedBox(width: 8),
                         Text(
                           context.strings.soundEffectsAndEq,
@@ -523,8 +524,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         //icon:
                         Icon(
                           widget.analyzerEnabled
-                              ? Icons.equalizer
-                              : Icons.equalizer_outlined,
+                              ? SautiIcons.visualizers
+                              : SautiIcons.showVisualizer,
                           color: widget.analyzerEnabled
                               ? primaryColor
                               : Colors.white38,
@@ -584,7 +585,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           Icon(
-                                            Icons.grid_view_rounded,
+                                            SautiIcons.visualizers,
                                             color: primaryColor,
                                             size: 16,
                                           ),
@@ -935,7 +936,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           Icon(
-                                            Icons.bar_chart_rounded,
+                                            SautiIcons.eqProfiles,
                                             color: primaryColor,
                                             size: 16,
                                           ),
@@ -991,7 +992,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       Border.all(color: context.outlineColor),
                                 ),
                                 child: Icon(
-                                  Icons.save_outlined,
+                                  SautiIcons.presetEq,
                                   color: context.textPrimary,
                                   size: 17,
                                 ),
@@ -1022,7 +1023,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                       Border.all(color: context.outlineColor),
                                 ),
                                 child: Icon(
-                                  Icons.tune_rounded,
+                                  SautiIcons.presetManager,
                                   color: context.textPrimary,
                                   size: 17,
                                 ),

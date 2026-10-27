@@ -17,6 +17,7 @@ import 'package:m3e_seekbar/m3e_seekbar.dart';
 import 'eq_screen.dart';
 import 'isolate_player.dart';
 import 'widgets/app_m3e_widgets.dart';
+import 'widgets/sauti_icons.dart';
 import 'widgets/album_art_shape_selector.dart';
 import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
@@ -28,6 +29,8 @@ import 'services/cached_stream_service.dart';
 import 'services/lastfm_service.dart';
 import 'services/proximity_gesture_service.dart';
 import 'streaming_service.dart';
+import 'services/youtube_auth_service.dart';
+import 'widgets/youtube_auth_dialog.dart';
 import 'services/app_update_service.dart';
 import 'widgets/app_update_dialog.dart';
 import 'faq_screen.dart';
@@ -647,7 +650,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               title: context.strings.appearance,
                               subtitle:
                                   '${AppThemeService.dataFor(_activeThemeId).displayName} • ${_getLanguageSubtitle()}',
-                              icon: Icons.palette_outlined,
+                              icon: SautiIcons.lookAndFeel,
                               accentColor: _primary,
                               onTap: () => _navigateToSubScreen(
                                   _buildLookAndFeelSubScreen()),
@@ -656,7 +659,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             _buildCategoryCard(
                               title: context.strings.audioEngine,
                               subtitle: _getAudioProcessingSubtitle(),
-                              icon: Icons.graphic_eq_rounded,
+                              icon: SautiIcons.audioEngine,
                               accentColor: _primary,
                               onTap: () => _navigateToSubScreen(
                                   _buildAudioProcessingSubScreen()),
@@ -665,7 +668,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             _buildCategoryCard(
                               title: context.strings.equalizer,
                               subtitle: '$_eqBandCount bands • Sound tuning',
-                              icon: Icons.tune_rounded,
+                              icon: SautiIcons.equalizerModule,
                               accentColor: _primary,
                               onTap: () => _navigateToSubScreen(
                                   _buildEqualizerSubScreen()),
@@ -676,7 +679,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               subtitle: widget.analyzerEnabled
                                   ? '${widget.spectrumStyle.toUpperCase()} • Live Meter'
                                   : 'Visualizer off',
-                              icon: Icons.bar_chart_rounded,
+                              icon: SautiIcons.visualizerModule,
                               accentColor: _primary,
                               onTap: () => _navigateToSubScreen(
                                   _buildVisualizationSubScreen()),
@@ -687,7 +690,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               subtitle: widget.crossfadeEnabled
                                   ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s crossfade'
                                   : 'Gapless playback',
-                              icon: Icons.queue_music_rounded,
+                              icon: SautiIcons.playbackModule,
                               accentColor: _primary,
                               onTap: () => _navigateToSubScreen(
                                   _buildPlaybackSubScreen()),
@@ -717,7 +720,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               title: context.strings.streamingStorage,
                               subtitle:
                                   '${_getStreamingQualityBadgeText()} quality • Offline cache',
-                              icon: Icons.stream_rounded,
+                              icon: SautiIcons.streamingStorage,
                               accentColor: _primary,
                               onTap: () => _navigateToSubScreen(
                                   _buildDataAndStreamingSubScreen()),
@@ -726,7 +729,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             _buildCategoryCard(
                               title: context.strings.localAndNetwork,
                               subtitle: 'FTP servers & DLNA media hubs',
-                              icon: Icons.lan_rounded,
+                              icon: SautiIcons.localNetworkAudio,
                               accentColor: _primary,
                               onTap: () {
                                 Navigator.push(
@@ -752,7 +755,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   subtitle: lastFm.isLoggedIn
                                       ? 'Connected as ${lastFm.username}'
                                       : 'Connect account to sync scrobbles',
-                                  icon: Icons.radio_rounded,
+                                  icon: SautiIcons.lastfm,
                                   accentColor: const Color(0xFFD51007),
                                   onTap: () => _navigateToSubScreen(
                                       _buildLastFmSubScreen()),
@@ -783,7 +786,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   subtitle: hasUpdate
                                       ? 'New update available to install'
                                       : 'v$_appVersion • FAQs & error logs',
-                                  icon: Icons.admin_panel_settings_outlined,
+                                  icon: SautiIcons.aboutDiagnostics,
                                   accentColor:
                                       hasUpdate ? Colors.greenAccent : _primary,
                                   alertBadge: hasUpdate ? 'Update' : null,
@@ -1471,7 +1474,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   supportingText:
                       _getResampleAlgorithmSupportingText(_resampleAlgorithm),
                   value: _getResampleAlgorithmShortName(_resampleAlgorithm),
-                  leading: _buildLeadingIcon(Icons.memory),
+                  leading: _buildLeadingIcon(SautiIcons.resampling),
                   onTap: () => _showResampleAlgorithmDialog(
                       onDone: () => setSubState(() {})),
                 ),
@@ -1480,7 +1483,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   headline: 'Oversampling',
                   supportingText: 'Internal anti-aliasing for audio filters',
                   value: _getOversamplingName(_dspOversampling),
-                  leading: _buildLeadingIcon(Icons.blur_on),
+                  leading: _buildLeadingIcon(SautiIcons.oversampling),
                   onTap: () =>
                       _showOversamplingDialog(onDone: () => setSubState(() {})),
                 ),
@@ -1490,7 +1493,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   supportingText:
                       'Eliminates truncation noise when bit depth changes',
                   value: _getDitherModeName(_ditherMode),
-                  leading: _buildLeadingIcon(Icons.waves),
+                  leading: _buildLeadingIcon(SautiIcons.frequencyScale),
                   onTap: () =>
                       _showDitherModeDialog(onDone: () => setSubState(() {})),
                 ),
@@ -1505,7 +1508,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   headline: 'Output Bit Depth',
                   supportingText: 'Hardware playback resolution',
                   value: _formatAudioDepth(widget.outputFormat),
-                  leading: _buildLeadingIcon(Icons.code),
+                  leading: _buildLeadingIcon(SautiIcons.bitDepth),
                   onTap: () =>
                       _showOutputFormatDialog(onDone: () => setSubState(() {})),
                 ),
@@ -1523,7 +1526,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: widget.outputSampleRate == 0
                           ? 'Native'
                           : '${widget.outputSampleRate} Hz',
-                      leading: _buildLeadingIcon(Icons.speed),
+                      leading: _buildLeadingIcon(SautiIcons.samplerate),
                       onTap: () => _showSampleRateDialog(
                           onDone: () => setSubState(() {})),
                     ),
@@ -1534,7 +1537,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   headline: 'Output Channels',
                   supportingText: 'Speaker channel layout',
                   value: _formatChannelCount(widget.outputChannels),
-                  leading: _buildLeadingIcon(Icons.speaker_group),
+                  leading: _buildLeadingIcon(SautiIcons.outputChannels),
                   onTap: () =>
                       _showChannelsDialog(onDone: () => setSubState(() {})),
                 ),
@@ -1544,7 +1547,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   supportingText: 'Hardware audio buffer size and periods',
                   value: _formatOutputBuffer(
                       _outputBufferFrames, _outputBufferPeriods),
-                  leading: _buildLeadingIcon(Icons.av_timer_rounded),
+                  leading: _buildLeadingIcon(SautiIcons.bufferLatency),
                   onTap: () =>
                       _showOutputBufferDialog(onDone: () => setSubState(() {})),
                 ),
@@ -1552,7 +1555,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildM3ESwitchTile(
                   title: 'Invert Left Channel Phase',
                   subtitle: 'Invert left audio polarity (180°)',
-                  secondary: _buildLeadingIcon(Icons.swap_calls),
+                  secondary: _buildLeadingIcon(SautiIcons.invertPhaseL),
                   value: _phaseInvertLeft,
                   onChanged: (val) {
                     setState(() => _phaseInvertLeft = val);
@@ -1564,7 +1567,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildM3ESwitchTile(
                   title: 'Invert Right Channel Phase',
                   subtitle: 'Invert right audio polarity (180°)',
-                  secondary: _buildLeadingIcon(Icons.swap_calls),
+                  secondary: _buildLeadingIcon(SautiIcons.invertPhaseR),
                   value: _phaseInvertRight,
                   onChanged: (val) {
                     setState(() => _phaseInvertRight = val);
@@ -1579,7 +1582,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? 'Left and right audio channels are swapped'
                       : 'Standard stereo channel orientation',
                   secondary: _buildLeadingIcon(
-                    Icons.swap_horiz_rounded,
+                    SautiIcons.swapChannels,
                     _lrSwapEnabled ? _primary : _textDark,
                   ),
                   value: _lrSwapEnabled,
@@ -1598,7 +1601,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          _buildLeadingIcon(Icons.tune_rounded),
+                          _buildLeadingIcon(SautiIcons.perChannelGain),
                           const SizedBox(width: 16),
                           Expanded(
                             child: Column(
@@ -1749,7 +1752,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       subtitle: _autoBitPerfectEnabled
                           ? 'Managed automatically (Auto-Match enabled)'
                           : 'Bypasses system sound mixer for direct stream',
-                      secondary: _buildLeadingIcon(Icons.verified),
+                      secondary: _buildLeadingIcon(
+                        SautiIcons.bitPerfectCheck,
+                        widget.exclusiveMode
+                            ? Theme.of(context).colorScheme.primary
+                            : _textDark,
+                      ),
+
                       value: widget.exclusiveMode,
                       onChanged: (val) async {
                         widget.player.setExclusiveMode(val);
@@ -1845,7 +1854,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildM3ESwitchTile(
                   title: '64-Bit Studio DSP',
                   subtitle: 'Ultra-high precision floating point processing',
-                  secondary: _buildLeadingIcon(Icons.architecture),
+                  secondary: _buildLeadingIcon(SautiIcons.dsp64Bit),
                   value: _use64BitProcessingEnabled,
                   onChanged: (val) {
                     setState(() => _use64BitProcessingEnabled = val);
@@ -1858,7 +1867,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildM3ESwitchTile(
                   title: 'Auto Sample-Rate Match',
                   subtitle: 'Auto match hardware rate to source (Recommended)',
-                  secondary: _buildLeadingIcon(Icons.graphic_eq),
+                  secondary: _buildLeadingIcon(SautiIcons.autoSamplerate),
                   value: _autoBitPerfectEnabled,
                   onChanged: (val) {
                     setState(() => _autoBitPerfectEnabled = val);
@@ -2538,7 +2547,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Row(
                   children: [
                     AppShapeIcon(
-                      Icons.speed_rounded,
+                      SautiIcons.rmsLevel,
                       shape: Shapes.pill,
                       color: widget.analyzerEnabled ? _primary : _textDark,
                       size: 38,
@@ -2642,7 +2651,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle:
                       'Display real-time visualizer canvas above equalizer sliders (for all visualizers: Radar, Milkdrop, Waves, Dots, Waveform)',
                   secondary:
-                      _buildLeadingIcon(Icons.view_carousel_rounded),
+                      _buildLeadingIcon(SautiIcons.showVisualizer),
                   value: VisualizerSettingsService
                       .instance.effectsVisualizerEnabled,
                   onChanged: (v) async {
@@ -2669,7 +2678,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          _buildLeadingIcon(Icons.speed_rounded),
+                          _buildLeadingIcon(SautiIcons.refreshRate),
                           const SizedBox(width: 14),
                           Expanded(
                             child: Column(
@@ -2744,7 +2753,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       VisualizerSettingsService.instance.quality),
                   value: _getVisualizerQualityDisplayName(
                       VisualizerSettingsService.instance.quality),
-                  leading: _buildLeadingIcon(Icons.high_quality_rounded),
+                  leading: _buildLeadingIcon(SautiIcons.renderResolution),
                   onTap: () => _showVisualizerQualityDialog(setSubState),
                 ),
                 const M3EDivider(),
@@ -2753,7 +2762,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle:
                       'Throttles rendering to 15 FPS when audio is paused or silent',
                   secondary:
-                      _buildLeadingIcon(Icons.battery_saver_rounded),
+                      _buildLeadingIcon(SautiIcons.smartThrottling),
                   value:
                       VisualizerSettingsService.instance.batterySaverEnabled,
                   onChanged: (v) async {
@@ -2776,7 +2785,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Auto-Cycle Presets',
                   subtitle:
                       'Automatically transitions to next preset/theme after interval',
-                  secondary: _buildLeadingIcon(Icons.shuffle_rounded),
+                  secondary: _buildLeadingIcon(SautiIcons.autoCycles),
                   value:
                       VisualizerSettingsService.instance.autoChangeEnabled,
                   onChanged: (v) async {
@@ -3331,7 +3340,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Gapless Playback',
                   subtitle:
                       'Seamless transitions between continuous album tracks',
-                  secondary: _buildLeadingIcon(Icons.queue_music),
+                  secondary: _buildLeadingIcon(SautiIcons.gapless),
                   value: _gaplessPlayback,
                   onChanged: (v) {
                     setState(() => _gaplessPlayback = v);
@@ -3350,7 +3359,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           Row(
                             children: [
-                              _buildLeadingIcon(Icons.tune),
+                              _buildLeadingIcon(SautiIcons.crossfadeDuration),
                               const SizedBox(width: 16),
                               Text('Crossfade Duration',
                                   style: TextStyle(
@@ -3419,7 +3428,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ? 'Equalizes track volume before crossfading'
                         : 'Off (standard volume blend)',
                     secondary: _buildLeadingIcon(
-                      Icons.volume_up_rounded,
+                      SautiIcons.dynamicLoudness,
                       _loudnessCrossfadeEnabled ? _primary : _textDark,
                     ),
                     value: _loudnessCrossfadeEnabled,
@@ -3436,7 +3445,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildM3ESwitchTile(
                   title: 'ReplayGain Volume Normalization',
                   subtitle: 'Keeps consistent volume level across tracks',
-                  secondary: _buildLeadingIcon(Icons.bar_chart),
+                  secondary: _buildLeadingIcon(SautiIcons.replaygain),
                   value: _normalizeVolume,
                   onChanged: (v) {
                     setState(() => _normalizeVolume = v);
@@ -3457,7 +3466,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? 'Phrase-matched intelligent transitions active'
                       : 'Disabled (standard bit-perfect / gapless playback)',
                   secondary: _buildLeadingIcon(
-                    Icons.album_rounded,
+                    SautiIcons.autoDj,
                     _automixEnabled ? _primary : _textDark,
                   ),
                   value: _automixEnabled,
@@ -4512,6 +4521,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() => _enableHostedFallback = val);
                     setSubState(() {});
                     AppStateService.instance.saveEnableHostedFallback(val);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // ── CACHE & STORAGE ─────────────────────────────────────────────
+            // ── YOUTUBE ACCOUNT (OPTIONAL) ──────────────────────────────────
+            _buildSectionHeader('YOUTUBE ACCOUNT (OPTIONAL)'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                ValueListenableBuilder<bool>(
+                  valueListenable:
+                      YouTubeAuthService.instance.isAuthenticatedNotifier,
+                  builder: (context, isAuthenticated, _) {
+                    return AppSettingsTile(
+                      title: isAuthenticated
+                          ? 'Connected YouTube Account'
+                          : 'Connect YouTube Account',
+                      subtitle: isAuthenticated
+                          ? 'Active session • Bot immunity enabled'
+                          : 'Optional: Sign in or paste cookies to prevent bot challenge blocks',
+                      leading: _buildLeadingIcon(
+                        isAuthenticated
+                            ? Icons.verified_user_rounded
+                            : Icons.account_circle_outlined,
+                        isAuthenticated ? Colors.greenAccent : _primary,
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isAuthenticated)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.greenAccent.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: Colors.greenAccent.withValues(alpha: 0.4)),
+                              ),
+                              child: const Text(
+                                'Connected',
+                                style: TextStyle(
+                                  color: Colors.greenAccent,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          const Icon(Icons.chevron_right_rounded, size: 20),
+                        ],
+                      ),
+                      onTap: () async {
+                        await showDialog<bool>(
+                          context: context,
+                          builder: (context) => const YouTubeAuthDialog(),
+                        );
+                        setSubState(() {});
+                      },
+                    );
                   },
                 ),
               ],

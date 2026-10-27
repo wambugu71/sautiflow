@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import 'services/app_state_service.dart';
+import 'services/authenticated_youtube_client.dart';
+import 'services/youtube_auth_service.dart';
 
 /// Supported audio streaming quality presets.
 enum AudioQualityPreset {
@@ -122,13 +124,35 @@ class StreamResolutionResult {
 /// High-efficiency stream resolver for YouTube audio.
 ///
 /// Features:
-/// 1. Direct on-device extraction via [YoutubeExplode] (no third-party proxy required).
+/// 1. Direct on-device extraction via [YoutubeExplode] with dynamic session cookie injection.
 /// 2. Audio quality presets (Low, Medium, High, Audiophile).
-/// 3. Resilient fallback to hosted scraper API if YouTube blocks or errors.
+/// 3. Resilient fallback to validated scraper API if YouTube blocks or errors.
 /// 4. In-memory cache with ~5.5-hour TTL to prevent expired URL playback errors.
 /// 5. Concurrency-limited batch lookahead resolution for smooth queueing.
 class StreamingService {
-  static YoutubeExplode _ytExplode = YoutubeExplode();
+  static YoutubeExplode _createClient() {
+    return YoutubeExplode(
+      httpClient: AuthenticatedYoutubeHttpClient(),
+    );
+  }
+
+  static YoutubeExplode _ytExplode = _createClient();
+  static bool _authListenerInitialized = false;
+
+  /// Ensures auth changes cleanly recreate the Explode client with fresh session headers.
+  static void ensureInitialized() {
+    if (_authListenerInitialized) return;
+    _authListenerInitialized = true;
+    YouTubeAuthService.instance.onAuthStateChanged = () {
+      debugPrint(
+          '[StreamingService] YouTube auth state changed. Recreating Explode client...');
+      try {
+        _ytExplode.close();
+      } catch (_) {}
+      _ytExplode = _createClient();
+      clearCache();
+    };
+  }
 
   static const _hostedUrl1 = String.fromEnvironment(
     'STREAM_URL_1',
@@ -175,6 +199,7 @@ class StreamingService {
     bool allowFallback = true,
   }) async {
     if (videoId.isEmpty) return null;
+    ensureInitialized();
 
     // Load active settings if not explicitly specified
     final activeQuality =
@@ -232,11 +257,17 @@ class StreamingService {
         debugPrint(
             '[StreamingService] Direct extraction attempt $attempt failed for $videoId: $e');
 
+        if (e is VideoUnplayableException &&
+            !YouTubeAuthService.instance.hasAuth) {
+          debugPrint(
+              '[StreamingService] ℹ️ YouTube bot verification challenged this request. Connecting an account in Settings provides 100% immunity.');
+        }
+
         // Re-instantiate client safely if connection or state error occurred
         try {
           _ytExplode.close();
         } catch (_) {}
-        _ytExplode = YoutubeExplode();
+        _ytExplode = _createClient();
 
         // If it's the first attempt and looks like a transient network hitch, wait 1.2s and retry
         if (attempt == 1 &&
@@ -293,6 +324,7 @@ class StreamingService {
     AudioQualityPreset? quality,
     bool? preferAac,
   }) async {
+    ensureInitialized();
     final activeQuality =
         quality ?? await AppStateService.instance.loadStreamingQualityPreset();
     final activePreferAac =
@@ -325,7 +357,7 @@ class StreamingService {
         try {
           _ytExplode.close();
         } catch (_) {}
-        _ytExplode = YoutubeExplode();
+        _ytExplode = _createClient();
 
         if (attempt == 1 &&
             (e is SocketException ||
@@ -410,10 +442,11 @@ class StreamingService {
     try {
       _ytExplode.close();
     } catch (_) {}
+    _ytExplode = _createClient();
   }
 
   // ---------------------------------------------------------------------------
-  // Internal Hosted Server Fallback Helper
+  // Internal Hosted Server Fallback Helper & Validation
   // ---------------------------------------------------------------------------
 
   static Future<String?> _fetchFromHostedServer(
@@ -454,10 +487,64 @@ class StreamingService {
         return null;
       }
 
+      // Validate stream media before passing to player engine to prevent EOF/IO error
+      final isValidMedia = await _validateMediaStream(downloadUrl);
+      if (!isValidMedia) {
+        debugPrint(
+            '[StreamingService] Fallback URL $downloadUrl is invalid or redirects to HTML. Discarding.');
+        return null;
+      }
+
       return downloadUrl;
     } catch (e) {
       debugPrint('[StreamingService] Error from fallback $baseUrl: $e');
       return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// Validates that a resolved fallback URL serves real audio stream bytes
+  /// rather than an HTML redirect or broken CDN stub.
+  static Future<bool> _validateMediaStream(String url) async {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 5);
+    try {
+      final req = await client.headUrl(Uri.parse(url)).timeout(const Duration(seconds: 5));
+      req.followRedirects = false;
+      final res = await req.close().timeout(const Duration(seconds: 5));
+
+      // If redirecting, inspect target Location header
+      if (res.statusCode >= 300 && res.statusCode < 400) {
+        final loc = res.headers.value(HttpHeaders.locationHeader) ?? '';
+        if (!loc.contains('.mp3') &&
+            !loc.contains('.m4a') &&
+            !loc.contains('.webm') &&
+            !loc.contains('googlevideo.com') &&
+            !loc.contains('audio')) {
+          return false;
+        }
+      }
+
+      final contentType = res.headers.contentType?.mimeType.toLowerCase() ?? '';
+      if (contentType.contains('text/html')) {
+        return false;
+      }
+
+      return res.statusCode < 400;
+    } catch (_) {
+      // In case HEAD is disallowed by CDN, test 1st byte range
+      try {
+        final req2 = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 4));
+        req2.headers.set('Range', 'bytes=0-10');
+        req2.followRedirects = false;
+        final res2 = await req2.close().timeout(const Duration(seconds: 4));
+        final contentType2 = res2.headers.contentType?.mimeType.toLowerCase() ?? '';
+        if (contentType2.contains('text/html')) return false;
+        return res2.statusCode < 400;
+      } catch (_) {
+        return false;
+      }
     } finally {
       client.close(force: true);
     }

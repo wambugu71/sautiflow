@@ -34,6 +34,10 @@ import 'widgets/adaptive_marquee_text.dart';
 import 'widgets/audio_engine_diagnostic_panel.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/playback_speed_modal.dart';
+import 'widgets/sleep_timer_modal.dart';
+import 'services/sleep_timer_service.dart';
+import 'widgets/audio_badge_row.dart';
+import 'widgets/sauti_icons.dart';
 import 'widgets/synced_lyrics_widget.dart';
 import 'widgets/waveform_seek_bar_widget.dart';
 import 'l10n/app_strings.dart';
@@ -706,12 +710,61 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
-  String _buildAudioInfoBadgeText(String trackPosition) {
-    final posPart =
-        trackPosition.trim().isNotEmpty ? '${trackPosition.trim()} ' : '';
-    final depthPart = _originalBitDepth.isNotEmpty ? '$_originalBitDepth' : '';
+  /// Resolves the current audio format for the audio engine diagnostics badge trigger.
+  String _resolveCurrentAudioFormat() {
+    if (_detectedCodec != null &&
+        _detectedCodec!.trim().isNotEmpty &&
+        _detectedCodec != 'AUDIO' &&
+        _detectedCodec != 'Unknown') {
+      return _detectedCodec!;
+    }
+    if (widget.codec.isNotEmpty &&
+        widget.codec != 'Unknown' &&
+        widget.codec != 'AUDIO') {
+      return widget.codec;
+    }
+    if (_streamTelemetry.codecName.isNotEmpty &&
+        _streamTelemetry.codecName != 'Unknown') {
+      return _streamTelemetry.codecName;
+    }
 
-    return '$posPart$depthPart $_sampleRate'.toUpperCase().trim();
+    final curIdx = widget.statusNotifier.value.currentIndex;
+    if (widget.queue.isNotEmpty && curIdx >= 0 && curIdx < widget.queue.length) {
+      final track = widget.queue[curIdx];
+      final v = track.videoId.toLowerCase().split('?').first;
+      for (final ext in [
+        'flac',
+        'wav',
+        'mp3',
+        'aac',
+        'm4a',
+        'ogg',
+        'opus',
+        'alac',
+        'aiff',
+        'dsd'
+      ]) {
+        if (v.endsWith('.$ext')) return ext;
+      }
+    }
+
+    final vid = widget.videoId?.toLowerCase().split('?').first ?? '';
+    for (final ext in [
+      'flac',
+      'wav',
+      'mp3',
+      'aac',
+      'm4a',
+      'ogg',
+      'opus',
+      'alac',
+      'aiff',
+      'dsd'
+    ]) {
+      if (vid.endsWith('.$ext')) return ext;
+    }
+
+    return widget.codec.isNotEmpty ? widget.codec : 'flac';
   }
 
   Future<void> _fetchLyrics() async {
@@ -976,6 +1029,63 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           onTap: () {
                             Navigator.pop(sheetContext);
                             _showMusicInfoDialog(context);
+                          },
+                        ),
+                        ValueListenableBuilder<SleepTimerState>(
+                          valueListenable: SleepTimerService.instance.state,
+                          builder: (ctx, timer, _) {
+                            final primaryColor =
+                                AppThemeService.instance.currentData.primary;
+                            return ListTile(
+                              leading: Icon(
+                                timer.isActive
+                                    ? Icons.bedtime_rounded
+                                    : Icons.bedtime_outlined,
+                                color: timer.isActive
+                                    ? primaryColor
+                                    : Colors.white,
+                              ),
+                              title: const Text('Sleep Timer',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600)),
+                              subtitle: Text(
+                                timer.isActive
+                                    ? 'Active: ${timer.formattedRemaining} remaining • Tap to manage'
+                                    : 'Turn off playback automatically',
+                                style: TextStyle(
+                                    color: timer.isActive
+                                        ? primaryColor
+                                        : Colors.white54,
+                                    fontSize: 12),
+                              ),
+                              trailing: timer.isActive
+                                  ? IconButton(
+                                      icon: const Icon(Icons.close_rounded,
+                                          color: Colors.white54, size: 20),
+                                      onPressed: () {
+                                        SleepTimerService.instance.cancelTimer();
+                                      },
+                                    )
+                                  : const Icon(Icons.chevron_right_rounded,
+                                      color: Colors.white54, size: 20),
+                              onTap: () {
+                                Navigator.pop(sheetContext);
+                                final curStatus = widget.statusNotifier.value;
+                                final maxDur = (widget.durationOverride != null &&
+                                        widget.durationOverride! > 0)
+                                    ? widget.durationOverride!.toDouble()
+                                    : curStatus.durationSeconds;
+                                showSleepTimerModal(
+                                  context,
+                                  widget.player,
+                                  currentTrackIndex: curStatus.currentIndex,
+                                  trackDurationSeconds: maxDur,
+                                  currentPositionSeconds:
+                                      curStatus.positionSeconds,
+                                );
+                              },
+                            );
                           },
                         ),
                         () {
@@ -2191,6 +2301,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
         final trackTotal = widget.queue.isNotEmpty ? widget.queue.length : 0;
         final trackIdx = status.currentIndex >= 0 ? status.currentIndex + 1 : 1;
+        // ignore: unused_local_variable
         final trackPosition = trackTotal > 0 ? '$trackIdx/$trackTotal' : '';
 
         final duration =
@@ -2585,13 +2696,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                         .filled
                                                                     : M3EIconButtonVariant
                                                                         .outlined,
-                                                                icon: Icon(
-                                                                  isCurrentlyLiked
-                                                                      ? Icons
-                                                                          .thumb_up_rounded
-                                                                      : Icons
-                                                                          .thumb_up_outlined,
-                                                                ),
+                                                                icon: const Icon(SautiIcons.like),
                                                                 onPressed:
                                                                     () async {
                                                                   if (trackId
@@ -2638,8 +2743,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                             variant:
                                                                 M3EIconButtonVariant
                                                                     .outlined,
-                                                            icon: const Icon(Icons
-                                                                .thumb_down_outlined),
+                                                            icon: const Icon(SautiIcons
+                                                                .dislike),
                                                             onPressed: () {},
                                                           ),
                                                           if (widget
@@ -2666,8 +2771,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                             variant:
                                                                 M3EIconButtonVariant
                                                                     .tonal,
-                                                            icon: const Icon(Icons
-                                                                .playlist_play_rounded),
+                                                            icon: const Icon(SautiIcons.playlists),
                                                             onPressed: () =>
                                                                 _showQueueSheet(
                                                                     context),
@@ -2738,14 +2842,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   },
                                                 ),*/
                                                 M3EToolbarAction(
-                                                  icon: ((_currentRate - 1.0)
-                                                                  .abs() >
-                                                              0.01 ||
-                                                          (_currentPitch - 1.0)
-                                                                  .abs() >
-                                                              0.01)
-                                                      ? Icons.speed_rounded
-                                                      : Icons.speed_outlined,
+                                                  icon: SautiIcons.playbackSpeed,
                                                   onPressed: () =>
                                                       showPlaybackSpeedModal(
                                                     context,
@@ -2796,9 +2893,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   },
                                                 ),
                                                 M3EToolbarAction(
-                                                  icon: _showLyrics
-                                                      ? Icons.lyrics_rounded
-                                                      : Icons.lyrics_outlined,
+                                                    icon: SautiIcons.lyrics,
                                                   onPressed: () {
                                                     setState(() => _showLyrics =
                                                         !_showLyrics);
@@ -2813,6 +2908,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                     currentPositionMs:
                                                         displayPosMs,
                                                     maxMs: maxMs,
+                                                  ),
+                                                ),
+                                                M3EToolbarWidget(
+                                                  child: _buildSleepTimerButton(
+                                                    context: context,
+                                                    status: status,
+                                                    baseDurationSecs:
+                                                        baseDurationSecs,
                                                   ),
                                                 ),
                                               ],
@@ -2830,7 +2933,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   variant: M3EIconButtonVariant
                                                       .standard,
                                                   icon: const Icon(
-                                                      Icons.fast_rewind_rounded,
+                                                      SautiIcons.rewind,
                                                       size: 32),
                                                   onPressed: () {
                                                     widget.player.seekTo(Duration(
@@ -2850,8 +2953,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   variant: M3EIconButtonVariant
                                                       .tonal,
                                                   icon: const Icon(
-                                                      Icons
-                                                          .skip_previous_rounded,
+                                                      SautiIcons.prev,
                                                       size: 36),
                                                   onPressed: widget
                                                       .player.seekToPrevious,
@@ -2907,7 +3009,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   variant: M3EIconButtonVariant
                                                       .tonal,
                                                   icon: const Icon(
-                                                      Icons.skip_next_rounded,
+                                                      SautiIcons.next,
                                                       size: 36),
                                                   onPressed:
                                                       widget.player.seekToNext,
@@ -2917,8 +3019,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   variant: M3EIconButtonVariant
                                                       .standard,
                                                   icon: const Icon(
-                                                      Icons
-                                                          .fast_forward_rounded,
+                                                      SautiIcons.fastForward,
                                                       size: 32),
                                                   onPressed: () {
                                                     widget.player.seekTo(Duration(
@@ -2995,31 +3096,21 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                   FontWeight
                                                                       .bold),
                                                         ),
-                                                        // M3E Audio Diagnostic Badge Chip
-                                                        M3EChip(
-                                                          leading: Icon(
-                                                            Icons.info,
-                                                            size: 8,
-                                                            color: primaryColor,
+                                                        // Audio Diagnostics Badge Row
+                                                        AudioDiagnosticsBadgeRow(
+                                                          format: _resolveCurrentAudioFormat(),
+                                                          bitDepth: _originalBitDepth,
+                                                          sampleRate: _sampleRate,
+                                                          isBitPerfect: _hardwareSpecs?.isExclusiveMode == true,
+                                                          color: primaryColor,
+                                                          onOpenDiagnostics: () => showAudioEngineDiagnosticPanel(
+                                                            context,
+                                                            widget.player,
+                                                            filePath: widget.videoId != null &&
+                                                                    widget.videoId!.startsWith('file://')
+                                                                ? Uri.tryParse(widget.videoId!)?.toFilePath()
+                                                                : widget.videoId,
                                                           ),
-                                                          label:
-                                                              _buildAudioInfoBadgeText(
-                                                                  trackPosition),
-                                                          onPressed: () => showAudioEngineDiagnosticPanel(
-                                                              context,
-                                                              widget.player,
-                                                              filePath: widget.videoId !=
-                                                                          null &&
-                                                                      widget
-                                                                          .videoId!
-                                                                          .startsWith(
-                                                                              'file://')
-                                                                  ? Uri.tryParse(
-                                                                          widget
-                                                                              .videoId!)
-                                                                      ?.toFilePath()
-                                                                  : widget
-                                                                      .videoId),
                                                         ),
                                                         Text(
                                                           _fmt(duration),
@@ -3286,13 +3377,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                   .filled
                                                               : M3EIconButtonVariant
                                                                   .outlined,
-                                                          icon: Icon(
-                                                            isCurrentlyLiked
-                                                                ? Icons
-                                                                    .thumb_up_rounded
-                                                                : Icons
-                                                                    .thumb_up_outlined,
-                                                          ),
+                                                          icon: const Icon(SautiIcons.like),
                                                           onPressed: () async {
                                                             if (trackId
                                                                 .isEmpty) {
@@ -3337,8 +3422,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                       variant:
                                                           M3EIconButtonVariant
                                                               .outlined,
-                                                      icon: const Icon(Icons
-                                                          .thumb_down_outlined),
+                                                      icon: const Icon(SautiIcons
+                                                          .dislike),
                                                       onPressed: () {},
                                                     ),
                                                     if (widget.sourceType ==
@@ -3365,18 +3450,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                           : M3EIconButtonVariant
                                                               .tonal,
                                                       icon: Icon(
-                                                        (_showLyricsOverlayOnAlbumArt ||
-                                                                _showLyrics)
-                                                            ? Icons
-                                                                .lyrics_rounded
-                                                            : Icons
-                                                                .lyrics_outlined,
-                                                        color:
-                                                            (_showLyricsOverlayOnAlbumArt ||
-                                                                    _showLyrics)
-                                                                ? Colors.white
-                                                                : primaryColor,
-                                                      ),
+                                                          SautiIcons.lyrics,
+                                                          color:
+                                                              (_showLyricsOverlayOnAlbumArt ||
+                                                                      _showLyrics)
+                                                                  ? Colors.white
+                                                                  : primaryColor,
+                                                        ),
                                                       onPressed: () {
                                                         setState(() {
                                                           _showLyricsOverlayOnAlbumArt =
@@ -3401,8 +3481,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                       variant:
                                                           M3EIconButtonVariant
                                                               .tonal,
-                                                      icon: const Icon(Icons
-                                                          .playlist_play_rounded),
+                                                      icon: const Icon(SautiIcons.playlists),
                                                       onPressed: () =>
                                                           _showQueueSheet(
                                                               context),
@@ -3435,7 +3514,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                 children: [
                                   M3EIconButton(
                                     variant: M3EIconButtonVariant.standard,
-                                    icon: const Icon(Icons.fast_rewind_rounded,
+                                    icon: const Icon(SautiIcons.rewind,
                                         size: 28),
                                     onPressed: () {
                                       final target =
@@ -3462,7 +3541,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                   M3EIconButton(
                                     variant: M3EIconButtonVariant.tonal,
                                     icon: const Icon(
-                                        Icons.skip_previous_rounded,
+                                        SautiIcons.prev,
                                         size: 32),
                                     onPressed: widget.player.seekToPrevious,
                                   ),
@@ -3497,9 +3576,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                               )
                                             : Icon(
-                                                status.isPlaying
-                                                    ? Icons.pause_rounded
-                                                    : Icons.play_arrow_rounded,
+                                                status.isPlaying ? SautiIcons.pause : SautiIcons.play,
                                                 size: 40,
                                                 color: Colors.white,
                                               ),
@@ -3509,14 +3586,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                   const SizedBox(width: 16),
                                   M3EIconButton(
                                     variant: M3EIconButtonVariant.tonal,
-                                    icon: const Icon(Icons.skip_next_rounded,
+                                    icon: const Icon(SautiIcons.next,
                                         size: 32),
                                     onPressed: widget.player.seekToNext,
                                   ),
                                   const SizedBox(width: 8),
                                   M3EIconButton(
                                     variant: M3EIconButtonVariant.standard,
-                                    icon: const Icon(Icons.fast_forward_rounded,
+                                    icon: const Icon(SautiIcons.fastForward,
                                         size: 28),
                                     onPressed: () {
                                       final target =
@@ -3591,26 +3668,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 padding:
                                                     const EdgeInsets.symmetric(
                                                         horizontal: 4.0),
-                                                child: M3EChip(
-                                                  leading: Icon(
-                                                      Icons
-                                                          .info_outline_rounded,
-                                                      size: 10,
-                                                      color: primaryColor),
-                                                  label:
-                                                      _buildAudioInfoBadgeText(
-                                                          trackPosition),
-                                                  onPressed: () => showAudioEngineDiagnosticPanel(
-                                                      context, widget.player,
-                                                      filePath: widget.videoId !=
-                                                                  null &&
-                                                              widget.videoId!
-                                                                  .startsWith(
-                                                                      'file://')
-                                                          ? Uri.tryParse(widget
-                                                                  .videoId!)
-                                                              ?.toFilePath()
-                                                          : widget.videoId),
+                                                child: AudioDiagnosticsBadgeRow(
+                                                  format: _resolveCurrentAudioFormat(),
+                                                  bitDepth: _originalBitDepth,
+                                                  sampleRate: _sampleRate,
+                                                  isBitPerfect: _hardwareSpecs?.isExclusiveMode == true,
+                                                  color: primaryColor,
+                                                  onOpenDiagnostics: () => showAudioEngineDiagnosticPanel(
+                                                    context,
+                                                    widget.player,
+                                                    filePath: widget.videoId != null &&
+                                                            widget.videoId!.startsWith('file://')
+                                                        ? Uri.tryParse(widget.videoId!)?.toFilePath()
+                                                        : widget.videoId,
+                                                  ),
                                                 ),
                                               ),
                                             ),
@@ -3669,13 +3740,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                       ),*/
                                       // const SizedBox(width: 8),
                                       M3EIconButton(
-                                        variant: M3EIconButtonVariant.tonal,
-                                        icon: Icon(((_currentRate - 1.0).abs() >
-                                                    0.01 ||
-                                                (_currentPitch - 1.0).abs() >
-                                                    0.01)
-                                            ? Icons.speed_rounded
-                                            : Icons.speed_outlined),
+                                          variant: M3EIconButtonVariant.tonal,
+                                          icon: const Icon(SautiIcons.playbackSpeed),
                                         onPressed: () => showPlaybackSpeedModal(
                                           context,
                                           widget.player,
@@ -3727,6 +3793,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         currentPositionMs: displayPosMs,
                                         maxMs: maxMs,
                                       ),
+                                      const SizedBox(width: 8),
+                                      _buildSleepTimerButton(
+                                        context: context,
+                                        status: status,
+                                        baseDurationSecs: baseDurationSecs,
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -3734,6 +3806,57 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             ),
 
                             const SizedBox(height: 10),
+
+                            // Sleep Timer Active Pill Banner
+                            ValueListenableBuilder<SleepTimerState>(
+                              valueListenable: SleepTimerService.instance.state,
+                              builder: (context, timer, _) {
+                                if (!timer.isActive) return const SizedBox.shrink();
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8.0),
+                                  child: Center(
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(20),
+                                      onTap: () => showSleepTimerModal(
+                                        context,
+                                        widget.player,
+                                        currentTrackIndex: status.currentIndex,
+                                        trackDurationSeconds: baseDurationSecs,
+                                        currentPositionSeconds: status.positionSeconds,
+                                      ),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: primaryColor.withAlpha(30),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(
+                                            color: primaryColor.withAlpha(70),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.bedtime_rounded,
+                                                size: 14, color: primaryColor),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              'Sleep Timer: ${timer.formattedRemaining}',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: primaryColor,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
 
                             // Queue Navigation (Up Next)
                             Center(
@@ -4193,6 +4316,40 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     );
   }
 
+  Widget _buildSleepTimerButton({
+    required BuildContext context,
+    required PlayerStatus status,
+    required double baseDurationSecs,
+  }) {
+    return ValueListenableBuilder<SleepTimerState>(
+      valueListenable: SleepTimerService.instance.state,
+      builder: (context, timer, _) {
+        final isActive = timer.isActive;
+        return Tooltip(
+          message: isActive
+              ? 'Sleep Timer: ${timer.formattedRemaining} left'
+              : 'Set Sleep Timer',
+          child: M3EIconButton(
+            variant: isActive
+                ? M3EIconButtonVariant.filled
+                : M3EIconButtonVariant.tonal,
+            icon: Icon(
+              isActive ? Icons.bedtime_rounded : Icons.bedtime_outlined,
+              color: isActive ? Colors.black : Colors.white,
+            ),
+            onPressed: () => showSleepTimerModal(
+              context,
+              widget.player,
+              currentTrackIndex: status.currentIndex,
+              trackDurationSeconds: baseDurationSecs,
+              currentPositionSeconds: status.positionSeconds,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildSeekBarWidget({
     required double displayPosMs,
     required double maxMs,
@@ -4421,38 +4578,30 @@ class _AbRepeatCustomIcon extends StatelessWidget {
     Color borderClr;
     Color bgClr;
     Color textClr;
-    String label;
-    IconData iconData;
 
     switch (state) {
       case 1:
         borderClr = const Color(0xFFFFA726);
         bgClr = const Color(0xFFFFA726).withValues(alpha: 0.22);
         textClr = const Color(0xFFFFA726);
-        label = 'A →';
-        iconData = Icons.repeat_one_rounded;
         break;
       case 2:
         borderClr = AppThemeService.instance.currentData.primary;
         bgClr = AppThemeService.instance.currentData.primary
             .withValues(alpha: 0.25);
         textClr = const Color(0xFF38BDF8);
-        label = 'A-B';
-        iconData = Icons.repeat_on_rounded;
         break;
       default:
         borderClr = Colors.white24;
         bgClr = Colors.white10;
         textClr = Colors.white70;
-        label = 'A-B';
-        iconData = Icons.repeat_rounded;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: bgClr,
-        borderRadius: BorderRadius.circular(24),
+        shape: BoxShape.circle,
         border: Border.all(
           color: state > 0 ? borderClr : Colors.transparent,
           width: 1.2,
@@ -4467,25 +4616,10 @@ class _AbRepeatCustomIcon extends StatelessWidget {
               ]
             : null,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            iconData,
-            size: 20,
-            color: textClr,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.8,
-              color: textClr,
-            ),
-          ),
-        ],
+      child: Icon(
+        SautiIcons.repeatAB,
+        size: 20,
+        color: textClr,
       ),
     );
   }

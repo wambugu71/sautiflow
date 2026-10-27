@@ -392,6 +392,8 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setEq', 'low': low, 'mid': mid, 'high': high});
   }
 
+  double get gain => _currentGain;
+
   void setGain(double gain) {
     _currentGain = gain;
     _send({'cmd': 'setGain', 'gain': gain});

@@ -7,6 +7,7 @@ import 'package:m3e_seekbar/m3e_seekbar.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
+import 'widgets/sauti_icons.dart';
 
 class MiniPlayer extends StatefulWidget {
   final String title;
@@ -311,9 +312,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                               ),
                             )
                           : Icon(
-                              widget.isPlaying
-                                  ? Icons.pause_circle_filled
-                                  : Icons.play_circle_filled,
+                              widget.isPlaying ? SautiIcons.pause : SautiIcons.play,
                               size: 32,
                               color: textPrimary,
                             ),
@@ -321,7 +320,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                     M3EIconButton(
                       onPressed: widget.onNext,
                       icon: Icon(
-                        Icons.skip_next,
+                        SautiIcons.next,
                         size: 28,
                         color: textPrimary,
                       ),

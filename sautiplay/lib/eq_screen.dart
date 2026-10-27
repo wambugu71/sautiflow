@@ -15,6 +15,7 @@ import 'isolate_player.dart';
 import 'models/eq_slider_coupling.dart';
 import 'services/app_state_service.dart';
 import 'widgets/app_showcase.dart';
+import 'widgets/sauti_icons.dart';
 import 'widgets/clarity_graph.dart';
 import 'widgets/compressor_graph.dart';
 import 'widgets/de_esser_graph.dart';
@@ -4760,7 +4761,7 @@ class _EqScreenState extends State<EqScreen>
                         case 0:
                           _openDetailScreen(
                             'Look-Ahead Limiter',
-                            Icons.speed_rounded,
+                            SautiIcons.masterLookaheadLimiter,
                             (_) => _buildLookaheadLimiterSection(),
                             shape: Shapes.sunny,
                           );
@@ -4768,7 +4769,7 @@ class _EqScreenState extends State<EqScreen>
                         case 1:
                           _openDetailScreen(
                             'Master Peak Limiter',
-                            Icons.shield_rounded,
+                            SautiIcons.masterPeakLimiter,
                             (_) => _buildMasterLimiterSection(),
                             shape: Shapes.square,
                           );
@@ -4776,7 +4777,7 @@ class _EqScreenState extends State<EqScreen>
                         case 2:
                           _openDetailScreen(
                             'Anti-Clipping Limiter',
-                            Icons.compress_rounded,
+                            SautiIcons.anticlippingLimiter,
                             (_) => _buildLimiterSection(),
                             shape: Shapes.diamond,
                           );
@@ -4794,7 +4795,7 @@ class _EqScreenState extends State<EqScreen>
                     itemBuilder: (context, index) {
                       if (index == 0) {
                         return _buildEffectTileCard(
-                          icon: Icons.speed_rounded,
+                          icon: SautiIcons.masterLookaheadLimiter,
                           shape: Shapes.sunny,
                           title: 'Look-Ahead Limiter',
                           subtitle: _lookaheadLimiterEnabled
@@ -4807,7 +4808,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Look-Ahead Limiter',
-                            Icons.speed_rounded,
+                            SautiIcons.masterLookaheadLimiter,
                             (_) => _buildLookaheadLimiterSection(),
                             shape: Shapes.sunny,
                           ),
@@ -4815,7 +4816,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 1) {
                         return _buildEffectTileCard(
-                          icon: Icons.shield_rounded,
+                          icon: SautiIcons.masterPeakLimiter,
                           shape: Shapes.square,
                           title: 'Master Peak Limiter',
                           subtitle: _masterLimiterEnabled
@@ -4829,7 +4830,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Master Peak Limiter',
-                            Icons.shield_rounded,
+                            SautiIcons.masterPeakLimiter,
                             (_) => _buildMasterLimiterSection(),
                             shape: Shapes.square,
                           ),
@@ -4837,7 +4838,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 2) {
                         return _buildEffectTileCard(
-                          icon: Icons.compress_rounded,
+                          icon: SautiIcons.anticlippingLimiter,
                           shape: Shapes.diamond,
                           title: 'Anti-Clipping Limiter',
                           subtitle: _limiterEnabled
@@ -4855,14 +4856,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Anti-Clipping Limiter',
-                            Icons.compress_rounded,
+                            SautiIcons.anticlippingLimiter,
                             (_) => _buildLimiterSection(),
                             shape: Shapes.diamond,
                           ),
                         );
                       }
                       return _buildEffectTileCard(
-                        icon: Icons.tune_rounded,
+                        icon: SautiIcons.compressor,
                         shape: Shapes.burst,
                         title: 'Compressor',
                         subtitle: _compressorEnabled
@@ -4876,7 +4877,7 @@ class _EqScreenState extends State<EqScreen>
                         },
                         onTapDetail: () => _openDetailScreen(
                           'Compressor',
-                          Icons.tune_rounded,
+                          SautiIcons.compressor,
                           (_) => _buildCompressorSection(),
                           shape: Shapes.burst,
                         ),
@@ -4902,7 +4903,7 @@ class _EqScreenState extends State<EqScreen>
                         case 0:
                           _openDetailScreen(
                             'Preamp Gain',
-                            Icons.volume_up_rounded,
+                            SautiIcons.preamp,
                             (_) => _buildPreampSection(),
                             shape: Shapes.circle,
                           );
@@ -4910,7 +4911,7 @@ class _EqScreenState extends State<EqScreen>
                         case 1:
                           _openDetailScreen(
                             'Loudness Normalizer',
-                            Icons.multitrack_audio_rounded,
+                            SautiIcons.loudnessNormalizer,
                             (_) => _buildLoudnessNormalizerSection(),
                             shape: Shapes.pill,
                           );
@@ -4918,7 +4919,7 @@ class _EqScreenState extends State<EqScreen>
                         case 2:
                           _openDetailScreen(
                             'Auto Gain Control',
-                            Icons.stacked_bar_chart_rounded,
+                            SautiIcons.agcControl,
                             (_) => _buildLevellerSection(),
                             shape: Shapes.square,
                           );
@@ -4926,7 +4927,7 @@ class _EqScreenState extends State<EqScreen>
                         case 3:
                           _openDetailScreen(
                             'Dynamic Loudness',
-                            Icons.auto_awesome,
+                            SautiIcons.dynamicLoudness,
                             (_) => _buildDynamicLoudnessSection(),
                             shape: Shapes.burst,
                           );
@@ -4934,7 +4935,7 @@ class _EqScreenState extends State<EqScreen>
                         case 4:
                           _openDetailScreen(
                             'ReplayGain',
-                            Icons.equalizer_rounded,
+                            SautiIcons.replaygain,
                             (_) => _buildReplayGainSection(),
                             shape: Shapes.c4SidedCookie,
                           );
@@ -4944,7 +4945,7 @@ class _EqScreenState extends State<EqScreen>
                     itemBuilder: (context, index) {
                       if (index == 0) {
                         return _buildEffectTileCard(
-                          icon: Icons.volume_up_rounded,
+                          icon: SautiIcons.preamp,
                           shape: Shapes.circle,
                           title: 'Preamp Gain',
                           subtitle:
@@ -4952,7 +4953,7 @@ class _EqScreenState extends State<EqScreen>
                           isEnabled: _preampDb != 0.0,
                           onTapDetail: () => _openDetailScreen(
                             'Preamp Gain',
-                            Icons.volume_up_rounded,
+                            SautiIcons.preamp,
                             (_) => _buildPreampSection(),
                             shape: Shapes.circle,
                           ),
@@ -4960,7 +4961,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 1) {
                         return _buildEffectTileCard(
-                          icon: Icons.multitrack_audio_rounded,
+                          icon: SautiIcons.loudnessNormalizer,
                           shape: Shapes.pill,
                           title: 'Loudness Normalizer',
                           subtitle: _loudnessNormalizerEnabled
@@ -4973,7 +4974,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Loudness Normalizer',
-                            Icons.multitrack_audio_rounded,
+                            SautiIcons.loudnessNormalizer,
                             (_) => _buildLoudnessNormalizerSection(),
                             shape: Shapes.pill,
                           ),
@@ -4981,7 +4982,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 2) {
                         return _buildEffectTileCard(
-                          icon: Icons.stacked_bar_chart_rounded,
+                          icon: SautiIcons.agcControl,
                           shape: Shapes.square,
                           title: 'Auto Gain Control',
                           subtitle: _levellerEnabled
@@ -4998,7 +4999,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Auto Gain Control',
-                            Icons.stacked_bar_chart_rounded,
+                            SautiIcons.agcControl,
                             (_) => _buildLevellerSection(),
                             shape: Shapes.square,
                           ),
@@ -5006,7 +5007,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 3) {
                         return _buildEffectTileCard(
-                          icon: Icons.auto_awesome,
+                          icon: SautiIcons.dynamicLoudness,
                           shape: Shapes.burst,
                           title: 'Dynamic Loudness',
                           subtitle: _dynamicLoudnessEnabled
@@ -5020,14 +5021,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Dynamic Loudness',
-                            Icons.auto_awesome,
+                            SautiIcons.dynamicLoudness,
                             (_) => _buildDynamicLoudnessSection(),
                             shape: Shapes.burst,
                           ),
                         );
                       }
                       return _buildEffectTileCard(
-                        icon: Icons.equalizer_rounded,
+                        icon: SautiIcons.replaygain,
                         shape: Shapes.c4SidedCookie,
                         title: 'ReplayGain',
                         subtitle: _replayGainMode == ReplayGainMode.none
@@ -5069,7 +5070,7 @@ class _EqScreenState extends State<EqScreen>
                         case 0:
                           _openDetailScreen(
                             'Graphic EQ',
-                            Icons.equalizer_rounded,
+                            SautiIcons.graphicEq,
                             (_) => _buildGraphicEqSection(),
                             shape: Shapes.c4SidedCookie,
                           );
@@ -5077,7 +5078,7 @@ class _EqScreenState extends State<EqScreen>
                         case 1:
                           _openDetailScreen(
                             'Playback Speed & Pitch',
-                            Icons.speed_rounded,
+                            SautiIcons.playbackSpeed,
                             (_) => _buildPlaybackSpeedSection(),
                             shape: Shapes.sunny,
                           );
@@ -5085,7 +5086,7 @@ class _EqScreenState extends State<EqScreen>
                         case 2:
                           _openDetailScreen(
                             "Tone Tuning Crossover",
-                            Icons.graphic_eq_rounded,
+                            SautiIcons.toneControls,
                             (_) => _buildToneCrossoverSection(),
                             shape: Shapes.pill,
                           );
@@ -5093,7 +5094,7 @@ class _EqScreenState extends State<EqScreen>
                         case 3:
                           _openDetailScreen(
                             'Parametric EQ',
-                            Icons.show_chart_rounded,
+                            SautiIcons.parametricEq,
                             (_) => _buildParametricEqSection(),
                             shape: Shapes.gem,
                           );
@@ -5101,7 +5102,7 @@ class _EqScreenState extends State<EqScreen>
                         case 4:
                           _openDetailScreen(
                             'Dynamic EQ',
-                            Icons.multitrack_audio_rounded,
+                            SautiIcons.dynamicEq,
                             (_) => _buildDynamicEqSection(),
                             shape: Shapes.burst,
                           );
@@ -5119,7 +5120,7 @@ class _EqScreenState extends State<EqScreen>
                           currentStep: 4,
                           totalSteps: 5,
                           child: _buildEffectTileCard(
-                            icon: Icons.equalizer_rounded,
+                            icon: SautiIcons.graphicEq,
                             shape: Shapes.c4SidedCookie,
                             title: '${_eqFrequencies.length}-Band Graphic EQ',
                             subtitle: _masterEqEnabled
@@ -5161,7 +5162,7 @@ class _EqScreenState extends State<EqScreen>
                         }
 
                         return _buildEffectTileCard(
-                          icon: Icons.speed_rounded,
+                          icon: SautiIcons.playbackSpeed,
                           shape: Shapes.sunny,
                           title: 'Playback Speed & Pitch',
                           subtitle: subtitle,
@@ -5181,7 +5182,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Playback Speed & Pitch',
-                            Icons.speed_rounded,
+                            SautiIcons.playbackSpeed,
                             (_) => _buildPlaybackSpeedSection(),
                             shape: Shapes.sunny,
                           ),
@@ -5210,7 +5211,7 @@ class _EqScreenState extends State<EqScreen>
                           }
                         }
                         return _buildEffectTileCard(
-                          icon: Icons.tune_rounded,
+                          icon: SautiIcons.toneControls,
                           shape: Shapes.pill,
                           title: "Tone Controls",
                           subtitle: toneSubtitle,
@@ -5223,7 +5224,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             "Tone Controls",
-                            Icons.tune_rounded,
+                            SautiIcons.toneControls,
                             (_) => _buildToneCrossoverSection(),
                             shape: Shapes.pill,
                           ),
@@ -5231,7 +5232,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 3) {
                         return _buildEffectTileCard(
-                          icon: Icons.show_chart_rounded,
+                          icon: SautiIcons.parametricEq,
                           shape: Shapes.gem,
                           title: 'Parametric EQ',
                           subtitle: _parametricEqEnabled
@@ -5245,14 +5246,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Parametric EQ',
-                            Icons.show_chart_rounded,
+                            SautiIcons.parametricEq,
                             (_) => _buildParametricEqSection(),
                             shape: Shapes.gem,
                           ),
                         );
                       }
                       return _buildEffectTileCard(
-                        icon: Icons.multitrack_audio_rounded,
+                        icon: SautiIcons.dynamicEq,
                         shape: Shapes.burst,
                         title: 'Dynamic EQ',
                         subtitle: _dynamicEqEnabled
@@ -5292,7 +5293,7 @@ class _EqScreenState extends State<EqScreen>
                         case 0:
                           _openDetailScreen(
                             'Dynamic Bass',
-                            Icons.speaker_group_rounded,
+                            SautiIcons.dynamicBass,
                             (_) => _buildHarmonicBassSection(),
                             shape: Shapes.boom,
                           );
@@ -5300,7 +5301,7 @@ class _EqScreenState extends State<EqScreen>
                         case 1:
                           _openDetailScreen(
                             'Dynamic System',
-                            Icons.headphones_rounded,
+                            SautiIcons.dynamicSystem,
                             (_) => _buildDynamicSystemSection(),
                             shape: Shapes.burst,
                           );
@@ -5310,7 +5311,7 @@ class _EqScreenState extends State<EqScreen>
                     itemBuilder: (context, index) {
                       if (index == 0) {
                         return _buildEffectTileCard(
-                          icon: Icons.speaker_group_rounded,
+                          icon: SautiIcons.dynamicBass,
                           shape: Shapes.boom,
                           title: 'Dynamic Bass',
                           subtitle: _bassEnabled
@@ -5327,14 +5328,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Dynamic Bass',
-                            Icons.speaker_group_rounded,
+                            SautiIcons.dynamicBass,
                             (_) => _buildHarmonicBassSection(),
                             shape: Shapes.boom,
                           ),
                         );
                       }
                       return _buildEffectTileCard(
-                        icon: Icons.headphones_rounded,
+                        icon: SautiIcons.dynamicSystem,
                         shape: Shapes.burst,
                         title: 'Dynamic System',
                         subtitle: _dynamicSystemEnabled
@@ -5374,7 +5375,7 @@ class _EqScreenState extends State<EqScreen>
                         case 0:
                           _openDetailScreen(
                             'Audio Clarity',
-                            Icons.graphic_eq_rounded,
+                            SautiIcons.audioClarity,
                             (_) => _buildClaritySection(),
                             shape: Shapes.gem,
                           );
@@ -5382,7 +5383,7 @@ class _EqScreenState extends State<EqScreen>
                         case 1:
                           _openDetailScreen(
                             'Dialogue Enhancer',
-                            Icons.record_voice_over_rounded,
+                            SautiIcons.dialogueEnhancer,
                             (_) => _buildDialogEnhancerSection(),
                             shape: Shapes.pill,
                           );
@@ -5390,7 +5391,7 @@ class _EqScreenState extends State<EqScreen>
                         case 2:
                           _openDetailScreen(
                             'De-Esser',
-                            Icons.record_voice_over_rounded,
+                            SautiIcons.deesser,
                             (_) => _buildDeEsserSection(),
                             shape: Shapes.pill,
                           );
@@ -5398,7 +5399,7 @@ class _EqScreenState extends State<EqScreen>
                         case 3:
                           _openDetailScreen(
                             'Crystalizer',
-                            Icons.auto_fix_high_rounded,
+                            SautiIcons.crystallizer,
                             (_) => _buildCrystalizerSection(),
                             shape: Shapes.burst,
                           );
@@ -5406,7 +5407,7 @@ class _EqScreenState extends State<EqScreen>
                         case 4:
                           _openDetailScreen(
                             'Expander',
-                            Icons.cleaning_services_rounded,
+                            SautiIcons.expander,
                             (_) => _buildDownwardExpanderSection(),
                             shape: Shapes.flower,
                           );
@@ -5414,7 +5415,7 @@ class _EqScreenState extends State<EqScreen>
                         case 5:
                           _openDetailScreen(
                             'Noise Gate',
-                            Icons.door_sliding_rounded,
+                            SautiIcons.noiseGate,
                             (_) => _buildNoiseGateSection(),
                             shape: Shapes.diamond,
                           );
@@ -5424,7 +5425,7 @@ class _EqScreenState extends State<EqScreen>
                     itemBuilder: (context, index) {
                       if (index == 0) {
                         return _buildEffectTileCard(
-                          icon: Icons.graphic_eq_rounded,
+                          icon: SautiIcons.audioClarity,
                           shape: Shapes.gem,
                           title: 'Audio Clarity',
                           subtitle: _clarityEnabled
@@ -5438,7 +5439,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Audio Clarity',
-                            Icons.graphic_eq_rounded,
+                            SautiIcons.audioClarity,
                             (_) => _buildClaritySection(),
                             shape: Shapes.gem,
                           ),
@@ -5446,7 +5447,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 1) {
                         return _buildEffectTileCard(
-                          icon: Icons.record_voice_over_rounded,
+                          icon: SautiIcons.dialogueEnhancer,
                           shape: Shapes.pill,
                           title: 'Dialogue Enhancer',
                           subtitle: _dialogEnhancerEnabled
@@ -5460,7 +5461,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Dialogue Enhancer',
-                            Icons.record_voice_over_rounded,
+                            SautiIcons.dialogueEnhancer,
                             (_) => _buildDialogEnhancerSection(),
                             shape: Shapes.pill,
                           ),
@@ -5468,7 +5469,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 2) {
                         return _buildEffectTileCard(
-                          icon: Icons.record_voice_over_rounded,
+                          icon: SautiIcons.deesser,
                           shape: Shapes.pill,
                           title: 'De-Esser',
                           subtitle: _deEsserEnabled
@@ -5482,7 +5483,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'De-Esser',
-                            Icons.record_voice_over_rounded,
+                            SautiIcons.deesser,
                             (_) => _buildDeEsserSection(),
                             shape: Shapes.pill,
                           ),
@@ -5490,7 +5491,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 3) {
                         return _buildEffectTileCard(
-                          icon: Icons.auto_fix_high_rounded,
+                          icon: SautiIcons.crystallizer,
                           shape: Shapes.burst,
                           title: 'Crystalizer',
                           subtitle: _crystalizerEnabled
@@ -5504,7 +5505,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Crystalizer',
-                            Icons.auto_fix_high_rounded,
+                            SautiIcons.crystallizer,
                             (_) => _buildCrystalizerSection(),
                             shape: Shapes.burst,
                           ),
@@ -5512,7 +5513,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 4) {
                         return _buildEffectTileCard(
-                          icon: Icons.cleaning_services_rounded,
+                          icon: SautiIcons.expander,
                           shape: Shapes.flower,
                           title: 'Expander',
                           subtitle: _expanderEnabled
@@ -5526,14 +5527,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Expander',
-                            Icons.cleaning_services_rounded,
+                            SautiIcons.expander,
                             (_) => _buildDownwardExpanderSection(),
                             shape: Shapes.flower,
                           ),
                         );
                       }
                       return _buildEffectTileCard(
-                        icon: Icons.door_sliding_rounded,
+                        icon: SautiIcons.noiseGate,
                         shape: Shapes.diamond,
                         title: 'Noise Gate',
                         subtitle: _noiseGateEnabled
@@ -5576,7 +5577,7 @@ class _EqScreenState extends State<EqScreen>
                         case 0:
                           _openDetailScreen(
                             'Crossfeed',
-                            Icons.headphones_rounded,
+                            SautiIcons.crossfeed,
                             (_) => _buildCrossfeedSection(),
                             shape: Shapes.arch,
                           );
@@ -5584,7 +5585,7 @@ class _EqScreenState extends State<EqScreen>
                         case 1:
                           _openDetailScreen(
                             'Stereo Imager',
-                            Icons.swap_horiz_rounded,
+                            SautiIcons.stereoImager,
                             (_) => _buildStereoWidenSection(),
                             shape: Shapes.slanted,
                           );
@@ -5592,7 +5593,7 @@ class _EqScreenState extends State<EqScreen>
                         case 2:
                           _openDetailScreen(
                             'Stereo Enhancer',
-                            Icons.surround_sound_rounded,
+                            SautiIcons.stereoWidth,
                             (_) => _buildStereoEnhancementSection(),
                             shape: Shapes.puffyDiamond,
                           );
@@ -5600,7 +5601,7 @@ class _EqScreenState extends State<EqScreen>
                         case 3:
                           _openDetailScreen(
                             'Analog Warmth',
-                            Icons.album_rounded,
+                            SautiIcons.analogueWarmth,
                             (_) => _buildAnalogWarmthSection(),
                             shape: Shapes.sunny,
                           );
@@ -5608,7 +5609,7 @@ class _EqScreenState extends State<EqScreen>
                         case 4:
                           _openDetailScreen(
                             'Vintage Tape Drift',
-                            Icons.album_outlined,
+                            SautiIcons.vintageDrift,
                             (_) => _buildTapeDriftSection(),
                             shape: Shapes.c4SidedCookie,
                           );
@@ -5618,7 +5619,7 @@ class _EqScreenState extends State<EqScreen>
                     itemBuilder: (context, index) {
                       if (index == 0) {
                         return _buildEffectTileCard(
-                          icon: Icons.headphones_rounded,
+                          icon: SautiIcons.crossfeed,
                           shape: Shapes.arch,
                           title: 'Crossfeed',
                           subtitle: _crossfeedEnabled
@@ -5642,7 +5643,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Crossfeed',
-                            Icons.headphones_rounded,
+                            SautiIcons.crossfeed,
                             (_) => _buildCrossfeedSection(),
                             shape: Shapes.arch,
                           ),
@@ -5650,7 +5651,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 1) {
                         return _buildEffectTileCard(
-                          icon: Icons.swap_horiz_rounded,
+                          icon: SautiIcons.stereoImager,
                           shape: Shapes.slanted,
                           title: 'Stereo Imager',
                           subtitle: _stereoWidenEnabled
@@ -5675,7 +5676,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Stereo Imager',
-                            Icons.swap_horiz_rounded,
+                            SautiIcons.stereoImager,
                             (_) => _buildStereoWidenSection(),
                             shape: Shapes.slanted,
                           ),
@@ -5683,7 +5684,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 2) {
                         return _buildEffectTileCard(
-                          icon: Icons.surround_sound_rounded,
+                          icon: SautiIcons.stereoWidth,
                           shape: Shapes.puffyDiamond,
                           title: 'Stereo Enhancer',
                           subtitle: _stereoEnhancementEnabled
@@ -5697,7 +5698,7 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Stereo Enhancer',
-                            Icons.surround_sound_rounded,
+                            SautiIcons.stereoWidth,
                             (_) => _buildStereoEnhancementSection(),
                             shape: Shapes.puffyDiamond,
                           ),
@@ -5705,7 +5706,7 @@ class _EqScreenState extends State<EqScreen>
                       }
                       if (index == 3) {
                         return _buildEffectTileCard(
-                          icon: Icons.album_rounded,
+                          icon: SautiIcons.analogueWarmth,
                           shape: Shapes.sunny,
                           title: 'Analog Warmth',
                           subtitle: _analogWarmthEnabled
@@ -5719,14 +5720,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Analog Warmth',
-                            Icons.album_rounded,
+                            SautiIcons.analogueWarmth,
                             (_) => _buildAnalogWarmthSection(),
                             shape: Shapes.sunny,
                           ),
                         );
                       }
                       return _buildEffectTileCard(
-                        icon: Icons.album_outlined,
+                        icon: SautiIcons.vintageDrift,
                         shape: Shapes.c4SidedCookie,
                         title: 'Vintage Tape Drift',
                         subtitle: _tapeDriftEnabled
@@ -5766,7 +5767,7 @@ class _EqScreenState extends State<EqScreen>
                         case 0:
                           _openDetailScreen(
                             'Convolver',
-                            Icons.waves_rounded,
+                            SautiIcons.convolver,
                             (_) => _buildConvolverSection(),
                             shape: Shapes.c4SidedCookie,
                           );
@@ -5774,7 +5775,7 @@ class _EqScreenState extends State<EqScreen>
                         case 1:
                           _openDetailScreen(
                             'Spatial Surround',
-                            Icons.surround_sound_rounded,
+                            SautiIcons.spatialSound,
                             (_) => _buildSurroundSection(),
                             shape: Shapes.puffyDiamond,
                           );
@@ -5784,7 +5785,7 @@ class _EqScreenState extends State<EqScreen>
                     itemBuilder: (context, index) {
                       if (index == 0) {
                         return _buildEffectTileCard(
-                          icon: Icons.waves_rounded,
+                          icon: SautiIcons.convolver,
                           shape: Shapes.c4SidedCookie,
                           title: 'Convolver',
                           subtitle: _convolverEnabled
@@ -5798,14 +5799,14 @@ class _EqScreenState extends State<EqScreen>
                           },
                           onTapDetail: () => _openDetailScreen(
                             'Convolver',
-                            Icons.waves_rounded,
+                            SautiIcons.convolver,
                             (_) => _buildConvolverSection(),
                             shape: Shapes.c4SidedCookie,
                           ),
                         );
                       }
                       return _buildEffectTileCard(
-                        icon: Icons.surround_sound_rounded,
+                        icon: SautiIcons.spatialSound,
                         shape: Shapes.puffyDiamond,
                         title: 'Spatial Surround',
                         subtitle: _surroundEnabled
@@ -5848,14 +5849,14 @@ class _EqScreenState extends State<EqScreen>
                     onTap: (index) {
                       _openDetailScreen(
                         'Reverb',
-                        Icons.wb_twilight_rounded,
+                        SautiIcons.reverb,
                         (_) => _buildReverbSection(),
                         shape: Shapes.flower,
                       );
                     },
                     itemBuilder: (context, index) {
                       return _buildEffectTileCard(
-                        icon: Icons.wb_twilight_rounded,
+                        icon: SautiIcons.reverb,
                         shape: Shapes.flower,
                         title: 'Reverb',
                         subtitle: _reverbEnabled
@@ -5979,7 +5980,7 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.playbackSpeed, color: primaryColor, size: 20),
       ),
       title: 'Speed & Pitch',
       subtitle: subtitleText,
@@ -6061,7 +6062,7 @@ class _EqScreenState extends State<EqScreen>
         ),
         child: */
           Center(
-        child: Icon(Icons.equalizer_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.graphicEq, color: primaryColor, size: 20),
         //  ),
       ),
       title: 'Graphic Equalizer',
@@ -6269,7 +6270,7 @@ class _EqScreenState extends State<EqScreen>
     final crystalColor = context.primaryColor;
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.auto_fix_high_rounded, color: crystalColor, size: 20),
+        child: Icon(SautiIcons.crystallizer, color: crystalColor, size: 20),
       ),
       title: 'Crystalizer',
       subtitle: 'Transient reconstruction',
@@ -6442,7 +6443,7 @@ class _EqScreenState extends State<EqScreen>
         ),
         child:*/
           Center(
-        child: Icon(Icons.headphones_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.crossfeed, color: primaryColor, size: 20),
         //  ),
       ),
       title: 'Crossfeed',
@@ -6805,7 +6806,7 @@ class _EqScreenState extends State<EqScreen>
         ),
         child: */
           Center(
-        child: Icon(Icons.swap_horiz_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.stereoImager, color: primaryColor, size: 20),
         // ),
       ),
       title: 'Stereo Imager',
@@ -7032,7 +7033,7 @@ class _EqScreenState extends State<EqScreen>
         child:*/
           Center(
         child:
-            Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
+            Icon(SautiIcons.stereoWidth, color: primaryColor, size: 20),
         //),
       ),
       title: 'Stereo Enhancer',
@@ -7210,7 +7211,7 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.tune_rounded, color: crossoverColor, size: 20),
+        child: Icon(SautiIcons.toneControls, color: crossoverColor, size: 20),
       ),
       title: "Tone Controls",
       subtitle: modeSubtitle,
@@ -8247,7 +8248,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildParametricEqSection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.show_chart_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.parametricEq, color: primaryColor, size: 20),
       ),
       title: 'Parametric Equalizer',
       subtitle: 'Dynamic filters',
@@ -8878,7 +8879,7 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.speaker_group_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.dynamicBass, color: primaryColor, size: 20),
       ),
       title: 'Dynamic Bass',
       subtitle: '4-pole cascaded ladder resonance',
@@ -9210,7 +9211,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildDynamicSystemSection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.headphones_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.dynamicSystem, color: primaryColor, size: 20),
       ),
       title: 'Dynamic System',
       subtitle: 'Multi-Band Bass Simulation',
@@ -9290,7 +9291,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildClaritySection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.graphic_eq_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.audioClarity, color: primaryColor, size: 20),
       ),
       title: 'Clarity',
       subtitle: 'Crisp details',
@@ -9461,7 +9462,7 @@ class _EqScreenState extends State<EqScreen>
     return _CollapsibleSection(
       icon: Center(
         child:
-            Icon(Icons.record_voice_over_rounded, color: dialogColor, size: 20),
+            Icon(SautiIcons.dialogueEnhancer, color: dialogColor, size: 20),
       ),
       title: 'Dialogues',
       subtitle: 'Speech intelligibility enhancement',
@@ -9626,7 +9627,7 @@ class _EqScreenState extends State<EqScreen>
     final expanderColor = context.primaryColor;
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.cleaning_services_rounded,
+        child: Icon(SautiIcons.expander,
             color: expanderColor, size: 20),
       ),
       title: 'Downward Expander',
@@ -9806,7 +9807,7 @@ class _EqScreenState extends State<EqScreen>
     final deEsserColor = context.primaryColor;
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.record_voice_over_rounded,
+        child: Icon(SautiIcons.deesser,
             color: deEsserColor, size: 20),
       ),
       title: 'De-Esser',
@@ -10050,7 +10051,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildAnalogWarmthSection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.album_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.analogueWarmth, color: primaryColor, size: 20),
       ),
       title: 'Analog Warmth',
       subtitle: 'Adds analog harmonics',
@@ -10127,7 +10128,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildConvolverSection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.waves_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.convolver, color: primaryColor, size: 20),
       ),
       title: 'Acoustic Space & Convolver',
       subtitle: 'Simulate playing inside real halls, spaces',
@@ -10372,7 +10373,7 @@ class _EqScreenState extends State<EqScreen>
     return _CollapsibleSection(
       icon: Center(
         child:
-            Icon(Icons.surround_sound_rounded, color: primaryColor, size: 20),
+            Icon(SautiIcons.spatialSound, color: primaryColor, size: 20),
       ),
       title: 'Spatial Sound',
       subtitle: _getSurroundModeSubtitle(),
@@ -11020,7 +11021,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildReverbSection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.wb_twilight_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.reverb, color: primaryColor, size: 20),
       ),
       title: 'Reverb',
       subtitle: _getReverbSubtitle(),
@@ -11842,7 +11843,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildLookaheadLimiterSection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.masterLookaheadLimiter, color: primaryColor, size: 20),
       ),
       title: 'Look-Ahead Limiter',
       subtitle: '2ms look-ahead protection',
@@ -11898,7 +11899,7 @@ class _EqScreenState extends State<EqScreen>
     final hasGain = _preampDb != 0.0;
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.volume_up_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.preamp, color: primaryColor, size: 20),
       ),
       title: 'Preamp',
       subtitle: 'Master pre-amp',
@@ -11958,7 +11959,7 @@ class _EqScreenState extends State<EqScreen>
     return _CollapsibleSection(
       icon: Center(
         child:
-            Icon(Icons.multitrack_audio_rounded, color: primaryColor, size: 20),
+            Icon(SautiIcons.loudnessNormalizer, color: primaryColor, size: 20),
       ),
       title: 'Loudness Normalizer',
       subtitle: 'EBU R128 K-weighted loudness matching',
@@ -12019,7 +12020,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildReplayGainSection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.equalizer_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.replaygain, color: primaryColor, size: 20),
       ),
       title: 'ReplayGain',
       subtitle: 'Automatic volume matching',
@@ -12083,7 +12084,7 @@ class _EqScreenState extends State<EqScreen>
   Widget _buildMasterLimiterSection() {
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.shield_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.masterPeakLimiter, color: primaryColor, size: 20),
       ),
       title: 'Peak Limiter',
       subtitle: 'Lookahead brickwall limiting',
@@ -12170,7 +12171,7 @@ class _EqScreenState extends State<EqScreen>
         ),
         child:*/
           Center(
-        child: Icon(Icons.compress_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.anticlippingLimiter, color: primaryColor, size: 20),
         //),
       ),
       title: 'Soft Limiter',
@@ -12282,7 +12283,7 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.tune_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.compressor, color: primaryColor, size: 20),
       ),
       title: 'Compressor',
       subtitle: 'Soft-knee dynamics, peak/RMS detector & gain reduction',
@@ -12790,7 +12791,7 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.auto_awesome, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.dynamicLoudness, color: primaryColor, size: 20),
       ),
       title: 'Dynamic Loudness',
       subtitle: 'ISO 226 equal-loudness (bass/treble)',
@@ -12937,7 +12938,7 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.stacked_bar_chart_rounded,
+        child: Icon(SautiIcons.agcControl,
             color: primaryColor, size: 20),
       ),
       title: 'Auto Gain Control',
@@ -13301,7 +13302,7 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.door_sliding_rounded, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.noiseGate, color: primaryColor, size: 20),
       ),
       title: 'Noise Gate',
       subtitle: 'Downward Noise Suppressor',
@@ -13647,7 +13648,7 @@ class _EqScreenState extends State<EqScreen>
     return _CollapsibleSection(
       icon: Center(
         child:
-            Icon(Icons.multitrack_audio_rounded, color: primaryColor, size: 20),
+            Icon(SautiIcons.dynamicEq, color: primaryColor, size: 20),
       ),
       title: 'Dynamic Equalizer',
       subtitle: '6-Band dynamic parametric equalizer',
@@ -14159,7 +14160,7 @@ class _EqScreenState extends State<EqScreen>
 
     return _CollapsibleSection(
       icon: Center(
-        child: Icon(Icons.album_outlined, color: primaryColor, size: 20),
+        child: Icon(SautiIcons.vintageDrift, color: primaryColor, size: 20),
       ),
       title: 'Vintage Tape Drift',
       subtitle: 'Wow, flutter, random motor drift & HF damping',

@@ -1,0 +1,1590 @@
+{
+  "app": "SautiPlay Audiophile Engine",
+  "version": "2.0.0",
+  "grid": "24x24",
+  "strokeWidth": 1.75,
+  "count": 105,
+  "icons": [
+    {
+      "id": "convolver",
+      "name": "Convolver (Pure IR Waveform)",
+      "category": "spatial",
+      "tags": [
+        "impulse",
+        "response",
+        "wav",
+        "ir",
+        "reverb",
+        "waveform"
+      ],
+      "description": "Pure decaying impulse response (IR) waveform: sharp initial transient spike on the left decaying organically to a room tail on the right.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2 12h1.8l1.2-9.5 2.2 19 2.2-14.5 2.1 10.5 2-6.8 1.9 4.2 1.8-2.2 1.6 1.1H22\" />\n</svg>",
+      "paths": "<path d=\"M2 12h1.8l1.2-9.5 2.2 19 2.2-14.5 2.1 10.5 2-6.8 1.9 4.2 1.8-2.2 1.6 1.1H22\" />"
+    },
+    {
+      "id": "crossfeed",
+      "name": "Crossfeed",
+      "category": "spatial",
+      "tags": [
+        "binaural",
+        "headphone",
+        "blend",
+        "stereo",
+        "interaural"
+      ],
+      "description": "Binaural L/R headphone drivers with angled interaural acoustic cross-feed vectors intersecting at a central phantom focus node.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M4 6v12M2 8.5v7\" />\n  <path d=\"M20 6v12M22 8.5v7\" />\n  <path d=\"M4 7.5l16 9\" />\n  <path d=\"M4 16.5l16-9\" />\n  <circle cx=\"12\" cy=\"12\" r=\"2.2\" />\n</svg>",
+      "paths": "<path d=\"M4 6v12M2 8.5v7\" />\n  <path d=\"M20 6v12M22 8.5v7\" />\n  <path d=\"M4 7.5l16 9\" />\n  <path d=\"M4 16.5l16-9\" />\n  <circle cx=\"12\" cy=\"12\" r=\"2.2\" />"
+    },
+    {
+      "id": "openstage",
+      "name": "OpenStage",
+      "category": "spatial",
+      "tags": [
+        "panoramic",
+        "out-of-head",
+        "wide",
+        "binaural",
+        "stage"
+      ],
+      "description": "Out-of-head panoramic acoustic projection expanding outward from the listener center into wide open soundstage dispersion arcs.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"12\" cy=\"18\" r=\"2\" />\n  <path d=\"M7.5 14.5a6.5 6.5 0 0 1 9 0\" />\n  <path d=\"M4 11a11.5 11.5 0 0 1 16 0\" />\n  <path d=\"M12 9V3m0 0L9.8 5.2M12 3l2.2 2.2\" />\n  <path d=\"M5.5 9L2.5 5.5m0 0v3m0-3h3\" />\n  <path d=\"M18.5 9l3-3.5m0 0v3m0-3h-3\" />\n</svg>",
+      "paths": "<circle cx=\"12\" cy=\"18\" r=\"2\" />\n  <path d=\"M7.5 14.5a6.5 6.5 0 0 1 9 0\" />\n  <path d=\"M4 11a11.5 11.5 0 0 1 16 0\" />\n  <path d=\"M12 9V3m0 0L9.8 5.2M12 3l2.2 2.2\" />\n  <path d=\"M5.5 9L2.5 5.5m0 0v3m0-3h3\" />\n  <path d=\"M18.5 9l3-3.5m0 0v3m0-3h-3\" />"
+    },
+    {
+      "id": "sound-stage",
+      "name": "Sound Stage",
+      "category": "spatial",
+      "tags": [
+        "depth",
+        "room",
+        "3d",
+        "perspective",
+        "sweetspot"
+      ],
+      "description": "3D acoustic room depth trapezoid perspective grid with phantom center and sweet-spot listener focal point.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"6 4 18 4 22 19 2 19 6 4\" />\n  <line x1=\"4\" y1=\"11.5\" x2=\"20\" y2=\"11.5\" stroke-dasharray=\"2 2\" />\n  <line x1=\"12\" y1=\"4\" x2=\"12\" y2=\"19\" stroke-dasharray=\"2 2\" />\n  <circle cx=\"12\" cy=\"15.5\" r=\"2\" />\n  <circle cx=\"8\" cy=\"7.8\" r=\"1\" />\n  <circle cx=\"16\" cy=\"7.8\" r=\"1\" />\n</svg>",
+      "paths": "<polygon points=\"6 4 18 4 22 19 2 19 6 4\" />\n  <line x1=\"4\" y1=\"11.5\" x2=\"20\" y2=\"11.5\" stroke-dasharray=\"2 2\" />\n  <line x1=\"12\" y1=\"4\" x2=\"12\" y2=\"19\" stroke-dasharray=\"2 2\" />\n  <circle cx=\"12\" cy=\"15.5\" r=\"2\" />\n  <circle cx=\"8\" cy=\"7.8\" r=\"1\" />\n  <circle cx=\"16\" cy=\"7.8\" r=\"1\" />"
+    },
+    {
+      "id": "stereo-imager",
+      "name": "Stereo Imager",
+      "category": "spatial",
+      "tags": [
+        "vectorscope",
+        "goniometer",
+        "lissajous",
+        "phase",
+        "mid-side"
+      ],
+      "description": "Lissajous vectorscope / goniometer diamond frame with Mid/Side axes and phase correlation stereo ellipse.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"12 2 22 12 12 22 2 12 12 2\" />\n  <line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"22\" stroke-dasharray=\"1.5 2\" />\n  <line x1=\"2\" y1=\"12\" x2=\"22\" y2=\"12\" stroke-dasharray=\"1.5 2\" />\n  <ellipse cx=\"12\" cy=\"12\" rx=\"3.2\" ry=\"7.2\" transform=\"rotate(-28 12 12)\" />\n  <ellipse cx=\"12\" cy=\"12\" rx=\"3.2\" ry=\"7.2\" transform=\"rotate(28 12 12)\" />\n</svg>",
+      "paths": "<polygon points=\"12 2 22 12 12 22 2 12 12 2\" />\n  <line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"22\" stroke-dasharray=\"1.5 2\" />\n  <line x1=\"2\" y1=\"12\" x2=\"22\" y2=\"12\" stroke-dasharray=\"1.5 2\" />\n  <ellipse cx=\"12\" cy=\"12\" rx=\"3.2\" ry=\"7.2\" transform=\"rotate(-28 12 12)\" />\n  <ellipse cx=\"12\" cy=\"12\" rx=\"3.2\" ry=\"7.2\" transform=\"rotate(28 12 12)\" />"
+    },
+    {
+      "id": "stereo-width",
+      "name": "Stereo Width",
+      "category": "spatial",
+      "tags": [
+        "expansion",
+        "dipole",
+        "mid",
+        "side",
+        "wide"
+      ],
+      "description": "Horizontal expansion dipole arrows radiating outward from a central Mid/Side (M/S) acoustic core.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"12\" cy=\"12\" r=\"2.2\" />\n  <path d=\"M5.5 7a11 11 0 0 1 13 0\" />\n  <path d=\"M5.5 17a11 11 0 0 0 13 0\" />\n  <path d=\"M9.5 12H2m0 0l2.8-2.8M2 12l2.8 2.8\" />\n  <path d=\"M14.5 12H22m0 0l-2.8-2.8M22 12l-2.8 2.8\" />\n</svg>",
+      "paths": "<circle cx=\"12\" cy=\"12\" r=\"2.2\" />\n  <path d=\"M5.5 7a11 11 0 0 1 13 0\" />\n  <path d=\"M5.5 17a11 11 0 0 0 13 0\" />\n  <path d=\"M9.5 12H2m0 0l2.8-2.8M2 12l2.8 2.8\" />\n  <path d=\"M14.5 12H22m0 0l-2.8-2.8M22 12l-2.8 2.8\" />"
+    },
+    {
+      "id": "spatial-sound",
+      "name": "Spatial Sound",
+      "category": "spatial",
+      "tags": [
+        "3d",
+        "binaural",
+        "orbital",
+        "dolby",
+        "atmos",
+        "gyro"
+      ],
+      "description": "3D binaural orbital rings surrounding a central listener sphere.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"12\" cy=\"12\" r=\"2.5\" />\n  <ellipse cx=\"12\" cy=\"12\" rx=\"10\" ry=\"4.2\" transform=\"rotate(-22 12 12)\" />\n  <ellipse cx=\"12\" cy=\"12\" rx=\"4.2\" ry=\"10\" transform=\"rotate(-22 12 12)\" />\n</svg>",
+      "paths": "<circle cx=\"12\" cy=\"12\" r=\"2.5\" />\n  <ellipse cx=\"12\" cy=\"12\" rx=\"10\" ry=\"4.2\" transform=\"rotate(-22 12 12)\" />\n  <ellipse cx=\"12\" cy=\"12\" rx=\"4.2\" ry=\"10\" transform=\"rotate(-22 12 12)\" />"
+    },
+    {
+      "id": "reverb",
+      "name": "Reverb",
+      "category": "spatial",
+      "tags": [
+        "room",
+        "hall",
+        "decay",
+        "echo",
+        "reflections",
+        "chamber"
+      ],
+      "description": "Acoustic reflection decay series: direct sound pillar followed by decaying reflection echoes in an acoustic chamber contour.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M3 6l18-3v18L3 18V6Z\" />\n  <line x1=\"7\" y1=\"7.5\" x2=\"7\" y2=\"16.5\" />\n  <line x1=\"11\" y1=\"7\" x2=\"11\" y2=\"17\" stroke-dasharray=\"2 1.5\" />\n  <line x1=\"15\" y1=\"6.2\" x2=\"15\" y2=\"17.8\" stroke-dasharray=\"1.5 2\" />\n  <line x1=\"18.5\" y1=\"5.5\" x2=\"18.5\" y2=\"18.5\" stroke-dasharray=\"1 2.5\" />\n</svg>",
+      "paths": "<path d=\"M3 6l18-3v18L3 18V6Z\" />\n  <line x1=\"7\" y1=\"7.5\" x2=\"7\" y2=\"16.5\" />\n  <line x1=\"11\" y1=\"7\" x2=\"11\" y2=\"17\" stroke-dasharray=\"2 1.5\" />\n  <line x1=\"15\" y1=\"6.2\" x2=\"15\" y2=\"17.8\" stroke-dasharray=\"1.5 2\" />\n  <line x1=\"18.5\" y1=\"5.5\" x2=\"18.5\" y2=\"18.5\" stroke-dasharray=\"1 2.5\" />"
+    },
+    {
+      "id": "phase-invert",
+      "name": "Phase Invert (Master 180\u00b0 \u00d8)",
+      "category": "spatial",
+      "tags": [
+        "polarity",
+        "180",
+        "phi",
+        "null",
+        "sine"
+      ],
+      "description": "Master 180\u00b0 phase polarity inversion: \u00d8 symbol intersected with an inverted sine wave cycle.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"12\" cy=\"12\" r=\"7.5\" />\n  <line x1=\"5.5\" y1=\"18.5\" x2=\"18.5\" y2=\"5.5\" />\n  <path d=\"M2 12c2.5 5 5 5 7.5 0s5-5 7.5 0 3.5 3.5 5 0\" />\n</svg>",
+      "paths": "<circle cx=\"12\" cy=\"12\" r=\"7.5\" />\n  <line x1=\"5.5\" y1=\"18.5\" x2=\"18.5\" y2=\"5.5\" />\n  <path d=\"M2 12c2.5 5 5 5 7.5 0s5-5 7.5 0 3.5 3.5 5 0\" />"
+    },
+    {
+      "id": "invert-phase-l",
+      "name": "Invert Left Channel Phase (L \u00d8)",
+      "category": "spatial",
+      "tags": [
+        "left",
+        "polarity",
+        "180",
+        "channel",
+        "phase"
+      ],
+      "description": "Invert Left Channel Phase: crisp L channel badge paired with \u00d8 polarity inversion and flipped half-wave.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M3 5v7h4.2\" />\n  <circle cx=\"15.5\" cy=\"8.5\" r=\"4\" />\n  <line x1=\"12.2\" y1=\"11.8\" x2=\"18.8\" y2=\"5.2\" />\n  <path d=\"M3 18c3 4 6 4 9 0s6-4 9 0\" />\n</svg>",
+      "paths": "<path d=\"M3 5v7h4.2\" />\n  <circle cx=\"15.5\" cy=\"8.5\" r=\"4\" />\n  <line x1=\"12.2\" y1=\"11.8\" x2=\"18.8\" y2=\"5.2\" />\n  <path d=\"M3 18c3 4 6 4 9 0s6-4 9 0\" />"
+    },
+    {
+      "id": "invert-phase-r",
+      "name": "Invert Right Channel Phase (R \u00d8)",
+      "category": "spatial",
+      "tags": [
+        "right",
+        "polarity",
+        "180",
+        "channel",
+        "phase"
+      ],
+      "description": "Invert Right Channel Phase: crisp R channel badge paired with \u00d8 polarity inversion and flipped half-wave.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M3 12V5h3a2 2 0 0 1 0 4H3m2.2 0L7.5 12\" />\n  <circle cx=\"15.5\" cy=\"8.5\" r=\"4\" />\n  <line x1=\"12.2\" y1=\"11.8\" x2=\"18.8\" y2=\"5.2\" />\n  <path d=\"M3 18c3-4 6-4 9 0s6 4 9 0\" />\n</svg>",
+      "paths": "<path d=\"M3 12V5h3a2 2 0 0 1 0 4H3m2.2 0L7.5 12\" />\n  <circle cx=\"15.5\" cy=\"8.5\" r=\"4\" />\n  <line x1=\"12.2\" y1=\"11.8\" x2=\"18.8\" y2=\"5.2\" />\n  <path d=\"M3 18c3-4 6-4 9 0s6 4 9 0\" />"
+    },
+    {
+      "id": "swap-channels",
+      "name": "Swap Channels (L \u2194 R Matrix)",
+      "category": "spatial",
+      "tags": [
+        "reverse",
+        "stereo",
+        "crossover",
+        "left",
+        "right"
+      ],
+      "description": "Precision L \u2194 R channel crossover matrix swap with crisscrossing signal routing paths between L and R terminals.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2.5 5.5v4h2.5\" />\n  <path d=\"M2.5 18.5v-4h2a1.2 1.2 0 0 1 0 2.4H2.5m1.5 0l1.3 1.6\" />\n  <path d=\"M8 7h2.5l6 10H21m0 0l-2-2m2 2l-2 2\" />\n  <path d=\"M8 17h2.5l6-10H21m0 0l-2-2m2 2l-2 2\" />\n</svg>",
+      "paths": "<path d=\"M2.5 5.5v4h2.5\" />\n  <path d=\"M2.5 18.5v-4h2a1.2 1.2 0 0 1 0 2.4H2.5m1.5 0l1.3 1.6\" />\n  <path d=\"M8 7h2.5l6 10H21m0 0l-2-2m2 2l-2 2\" />\n  <path d=\"M8 17h2.5l6-10H21m0 0l-2-2m2 2l-2 2\" />"
+    },
+    {
+      "id": "per-channel-gain",
+      "name": "Per-Channel Gain (L/R Trim)",
+      "category": "spatial",
+      "tags": [
+        "balance",
+        "trim",
+        "attenuator",
+        "left",
+        "right",
+        "db"
+      ],
+      "description": "Dual independent L / R vertical trim attenuators with decoupled dB level calibration ticks.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"7\" y1=\"3\" x2=\"7\" y2=\"21\" />\n  <line x1=\"17\" y1=\"3\" x2=\"17\" y2=\"21\" />\n  <rect x=\"4\" y=\"6.5\" width=\"6\" height=\"3.2\" rx=\"1\" />\n  <rect x=\"14\" y=\"13.5\" width=\"6\" height=\"3.2\" rx=\"1\" />\n  <line x1=\"11.2\" y1=\"6\" x2=\"12.8\" y2=\"6\" />\n  <line x1=\"11.2\" y1=\"12\" x2=\"12.8\" y2=\"12\" />\n  <line x1=\"11.2\" y1=\"18\" x2=\"12.8\" y2=\"18\" />\n</svg>",
+      "paths": "<line x1=\"7\" y1=\"3\" x2=\"7\" y2=\"21\" />\n  <line x1=\"17\" y1=\"3\" x2=\"17\" y2=\"21\" />\n  <rect x=\"4\" y=\"6.5\" width=\"6\" height=\"3.2\" rx=\"1\" />\n  <rect x=\"14\" y=\"13.5\" width=\"6\" height=\"3.2\" rx=\"1\" />\n  <line x1=\"11.2\" y1=\"6\" x2=\"12.8\" y2=\"6\" />\n  <line x1=\"11.2\" y1=\"12\" x2=\"12.8\" y2=\"12\" />\n  <line x1=\"11.2\" y1=\"18\" x2=\"12.8\" y2=\"18\" />"
+    },
+    {
+      "id": "output-channels",
+      "name": "Output Channels (Routing Matrix)",
+      "category": "spatial",
+      "tags": [
+        "multichannel",
+        "surround",
+        "5.1",
+        "7.1",
+        "2.0",
+        "dac",
+        "bus"
+      ],
+      "description": "Multi-channel speaker routing matrix distributing signal from a central DAC bus to surround transducer nodes.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"9\" y=\"9\" width=\"6\" height=\"6\" rx=\"1.2\" />\n  <circle cx=\"4\" cy=\"4\" r=\"1.8\" />\n  <circle cx=\"20\" cy=\"4\" r=\"1.8\" />\n  <circle cx=\"4\" cy=\"20\" r=\"1.8\" />\n  <circle cx=\"20\" cy=\"20\" r=\"1.8\" />\n  <circle cx=\"12\" cy=\"3\" r=\"1.5\" />\n  <line x1=\"9\" y1=\"9\" x2=\"5.3\" y2=\"5.3\" />\n  <line x1=\"15\" y1=\"9\" x2=\"18.7\" y2=\"5.3\" />\n  <line x1=\"9\" y1=\"15\" x2=\"5.3\" y2=\"18.7\" />\n  <line x1=\"15\" y1=\"15\" x2=\"18.7\" y2=\"18.7\" />\n  <line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"4.5\" />\n</svg>",
+      "paths": "<rect x=\"9\" y=\"9\" width=\"6\" height=\"6\" rx=\"1.2\" />\n  <circle cx=\"4\" cy=\"4\" r=\"1.8\" />\n  <circle cx=\"20\" cy=\"4\" r=\"1.8\" />\n  <circle cx=\"4\" cy=\"20\" r=\"1.8\" />\n  <circle cx=\"20\" cy=\"20\" r=\"1.8\" />\n  <circle cx=\"12\" cy=\"3\" r=\"1.5\" />\n  <line x1=\"9\" y1=\"9\" x2=\"5.3\" y2=\"5.3\" />\n  <line x1=\"15\" y1=\"9\" x2=\"18.7\" y2=\"5.3\" />\n  <line x1=\"9\" y1=\"15\" x2=\"5.3\" y2=\"18.7\" />\n  <line x1=\"15\" y1=\"15\" x2=\"18.7\" y2=\"18.7\" />\n  <line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"4.5\" />"
+    },
+    {
+      "id": "resampler-sox",
+      "name": "Resampler SoX (Sinc Kernel)",
+      "category": "resampling",
+      "tags": [
+        "sinc",
+        "interpolation",
+        "nyquist",
+        "upsample",
+        "sox"
+      ],
+      "description": "SoX sinc-interpolation filter kernel: discrete Nyquist sample stems bridged by a smooth continuous sinc reconstruction curve.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"19\" x2=\"22\" y2=\"19\" />\n  <line x1=\"5\" y1=\"19\" x2=\"5\" y2=\"12\" />\n  <circle cx=\"5\" cy=\"10.5\" r=\"1.3\" />\n  <line x1=\"10\" y1=\"19\" x2=\"10\" y2=\"6.5\" />\n  <circle cx=\"10\" cy=\"5\" r=\"1.3\" />\n  <line x1=\"15\" y1=\"19\" x2=\"15\" y2=\"14\" />\n  <circle cx=\"15\" cy=\"12.5\" r=\"1.3\" />\n  <path d=\"M2 15c2.5-8 5.5-11 8-10s4 9 7 7 3.5-5 5-2\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"19\" x2=\"22\" y2=\"19\" />\n  <line x1=\"5\" y1=\"19\" x2=\"5\" y2=\"12\" />\n  <circle cx=\"5\" cy=\"10.5\" r=\"1.3\" />\n  <line x1=\"10\" y1=\"19\" x2=\"10\" y2=\"6.5\" />\n  <circle cx=\"10\" cy=\"5\" r=\"1.3\" />\n  <line x1=\"15\" y1=\"19\" x2=\"15\" y2=\"14\" />\n  <circle cx=\"15\" cy=\"12.5\" r=\"1.3\" />\n  <path d=\"M2 15c2.5-8 5.5-11 8-10s4 9 7 7 3.5-5 5-2\" />"
+    },
+    {
+      "id": "resampling",
+      "name": "Resampling (Rate Bridge)",
+      "category": "resampling",
+      "tags": [
+        "src",
+        "sample-rate",
+        "conversion",
+        "clock",
+        "bridge"
+      ],
+      "description": "Sample-rate conversion bridge: coarse input clock ticks on the left transforming into dense high-res output clock ticks on the right.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"3\" y1=\"6\" x2=\"3\" y2=\"18\" />\n  <line x1=\"7\" y1=\"8\" x2=\"7\" y2=\"16\" />\n  <path d=\"M9.5 12h4m0 0l-1.8-1.8M13.5 12l-1.8 1.8\" />\n  <line x1=\"16\" y1=\"5\" x2=\"16\" y2=\"19\" />\n  <line x1=\"18\" y1=\"7\" x2=\"18\" y2=\"17\" />\n  <line x1=\"20\" y1=\"4\" x2=\"20\" y2=\"20\" />\n  <line x1=\"22\" y1=\"8\" x2=\"22\" y2=\"16\" />\n</svg>",
+      "paths": "<line x1=\"3\" y1=\"6\" x2=\"3\" y2=\"18\" />\n  <line x1=\"7\" y1=\"8\" x2=\"7\" y2=\"16\" />\n  <path d=\"M9.5 12h4m0 0l-1.8-1.8M13.5 12l-1.8 1.8\" />\n  <line x1=\"16\" y1=\"5\" x2=\"16\" y2=\"19\" />\n  <line x1=\"18\" y1=\"7\" x2=\"18\" y2=\"17\" />\n  <line x1=\"20\" y1=\"4\" x2=\"20\" y2=\"20\" />\n  <line x1=\"22\" y1=\"8\" x2=\"22\" y2=\"16\" />"
+    },
+    {
+      "id": "oversampling",
+      "name": "Oversampling (2x / 4x / 8x)",
+      "category": "resampling",
+      "tags": [
+        "nyquist",
+        "multiplier",
+        "dsd",
+        "upsampling",
+        "sub-sample"
+      ],
+      "description": "2x/4x/8x Nyquist oversampling step-multiplier: base sample grid subdivided into ultra-fine sub-samples with upward multiplier chevron.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"20\" x2=\"22\" y2=\"20\" />\n  <line x1=\"4\" y1=\"20\" x2=\"4\" y2=\"10\" />\n  <line x1=\"12\" y1=\"20\" x2=\"12\" y2=\"8\" />\n  <line x1=\"20\" y1=\"20\" x2=\"20\" y2=\"10\" />\n  <line x1=\"6.6\" y1=\"20\" x2=\"6.6\" y2=\"14\" stroke-dasharray=\"1.5 1.5\" />\n  <line x1=\"9.3\" y1=\"20\" x2=\"9.3\" y2=\"12\" stroke-dasharray=\"1.5 1.5\" />\n  <line x1=\"14.6\" y1=\"20\" x2=\"14.6\" y2=\"12\" stroke-dasharray=\"1.5 1.5\" />\n  <line x1=\"17.3\" y1=\"20\" x2=\"17.3\" y2=\"14\" stroke-dasharray=\"1.5 1.5\" />\n  <polyline points=\"8.5 6 12 2.5 15.5 6\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"20\" x2=\"22\" y2=\"20\" />\n  <line x1=\"4\" y1=\"20\" x2=\"4\" y2=\"10\" />\n  <line x1=\"12\" y1=\"20\" x2=\"12\" y2=\"8\" />\n  <line x1=\"20\" y1=\"20\" x2=\"20\" y2=\"10\" />\n  <line x1=\"6.6\" y1=\"20\" x2=\"6.6\" y2=\"14\" stroke-dasharray=\"1.5 1.5\" />\n  <line x1=\"9.3\" y1=\"20\" x2=\"9.3\" y2=\"12\" stroke-dasharray=\"1.5 1.5\" />\n  <line x1=\"14.6\" y1=\"20\" x2=\"14.6\" y2=\"12\" stroke-dasharray=\"1.5 1.5\" />\n  <line x1=\"17.3\" y1=\"20\" x2=\"17.3\" y2=\"14\" stroke-dasharray=\"1.5 1.5\" />\n  <polyline points=\"8.5 6 12 2.5 15.5 6\" />"
+    },
+    {
+      "id": "64-bit-dsp",
+      "name": "64-Bit Double-Precision DSP",
+      "category": "resampling",
+      "tags": [
+        "64",
+        "float",
+        "cpu",
+        "chip",
+        "engine",
+        "double-precision"
+      ],
+      "description": "64-Bit Double-Precision Floating Point DSP Engine: monolithic processor core with 64 vector typography and dual-bus register pins.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2.5\" />\n  <line x1=\"8\" y1=\"2\" x2=\"8\" y2=\"4\" /><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"4\" /><line x1=\"16\" y1=\"2\" x2=\"16\" y2=\"4\" />\n  <line x1=\"8\" y1=\"20\" x2=\"8\" y2=\"22\" /><line x1=\"12\" y1=\"20\" x2=\"12\" y2=\"22\" /><line x1=\"16\" y1=\"20\" x2=\"16\" y2=\"22\" />\n  <line x1=\"2\" y1=\"8\" x2=\"4\" y2=\"8\" /><line x1=\"2\" y1=\"16\" x2=\"4\" y2=\"16\" />\n  <line x1=\"20\" y1=\"8\" x2=\"22\" y2=\"8\" /><line x1=\"20\" y1=\"16\" x2=\"22\" y2=\"16\" />\n  <path d=\"M10.5 9H8a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-1.2a1 1 0 0 0-1-1H7\" />\n  <path d=\"M13.5 9v3.2h3.5M16 9v6\" />\n</svg>",
+      "paths": "<rect x=\"4\" y=\"4\" width=\"16\" height=\"16\" rx=\"2.5\" />\n  <line x1=\"8\" y1=\"2\" x2=\"8\" y2=\"4\" /><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"4\" /><line x1=\"16\" y1=\"2\" x2=\"16\" y2=\"4\" />\n  <line x1=\"8\" y1=\"20\" x2=\"8\" y2=\"22\" /><line x1=\"12\" y1=\"20\" x2=\"12\" y2=\"22\" /><line x1=\"16\" y1=\"20\" x2=\"16\" y2=\"22\" />\n  <line x1=\"2\" y1=\"8\" x2=\"4\" y2=\"8\" /><line x1=\"2\" y1=\"16\" x2=\"4\" y2=\"16\" />\n  <line x1=\"20\" y1=\"8\" x2=\"22\" y2=\"8\" /><line x1=\"20\" y1=\"16\" x2=\"22\" y2=\"16\" />\n  <path d=\"M10.5 9H8a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-1.2a1 1 0 0 0-1-1H7\" />\n  <path d=\"M13.5 9v3.2h3.5M16 9v6\" />"
+    },
+    {
+      "id": "bit-depth",
+      "name": "Bit Depth (Quantization Ladder)",
+      "category": "resampling",
+      "tags": [
+        "quantization",
+        "resolution",
+        "dither",
+        "dynamic-range",
+        "pcm"
+      ],
+      "description": "Quantization amplitude resolution ladder: stepped staircase quantization levels with fine vertical amplitude ticks.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"4\" y1=\"3\" x2=\"4\" y2=\"21\" />\n  <line x1=\"2.5\" y1=\"6\" x2=\"5.5\" y2=\"6\" />\n  <line x1=\"2.5\" y1=\"10\" x2=\"5.5\" y2=\"10\" />\n  <line x1=\"2.5\" y1=\"14\" x2=\"5.5\" y2=\"14\" />\n  <line x1=\"2.5\" y1=\"18\" x2=\"5.5\" y2=\"18\" />\n  <path d=\"M7.5 18h3v-4h3v-4h3V6h4.5\" />\n</svg>",
+      "paths": "<line x1=\"4\" y1=\"3\" x2=\"4\" y2=\"21\" />\n  <line x1=\"2.5\" y1=\"6\" x2=\"5.5\" y2=\"6\" />\n  <line x1=\"2.5\" y1=\"10\" x2=\"5.5\" y2=\"10\" />\n  <line x1=\"2.5\" y1=\"14\" x2=\"5.5\" y2=\"14\" />\n  <line x1=\"2.5\" y1=\"18\" x2=\"5.5\" y2=\"18\" />\n  <path d=\"M7.5 18h3v-4h3v-4h3V6h4.5\" />"
+    },
+    {
+      "id": "samplerate",
+      "name": "Sample Rate (Sampling Comb)",
+      "category": "resampling",
+      "tags": [
+        "khz",
+        "frequency",
+        "clock",
+        "nyquist",
+        "time-domain"
+      ],
+      "description": "Horizontal time-domain sampling clock frequency comb: uniform discrete sample impulses along the time axis.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"18\" x2=\"22\" y2=\"18\" />\n  <line x1=\"4\" y1=\"18\" x2=\"4\" y2=\"9\" /><circle cx=\"4\" cy=\"7.5\" r=\"1\" />\n  <line x1=\"8\" y1=\"18\" x2=\"8\" y2=\"5\" /><circle cx=\"8\" cy=\"3.5\" r=\"1\" />\n  <line x1=\"12\" y1=\"18\" x2=\"12\" y2=\"11\" /><circle cx=\"12\" cy=\"9.5\" r=\"1\" />\n  <line x1=\"16\" y1=\"18\" x2=\"16\" y2=\"7\" /><circle cx=\"16\" cy=\"5.5\" r=\"1\" />\n  <line x1=\"20\" y1=\"18\" x2=\"20\" y2=\"12\" /><circle cx=\"20\" cy=\"10.5\" r=\"1\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"18\" x2=\"22\" y2=\"18\" />\n  <line x1=\"4\" y1=\"18\" x2=\"4\" y2=\"9\" /><circle cx=\"4\" cy=\"7.5\" r=\"1\" />\n  <line x1=\"8\" y1=\"18\" x2=\"8\" y2=\"5\" /><circle cx=\"8\" cy=\"3.5\" r=\"1\" />\n  <line x1=\"12\" y1=\"18\" x2=\"12\" y2=\"11\" /><circle cx=\"12\" cy=\"9.5\" r=\"1\" />\n  <line x1=\"16\" y1=\"18\" x2=\"16\" y2=\"7\" /><circle cx=\"16\" cy=\"5.5\" r=\"1\" />\n  <line x1=\"20\" y1=\"18\" x2=\"20\" y2=\"12\" /><circle cx=\"20\" cy=\"10.5\" r=\"1\" />"
+    },
+    {
+      "id": "auto-samplerate",
+      "name": "Auto Sample Rate (Bit-Perfect Match)",
+      "category": "resampling",
+      "tags": [
+        "bit-perfect",
+        "native",
+        "clock",
+        "low-latency",
+        "direct"
+      ],
+      "description": "Bit-Perfect Auto Sample Rate / Low-Latency Native Clock Match: sampling comb locked inside a fast-sync lightning loop.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M4 12a8 8 0 0 1 14-5.2\" />\n  <polyline points=\"15 3.8 18.5 7 14.5 7.8\" />\n  <path d=\"M20 12a8 8 0 0 1-14 5.2\" />\n  <polyline points=\"9 20.2 5.5 17 9.5 16.2\" />\n  <polygon points=\"12.5 7.5 9.5 12.5 12 12.5 11.5 16.5 14.5 11.5 12 11.5 12.5 7.5\" />\n</svg>",
+      "paths": "<path d=\"M4 12a8 8 0 0 1 14-5.2\" />\n  <polyline points=\"15 3.8 18.5 7 14.5 7.8\" />\n  <path d=\"M20 12a8 8 0 0 1-14 5.2\" />\n  <polyline points=\"9 20.2 5.5 17 9.5 16.2\" />\n  <polygon points=\"12.5 7.5 9.5 12.5 12 12.5 11.5 16.5 14.5 11.5 12 11.5 12.5 7.5\" />"
+    },
+    {
+      "id": "buffer-latency",
+      "name": "Buffer Latency (FIFO Gauge)",
+      "category": "resampling",
+      "tags": [
+        "asio",
+        "wasapi",
+        "fifo",
+        "ms",
+        "queue",
+        "delay"
+      ],
+      "description": "FIFO frame audio buffer queue paired with a low-latency microsecond gauge needle.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"2\" y=\"6\" width=\"3\" height=\"12\" rx=\"0.8\" />\n  <rect x=\"6.5\" y=\"6\" width=\"3\" height=\"12\" rx=\"0.8\" />\n  <rect x=\"11\" y=\"6\" width=\"3\" height=\"12\" rx=\"0.8\" stroke-dasharray=\"2 1.5\" />\n  <path d=\"M16.5 17a5 5 0 1 1 5-5\" />\n  <line x1=\"18.5\" y1=\"12\" x2=\"21\" y2=\"9.5\" />\n  <circle cx=\"18.5\" cy=\"12\" r=\"1\" />\n</svg>",
+      "paths": "<rect x=\"2\" y=\"6\" width=\"3\" height=\"12\" rx=\"0.8\" />\n  <rect x=\"6.5\" y=\"6\" width=\"3\" height=\"12\" rx=\"0.8\" />\n  <rect x=\"11\" y=\"6\" width=\"3\" height=\"12\" rx=\"0.8\" stroke-dasharray=\"2 1.5\" />\n  <path d=\"M16.5 17a5 5 0 1 1 5-5\" />\n  <line x1=\"18.5\" y1=\"12\" x2=\"21\" y2=\"9.5\" />\n  <circle cx=\"18.5\" cy=\"12\" r=\"1\" />"
+    },
+    {
+      "id": "tube-amp",
+      "name": "Tube Amp (Vacuum Triode)",
+      "category": "resampling",
+      "tags": [
+        "valve",
+        "triode",
+        "warmth",
+        "harmonic",
+        "class-a"
+      ],
+      "description": "Vacuum triode glass envelope with glowing filament cathode, control grid dashes, and anode plate.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M7 8.5a5 5 0 0 1 10 0V17H7V8.5Z\" />\n  <rect x=\"5.5\" y=\"17\" width=\"13\" height=\"2.5\" rx=\"0.8\" />\n  <line x1=\"8.5\" y1=\"19.5\" x2=\"8.5\" y2=\"21.5\" />\n  <line x1=\"12\" y1=\"19.5\" x2=\"12\" y2=\"21.5\" />\n  <line x1=\"15.5\" y1=\"19.5\" x2=\"15.5\" y2=\"21.5\" />\n  <line x1=\"9.5\" y1=\"8\" x2=\"14.5\" y2=\"8\" />\n  <line x1=\"9\" y1=\"11\" x2=\"15\" y2=\"11\" stroke-dasharray=\"1.5 1.5\" />\n  <path d=\"M9.8 15.5L12 12.8l2.2 2.7\" />\n</svg>",
+      "paths": "<path d=\"M7 8.5a5 5 0 0 1 10 0V17H7V8.5Z\" />\n  <rect x=\"5.5\" y=\"17\" width=\"13\" height=\"2.5\" rx=\"0.8\" />\n  <line x1=\"8.5\" y1=\"19.5\" x2=\"8.5\" y2=\"21.5\" />\n  <line x1=\"12\" y1=\"19.5\" x2=\"12\" y2=\"21.5\" />\n  <line x1=\"15.5\" y1=\"19.5\" x2=\"15.5\" y2=\"21.5\" />\n  <line x1=\"9.5\" y1=\"8\" x2=\"14.5\" y2=\"8\" />\n  <line x1=\"9\" y1=\"11\" x2=\"15\" y2=\"11\" stroke-dasharray=\"1.5 1.5\" />\n  <path d=\"M9.8 15.5L12 12.8l2.2 2.7\" />"
+    },
+    {
+      "id": "analogue-warmth",
+      "name": "Analogue Warmth",
+      "category": "resampling",
+      "tags": [
+        "saturation",
+        "tape",
+        "harmonics",
+        "even-order",
+        "thermal"
+      ],
+      "description": "Smooth even-order harmonic saturation waves radiating gentle thermal harmonic curves.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2 13c2.5-6 5.5-6 8 0s5.5 6 8 0 2.5-3 4 0\" />\n  <path d=\"M4 9c2-4 4.5-4 6.5 0s4.5 4 6.5 0\" stroke-dasharray=\"2 2\" />\n  <path d=\"M9 4.5c0-1.2 1.2-1.8 1.2-3\" />\n  <path d=\"M14 4.5c0-1.2 1.2-1.8 1.2-3\" />\n</svg>",
+      "paths": "<path d=\"M2 13c2.5-6 5.5-6 8 0s5.5 6 8 0 2.5-3 4 0\" />\n  <path d=\"M4 9c2-4 4.5-4 6.5 0s4.5 4 6.5 0\" stroke-dasharray=\"2 2\" />\n  <path d=\"M9 4.5c0-1.2 1.2-1.8 1.2-3\" />\n  <path d=\"M14 4.5c0-1.2 1.2-1.8 1.2-3\" />"
+    },
+    {
+      "id": "vintage-drift",
+      "name": "Vintage Drift (Wow & Flutter)",
+      "category": "resampling",
+      "tags": [
+        "tape",
+        "reel",
+        "pitch",
+        "modulation",
+        "analog"
+      ],
+      "description": "Wow, flutter & analog tape pitch drift: dual tape reel hubs guiding phase-drifting sinusoidal waves.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"6.5\" cy=\"8.5\" r=\"3.5\" />\n  <circle cx=\"17.5\" cy=\"8.5\" r=\"3.5\" />\n  <circle cx=\"6.5\" cy=\"8.5\" r=\"0.8\" />\n  <circle cx=\"17.5\" cy=\"8.5\" r=\"0.8\" />\n  <path d=\"M2 16.5c2.5-3.5 5 3.5 7.5 0s5 3.5 7.5 0 3-2.5 5 0\" />\n  <path d=\"M2 19.5c3-2.5 5.5 2.5 8.5 0s5.5 2.5 8.5 0\" stroke-dasharray=\"1.5 2\" />\n</svg>",
+      "paths": "<circle cx=\"6.5\" cy=\"8.5\" r=\"3.5\" />\n  <circle cx=\"17.5\" cy=\"8.5\" r=\"3.5\" />\n  <circle cx=\"6.5\" cy=\"8.5\" r=\"0.8\" />\n  <circle cx=\"17.5\" cy=\"8.5\" r=\"0.8\" />\n  <path d=\"M2 16.5c2.5-3.5 5 3.5 7.5 0s5 3.5 7.5 0 3-2.5 5 0\" />\n  <path d=\"M2 19.5c3-2.5 5.5 2.5 8.5 0s5.5 2.5 8.5 0\" stroke-dasharray=\"1.5 2\" />"
+    },
+    {
+      "id": "frequency-scale",
+      "name": "Frequency Scale (Logarithmic Axis)",
+      "category": "resampling",
+      "tags": [
+        "log",
+        "linear",
+        "hz",
+        "ruler",
+        "axis",
+        "spectrum"
+      ],
+      "description": "Logarithmic vs. Linear frequency axis scale ruler with decadic compressed spacing ticks.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"2\" />\n  <line x1=\"5\" y1=\"6\" x2=\"5\" y2=\"14\" />\n  <line x1=\"10\" y1=\"6\" x2=\"10\" y2=\"13\" />\n  <line x1=\"13.5\" y1=\"6\" x2=\"13.5\" y2=\"12\" />\n  <line x1=\"16\" y1=\"6\" x2=\"16\" y2=\"12\" />\n  <line x1=\"18\" y1=\"6\" x2=\"18\" y2=\"11\" />\n  <line x1=\"19.5\" y1=\"6\" x2=\"19.5\" y2=\"11\" />\n  <line x1=\"20.8\" y1=\"6\" x2=\"20.8\" y2=\"11\" />\n</svg>",
+      "paths": "<rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"2\" />\n  <line x1=\"5\" y1=\"6\" x2=\"5\" y2=\"14\" />\n  <line x1=\"10\" y1=\"6\" x2=\"10\" y2=\"13\" />\n  <line x1=\"13.5\" y1=\"6\" x2=\"13.5\" y2=\"12\" />\n  <line x1=\"16\" y1=\"6\" x2=\"16\" y2=\"12\" />\n  <line x1=\"18\" y1=\"6\" x2=\"18\" y2=\"11\" />\n  <line x1=\"19.5\" y1=\"6\" x2=\"19.5\" y2=\"11\" />\n  <line x1=\"20.8\" y1=\"6\" x2=\"20.8\" y2=\"11\" />"
+    },
+    {
+      "id": "window-filter-shape",
+      "name": "Window Filter Shape (Kaiser / Hann)",
+      "category": "resampling",
+      "tags": [
+        "fir",
+        "apodizing",
+        "blackman",
+        "kaiser",
+        "hann",
+        "taps"
+      ],
+      "description": "Kaiser / Blackman / Hann FIR windowing bell function enveloping discrete sinc filter taps.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"19\" x2=\"22\" y2=\"19\" />\n  <path d=\"M2 19C6 19 7.5 5 12 5s6 14 10 14\" />\n  <line x1=\"7\" y1=\"19\" x2=\"7\" y2=\"13.5\" />\n  <line x1=\"9.5\" y1=\"19\" x2=\"9.5\" y2=\"8\" />\n  <line x1=\"12\" y1=\"19\" x2=\"12\" y2=\"5\" />\n  <line x1=\"14.5\" y1=\"19\" x2=\"14.5\" y2=\"8\" />\n  <line x1=\"17\" y1=\"19\" x2=\"17\" y2=\"13.5\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"19\" x2=\"22\" y2=\"19\" />\n  <path d=\"M2 19C6 19 7.5 5 12 5s6 14 10 14\" />\n  <line x1=\"7\" y1=\"19\" x2=\"7\" y2=\"13.5\" />\n  <line x1=\"9.5\" y1=\"19\" x2=\"9.5\" y2=\"8\" />\n  <line x1=\"12\" y1=\"19\" x2=\"12\" y2=\"5\" />\n  <line x1=\"14.5\" y1=\"19\" x2=\"14.5\" y2=\"8\" />\n  <line x1=\"17\" y1=\"19\" x2=\"17\" y2=\"13.5\" />"
+    },
+    {
+      "id": "master-lookahead-limiter",
+      "name": "Master Look-Ahead Limiter",
+      "category": "dynamics",
+      "tags": [
+        "brickwall",
+        "ceiling",
+        "transient",
+        "prediction",
+        "delay"
+      ],
+      "description": "Brickwall ceiling threshold with a look-ahead time-prediction scanner vector detecting an upcoming transient spike.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"5\" x2=\"22\" y2=\"5\" />\n  <circle cx=\"6.5\" cy=\"5\" r=\"1.5\" />\n  <line x1=\"8\" y1=\"5.8\" x2=\"14.5\" y2=\"9.2\" stroke-dasharray=\"1.8 1.8\" />\n  <circle cx=\"15.5\" cy=\"9.5\" r=\"1.4\" />\n  <path d=\"M2 19h4l2.2-7.5L10.5 19h2.2l2.8-9.5L18 19h4\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"5\" x2=\"22\" y2=\"5\" />\n  <circle cx=\"6.5\" cy=\"5\" r=\"1.5\" />\n  <line x1=\"8\" y1=\"5.8\" x2=\"14.5\" y2=\"9.2\" stroke-dasharray=\"1.8 1.8\" />\n  <circle cx=\"15.5\" cy=\"9.5\" r=\"1.4\" />\n  <path d=\"M2 19h4l2.2-7.5L10.5 19h2.2l2.8-9.5L18 19h4\" />"
+    },
+    {
+      "id": "master-peak-limiter",
+      "name": "Master Peak Limiter",
+      "category": "dynamics",
+      "tags": [
+        "brickwall",
+        "0db",
+        "clip",
+        "ceiling",
+        "mastering"
+      ],
+      "description": "Brickwall 0.0 dBFS ceiling bar clamping sharp waveform peaks flat.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"6\" x2=\"22\" y2=\"6\" />\n  <path d=\"M2 19h3.5L8 6h8l2.5 13H22\" />\n  <path d=\"M12 2v3m0 0l-1.5-1.5M12 5l1.5-1.5\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"6\" x2=\"22\" y2=\"6\" />\n  <path d=\"M2 19h3.5L8 6h8l2.5 13H22\" />\n  <path d=\"M12 2v3m0 0l-1.5-1.5M12 5l1.5-1.5\" />"
+    },
+    {
+      "id": "anticlipping-limiter",
+      "name": "Anti-Clipping Limiter",
+      "category": "dynamics",
+      "tags": [
+        "soft-clip",
+        "saturation",
+        "restore",
+        "headroom"
+      ],
+      "description": "Soft-knee saturation ceiling curve rounding off harsh clipped square-wave tops cleanly.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M4 19L6.5 5h11L20 19\" stroke-dasharray=\"2 2\" />\n  <path d=\"M3 19C6 7.5 8 7.5 12 7.5S18 7.5 21 19\" />\n  <line x1=\"2\" y1=\"5\" x2=\"22\" y2=\"5\" />\n</svg>",
+      "paths": "<path d=\"M4 19L6.5 5h11L20 19\" stroke-dasharray=\"2 2\" />\n  <path d=\"M3 19C6 7.5 8 7.5 12 7.5S18 7.5 21 19\" />\n  <line x1=\"2\" y1=\"5\" x2=\"22\" y2=\"5\" />"
+    },
+    {
+      "id": "compressor",
+      "name": "Compressor",
+      "category": "dynamics",
+      "tags": [
+        "ratio",
+        "threshold",
+        "knee",
+        "dynamics",
+        "attack"
+      ],
+      "description": "Dynamic transfer curve knee: 1:1 linear slope bending into a compressed ratio slope above the threshold point.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\" />\n  <line x1=\"3\" y1=\"21\" x2=\"21\" y2=\"3\" stroke-dasharray=\"2 2\" />\n  <path d=\"M3 21l9-9 9-2.5\" />\n  <circle cx=\"12\" cy=\"12\" r=\"1.8\" />\n</svg>",
+      "paths": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\" />\n  <line x1=\"3\" y1=\"21\" x2=\"21\" y2=\"3\" stroke-dasharray=\"2 2\" />\n  <path d=\"M3 21l9-9 9-2.5\" />\n  <circle cx=\"12\" cy=\"12\" r=\"1.8\" />"
+    },
+    {
+      "id": "expander",
+      "name": "Expander",
+      "category": "dynamics",
+      "tags": [
+        "downward",
+        "range",
+        "threshold",
+        "ratio"
+      ],
+      "description": "Downward expansion transfer curve: steep attenuation slope below threshold expanding dynamic range.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\" />\n  <line x1=\"3\" y1=\"21\" x2=\"21\" y2=\"3\" stroke-dasharray=\"2 2\" />\n  <path d=\"M7.5 21L12 12l9-9\" />\n  <circle cx=\"12\" cy=\"12\" r=\"1.8\" />\n</svg>",
+      "paths": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\" />\n  <line x1=\"3\" y1=\"21\" x2=\"21\" y2=\"3\" stroke-dasharray=\"2 2\" />\n  <path d=\"M7.5 21L12 12l9-9\" />\n  <circle cx=\"12\" cy=\"12\" r=\"1.8\" />"
+    },
+    {
+      "id": "noise-gate",
+      "name": "Noise Gate",
+      "category": "dynamics",
+      "tags": [
+        "silence",
+        "floor",
+        "hiss",
+        "cutoff",
+        "threshold"
+      ],
+      "description": "Hard vertical gate cutoff barrier blocking low-level noise floor while passing high-level signal.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\" />\n  <path d=\"M3 21h8.5V11.5L21 3\" />\n  <circle cx=\"11.5\" cy=\"11.5\" r=\"1.6\" />\n</svg>",
+      "paths": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\" />\n  <path d=\"M3 21h8.5V11.5L21 3\" />\n  <circle cx=\"11.5\" cy=\"11.5\" r=\"1.6\" />"
+    },
+    {
+      "id": "preamp",
+      "name": "Preamp (Gain Stage)",
+      "category": "dynamics",
+      "tags": [
+        "op-amp",
+        "boost",
+        "gain",
+        "trim",
+        "db",
+        "input"
+      ],
+      "description": "Analog input gain stage operational amplifier triangle with +dB gain trim and differential rails.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"6 4 20 12 6 20 6 4\" />\n  <line x1=\"2\" y1=\"9\" x2=\"6\" y2=\"9\" />\n  <line x1=\"2\" y1=\"15\" x2=\"6\" y2=\"15\" />\n  <line x1=\"20\" y1=\"12\" x2=\"22.5\" y2=\"12\" />\n  <path d=\"M8.5 12h4m-2-2v4\" />\n</svg>",
+      "paths": "<polygon points=\"6 4 20 12 6 20 6 4\" />\n  <line x1=\"2\" y1=\"9\" x2=\"6\" y2=\"9\" />\n  <line x1=\"2\" y1=\"15\" x2=\"6\" y2=\"15\" />\n  <line x1=\"20\" y1=\"12\" x2=\"22.5\" y2=\"12\" />\n  <path d=\"M8.5 12h4m-2-2v4\" />"
+    },
+    {
+      "id": "loudness-normalizer",
+      "name": "Loudness Normalizer (LUFS)",
+      "category": "dynamics",
+      "tags": [
+        "lufs",
+        "ebu",
+        "target",
+        "level",
+        "volume"
+      ],
+      "description": "LUFS target loudness alignment: uneven dynamic bars aligned to a locked horizontal reference line.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"11\" x2=\"22\" y2=\"11\" stroke-dasharray=\"2 2\" />\n  <rect x=\"4.5\" y=\"11\" width=\"3\" height=\"8\" rx=\"0.8\" />\n  <rect x=\"10.5\" y=\"11\" width=\"3\" height=\"8\" rx=\"0.8\" />\n  <rect x=\"16.5\" y=\"11\" width=\"3\" height=\"8\" rx=\"0.8\" />\n  <path d=\"M6 4.5v4m0 0L4.5 7M6 8.5L7.5 7\" />\n  <path d=\"M18 4.5v4m0 0L16.5 7M18 8.5L19.5 7\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"11\" x2=\"22\" y2=\"11\" stroke-dasharray=\"2 2\" />\n  <rect x=\"4.5\" y=\"11\" width=\"3\" height=\"8\" rx=\"0.8\" />\n  <rect x=\"10.5\" y=\"11\" width=\"3\" height=\"8\" rx=\"0.8\" />\n  <rect x=\"16.5\" y=\"11\" width=\"3\" height=\"8\" rx=\"0.8\" />\n  <path d=\"M6 4.5v4m0 0L4.5 7M6 8.5L7.5 7\" />\n  <path d=\"M18 4.5v4m0 0L16.5 7M18 8.5L19.5 7\" />"
+    },
+    {
+      "id": "agc-control",
+      "name": "AGC Control (Auto Gain)",
+      "category": "dynamics",
+      "tags": [
+        "automatic",
+        "gain",
+        "servo",
+        "loop",
+        "leveler"
+      ],
+      "description": "Automatic Gain Control feedback servo loop dynamically regulating a stabilized waveform core.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M4.5 9A8 8 0 0 1 18.5 6.5\" />\n  <polyline points=\"16 4 19 6.8 15.2 7.5\" />\n  <path d=\"M19.5 15A8 8 0 0 1 5.5 17.5\" />\n  <polyline points=\"8 20 5 17.2 8.8 16.5\" />\n  <path d=\"M7.5 12h2l1.2-3.5 2.6 7 1.2-3.5h2\" />\n</svg>",
+      "paths": "<path d=\"M4.5 9A8 8 0 0 1 18.5 6.5\" />\n  <polyline points=\"16 4 19 6.8 15.2 7.5\" />\n  <path d=\"M19.5 15A8 8 0 0 1 5.5 17.5\" />\n  <polyline points=\"8 20 5 17.2 8.8 16.5\" />\n  <path d=\"M7.5 12h2l1.2-3.5 2.6 7 1.2-3.5h2\" />"
+    },
+    {
+      "id": "dynamic-loudness",
+      "name": "Dynamic Loudness (Fletcher-Munson)",
+      "category": "dynamics",
+      "tags": [
+        "contour",
+        "iso-226",
+        "equal-loudness",
+        "compensation"
+      ],
+      "description": "Fletcher-Munson equal-loudness contour compensation curve boosting low bass and high air at low listening levels.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2.5 6.5C6 14 8.5 15 12 15s6-1 9.5-8.5\" />\n  <path d=\"M2.5 12.5C6 17 8.5 18 12 18s6-1 9.5-5.5\" stroke-dasharray=\"2 2\" />\n  <circle cx=\"4.5\" cy=\"9.5\" r=\"1.2\" />\n  <circle cx=\"19.5\" cy=\"9.5\" r=\"1.2\" />\n</svg>",
+      "paths": "<path d=\"M2.5 6.5C6 14 8.5 15 12 15s6-1 9.5-8.5\" />\n  <path d=\"M2.5 12.5C6 17 8.5 18 12 18s6-1 9.5-5.5\" stroke-dasharray=\"2 2\" />\n  <circle cx=\"4.5\" cy=\"9.5\" r=\"1.2\" />\n  <circle cx=\"19.5\" cy=\"9.5\" r=\"1.2\" />"
+    },
+    {
+      "id": "replaygain",
+      "name": "ReplayGain",
+      "category": "dynamics",
+      "tags": [
+        "metadata",
+        "tag",
+        "album",
+        "track",
+        "db",
+        "calibrate"
+      ],
+      "description": "Track/Album loudness metadata tag with calibrated 0dB normalization scale.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M3 7.5V4a1 1 0 0 1 1-1h3.5L19 14.5 14.5 19 3 7.5Z\" />\n  <circle cx=\"6.5\" cy=\"6.5\" r=\"1\" />\n  <line x1=\"14\" y1=\"6\" x2=\"21\" y2=\"6\" />\n  <line x1=\"16\" y1=\"9.5\" x2=\"21\" y2=\"9.5\" />\n  <line x1=\"18\" y1=\"13\" x2=\"21\" y2=\"13\" />\n</svg>",
+      "paths": "<path d=\"M3 7.5V4a1 1 0 0 1 1-1h3.5L19 14.5 14.5 19 3 7.5Z\" />\n  <circle cx=\"6.5\" cy=\"6.5\" r=\"1\" />\n  <line x1=\"14\" y1=\"6\" x2=\"21\" y2=\"6\" />\n  <line x1=\"16\" y1=\"9.5\" x2=\"21\" y2=\"9.5\" />\n  <line x1=\"18\" y1=\"13\" x2=\"21\" y2=\"13\" />"
+    },
+    {
+      "id": "speaker-guards",
+      "name": "Speaker Guards (Excursion Shield)",
+      "category": "dynamics",
+      "tags": [
+        "protection",
+        "driver",
+        "thermal",
+        "cone",
+        "subsonic",
+        "shield"
+      ],
+      "description": "Transducer excursion and thermal protection shield enclosing a loudspeaker cone driver.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M12 2.5l8 3.5v6c0 5.2-3.4 9.4-8 10.5-4.6-1.1-8-5.3-8-10.5V6l8-3.5Z\" />\n  <circle cx=\"12\" cy=\"12\" r=\"4.2\" />\n  <circle cx=\"12\" cy=\"12\" r=\"1.2\" />\n</svg>",
+      "paths": "<path d=\"M12 2.5l8 3.5v6c0 5.2-3.4 9.4-8 10.5-4.6-1.1-8-5.3-8-10.5V6l8-3.5Z\" />\n  <circle cx=\"12\" cy=\"12\" r=\"4.2\" />\n  <circle cx=\"12\" cy=\"12\" r=\"1.2\" />"
+    },
+    {
+      "id": "sub-bass-rumble-filter",
+      "name": "Sub-Bass Rumble Filter (High-Pass)",
+      "category": "dynamics",
+      "tags": [
+        "subsonic",
+        "hpf",
+        "20hz",
+        "vinyl",
+        "warp",
+        "cut"
+      ],
+      "description": "Steep high-pass subsonic rumble cut filter rolling off turntable and cone excursion rumble below 20Hz.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"19\" x2=\"22\" y2=\"19\" />\n  <path d=\"M3 19C5.5 19 7 7 11.5 7H22\" />\n  <line x1=\"9\" y1=\"7\" x2=\"9\" y2=\"19\" stroke-dasharray=\"1.8 1.8\" />\n  <path d=\"M2.5 13.5c1-1.5 2 1.5 3 0\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"19\" x2=\"22\" y2=\"19\" />\n  <path d=\"M3 19C5.5 19 7 7 11.5 7H22\" />\n  <line x1=\"9\" y1=\"7\" x2=\"9\" y2=\"19\" stroke-dasharray=\"1.8 1.8\" />\n  <path d=\"M2.5 13.5c1-1.5 2 1.5 3 0\" />"
+    },
+    {
+      "id": "ultrasonic-filter",
+      "name": "Ultrasonic Filter (Brickwall Low-Pass)",
+      "category": "dynamics",
+      "tags": [
+        "lpf",
+        "aliasing",
+        "dsd",
+        "noise",
+        "20khz",
+        "cut"
+      ],
+      "description": "Steep brickwall low-pass ultrasonic filter cutting high-frequency out-of-band noise above 20kHz+.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"19\" x2=\"22\" y2=\"19\" />\n  <path d=\"M2 7h10.5c4.5 0 6 12 8.5 12\" />\n  <line x1=\"15\" y1=\"7\" x2=\"15\" y2=\"19\" stroke-dasharray=\"1.8 1.8\" />\n  <path d=\"M18.5 9.5l3-3m0 3l-3-3\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"19\" x2=\"22\" y2=\"19\" />\n  <path d=\"M2 7h10.5c4.5 0 6 12 8.5 12\" />\n  <line x1=\"15\" y1=\"7\" x2=\"15\" y2=\"19\" stroke-dasharray=\"1.8 1.8\" />\n  <path d=\"M18.5 9.5l3-3m0 3l-3-3\" />"
+    },
+    {
+      "id": "rms-level",
+      "name": "RMS Level (Average Energy Window)",
+      "category": "dynamics",
+      "tags": [
+        "meter",
+        "average",
+        "power",
+        "energy",
+        "loudness"
+      ],
+      "description": "Root Mean Square (RMS) average energy integration window banded inside a peak transient waveform.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2 12l2.5-8 3 16 3-13 3 10 2.5-7 2.5 5L22 12\" stroke-dasharray=\"1.5 1.5\" />\n  <rect x=\"3\" y=\"8.5\" width=\"18\" height=\"7\" rx=\"1\" />\n  <line x1=\"3\" y1=\"12\" x2=\"21\" y2=\"12\" />\n</svg>",
+      "paths": "<path d=\"M2 12l2.5-8 3 16 3-13 3 10 2.5-7 2.5 5L22 12\" stroke-dasharray=\"1.5 1.5\" />\n  <rect x=\"3\" y=\"8.5\" width=\"18\" height=\"7\" rx=\"1\" />\n  <line x1=\"3\" y1=\"12\" x2=\"21\" y2=\"12\" />"
+    },
+    {
+      "id": "peak-level",
+      "name": "Peak Level (True-Peak Ballistic Meter)",
+      "category": "dynamics",
+      "tags": [
+        "dbtp",
+        "clip",
+        "meter",
+        "hold",
+        "headroom"
+      ],
+      "description": "Instantaneous true-peak ballistic meter bars with peak-hold clip indicator LED marks at the top.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"4\" y=\"8\" width=\"4\" height=\"13\" rx=\"0.8\" />\n  <rect x=\"10\" y=\"6\" width=\"4\" height=\"15\" rx=\"0.8\" />\n  <rect x=\"16\" y=\"10\" width=\"4\" height=\"11\" rx=\"0.8\" />\n  <line x1=\"4\" y1=\"4.5\" x2=\"8\" y2=\"4.5\" />\n  <line x1=\"10\" y1=\"3\" x2=\"14\" y2=\"3\" />\n  <line x1=\"16\" y1=\"6.5\" x2=\"20\" y2=\"6.5\" />\n</svg>",
+      "paths": "<rect x=\"4\" y=\"8\" width=\"4\" height=\"13\" rx=\"0.8\" />\n  <rect x=\"10\" y=\"6\" width=\"4\" height=\"15\" rx=\"0.8\" />\n  <rect x=\"16\" y=\"10\" width=\"4\" height=\"11\" rx=\"0.8\" />\n  <line x1=\"4\" y1=\"4.5\" x2=\"8\" y2=\"4.5\" />\n  <line x1=\"10\" y1=\"3\" x2=\"14\" y2=\"3\" />\n  <line x1=\"16\" y1=\"6.5\" x2=\"20\" y2=\"6.5\" />"
+    },
+    {
+      "id": "graphic-eq",
+      "name": "Graphic EQ",
+      "category": "eq",
+      "tags": [
+        "bands",
+        "sliders",
+        "faders",
+        "iso",
+        "equalizer"
+      ],
+      "description": "Multi-band ISO center frequency vertical sliders with a smooth connected spectral response curve.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"4\" y1=\"4\" x2=\"4\" y2=\"20\" />\n  <line x1=\"9.3\" y1=\"4\" x2=\"9.3\" y2=\"20\" />\n  <line x1=\"14.6\" y1=\"4\" x2=\"14.6\" y2=\"20\" />\n  <line x1=\"20\" y1=\"4\" x2=\"20\" y2=\"20\" />\n  <circle cx=\"4\" cy=\"14\" r=\"1.8\" />\n  <circle cx=\"9.3\" cy=\"7.5\" r=\"1.8\" />\n  <circle cx=\"14.6\" cy=\"12.5\" r=\"1.8\" />\n  <circle cx=\"20\" cy=\"8.5\" r=\"1.8\" />\n</svg>",
+      "paths": "<line x1=\"4\" y1=\"4\" x2=\"4\" y2=\"20\" />\n  <line x1=\"9.3\" y1=\"4\" x2=\"9.3\" y2=\"20\" />\n  <line x1=\"14.6\" y1=\"4\" x2=\"14.6\" y2=\"20\" />\n  <line x1=\"20\" y1=\"4\" x2=\"20\" y2=\"20\" />\n  <circle cx=\"4\" cy=\"14\" r=\"1.8\" />\n  <circle cx=\"9.3\" cy=\"7.5\" r=\"1.8\" />\n  <circle cx=\"14.6\" cy=\"12.5\" r=\"1.8\" />\n  <circle cx=\"20\" cy=\"8.5\" r=\"1.8\" />"
+    },
+    {
+      "id": "parametric-eq",
+      "name": "Parametric EQ (PEQ)",
+      "category": "eq",
+      "tags": [
+        "peq",
+        "q-factor",
+        "bell",
+        "frequency",
+        "biquad"
+      ],
+      "description": "Bell filter node with adjustable Q-bandwidth wing handles and center frequency sweep axis.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"18\" x2=\"22\" y2=\"18\" />\n  <path d=\"M2 18c4.5 0 6-12 10-12s5.5 12 10 12\" />\n  <circle cx=\"12\" cy=\"6\" r=\"2\" />\n  <line x1=\"7.5\" y1=\"13\" x2=\"16.5\" y2=\"13\" />\n  <circle cx=\"7.5\" cy=\"13\" r=\"1\" />\n  <circle cx=\"16.5\" cy=\"13\" r=\"1\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"18\" x2=\"22\" y2=\"18\" />\n  <path d=\"M2 18c4.5 0 6-12 10-12s5.5 12 10 12\" />\n  <circle cx=\"12\" cy=\"6\" r=\"2\" />\n  <line x1=\"7.5\" y1=\"13\" x2=\"16.5\" y2=\"13\" />\n  <circle cx=\"7.5\" cy=\"13\" r=\"1\" />\n  <circle cx=\"16.5\" cy=\"13\" r=\"1\" />"
+    },
+    {
+      "id": "dynamic-eq",
+      "name": "Dynamic EQ",
+      "category": "eq",
+      "tags": [
+        "multiband",
+        "threshold",
+        "active",
+        "bell",
+        "peq"
+      ],
+      "description": "Parametric EQ bell curve with vertical dynamic threshold compression/expansion excursion arrows.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2 16.5c4.5 0 6-10.5 10-10.5s5.5 10.5 10 10.5\" />\n  <path d=\"M2 16.5c4.5 0 6-4 10-4s5.5 4 10 4\" stroke-dasharray=\"2 1.8\" />\n  <path d=\"M12 3.5v15m0-15L10.2 5.3M12 3.5l1.8 1.8m-1.8 13.2l-1.8-1.8m1.8 1.8l1.8-1.8\" />\n</svg>",
+      "paths": "<path d=\"M2 16.5c4.5 0 6-10.5 10-10.5s5.5 10.5 10 10.5\" />\n  <path d=\"M2 16.5c4.5 0 6-4 10-4s5.5 4 10 4\" stroke-dasharray=\"2 1.8\" />\n  <path d=\"M12 3.5v15m0-15L10.2 5.3M12 3.5l1.8 1.8m-1.8 13.2l-1.8-1.8m1.8 1.8l1.8-1.8\" />"
+    },
+    {
+      "id": "preset-eq",
+      "name": "Preset EQ",
+      "category": "eq",
+      "tags": [
+        "saved",
+        "memory",
+        "bookmark",
+        "curve",
+        "slot"
+      ],
+      "description": "Saved EQ response curve inside a precision rack slot frame with a quick-recall bookmark tab.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2.2\" />\n  <polyline points=\"15 3 15 9.5 17.5 7.8 20 9.5 20 3\" />\n  <path d=\"M6 15.5c2.5-5 4.5 3 7-2s3.5-2 5 0\" />\n</svg>",
+      "paths": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2.2\" />\n  <polyline points=\"15 3 15 9.5 17.5 7.8 20 9.5 20 3\" />\n  <path d=\"M6 15.5c2.5-5 4.5 3 7-2s3.5-2 5 0\" />"
+    },
+    {
+      "id": "preset-manager",
+      "name": "Preset Manager (Patch Bank)",
+      "category": "eq",
+      "tags": [
+        "bank",
+        "library",
+        "patches",
+        "slots",
+        "rack"
+      ],
+      "description": "Rack bank / patch bay organizer with stacked preset slots and active configuration switch.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"3\" y=\"3\" width=\"18\" height=\"5\" rx=\"1.2\" />\n  <rect x=\"3\" y=\"9.5\" width=\"18\" height=\"5\" rx=\"1.2\" />\n  <rect x=\"3\" y=\"16\" width=\"18\" height=\"5\" rx=\"1.2\" />\n  <circle cx=\"6.5\" cy=\"5.5\" r=\"0.9\" />\n  <circle cx=\"6.5\" cy=\"12\" r=\"0.9\" />\n  <circle cx=\"6.5\" cy=\"18.5\" r=\"0.9\" />\n  <line x1=\"10\" y1=\"5.5\" x2=\"17.5\" y2=\"5.5\" />\n  <line x1=\"10\" y1=\"12\" x2=\"15\" y2=\"12\" />\n  <line x1=\"10\" y1=\"18.5\" x2=\"17.5\" y2=\"18.5\" />\n</svg>",
+      "paths": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"5\" rx=\"1.2\" />\n  <rect x=\"3\" y=\"9.5\" width=\"18\" height=\"5\" rx=\"1.2\" />\n  <rect x=\"3\" y=\"16\" width=\"18\" height=\"5\" rx=\"1.2\" />\n  <circle cx=\"6.5\" cy=\"5.5\" r=\"0.9\" />\n  <circle cx=\"6.5\" cy=\"12\" r=\"0.9\" />\n  <circle cx=\"6.5\" cy=\"18.5\" r=\"0.9\" />\n  <line x1=\"10\" y1=\"5.5\" x2=\"17.5\" y2=\"5.5\" />\n  <line x1=\"10\" y1=\"12\" x2=\"15\" y2=\"12\" />\n  <line x1=\"10\" y1=\"18.5\" x2=\"17.5\" y2=\"18.5\" />"
+    },
+    {
+      "id": "eq-profiles",
+      "name": "EQ Profiles",
+      "category": "eq",
+      "tags": [
+        "headphone",
+        "iem",
+        "target",
+        "compensation",
+        "cards"
+      ],
+      "description": "Headphone & IEM target compensation profiles stacked as layered spectral cards.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"2.5\" y=\"6.5\" width=\"16\" height=\"14\" rx=\"2\" />\n  <path d=\"M6.5 3.5h13a2 2 0 0 1 2 2v11\" />\n  <path d=\"M5.5 15c2.5-5 4.5-5 6.5 0s3.5 2 4.5-3.5\" />\n</svg>",
+      "paths": "<rect x=\"2.5\" y=\"6.5\" width=\"16\" height=\"14\" rx=\"2\" />\n  <path d=\"M6.5 3.5h13a2 2 0 0 1 2 2v11\" />\n  <path d=\"M5.5 15c2.5-5 4.5-5 6.5 0s3.5 2 4.5-3.5\" />"
+    },
+    {
+      "id": "auto-eq",
+      "name": "Auto EQ",
+      "category": "eq",
+      "tags": [
+        "harman",
+        "target",
+        "match",
+        "corrective",
+        "calibrate"
+      ],
+      "description": "Harman/Target reference curve (dashed) automatically matched by a corrective inverse EQ curve (solid).",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2 14.5c3.5-6 6.5 4 10-2s6-6 10-1\" />\n  <path d=\"M2 17.5c3.5-4 6.5 2 10-1s6-4 10 0\" stroke-dasharray=\"2 2\" />\n  <path d=\"M18.5 2.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z\" />\n</svg>",
+      "paths": "<path d=\"M2 14.5c3.5-6 6.5 4 10-2s6-6 10-1\" />\n  <path d=\"M2 17.5c3.5-4 6.5 2 10-1s6-4 10 0\" stroke-dasharray=\"2 2\" />\n  <path d=\"M18.5 2.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z\" />"
+    },
+    {
+      "id": "tone-controls",
+      "name": "Tone Controls (Bass & Treble Tilt)",
+      "category": "eq",
+      "tags": [
+        "baxandall",
+        "bass",
+        "treble",
+        "tilt",
+        "shelf",
+        "knobs"
+      ],
+      "description": "Classic dual rotary Bass & Treble tilt/shelf control dials connected by a center frequency pivot.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"6.5\" cy=\"8.5\" r=\"3.8\" />\n  <line x1=\"6.5\" y1=\"8.5\" x2=\"8.5\" y2=\"6.5\" />\n  <circle cx=\"17.5\" cy=\"8.5\" r=\"3.8\" />\n  <line x1=\"17.5\" y1=\"8.5\" x2=\"19.5\" y2=\"6.5\" />\n  <path d=\"M3 19l18-4\" />\n  <polygon points=\"12 17 10 20.5 14 20.5 12 17\" />\n</svg>",
+      "paths": "<circle cx=\"6.5\" cy=\"8.5\" r=\"3.8\" />\n  <line x1=\"6.5\" y1=\"8.5\" x2=\"8.5\" y2=\"6.5\" />\n  <circle cx=\"17.5\" cy=\"8.5\" r=\"3.8\" />\n  <line x1=\"17.5\" y1=\"8.5\" x2=\"19.5\" y2=\"6.5\" />\n  <path d=\"M3 19l18-4\" />\n  <polygon points=\"12 17 10 20.5 14 20.5 12 17\" />"
+    },
+    {
+      "id": "dynamic-bass",
+      "name": "Dynamic Bass",
+      "category": "eq",
+      "tags": [
+        "sub",
+        "low-shelf",
+        "punch",
+        "harmonic",
+        "exciter"
+      ],
+      "description": "Sub-harmonic bass psychoacoustic exciter: low-shelf boost curve with dynamic punch excursion waves.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"18.5\" x2=\"22\" y2=\"18.5\" />\n  <path d=\"M2 6.5h5.5c4 0 5.5 12 10 12H22\" />\n  <circle cx=\"6\" cy=\"12.5\" r=\"2.2\" />\n  <path d=\"M9.8 10a4.2 4.2 0 0 1 0 5\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"18.5\" x2=\"22\" y2=\"18.5\" />\n  <path d=\"M2 6.5h5.5c4 0 5.5 12 10 12H22\" />\n  <circle cx=\"6\" cy=\"12.5\" r=\"2.2\" />\n  <path d=\"M9.8 10a4.2 4.2 0 0 1 0 5\" />"
+    },
+    {
+      "id": "dynamic-system",
+      "name": "Dynamic System",
+      "category": "eq",
+      "tags": [
+        "psychoacoustic",
+        "multiband",
+        "transducer",
+        "servo"
+      ],
+      "description": "Full-range multi-band dynamic psychoacoustic processor coupling transducer cone motion with feedback.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M4 9h3l6-5v16l-6-5H4V9Z\" />\n  <path d=\"M16 8.5a5.5 5.5 0 0 1 0 7\" />\n  <path d=\"M19 6a9 9 0 0 1 0 12\" />\n  <path d=\"M5.5 15v4h5.5\" />\n</svg>",
+      "paths": "<path d=\"M4 9h3l6-5v16l-6-5H4V9Z\" />\n  <path d=\"M16 8.5a5.5 5.5 0 0 1 0 7\" />\n  <path d=\"M19 6a9 9 0 0 1 0 12\" />\n  <path d=\"M5.5 15v4h5.5\" />"
+    },
+    {
+      "id": "audio-clarity",
+      "name": "Audio Clarity (Presence & Air)",
+      "category": "eq",
+      "tags": [
+        "high-shelf",
+        "air",
+        "presence",
+        "treble",
+        "sparkle"
+      ],
+      "description": "High-shelf presence air lift curve paired with a crisp phase-aligned harmonic sparkle diamond.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"2\" y1=\"18.5\" x2=\"22\" y2=\"18.5\" />\n  <path d=\"M2 18.5h6.5c4.5 0 6-12 10-12H22\" />\n  <polygon points=\"8 5 9.2 7.8 12 9 9.2 10.2 8 13 6.8 10.2 4 9 6.8 7.8 8 5\" />\n</svg>",
+      "paths": "<line x1=\"2\" y1=\"18.5\" x2=\"22\" y2=\"18.5\" />\n  <path d=\"M2 18.5h6.5c4.5 0 6-12 10-12H22\" />\n  <polygon points=\"8 5 9.2 7.8 12 9 9.2 10.2 8 13 6.8 10.2 4 9 6.8 7.8 8 5\" />"
+    },
+    {
+      "id": "dialogue-enhancer",
+      "name": "Dialogue Enhancer (Vocal Focus)",
+      "category": "eq",
+      "tags": [
+        "voice",
+        "vocal",
+        "midrange",
+        "formant",
+        "center"
+      ],
+      "description": "Formant vocal frequency focus: mid-band presence isolation framing a centered voice projection wave.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M4 8V6a2 2 0 0 1 2-2h2M4 16v2a2 2 0 0 0 2 2h2M16 4h2a2 2 0 0 1 2 2v2M16 20h2a2 2 0 0 0 2-2v-2\" />\n  <line x1=\"7.5\" y1=\"11\" x2=\"7.5\" y2=\"13\" />\n  <line x1=\"9.8\" y1=\"8.5\" x2=\"9.8\" y2=\"15.5\" />\n  <line x1=\"12\" y1=\"6\" x2=\"12\" y2=\"18\" />\n  <line x1=\"14.2\" y1=\"8.5\" x2=\"14.2\" y2=\"15.5\" />\n  <line x1=\"16.5\" y1=\"11\" x2=\"16.5\" y2=\"13\" />\n</svg>",
+      "paths": "<path d=\"M4 8V6a2 2 0 0 1 2-2h2M4 16v2a2 2 0 0 0 2 2h2M16 4h2a2 2 0 0 1 2 2v2M16 20h2a2 2 0 0 0 2-2v-2\" />\n  <line x1=\"7.5\" y1=\"11\" x2=\"7.5\" y2=\"13\" />\n  <line x1=\"9.8\" y1=\"8.5\" x2=\"9.8\" y2=\"15.5\" />\n  <line x1=\"12\" y1=\"6\" x2=\"12\" y2=\"18\" />\n  <line x1=\"14.2\" y1=\"8.5\" x2=\"14.2\" y2=\"15.5\" />\n  <line x1=\"16.5\" y1=\"11\" x2=\"16.5\" y2=\"13\" />"
+    },
+    {
+      "id": "deesser",
+      "name": "De-Esser (Sibilance Notch)",
+      "category": "eq",
+      "tags": [
+        "sibilance",
+        "notch",
+        "vocal",
+        "harshness",
+        "highs"
+      ],
+      "description": "Narrow-Q sibilance notch filter (5\u20139kHz dip) taming sharp high-frequency sibilant spikes.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2 8h8.5L13.5 19.5 16.5 8H22\" />\n  <path d=\"M13.5 2.5v6m0 0l-2-2m2 2l2-2\" />\n  <line x1=\"9\" y1=\"8\" x2=\"18\" y2=\"8\" stroke-dasharray=\"1.8 1.8\" />\n</svg>",
+      "paths": "<path d=\"M2 8h8.5L13.5 19.5 16.5 8H22\" />\n  <path d=\"M13.5 2.5v6m0 0l-2-2m2 2l2-2\" />\n  <line x1=\"9\" y1=\"8\" x2=\"18\" y2=\"8\" stroke-dasharray=\"1.8 1.8\" />"
+    },
+    {
+      "id": "crystallizer",
+      "name": "Crystallizer (Transient Restorer)",
+      "category": "eq",
+      "tags": [
+        "transient",
+        "harmonic",
+        "exciter",
+        "attack",
+        "crystal"
+      ],
+      "description": "Transient harmonic restorer sharpening compressed audio peaks into geometric crystalline facets.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"12 2 19 9 12 22 5 9 12 2\" />\n  <line x1=\"5\" y1=\"9\" x2=\"19\" y2=\"9\" />\n  <polyline points=\"8.5 2 12 9 15.5 2\" />\n  <line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"22\" />\n</svg>",
+      "paths": "<polygon points=\"12 2 19 9 12 22 5 9 12 2\" />\n  <line x1=\"5\" y1=\"9\" x2=\"19\" y2=\"9\" />\n  <polyline points=\"8.5 2 12 9 15.5 2\" />\n  <line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"22\" />"
+    },
+    {
+      "id": "crossfade-duration",
+      "name": "Crossfade Duration",
+      "category": "eq",
+      "tags": [
+        "transition",
+        "overlap",
+        "fade",
+        "envelope",
+        "time"
+      ],
+      "description": "Overlapping fade-out (\\) and fade-in (/) X-envelope with a calibrated time duration span indicator below.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2 6h4l12 10h4\" />\n  <path d=\"M2 16h4L18 6h4\" />\n  <line x1=\"6\" y1=\"20\" x2=\"18\" y2=\"20\" />\n  <line x1=\"6\" y1=\"18.5\" x2=\"6\" y2=\"21.5\" />\n  <line x1=\"18\" y1=\"18.5\" x2=\"18\" y2=\"21.5\" />\n</svg>",
+      "paths": "<path d=\"M2 6h4l12 10h4\" />\n  <path d=\"M2 16h4L18 6h4\" />\n  <line x1=\"6\" y1=\"20\" x2=\"18\" y2=\"20\" />\n  <line x1=\"6\" y1=\"18.5\" x2=\"6\" y2=\"21.5\" />\n  <line x1=\"18\" y1=\"18.5\" x2=\"18\" y2=\"21.5\" />"
+    },
+    {
+      "id": "show-visualizer",
+      "name": "Show Visualizer (Viewport Monitor)",
+      "category": "visualizer",
+      "tags": [
+        "fft",
+        "spectrum",
+        "analyzer",
+        "display",
+        "screen"
+      ],
+      "description": "Real-time FFT spectrum analyzer bars framed inside a dedicated viewport toggle monitor.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"2.5\" y=\"4\" width=\"19\" height=\"16\" rx=\"2.2\" />\n  <line x1=\"6.5\" y1=\"16\" x2=\"6.5\" y2=\"11\" />\n  <line x1=\"9.2\" y1=\"16\" x2=\"9.2\" y2=\"7.5\" />\n  <line x1=\"12\" y1=\"16\" x2=\"12\" y2=\"12.5\" />\n  <line x1=\"14.8\" y1=\"16\" x2=\"14.8\" y2=\"8.5\" />\n  <line x1=\"17.5\" y1=\"16\" x2=\"17.5\" y2=\"13\" />\n</svg>",
+      "paths": "<rect x=\"2.5\" y=\"4\" width=\"19\" height=\"16\" rx=\"2.2\" />\n  <line x1=\"6.5\" y1=\"16\" x2=\"6.5\" y2=\"11\" />\n  <line x1=\"9.2\" y1=\"16\" x2=\"9.2\" y2=\"7.5\" />\n  <line x1=\"12\" y1=\"16\" x2=\"12\" y2=\"12.5\" />\n  <line x1=\"14.8\" y1=\"16\" x2=\"14.8\" y2=\"8.5\" />\n  <line x1=\"17.5\" y1=\"16\" x2=\"17.5\" y2=\"13\" />"
+    },
+    {
+      "id": "visualizers",
+      "name": "Visualizers (Multi-Mode Wave Matrix)",
+      "category": "visualizer",
+      "tags": [
+        "oscilloscope",
+        "wave",
+        "spectrum",
+        "milkdrop",
+        "shader"
+      ],
+      "description": "Flowing multi-mode oscilloscope wave and spectrum bar matrix.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2 9c2.5-5 5-5 7.5 0s5 5 7.5 0 3.5-3.5 5 0\" />\n  <line x1=\"4\" y1=\"20\" x2=\"4\" y2=\"15\" />\n  <line x1=\"8\" y1=\"20\" x2=\"8\" y2=\"13\" />\n  <line x1=\"12\" y1=\"20\" x2=\"12\" y2=\"16\" />\n  <line x1=\"16\" y1=\"20\" x2=\"16\" y2=\"14\" />\n  <line x1=\"20\" y1=\"20\" x2=\"20\" y2=\"16.5\" />\n</svg>",
+      "paths": "<path d=\"M2 9c2.5-5 5-5 7.5 0s5 5 7.5 0 3.5-3.5 5 0\" />\n  <line x1=\"4\" y1=\"20\" x2=\"4\" y2=\"15\" />\n  <line x1=\"8\" y1=\"20\" x2=\"8\" y2=\"13\" />\n  <line x1=\"12\" y1=\"20\" x2=\"12\" y2=\"16\" />\n  <line x1=\"16\" y1=\"20\" x2=\"16\" y2=\"14\" />\n  <line x1=\"20\" y1=\"20\" x2=\"20\" y2=\"16.5\" />"
+    },
+    {
+      "id": "refresh-rate",
+      "name": "Refresh Rate (60 / 120 / 144 Hz Sync)",
+      "category": "visualizer",
+      "tags": [
+        "fps",
+        "hz",
+        "vsync",
+        "frame-rate",
+        "smooth",
+        "oled"
+      ],
+      "description": "High-frame-rate Hz / FPS display sync loop with a precision high-speed scanline pulse.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M3.5 10A8.5 8.5 0 0 1 19 6.5\" />\n  <polyline points=\"16 4 19.5 6.8 15.8 7.8\" />\n  <path d=\"M20.5 14A8.5 8.5 0 0 1 5 17.5\" />\n  <polyline points=\"8 20 4.5 17.2 8.2 16.2\" />\n  <path d=\"M7.5 12h2.2l1.2-3 2.2 6 1.2-3h2.2\" />\n</svg>",
+      "paths": "<path d=\"M3.5 10A8.5 8.5 0 0 1 19 6.5\" />\n  <polyline points=\"16 4 19.5 6.8 15.8 7.8\" />\n  <path d=\"M20.5 14A8.5 8.5 0 0 1 5 17.5\" />\n  <polyline points=\"8 20 4.5 17.2 8.2 16.2\" />\n  <path d=\"M7.5 12h2.2l1.2-3 2.2 6 1.2-3h2.2\" />"
+    },
+    {
+      "id": "render-resolution",
+      "name": "Render Resolution (Sub-Pixel Canvas)",
+      "category": "visualizer",
+      "tags": [
+        "dpi",
+        "4k",
+        "hd",
+        "retina",
+        "canvas",
+        "pixel"
+      ],
+      "description": "Sub-pixel high-DPI vector canvas corner reticles framing a fine pixel matrix.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M3 8V4.5A1.5 1.5 0 0 1 4.5 3H8M16 3h3.5A1.5 1.5 0 0 1 21 4.5V8M21 16v3.5a1.5 1.5 0 0 1-1.5 1.5H16M8 21H4.5A1.5 1.5 0 0 1 3 19.5V16\" />\n  <rect x=\"7.5\" y=\"7.5\" width=\"9\" height=\"9\" rx=\"1\" />\n  <line x1=\"12\" y1=\"7.5\" x2=\"12\" y2=\"16.5\" />\n  <line x1=\"7.5\" y1=\"12\" x2=\"16.5\" y2=\"12\" />\n</svg>",
+      "paths": "<path d=\"M3 8V4.5A1.5 1.5 0 0 1 4.5 3H8M16 3h3.5A1.5 1.5 0 0 1 21 4.5V8M21 16v3.5a1.5 1.5 0 0 1-1.5 1.5H16M8 21H4.5A1.5 1.5 0 0 1 3 19.5V16\" />\n  <rect x=\"7.5\" y=\"7.5\" width=\"9\" height=\"9\" rx=\"1\" />\n  <line x1=\"12\" y1=\"7.5\" x2=\"12\" y2=\"16.5\" />\n  <line x1=\"7.5\" y1=\"12\" x2=\"16.5\" y2=\"12\" />"
+    },
+    {
+      "id": "smart-throttling",
+      "name": "Smart Throttling (Adaptive Governor)",
+      "category": "visualizer",
+      "tags": [
+        "battery",
+        "cpu",
+        "gpu",
+        "thermal",
+        "eco",
+        "power"
+      ],
+      "description": "Adaptive CPU/GPU thermal & battery governor gauge balancing frame pacing and power efficiency.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M4 17a8.5 8.5 0 1 1 16 0\" />\n  <line x1=\"12\" y1=\"14\" x2=\"16.5\" y2=\"8.5\" />\n  <circle cx=\"12\" cy=\"14\" r=\"1.6\" />\n  <path d=\"M9 19.5h6\" />\n</svg>",
+      "paths": "<path d=\"M4 17a8.5 8.5 0 1 1 16 0\" />\n  <line x1=\"12\" y1=\"14\" x2=\"16.5\" y2=\"8.5\" />\n  <circle cx=\"12\" cy=\"14\" r=\"1.6\" />\n  <path d=\"M9 19.5h6\" />"
+    },
+    {
+      "id": "auto-cycles",
+      "name": "Auto Cycles (Preset Carousel)",
+      "category": "visualizer",
+      "tags": [
+        "timer",
+        "rotate",
+        "loop",
+        "random",
+        "sequence"
+      ],
+      "description": "Automated visualizer preset cycling timer loop with interval calibration ticks.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"12\" cy=\"12\" r=\"8.5\" stroke-dasharray=\"4 2.5\" />\n  <path d=\"M12 3.5A8.5 8.5 0 0 1 20.5 12\" />\n  <polyline points=\"18 9.8 20.5 12.5 22.5 9.5\" />\n  <polyline points=\"12 8.5 12 12 14.5 13.5\" />\n</svg>",
+      "paths": "<circle cx=\"12\" cy=\"12\" r=\"8.5\" stroke-dasharray=\"4 2.5\" />\n  <path d=\"M12 3.5A8.5 8.5 0 0 1 20.5 12\" />\n  <polyline points=\"18 9.8 20.5 12.5 22.5 9.5\" />\n  <polyline points=\"12 8.5 12 12 14.5 13.5\" />"
+    },
+    {
+      "id": "bit-16",
+      "name": "16-Bit Redbook PCM Badge",
+      "category": "hires",
+      "tags": [
+        "16",
+        "cd",
+        "pcm",
+        "word-length",
+        "badge"
+      ],
+      "description": "Compact audiophile micro-badge 16 inside a precision chamfered DAC frame.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"1.5\" y=\"4.5\" width=\"21\" height=\"15\" rx=\"2.5\" />\n  <path d=\"M6.5 9.8L8 8.8v6.4\" />\n  <path d=\"M16 8.8h-3a1.2 1.2 0 0 0-1.2 1.2v4a1.2 1.2 0 0 0 1.2 1.2h2.4a1.2 1.2 0 0 0 1.2-1.2v-1.2a1.2 1.2 0 0 0-1.2-1.2h-3.6\" />\n</svg>",
+      "paths": "<rect x=\"1.5\" y=\"4.5\" width=\"21\" height=\"15\" rx=\"2.5\" />\n  <path d=\"M6.5 9.8L8 8.8v6.4\" />\n  <path d=\"M16 8.8h-3a1.2 1.2 0 0 0-1.2 1.2v4a1.2 1.2 0 0 0 1.2 1.2h2.4a1.2 1.2 0 0 0 1.2-1.2v-1.2a1.2 1.2 0 0 0-1.2-1.2h-3.6\" />"
+    },
+    {
+      "id": "bit-24",
+      "name": "24-Bit Studio Master Badge",
+      "category": "hires",
+      "tags": [
+        "24",
+        "hi-res",
+        "master",
+        "word-length",
+        "badge"
+      ],
+      "description": "Compact audiophile micro-badge 24 inside a studio master chamfered frame.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"1.5\" y=\"4.5\" width=\"21\" height=\"15\" rx=\"2.5\" />\n  <path d=\"M5.8 8.8h3.4a1.1 1.1 0 0 1 1.1 1.1v1.1a1.1 1.1 0 0 1-1.1 1.1H6.9a1.1 1.1 0 0 0-1.1 1.1v2h4.5\" />\n  <path d=\"M13.5 8.8v3.6h4.5M16.6 8.8v6.4\" />\n</svg>",
+      "paths": "<rect x=\"1.5\" y=\"4.5\" width=\"21\" height=\"15\" rx=\"2.5\" />\n  <path d=\"M5.8 8.8h3.4a1.1 1.1 0 0 1 1.1 1.1v1.1a1.1 1.1 0 0 1-1.1 1.1H6.9a1.1 1.1 0 0 0-1.1 1.1v2h4.5\" />\n  <path d=\"M13.5 8.8v3.6h4.5M16.6 8.8v6.4\" />"
+    },
+    {
+      "id": "bit-32",
+      "name": "32-Bit Float Reference Badge",
+      "category": "hires",
+      "tags": [
+        "32",
+        "float",
+        "dac",
+        "flagship",
+        "badge"
+      ],
+      "description": "Compact audiophile micro-badge 32 inside a flagship chamfered frame with top/bottom bus rails.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"1.5\" y=\"4.5\" width=\"21\" height=\"15\" rx=\"2.5\" />\n  <line x1=\"7\" y1=\"2.8\" x2=\"17\" y2=\"2.8\" />\n  <line x1=\"7\" y1=\"21.2\" x2=\"17\" y2=\"21.2\" />\n  <path d=\"M5.8 8.8h3.2a1.1 1.1 0 0 1 1.1 1.1v1a1.1 1.1 0 0 1-1.1 1.1H7m2 0a1.1 1.1 0 0 1 1.1 1.1v1a1.1 1.1 0 0 1-1.1 1.1H5.8\" />\n  <path d=\"M13.5 8.8h3.4a1.1 1.1 0 0 1 1.1 1.1v1.1a1.1 1.1 0 0 1-1.1 1.1h-2.3a1.1 1.1 0 0 0-1.1 1.1v2H18\" />\n</svg>",
+      "paths": "<rect x=\"1.5\" y=\"4.5\" width=\"21\" height=\"15\" rx=\"2.5\" />\n  <line x1=\"7\" y1=\"2.8\" x2=\"17\" y2=\"2.8\" />\n  <line x1=\"7\" y1=\"21.2\" x2=\"17\" y2=\"21.2\" />\n  <path d=\"M5.8 8.8h3.2a1.1 1.1 0 0 1 1.1 1.1v1a1.1 1.1 0 0 1-1.1 1.1H7m2 0a1.1 1.1 0 0 1 1.1 1.1v1a1.1 1.1 0 0 1-1.1 1.1H5.8\" />\n  <path d=\"M13.5 8.8h3.4a1.1 1.1 0 0 1 1.1 1.1v1.1a1.1 1.1 0 0 1-1.1 1.1h-2.3a1.1 1.1 0 0 0-1.1 1.1v2H18\" />"
+    },
+    {
+      "id": "khz-44-1",
+      "name": "44.1 kHz Sample Rate Badge",
+      "category": "hires",
+      "tags": [
+        "44.1",
+        "redbook",
+        "cd",
+        "khz",
+        "samplerate"
+      ],
+      "description": "Compact micro-badge 44.1 Redbook sample rate indicator.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <path d=\"M3.8 9v3.2h3.2M6.2 9v6\" />\n  <path d=\"M9.2 9v3.2h3.2M11.6 9v6\" />\n  <circle cx=\"14.8\" cy=\"14.5\" r=\"0.6\" />\n  <path d=\"M17.8 9.8L19 9v6\" />\n</svg>",
+      "paths": "<rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <path d=\"M3.8 9v3.2h3.2M6.2 9v6\" />\n  <path d=\"M9.2 9v3.2h3.2M11.6 9v6\" />\n  <circle cx=\"14.8\" cy=\"14.5\" r=\"0.6\" />\n  <path d=\"M17.8 9.8L19 9v6\" />"
+    },
+    {
+      "id": "khz-48",
+      "name": "48 kHz Sample Rate Badge",
+      "category": "hires",
+      "tags": [
+        "48",
+        "dvd",
+        "studio",
+        "khz",
+        "samplerate"
+      ],
+      "description": "Compact micro-badge 48K studio sample rate indicator.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <path d=\"M3.8 9v3.2h3.4M6.4 9v6\" />\n  <rect x=\"9.5\" y=\"9\" width=\"3.4\" height=\"6\" rx=\"1\" />\n  <line x1=\"9.5\" y1=\"12\" x2=\"12.9\" y2=\"12\" />\n  <path d=\"M15.8 9v6m3.2-6l-3.2 3 3.2 3\" />\n</svg>",
+      "paths": "<rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <path d=\"M3.8 9v3.2h3.4M6.4 9v6\" />\n  <rect x=\"9.5\" y=\"9\" width=\"3.4\" height=\"6\" rx=\"1\" />\n  <line x1=\"9.5\" y1=\"12\" x2=\"12.9\" y2=\"12\" />\n  <path d=\"M15.8 9v6m3.2-6l-3.2 3 3.2 3\" />"
+    },
+    {
+      "id": "khz-96",
+      "name": "96 kHz Hi-Res Sample Rate Badge",
+      "category": "hires",
+      "tags": [
+        "96",
+        "hi-res",
+        "24/96",
+        "khz",
+        "samplerate"
+      ],
+      "description": "Compact micro-badge 96K Hi-Res sample rate indicator.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <path d=\"M4.2 15h2.2a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1H4.8a1 1 0 0 0-1 1v1.2a1 1 0 0 0 1 1h2.6\" />\n  <path d=\"M13 9h-2.2a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h1.8a1 1 0 0 0 1-1v-1.2a1 1 0 0 0-1-1H9.8\" />\n  <path d=\"M16 9v6m3.2-6L16 12l3.2 3\" />\n</svg>",
+      "paths": "<rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <path d=\"M4.2 15h2.2a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1H4.8a1 1 0 0 0-1 1v1.2a1 1 0 0 0 1 1h2.6\" />\n  <path d=\"M13 9h-2.2a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h1.8a1 1 0 0 0 1-1v-1.2a1 1 0 0 0-1-1H9.8\" />\n  <path d=\"M16 9v6m3.2-6L16 12l3.2 3\" />"
+    },
+    {
+      "id": "khz-192",
+      "name": "192 kHz Ultra Hi-Res Badge",
+      "category": "hires",
+      "tags": [
+        "192",
+        "ultra",
+        "master",
+        "khz",
+        "samplerate"
+      ],
+      "description": "Compact micro-badge 192 Ultra Hi-Res sample rate indicator.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <path d=\"M4.2 9.8L5.4 9v6\" />\n  <path d=\"M9 15h2.4a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1H9.6a1 1 0 0 0-1 1v1.2a1 1 0 0 0 1 1h2.8\" />\n  <path d=\"M15 9h3a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-2a1 1 0 0 0-1 1v2h4\" />\n</svg>",
+      "paths": "<rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <path d=\"M4.2 9.8L5.4 9v6\" />\n  <path d=\"M9 15h2.4a1 1 0 0 0 1-1v-4a1 1 0 0 0-1-1H9.6a1 1 0 0 0-1 1v1.2a1 1 0 0 0 1 1h2.8\" />\n  <path d=\"M15 9h3a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-2a1 1 0 0 0-1 1v2h4\" />"
+    },
+    {
+      "id": "khz-384",
+      "name": "384 kHz DXD Extreme Badge",
+      "category": "hires",
+      "tags": [
+        "384",
+        "dxd",
+        "extreme",
+        "flagship",
+        "khz"
+      ],
+      "description": "Compact micro-badge 384 DXD/Extreme sample rate indicator with top/bottom reference accents.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <line x1=\"8\" y1=\"3\" x2=\"16\" y2=\"3\" />\n  <path d=\"M3.8 9h2.6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H4.8m1.6 0a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H3.8\" />\n  <rect x=\"9.8\" y=\"9\" width=\"3.4\" height=\"6\" rx=\"1\" />\n  <line x1=\"9.8\" y1=\"12\" x2=\"13.2\" y2=\"12\" />\n  <path d=\"M15.8 9v3.2h3.6M18.4 9v6\" />\n</svg>",
+      "paths": "<rect x=\"1\" y=\"5\" width=\"22\" height=\"14\" rx=\"2.5\" />\n  <line x1=\"8\" y1=\"3\" x2=\"16\" y2=\"3\" />\n  <path d=\"M3.8 9h2.6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H4.8m1.6 0a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H3.8\" />\n  <rect x=\"9.8\" y=\"9\" width=\"3.4\" height=\"6\" rx=\"1\" />\n  <line x1=\"9.8\" y1=\"12\" x2=\"13.2\" y2=\"12\" />\n  <path d=\"M15.8 9v3.2h3.6M18.4 9v6\" />"
+    },
+    {
+      "id": "play",
+      "name": "Play",
+      "category": "transport",
+      "tags": [
+        "start",
+        "resume",
+        "transport"
+      ],
+      "description": "Precision geometric audiophile play triangle with balanced optical center.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"6.5 4.5 19.5 12 6.5 19.5 6.5 4.5\" />\n</svg>",
+      "paths": "<polygon points=\"6.5 4.5 19.5 12 6.5 19.5 6.5 4.5\" />"
+    },
+    {
+      "id": "pause",
+      "name": "Pause",
+      "category": "transport",
+      "tags": [
+        "hold",
+        "stop",
+        "transport"
+      ],
+      "description": "Precision twin parallel pause pillars.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"6\" y=\"4.5\" width=\"3.8\" height=\"15\" rx=\"1\" />\n  <rect x=\"14.2\" y=\"4.5\" width=\"3.8\" height=\"15\" rx=\"1\" />\n</svg>",
+      "paths": "<rect x=\"6\" y=\"4.5\" width=\"3.8\" height=\"15\" rx=\"1\" />\n  <rect x=\"14.2\" y=\"4.5\" width=\"3.8\" height=\"15\" rx=\"1\" />"
+    },
+    {
+      "id": "next",
+      "name": "Next Track",
+      "category": "transport",
+      "tags": [
+        "skip",
+        "forward",
+        "transport"
+      ],
+      "description": "Skip next track: precision forward triangle meeting a vertical stop bar.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"5 5 15.5 12 5 19 5 5\" />\n  <line x1=\"18.5\" y1=\"5.5\" x2=\"18.5\" y2=\"18.5\" />\n</svg>",
+      "paths": "<polygon points=\"5 5 15.5 12 5 19 5 5\" />\n  <line x1=\"18.5\" y1=\"5.5\" x2=\"18.5\" y2=\"18.5\" />"
+    },
+    {
+      "id": "prev",
+      "name": "Previous Track",
+      "category": "transport",
+      "tags": [
+        "back",
+        "skip",
+        "transport"
+      ],
+      "description": "Skip previous track: vertical bar meeting a reverse triangle.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"19 5 8.5 12 19 19 19 5\" />\n  <line x1=\"5.5\" y1=\"5.5\" x2=\"5.5\" y2=\"18.5\" />\n</svg>",
+      "paths": "<polygon points=\"19 5 8.5 12 19 19 19 5\" />\n  <line x1=\"5.5\" y1=\"5.5\" x2=\"5.5\" y2=\"18.5\" />"
+    },
+    {
+      "id": "fast-forward",
+      "name": "Fast Forward",
+      "category": "transport",
+      "tags": [
+        "seek",
+        "scrub",
+        "ahead",
+        "transport"
+      ],
+      "description": "Dual interlocking forward velocity triangles.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"3 5.5 12 12 3 18.5 3 5.5\" />\n  <polygon points=\"12 5.5 21 12 12 18.5 12 5.5\" />\n</svg>",
+      "paths": "<polygon points=\"3 5.5 12 12 3 18.5 3 5.5\" />\n  <polygon points=\"12 5.5 21 12 12 18.5 12 5.5\" />"
+    },
+    {
+      "id": "rewind",
+      "name": "Rewind / Prev Forward",
+      "category": "transport",
+      "tags": [
+        "seek",
+        "reverse",
+        "scrub",
+        "transport"
+      ],
+      "description": "Dual interlocking reverse velocity triangles.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"21 5.5 12 12 21 18.5 21 5.5\" />\n  <polygon points=\"12 5.5 3 12 12 18.5 12 5.5\" />\n</svg>",
+      "paths": "<polygon points=\"21 5.5 12 12 21 18.5 21 5.5\" />\n  <polygon points=\"12 5.5 3 12 12 18.5 12 5.5\" />"
+    },
+    {
+      "id": "playback-speed",
+      "name": "Playback Speed (Tempo / Pitch)",
+      "category": "transport",
+      "tags": [
+        "tempo",
+        "time-stretch",
+        "1.0x",
+        "pitch",
+        "varispeed"
+      ],
+      "description": "Pitch/Tempo time-stretch chronometer arc with a precision velocity needle.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M4 17a8.5 8.5 0 1 1 16 0\" />\n  <line x1=\"12\" y1=\"14\" x2=\"17\" y2=\"8.5\" />\n  <circle cx=\"12\" cy=\"14\" r=\"1.6\" />\n  <line x1=\"7\" y1=\"19\" x2=\"17\" y2=\"19\" stroke-dasharray=\"2 2\" />\n</svg>",
+      "paths": "<path d=\"M4 17a8.5 8.5 0 1 1 16 0\" />\n  <line x1=\"12\" y1=\"14\" x2=\"17\" y2=\"8.5\" />\n  <circle cx=\"12\" cy=\"14\" r=\"1.6\" />\n  <line x1=\"7\" y1=\"19\" x2=\"17\" y2=\"19\" stroke-dasharray=\"2 2\" />"
+    },
+    {
+      "id": "repeat-a-b",
+      "name": "Repeat A-B Loop",
+      "category": "transport",
+      "tags": [
+        "loop",
+        "section",
+        "marker",
+        "practice"
+      ],
+      "description": "Seamless loop path with explicit A and B marker pins.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M4 12v-2a4 4 0 0 1 4-4h11m0 0l-2.5-2.5M19 6l-2.5 2.5\" />\n  <path d=\"M20 12v2a4 4 0 0 1-4 4H5m0 0l2.5 2.5M5 18l2.5-2.5\" />\n  <path d=\"M8.5 14l1.5-4.5 1.5 4.5M9 12.8h2\" />\n  <path d=\"M13.5 14V9.5h2a1.1 1.1 0 0 1 0 2.2h-2m2 0a1.1 1.1 0 0 1 0 2.3h-2\" />\n</svg>",
+      "paths": "<path d=\"M4 12v-2a4 4 0 0 1 4-4h11m0 0l-2.5-2.5M19 6l-2.5 2.5\" />\n  <path d=\"M20 12v2a4 4 0 0 1-4 4H5m0 0l2.5 2.5M5 18l2.5-2.5\" />\n  <path d=\"M8.5 14l1.5-4.5 1.5 4.5M9 12.8h2\" />\n  <path d=\"M13.5 14V9.5h2a1.1 1.1 0 0 1 0 2.2h-2m2 0a1.1 1.1 0 0 1 0 2.3h-2\" />"
+    },
+    {
+      "id": "gapless",
+      "name": "Gapless Playback",
+      "category": "transport",
+      "tags": [
+        "seamless",
+        "zero-gap",
+        "continuous",
+        "cue",
+        "transition"
+      ],
+      "description": "Zero-gap track transition: two adjacent waveform blocks locked seamlessly together with zero dead air.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"2\" y=\"6\" width=\"9\" height=\"12\" rx=\"1.2\" />\n  <rect x=\"13\" y=\"6\" width=\"9\" height=\"12\" rx=\"1.2\" />\n  <line x1=\"12\" y1=\"3.5\" x2=\"12\" y2=\"20.5\" stroke-dasharray=\"2 1.5\" />\n  <path d=\"M4.5 12h2l1.2-3 1.5 6 1.8-3\" />\n  <path d=\"M13 12l1.8-3 1.5 6 1.2-3h2\" />\n</svg>",
+      "paths": "<rect x=\"2\" y=\"6\" width=\"9\" height=\"12\" rx=\"1.2\" />\n  <rect x=\"13\" y=\"6\" width=\"9\" height=\"12\" rx=\"1.2\" />\n  <line x1=\"12\" y1=\"3.5\" x2=\"12\" y2=\"20.5\" stroke-dasharray=\"2 1.5\" />\n  <path d=\"M4.5 12h2l1.2-3 1.5 6 1.8-3\" />\n  <path d=\"M13 12l1.8-3 1.5 6 1.2-3h2\" />"
+    },
+    {
+      "id": "auto-dj",
+      "name": "Auto DJ",
+      "category": "transport",
+      "tags": [
+        "turntable",
+        "crossfader",
+        "mix",
+        "decks",
+        "autonomous"
+      ],
+      "description": "Autonomous intelligent beat-matching DJ dual-deck platters with a horizontal crossfader.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"6.5\" cy=\"9\" r=\"4\" />\n  <circle cx=\"6.5\" cy=\"9\" r=\"1\" />\n  <circle cx=\"17.5\" cy=\"9\" r=\"4\" />\n  <circle cx=\"17.5\" cy=\"9\" r=\"1\" />\n  <line x1=\"4\" y1=\"18\" x2=\"20\" y2=\"18\" />\n  <rect x=\"10.5\" y=\"15.8\" width=\"3\" height=\"4.4\" rx=\"0.8\" />\n</svg>",
+      "paths": "<circle cx=\"6.5\" cy=\"9\" r=\"4\" />\n  <circle cx=\"6.5\" cy=\"9\" r=\"1\" />\n  <circle cx=\"17.5\" cy=\"9\" r=\"4\" />\n  <circle cx=\"17.5\" cy=\"9\" r=\"1\" />\n  <line x1=\"4\" y1=\"18\" x2=\"20\" y2=\"18\" />\n  <rect x=\"10.5\" y=\"15.8\" width=\"3\" height=\"4.4\" rx=\"0.8\" />"
+    },
+    {
+      "id": "automix-mode",
+      "name": "Automix Mode (Beat-Grid Blend)",
+      "category": "transport",
+      "tags": [
+        "harmonic",
+        "bpm",
+        "sync",
+        "transition",
+        "blend"
+      ],
+      "description": "Harmonic key & BPM beat-grid transition blend interlocking two tracks.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M2 8c3.5 0 5.5 8 9.5 8H22\" />\n  <path d=\"M2 16h10.5c4 0 6-8 9.5-8\" />\n  <circle cx=\"12\" cy=\"12\" r=\"2.2\" />\n  <line x1=\"6\" y1=\"4.5\" x2=\"6\" y2=\"6.5\" />\n  <line x1=\"18\" y1=\"17.5\" x2=\"18\" y2=\"19.5\" />\n</svg>",
+      "paths": "<path d=\"M2 8c3.5 0 5.5 8 9.5 8H22\" />\n  <path d=\"M2 16h10.5c4 0 6-8 9.5-8\" />\n  <circle cx=\"12\" cy=\"12\" r=\"2.2\" />\n  <line x1=\"6\" y1=\"4.5\" x2=\"6\" y2=\"6.5\" />\n  <line x1=\"18\" y1=\"17.5\" x2=\"18\" y2=\"19.5\" />"
+    },
+    {
+      "id": "playlists",
+      "name": "Playlists",
+      "category": "transport",
+      "tags": [
+        "queue",
+        "list",
+        "tracks",
+        "m3u",
+        "collection"
+      ],
+      "description": "Ordered track queue lines paired with a crisp musical note indicator.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"3\" y1=\"6\" x2=\"15\" y2=\"6\" />\n  <line x1=\"3\" y1=\"11\" x2=\"13\" y2=\"11\" />\n  <line x1=\"3\" y1=\"16\" x2=\"10\" y2=\"16\" />\n  <path d=\"M17 16.5V7l4 1.5\" />\n  <circle cx=\"15\" cy=\"16.5\" r=\"2\" />\n</svg>",
+      "paths": "<line x1=\"3\" y1=\"6\" x2=\"15\" y2=\"6\" />\n  <line x1=\"3\" y1=\"11\" x2=\"13\" y2=\"11\" />\n  <line x1=\"3\" y1=\"16\" x2=\"10\" y2=\"16\" />\n  <path d=\"M17 16.5V7l4 1.5\" />\n  <circle cx=\"15\" cy=\"16.5\" r=\"2\" />"
+    },
+    {
+      "id": "albums",
+      "name": "Albums",
+      "category": "transport",
+      "tags": [
+        "vinyl",
+        "lp",
+        "disc",
+        "cd",
+        "record",
+        "cover"
+      ],
+      "description": "Precision vinyl LP / compact disc concentric micro-grooves inside a record sleeve spine.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"12\" cy=\"12\" r=\"9\" />\n  <circle cx=\"12\" cy=\"12\" r=\"2.5\" />\n  <path d=\"M12 6.5A5.5 5.5 0 0 1 17.5 12\" />\n  <path d=\"M6.5 12A5.5 5.5 0 0 0 12 17.5\" />\n</svg>",
+      "paths": "<circle cx=\"12\" cy=\"12\" r=\"9\" />\n  <circle cx=\"12\" cy=\"12\" r=\"2.5\" />\n  <path d=\"M12 6.5A5.5 5.5 0 0 1 17.5 12\" />\n  <path d=\"M6.5 12A5.5 5.5 0 0 0 12 17.5\" />"
+    },
+    {
+      "id": "artists",
+      "name": "Artists",
+      "category": "transport",
+      "tags": [
+        "microphone",
+        "vocalist",
+        "performer",
+        "musician",
+        "studio"
+      ],
+      "description": "Studio condenser microphone capsule in a shockmount cradle.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"9\" y=\"3\" width=\"6\" height=\"10\" rx=\"3\" />\n  <line x1=\"9\" y1=\"7.5\" x2=\"15\" y2=\"7.5\" />\n  <path d=\"M5.5 10.5a6.5 6.5 0 0 0 13 0\" />\n  <line x1=\"12\" y1=\"17\" x2=\"12\" y2=\"21\" />\n  <line x1=\"8.5\" y1=\"21\" x2=\"15.5\" y2=\"21\" />\n</svg>",
+      "paths": "<rect x=\"9\" y=\"3\" width=\"6\" height=\"10\" rx=\"3\" />\n  <line x1=\"9\" y1=\"7.5\" x2=\"15\" y2=\"7.5\" />\n  <path d=\"M5.5 10.5a6.5 6.5 0 0 0 13 0\" />\n  <line x1=\"12\" y1=\"17\" x2=\"12\" y2=\"21\" />\n  <line x1=\"8.5\" y1=\"21\" x2=\"15.5\" y2=\"21\" />"
+    },
+    {
+      "id": "folders",
+      "name": "Folders (Lossless Directory)",
+      "category": "transport",
+      "tags": [
+        "files",
+        "storage",
+        "flac",
+        "directory",
+        "browser"
+      ],
+      "description": "Lossless file directory folder with an audio waveform embedded on the front plate.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12Z\" />\n  <path d=\"M7.5 14h2l1.2-3 2 6 1.3-3h2.5\" />\n</svg>",
+      "paths": "<path d=\"M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-12Z\" />\n  <path d=\"M7.5 14h2l1.2-3 2 6 1.3-3h2.5\" />"
+    },
+    {
+      "id": "add-item",
+      "name": "Add (Modular Node +)",
+      "category": "transport",
+      "tags": [
+        "plus",
+        "create",
+        "new",
+        "insert"
+      ],
+      "description": "Precision crosshair + inside an audiophile squircle module frame.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"4\" />\n  <line x1=\"12\" y1=\"7.5\" x2=\"12\" y2=\"16.5\" />\n  <line x1=\"7.5\" y1=\"12\" x2=\"16.5\" y2=\"12\" />\n</svg>",
+      "paths": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"4\" />\n  <line x1=\"12\" y1=\"7.5\" x2=\"12\" y2=\"16.5\" />\n  <line x1=\"7.5\" y1=\"12\" x2=\"16.5\" y2=\"12\" />"
+    },
+    {
+      "id": "add-to-queue",
+      "name": "Add to Queue",
+      "category": "transport",
+      "tags": [
+        "enqueue",
+        "next",
+        "playlist",
+        "plus"
+      ],
+      "description": "Queue list lines with a precision + insertion vector at the bottom slot.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <line x1=\"3\" y1=\"6\" x2=\"19\" y2=\"6\" />\n  <line x1=\"3\" y1=\"11\" x2=\"14\" y2=\"11\" />\n  <line x1=\"3\" y1=\"16\" x2=\"11\" y2=\"16\" />\n  <line x1=\"17.5\" y1=\"13\" x2=\"17.5\" y2=\"19\" />\n  <line x1=\"14.5\" y1=\"16\" x2=\"20.5\" y2=\"16\" />\n</svg>",
+      "paths": "<line x1=\"3\" y1=\"6\" x2=\"19\" y2=\"6\" />\n  <line x1=\"3\" y1=\"11\" x2=\"14\" y2=\"11\" />\n  <line x1=\"3\" y1=\"16\" x2=\"11\" y2=\"16\" />\n  <line x1=\"17.5\" y1=\"13\" x2=\"17.5\" y2=\"19\" />\n  <line x1=\"14.5\" y1=\"16\" x2=\"20.5\" y2=\"16\" />"
+    },
+    {
+      "id": "lyrics",
+      "name": "Lyrics (Time-Coded LRC)",
+      "category": "transport",
+      "tags": [
+        "lrc",
+        "text",
+        "karaoke",
+        "synced",
+        "words"
+      ],
+      "description": "Synchronized time-coded lyric lines with an active playhead highlight indicator.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2.5\" />\n  <line x1=\"7\" y1=\"8\" x2=\"17\" y2=\"8\" />\n  <polygon points=\"6.5 11.2 8.5 12.2 6.5 13.2 6.5 11.2\" />\n  <line x1=\"10.5\" y1=\"12.2\" x2=\"17.5\" y2=\"12.2\" />\n  <line x1=\"7\" y1=\"16.2\" x2=\"14\" y2=\"16.2\" />\n</svg>",
+      "paths": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2.5\" />\n  <line x1=\"7\" y1=\"8\" x2=\"17\" y2=\"8\" />\n  <polygon points=\"6.5 11.2 8.5 12.2 6.5 13.2 6.5 11.2\" />\n  <line x1=\"10.5\" y1=\"12.2\" x2=\"17.5\" y2=\"12.2\" />\n  <line x1=\"7\" y1=\"16.2\" x2=\"14\" y2=\"16.2\" />"
+    },
+    {
+      "id": "like",
+      "name": "Like / Favorite",
+      "category": "transport",
+      "tags": [
+        "heart",
+        "love",
+        "favorite",
+        "star"
+      ],
+      "description": "Clean geometric audiophile heart badge.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M12 20.2l-1.4-1.3C5.4 14.2 2 11.1 2 7.4 2 4.4 4.4 2 7.4 2c1.8 0 3.5.8 4.6 2.1C13.1 2.8 14.8 2 16.6 2 19.6 2 22 4.4 22 7.4c0 3.7-3.4 6.8-8.6 11.5L12 20.2Z\" />\n</svg>",
+      "paths": "<path d=\"M12 20.2l-1.4-1.3C5.4 14.2 2 11.1 2 7.4 2 4.4 4.4 2 7.4 2c1.8 0 3.5.8 4.6 2.1C13.1 2.8 14.8 2 16.6 2 19.6 2 22 4.4 22 7.4c0 3.7-3.4 6.8-8.6 11.5L12 20.2Z\" />"
+    },
+    {
+      "id": "dislike",
+      "name": "Dislike / Ban Track",
+      "category": "transport",
+      "tags": [
+        "skip",
+        "ban",
+        "broken-heart",
+        "hide"
+      ],
+      "description": "Clean geometric fractured heart / skip-ban indicator.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M12 20.2l-1.4-1.3C5.4 14.2 2 11.1 2 7.4 2 4.4 4.4 2 7.4 2c1.8 0 3.5.8 4.6 2.1C13.1 2.8 14.8 2 16.6 2 19.6 2 22 4.4 22 7.4c0 3.7-3.4 6.8-8.6 11.5L12 20.2Z\" />\n  <polyline points=\"12 4.2 10.2 9.5 13.8 12.2 11.5 16.5\" />\n</svg>",
+      "paths": "<path d=\"M12 20.2l-1.4-1.3C5.4 14.2 2 11.1 2 7.4 2 4.4 4.4 2 7.4 2c1.8 0 3.5.8 4.6 2.1C13.1 2.8 14.8 2 16.6 2 19.6 2 22 4.4 22 7.4c0 3.7-3.4 6.8-8.6 11.5L12 20.2Z\" />\n  <polyline points=\"12 4.2 10.2 9.5 13.8 12.2 11.5 16.5\" />"
+    },
+    {
+      "id": "ab-compare",
+      "name": "A/B Blind DSP Compare",
+      "category": "transport",
+      "tags": [
+        "bypass",
+        "compare",
+        "blind",
+        "switch",
+        "reference"
+      ],
+      "description": "A/B blind audiophile DSP comparison toggle switch for instant level-matched bypass evaluation.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"2\" y=\"5\" width=\"20\" height=\"14\" rx=\"2.5\" />\n  <line x1=\"12\" y1=\"5\" x2=\"12\" y2=\"19\" stroke-dasharray=\"2 1.5\" />\n  <path d=\"M5.2 14.5L7 9.5l1.8 5M5.7 13.2h2.6\" />\n  <path d=\"M15 14.5v-5h2.2a1.2 1.2 0 0 1 0 2.4H15m2.2 0a1.2 1.2 0 0 1 0 2.6H15\" />\n</svg>",
+      "paths": "<rect x=\"2\" y=\"5\" width=\"20\" height=\"14\" rx=\"2.5\" />\n  <line x1=\"12\" y1=\"5\" x2=\"12\" y2=\"19\" stroke-dasharray=\"2 1.5\" />\n  <path d=\"M5.2 14.5L7 9.5l1.8 5M5.7 13.2h2.6\" />\n  <path d=\"M15 14.5v-5h2.2a1.2 1.2 0 0 1 0 2.4H15m2.2 0a1.2 1.2 0 0 1 0 2.6H15\" />"
+    },
+    {
+      "id": "settings",
+      "name": "Settings (Machined Rotary Nut)",
+      "category": "settings",
+      "tags": [
+        "preferences",
+        "config",
+        "gear",
+        "knob",
+        "hardware"
+      ],
+      "description": "Precision machined hex/knurled rotary encoder nut with an indicator notch.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <polygon points=\"12 2 20.6 7 20.6 17 12 22 3.4 17 3.4 7 12 2\" />\n  <circle cx=\"12\" cy=\"12\" r=\"3.8\" />\n  <line x1=\"12\" y1=\"8.2\" x2=\"12\" y2=\"5.5\" />\n</svg>",
+      "paths": "<polygon points=\"12 2 20.6 7 20.6 17 12 22 3.4 17 3.4 7 12 2\" />\n  <circle cx=\"12\" cy=\"12\" r=\"3.8\" />\n  <line x1=\"12\" y1=\"8.2\" x2=\"12\" y2=\"5.5\" />"
+    },
+    {
+      "id": "audio-engine",
+      "name": "Audio Engine (SautiPlay Core)",
+      "category": "settings",
+      "tags": [
+        "dsp",
+        "processor",
+        "chip",
+        "core",
+        "pipeline"
+      ],
+      "description": "SautiPlay DSP Core processor chip with differential audio wave traces.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"5\" y=\"5\" width=\"14\" height=\"14\" rx=\"2\" />\n  <path d=\"M7.8 12h1.5l1.2-3.5 2.5 7 1.2-3.5h2\" />\n  <line x1=\"9\" y1=\"2\" x2=\"9\" y2=\"5\" /><line x1=\"15\" y1=\"2\" x2=\"15\" y2=\"5\" />\n  <line x1=\"9\" y1=\"19\" x2=\"9\" y2=\"22\" /><line x1=\"15\" y1=\"19\" x2=\"15\" y2=\"22\" />\n  <line x1=\"2\" y1=\"9\" x2=\"5\" y2=\"9\" /><line x1=\"2\" y1=\"15\" x2=\"5\" y2=\"15\" />\n  <line x1=\"19\" y1=\"9\" x2=\"22\" y2=\"9\" /><line x1=\"19\" y1=\"15\" x2=\"22\" y2=\"15\" />\n</svg>",
+      "paths": "<rect x=\"5\" y=\"5\" width=\"14\" height=\"14\" rx=\"2\" />\n  <path d=\"M7.8 12h1.5l1.2-3.5 2.5 7 1.2-3.5h2\" />\n  <line x1=\"9\" y1=\"2\" x2=\"9\" y2=\"5\" /><line x1=\"15\" y1=\"2\" x2=\"15\" y2=\"5\" />\n  <line x1=\"9\" y1=\"19\" x2=\"9\" y2=\"22\" /><line x1=\"15\" y1=\"19\" x2=\"15\" y2=\"22\" />\n  <line x1=\"2\" y1=\"9\" x2=\"5\" y2=\"9\" /><line x1=\"2\" y1=\"15\" x2=\"5\" y2=\"15\" />\n  <line x1=\"19\" y1=\"9\" x2=\"22\" y2=\"9\" /><line x1=\"19\" y1=\"15\" x2=\"22\" y2=\"15\" />"
+    },
+    {
+      "id": "look-and-feel",
+      "name": "Look and Feel (UI & Theme)",
+      "category": "settings",
+      "tags": [
+        "theme",
+        "appearance",
+        "skin",
+        "layout",
+        "color"
+      ],
+      "description": "UI theme palette & precision modular layout grid.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2.5\" />\n  <line x1=\"3\" y1=\"9\" x2=\"21\" y2=\"9\" />\n  <line x1=\"9.5\" y1=\"9\" x2=\"9.5\" y2=\"21\" />\n  <circle cx=\"6.2\" cy=\"6\" r=\"0.8\" />\n  <circle cx=\"9.2\" cy=\"6\" r=\"0.8\" />\n  <circle cx=\"15.2\" cy=\"15\" r=\"2.5\" />\n</svg>",
+      "paths": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2.5\" />\n  <line x1=\"3\" y1=\"9\" x2=\"21\" y2=\"9\" />\n  <line x1=\"9.5\" y1=\"9\" x2=\"9.5\" y2=\"21\" />\n  <circle cx=\"6.2\" cy=\"6\" r=\"0.8\" />\n  <circle cx=\"9.2\" cy=\"6\" r=\"0.8\" />\n  <circle cx=\"15.2\" cy=\"15\" r=\"2.5\" />"
+    },
+    {
+      "id": "equalizer-module",
+      "name": "Equalizer Module",
+      "category": "settings",
+      "tags": [
+        "eq",
+        "faders",
+        "rack",
+        "module"
+      ],
+      "description": "Dedicated 3-band hardware fader bank module icon.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"2.5\" y=\"3\" width=\"19\" height=\"18\" rx=\"2.2\" />\n  <line x1=\"7\" y1=\"6.5\" x2=\"7\" y2=\"17.5\" />\n  <line x1=\"12\" y1=\"6.5\" x2=\"12\" y2=\"17.5\" />\n  <line x1=\"17\" y1=\"6.5\" x2=\"17\" y2=\"17.5\" />\n  <line x1=\"5.2\" y1=\"13.5\" x2=\"8.8\" y2=\"13.5\" />\n  <line x1=\"10.2\" y1=\"9\" x2=\"13.8\" y2=\"9\" />\n  <line x1=\"15.2\" y1=\"12\" x2=\"18.8\" y2=\"12\" />\n</svg>",
+      "paths": "<rect x=\"2.5\" y=\"3\" width=\"19\" height=\"18\" rx=\"2.2\" />\n  <line x1=\"7\" y1=\"6.5\" x2=\"7\" y2=\"17.5\" />\n  <line x1=\"12\" y1=\"6.5\" x2=\"12\" y2=\"17.5\" />\n  <line x1=\"17\" y1=\"6.5\" x2=\"17\" y2=\"17.5\" />\n  <line x1=\"5.2\" y1=\"13.5\" x2=\"8.8\" y2=\"13.5\" />\n  <line x1=\"10.2\" y1=\"9\" x2=\"13.8\" y2=\"9\" />\n  <line x1=\"15.2\" y1=\"12\" x2=\"18.8\" y2=\"12\" />"
+    },
+    {
+      "id": "visualizer-module",
+      "name": "Visualizer Module",
+      "category": "settings",
+      "tags": [
+        "scope",
+        "crt",
+        "oled",
+        "display",
+        "module"
+      ],
+      "description": "Dedicated CRT/OLED waveform display scope module with calibration reticle.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"2.5\" y=\"3.5\" width=\"19\" height=\"17\" rx=\"2.2\" />\n  <path d=\"M5.5 12h2.2l1.5-4.5 2.5 9 2-6 1.5 1.5h3.3\" />\n  <line x1=\"2.5\" y1=\"16.5\" x2=\"21.5\" y2=\"16.5\" />\n</svg>",
+      "paths": "<rect x=\"2.5\" y=\"3.5\" width=\"19\" height=\"17\" rx=\"2.2\" />\n  <path d=\"M5.5 12h2.2l1.5-4.5 2.5 9 2-6 1.5 1.5h3.3\" />\n  <line x1=\"2.5\" y1=\"16.5\" x2=\"21.5\" y2=\"16.5\" />"
+    },
+    {
+      "id": "playback-module",
+      "name": "Playback Module",
+      "category": "settings",
+      "tags": [
+        "transport",
+        "drive",
+        "output",
+        "buffer",
+        "module"
+      ],
+      "description": "Transport drive mechanism & precision buffer control ring.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"12\" cy=\"12\" r=\"9\" />\n  <polygon points=\"10 8.5 16 12 10 15.5 10 8.5\" />\n  <path d=\"M12 3v2M12 19v2M3 12h2M19 12h2\" />\n</svg>",
+      "paths": "<circle cx=\"12\" cy=\"12\" r=\"9\" />\n  <polygon points=\"10 8.5 16 12 10 15.5 10 8.5\" />\n  <path d=\"M12 3v2M12 19v2M3 12h2M19 12h2\" />"
+    },
+    {
+      "id": "streaming-storage",
+      "name": "Streaming and Storage",
+      "category": "settings",
+      "tags": [
+        "cloud",
+        "nas",
+        "cache",
+        "nvme",
+        "sd",
+        "offline"
+      ],
+      "description": "Cloud lossless stream arc coupled with a local NVMe/SD storage cylinder.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M6.5 11.5a4.5 4.5 0 0 1 8.8-1.2A3.2 3.2 0 0 1 18 16.5H6a3.2 3.2 0 0 1 .5-5Z\" />\n  <rect x=\"5\" y=\"16.5\" width=\"14\" height=\"4.5\" rx=\"1.2\" />\n  <circle cx=\"8\" cy=\"18.8\" r=\"0.7\" />\n  <line x1=\"11\" y1=\"18.8\" x2=\"16\" y2=\"18.8\" />\n</svg>",
+      "paths": "<path d=\"M6.5 11.5a4.5 4.5 0 0 1 8.8-1.2A3.2 3.2 0 0 1 18 16.5H6a3.2 3.2 0 0 1 .5-5Z\" />\n  <rect x=\"5\" y=\"16.5\" width=\"14\" height=\"4.5\" rx=\"1.2\" />\n  <circle cx=\"8\" cy=\"18.8\" r=\"0.7\" />\n  <line x1=\"11\" y1=\"18.8\" x2=\"16\" y2=\"18.8\" />"
+    },
+    {
+      "id": "local-network-audio",
+      "name": "Local Network Audio (DLNA / SMB / UPnP)",
+      "category": "settings",
+      "tags": [
+        "lan",
+        "dlna",
+        "upnp",
+        "smb",
+        "raat",
+        "nas",
+        "streamer"
+      ],
+      "description": "UPnP / DLNA / SMB local area network audio node topology.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <circle cx=\"12\" cy=\"5.5\" r=\"2.5\" />\n  <circle cx=\"5.5\" cy=\"18.5\" r=\"2.5\" />\n  <circle cx=\"18.5\" cy=\"18.5\" r=\"2.5\" />\n  <line x1=\"10.5\" y1=\"7.8\" x2=\"6.8\" y2=\"16.2\" />\n  <line x1=\"13.5\" y1=\"7.8\" x2=\"17.2\" y2=\"16.2\" />\n  <line x1=\"8\" y1=\"18.5\" x2=\"16\" y2=\"18.5\" stroke-dasharray=\"2 1.5\" />\n</svg>",
+      "paths": "<circle cx=\"12\" cy=\"5.5\" r=\"2.5\" />\n  <circle cx=\"5.5\" cy=\"18.5\" r=\"2.5\" />\n  <circle cx=\"18.5\" cy=\"18.5\" r=\"2.5\" />\n  <line x1=\"10.5\" y1=\"7.8\" x2=\"6.8\" y2=\"16.2\" />\n  <line x1=\"13.5\" y1=\"7.8\" x2=\"17.2\" y2=\"16.2\" />\n  <line x1=\"8\" y1=\"18.5\" x2=\"16\" y2=\"18.5\" stroke-dasharray=\"2 1.5\" />"
+    },
+    {
+      "id": "lastfm",
+      "name": "Last.fm Scrobbler",
+      "category": "settings",
+      "tags": [
+        "scrobble",
+        "radio",
+        "infinity",
+        "history",
+        "stats"
+      ],
+      "description": "Scrobbler infinity audio wave loop motif.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <path d=\"M12 12c-2.2-2.8-4.2-4-6.2-4A3.8 3.8 0 0 0 2 11.8c0 2.2 1.7 4 3.8 4 2 0 4-1.2 6.2-3.8 2.2 2.6 4.2 3.8 6.2 3.8a3.8 3.8 0 0 0 3.8-4A3.8 3.8 0 0 0 18.2 8c-2 0-4 1.2-6.2 4Z\" />\n</svg>",
+      "paths": "<path d=\"M12 12c-2.2-2.8-4.2-4-6.2-4A3.8 3.8 0 0 0 2 11.8c0 2.2 1.7 4 3.8 4 2 0 4-1.2 6.2-3.8 2.2 2.6 4.2 3.8 6.2 3.8a3.8 3.8 0 0 0 3.8-4A3.8 3.8 0 0 0 18.2 8c-2 0-4 1.2-6.2 4Z\" />"
+    },
+    {
+      "id": "about-diagnostics",
+      "name": "About and Diagnostics (DSP Telemetry)",
+      "category": "settings",
+      "tags": [
+        "info",
+        "logs",
+        "cpu",
+        "heartbeat",
+        "telemetry",
+        "status"
+      ],
+      "description": "Real-time DSP telemetry heartbeat oscilloscope inside a diagnostic terminal frame.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n  <rect x=\"2.5\" y=\"3.5\" width=\"19\" height=\"17\" rx=\"2.5\" />\n  <path d=\"M5.5 12.5h3l1.5-4.5 2.5 9 2-6 1.2 1.5h2.8\" />\n  <circle cx=\"6\" cy=\"6.8\" r=\"0.7\" />\n  <circle cx=\"9\" cy=\"6.8\" r=\"0.7\" />\n</svg>",
+      "paths": "<rect x=\"2.5\" y=\"3.5\" width=\"19\" height=\"17\" rx=\"2.5\" />\n  <path d=\"M5.5 12.5h3l1.5-4.5 2.5 9 2-6 1.2 1.5h2.8\" />\n  <circle cx=\"6\" cy=\"6.8\" r=\"0.7\" />\n  <circle cx=\"9\" cy=\"6.8\" r=\"0.7\" />"
+    },
+    {
+      "id": "bit_perfect_check_24",
+      "name": "Bit-Perfect Check",
+      "category": "settings",
+      "tags": [
+        "bit-perfect",
+        "exclusive",
+        "dac",
+        "audiophile",
+        "verified",
+        "direct"
+      ],
+      "description": "Bit-perfect mode verified output badge with checkmark indicator.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.35\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"0.75\" y=\"5\" width=\"22.5\" height=\"14\" rx=\"2.5\" stroke-width=\"1.75\" /><path d=\"M3.2 9.2v5.6h1.6a1.4 1.4 0 0 0 0-2.8H3.2M4.8 12a1.4 1.4 0 0 0 0-2.8H3.2\" /><path d=\"M8.4 9.2v5.6\" /><path d=\"M10.4 9.2h3.2M12 9.2v5.6\" /><path d=\"M15.8 12.2l1.6 1.8 3.4-3.8\" stroke-width=\"1.5\" /></svg>",
+      "paths": "<rect x=\"0.75\" y=\"5\" width=\"22.5\" height=\"14\" rx=\"2.5\" stroke-width=\"1.75\" /><path d=\"M3.2 9.2v5.6h1.6a1.4 1.4 0 0 0 0-2.8H3.2M4.8 12a1.4 1.4 0 0 0 0-2.8H3.2\" /><path d=\"M8.4 9.2v5.6\" /><path d=\"M10.4 9.2h3.2M12 9.2v5.6\" /><path d=\"M15.8 12.2l1.6 1.8 3.4-3.8\" stroke-width=\"1.5\" />"
+    },
+    {
+      "id": "bit_perfect_1to1_24",
+      "name": "Bit-Perfect 1:1",
+      "category": "settings",
+      "tags": [
+        "bit-perfect",
+        "1to1",
+        "lossless",
+        "native",
+        "direct",
+        "stream"
+      ],
+      "description": "Bit-perfect direct 1:1 stream pass-through with verified checkmark.",
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.35\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"0.75\" y=\"5\" width=\"22.5\" height=\"14\" rx=\"2.5\" stroke-width=\"1.75\" /><path d=\"M4.2 10.1l1-0.9v5.6\" /><circle cx=\"8.2\" cy=\"10.6\" r=\"0.35\" fill=\"currentColor\" /><circle cx=\"8.2\" cy=\"13.8\" r=\"0.35\" fill=\"currentColor\" /><path d=\"M10.6 10.1l1-0.9v5.6\" /><path d=\"M15.2 12.2l1.8 1.8 3.6-4\" stroke-width=\"1.5\" /></svg>",
+      "paths": "<rect x=\"0.75\" y=\"5\" width=\"22.5\" height=\"14\" rx=\"2.5\" stroke-width=\"1.75\" /><path d=\"M4.2 10.1l1-0.9v5.6\" /><circle cx=\"8.2\" cy=\"10.6\" r=\"0.35\" fill=\"currentColor\" /><circle cx=\"8.2\" cy=\"13.8\" r=\"0.35\" fill=\"currentColor\" /><path d=\"M10.6 10.1l1-0.9v5.6\" /><path d=\"M15.2 12.2l1.8 1.8 3.6-4\" stroke-width=\"1.5\" />"
+    }
+  ]
+}

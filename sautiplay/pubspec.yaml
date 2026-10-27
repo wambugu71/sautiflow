@@ -66,6 +66,7 @@ dependencies:
   drift: ^2.34.4
   drift_flutter: ^0.3.1
   google_fonts: ^9.0.0
+  flutter_svg: ^2.3.0
 
 dependency_overrides:
   uuid: ^4.5.1
@@ -92,6 +93,23 @@ flutter:
     - assets/hrirs/
     - assets/faq.json
     - assets/autoeq/
+    - assets/icons/
+    - assets/icons/audio_badges/
+
+
+    - icons/dynamics/
+    - icons/eq/
+    - icons/hires/
+    - icons/resampling/
+    - icons/settings/
+    - icons/spatial/
+    - icons/transport/
+    - icons/visualizer/
+
+  fonts:
+    - family: SautiIcons
+      fonts:
+        - asset: assets/fonts/SautiIcons.ttf
 
 flutter_launcher_icons:
   android: "launcher_icon"

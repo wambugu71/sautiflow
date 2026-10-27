@@ -1,0 +1,13 @@
+<!-- res/drawable/ic_sauti_lastfm.xml -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12 12c-2.2-2.8-4.2-4-6.2-4A3.8 3.8 0 0 0 2 11.8c0 2.2 1.7 4 3.8 4 2 0 4-1.2 6.2-3.8 2.2 2.6 4.2 3.8 6.2 3.8a3.8 3.8 0 0 0 3.8-4A3.8 3.8 0 0 0 18.2 8c-2 0-4 1.2-6.2 4Z"
+        android:strokeWidth="1.75"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

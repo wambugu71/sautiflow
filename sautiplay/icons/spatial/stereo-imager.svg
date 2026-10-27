@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <polygon points="12 2 22 12 12 22 2 12 12 2" />
+  <line x1="12" y1="2" x2="12" y2="22" stroke-dasharray="1.5 2" />
+  <line x1="2" y1="12" x2="22" y2="12" stroke-dasharray="1.5 2" />
+  <ellipse cx="12" cy="12" rx="3.2" ry="7.2" transform="rotate(-28 12 12)" />
+  <ellipse cx="12" cy="12" rx="3.2" ry="7.2" transform="rotate(28 12 12)" />
+</svg>

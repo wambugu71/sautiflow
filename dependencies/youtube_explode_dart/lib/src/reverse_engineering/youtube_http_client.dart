@@ -31,12 +31,18 @@ class YoutubeHttpClient extends http.BaseClient {
     'accept-language': 'en-US,en;q=0.5',
   };
 
+  final Map<String, String>? _customHeaders;
+
   /// For any custom YoutubeHttpClient to override headers easily
-  Map<String, String> get headers => defaultHeaders;
+  Map<String, String> get headers => {
+        ...defaultHeaders,
+        if (_customHeaders != null) ..._customHeaders,
+      };
 
   /// Initialize an instance of [YoutubeHttpClient]
-  YoutubeHttpClient([http.Client? httpClient])
-      : _httpClient = httpClient ?? http.Client();
+  YoutubeHttpClient([http.Client? httpClient, Map<String, String>? customHeaders])
+      : _httpClient = httpClient ?? http.Client(),
+        _customHeaders = customHeaders;
 
   /// Throws if something is wrong with the response.
   void _validateResponse(http.BaseResponse response, int statusCode) {

@@ -52,7 +52,9 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
 
   ///
   bool get isVideoAvailable =>
-      root.querySelector('meta[property="og:url"]') != null;
+      root.querySelector('meta[property="og:url"]') != null ||
+      root.querySelector('meta[name="title"]') != null ||
+      root.outerHtml.contains('ytInitialPlayerResponse');
 
   ///
   int get videoLikeCount =>
@@ -140,14 +142,20 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
       'https://www.youtube.com/watch?v=$videoId&bpctr=9999999999&has_verified=1&hl=en',
     );
     const defaultCookies = 'PREF=hl=en&tz=UTC; SOCS=CAI; GPS=1';
-    const headers = {
-      'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.18 Safari/537.36',
+    final customCookie =
+        httpClient.headers['cookie'] ?? httpClient.headers['Cookie'];
+    final cookieString = customCookie != null && customCookie.isNotEmpty
+        ? '$customCookie; $defaultCookies'
+        : defaultCookies;
+    final headers = {
+      ...httpClient.headers,
+      'User-Agent': httpClient.headers['user-agent'] ??
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Accept':
           'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-us,en;q=0.5',
       'Sec-Fetch-Mode': 'navigate',
-      'Cookie': defaultCookies,
+      'Cookie': cookieString,
     };
 
     final cookiesExp = RegExp(r'(?:^|,)(\w.+?)=(.*?);');
@@ -155,8 +163,10 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
     return retry(httpClient, () async {
       final req = await httpClient.get(url, headers: headers, validate: true);
 
-      final cookieHeader = req.headers['set-cookie']!;
-      final matches = cookiesExp.allMatches(cookieHeader);
+      final cookieHeader = req.headers['set-cookie'];
+      final matches = cookieHeader != null
+          ? cookiesExp.allMatches(cookieHeader)
+          : <RegExpMatch>[];
       final cookies = Map.fromEntries(
           matches.map((e) => MapEntry(e.group(1)!, e.group(2)!)))
         ..addAll({'PREF': 'hl=en', 'SOCS': 'CAI', 'GPS': '1'});
@@ -170,6 +180,18 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
       if (!result.isVideoAvailable) {
         throw VideoUnavailableException.unavailable(VideoId(videoId));
       }
+
+      if (result.playerResponse?.videoPlayabilityError != null) {
+        final err = result.playerResponse!.videoPlayabilityError!;
+        if (err.toLowerCase().contains('bot') ||
+            err.toLowerCase().contains('sign in')) {
+          throw VideoUnplayableException.unplayable(
+            VideoId(videoId),
+            reason: err,
+          );
+        }
+      }
+
       return result;
     });
   }

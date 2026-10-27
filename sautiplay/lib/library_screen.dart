@@ -36,6 +36,7 @@ import 'widgets/local_album_art.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/song_options_menu.dart';
 import 'l10n/app_strings.dart';
+import 'widgets/sauti_icons.dart';
 
 class LibraryScreen extends StatefulWidget {
   final Future<void> Function(List<String> audioFilePaths, {int initialIndex})
@@ -87,10 +88,10 @@ enum TrackViewMode {
 
 enum LibraryCategory {
   tracks('Tracks', Icons.audiotrack_rounded),
-  albums('Albums', Icons.album_outlined),
-  artists('Artists', Icons.person_outline_rounded),
-  playlists('Playlists', Icons.queue_music_rounded),
-  folders('Folders', Icons.folder_outlined);
+  albums('Albums', SautiIcons.albums),
+  artists('Artists', SautiIcons.artists),
+  playlists('Playlists', SautiIcons.playlists),
+  folders('Folders', SautiIcons.folders);
 
   const LibraryCategory(this.label, this.icon);
   final String label;
