@@ -36,6 +36,31 @@ class YouTubeAuthService {
   /// Callback triggered whenever auth state changes (e.g. cookie saved or signed out)
   VoidCallback? onAuthStateChanged;
 
+  final List<VoidCallback> _authChangeListeners = [];
+
+  /// Registers a listener for authentication session changes (login, cookie sync, logout).
+  void addAuthListener(VoidCallback listener) {
+    if (!_authChangeListeners.contains(listener)) {
+      _authChangeListeners.add(listener);
+    }
+  }
+
+  /// Unregisters an authentication session listener.
+  void removeAuthListener(VoidCallback listener) {
+    _authChangeListeners.remove(listener);
+  }
+
+  void _notifyAuthChange() {
+    onAuthStateChanged?.call();
+    for (final listener in List<VoidCallback>.from(_authChangeListeners)) {
+      try {
+        listener();
+      } catch (e) {
+        debugPrint('[YouTubeAuthService] Error in auth listener: $e');
+      }
+    }
+  }
+
   bool _isInitialized = false;
 
   bool get hasAuth => isAuthenticatedNotifier.value;
@@ -124,7 +149,7 @@ class YouTubeAuthService {
     accountNameNotifier.value = 'Connected YouTube Session';
 
     debugPrint('[YouTubeAuthService] Session cookies saved successfully.');
-    onAuthStateChanged?.call();
+    _notifyAuthChange();
   }
 
   /// Initiates a 1-click Browser Loopback Google OAuth sign-in flow.
@@ -246,7 +271,7 @@ class YouTubeAuthService {
           isAuthenticatedNotifier.value = true;
           accountNameNotifier.value = 'YouTube User';
           onStatusUpdate?.call('Successfully signed in!');
-          onAuthStateChanged?.call();
+          _notifyAuthChange();
           return true;
         } else {
           onStatusUpdate?.call('Failed to exchange authorization token.');
@@ -367,7 +392,7 @@ class YouTubeAuthService {
       accountNameNotifier.value = null;
 
       debugPrint('[YouTubeAuthService] Signed out / Session cookies cleared.');
-      onAuthStateChanged?.call();
+      _notifyAuthChange();
     } catch (e) {
       debugPrint('[YouTubeAuthService] Error during sign out: $e');
     }
