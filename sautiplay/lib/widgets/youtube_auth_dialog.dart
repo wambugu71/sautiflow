@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/youtube_auth_service.dart';
@@ -198,104 +200,133 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
               ),
               const SizedBox(height: 18),
 
-              // 1-Click Sync Hero Card
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      primaryColor.withValues(alpha: 0.22),
-                      primaryColor.withValues(alpha: 0.08),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+              // 1-Click Sync Hero Card (Desktop) or Mobile Info Banner
+              if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        primaryColor.withValues(alpha: 0.22),
+                        primaryColor.withValues(alpha: 0.08),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: primaryColor.withValues(alpha: 0.35),
+                    ),
                   ),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: primaryColor.withValues(alpha: 0.35),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.bolt_rounded, color: primaryColor, size: 22),
+                          const SizedBox(width: 8),
+                          Text(
+                            '1-Click Browser Sync',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Instantly imports your active YouTube login session from Firefox, Edge, or Chrome. No copying or pasting needed.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.4,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            ),
+                            icon: _isSyncing
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Icon(Icons.sync_rounded, size: 16),
+                            label: Text(_isSyncing ? 'Syncing...' : '⚡ Sync from Browser'),
+                            onPressed: _isSyncing ? null : _handle1ClickBrowserSync,
+                          ),
+                          const SizedBox(width: 10),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            ),
+                            icon: const Icon(Icons.open_in_browser_rounded, size: 15),
+                            label: const Text('Sign in on Web', style: TextStyle(fontSize: 12)),
+                            onPressed: _handleOpenYouTube,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 18),
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.bolt_rounded, color: primaryColor, size: 22),
-                        const SizedBox(width: 8),
-                        Text(
-                          '1-Click Browser Sync',
+                    Expanded(child: Divider(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        'OR PASTE MANUALLY',
+                        style: TextStyle(
+                          fontSize: 11,
+                          letterSpacing: 0.8,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                    Expanded(child: Divider(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
+                  ],
+                ),
+                const SizedBox(height: 14),
+              ] else ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.phone_android_rounded, color: primaryColor, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'On Android and iOS, SautiPlay streams directly via native mobile client protocols, which bypass YouTube bot blocks automatically. If you want to connect your account, paste your cookies below.',
                           style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                            fontSize: 12,
+                            height: 1.4,
                             color: theme.colorScheme.onSurface,
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Instantly imports your active YouTube login session from Firefox, Edge, or Chrome. No copying or pasting needed.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        height: 1.4,
-                        color: theme.colorScheme.onSurfaceVariant,
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          ),
-                          icon: _isSyncing
-                              ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Icon(Icons.sync_rounded, size: 16),
-                          label: Text(_isSyncing ? 'Syncing...' : '⚡ Sync from Browser'),
-                          onPressed: _isSyncing ? null : _handle1ClickBrowserSync,
-                        ),
-                        const SizedBox(width: 10),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          ),
-                          icon: const Icon(Icons.open_in_browser_rounded, size: 15),
-                          label: const Text('Sign in on Web', style: TextStyle(fontSize: 12)),
-                          onPressed: _handleOpenYouTube,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // Divider / or paste manually
-              Row(
-                children: [
-                  Expanded(child: Divider(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(
-                      'OR PASTE MANUALLY',
-                      style: TextStyle(
-                        fontSize: 11,
-                        letterSpacing: 0.8,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
-                      ),
-                    ),
+                    ],
                   ),
-                  Expanded(child: Divider(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5))),
-                ],
-              ),
-              const SizedBox(height: 14),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Cookie input field
               Row(
