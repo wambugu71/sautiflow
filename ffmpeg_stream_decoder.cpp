@@ -428,7 +428,14 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     AVDictionary* opts = nullptr;
 
     if (isNetwork) {
-        av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MiniAudioDart/1.0 SautiFlow/1.0", 0);
+        bool isYouTube = (m_url.find("googlevideo.com") != std::string::npos ||
+                          m_url.find("youtube.com") != std::string::npos);
+        if (isYouTube) {
+            av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0", 0);
+            av_dict_set(&opts, "headers", "Referer: https://music.youtube.com/\r\nOrigin: https://music.youtube.com\r\n", 0);
+        } else {
+            av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MiniAudioDart/1.0 SautiFlow/1.0", 0);
+        }
         av_dict_set(&opts, "reconnect", "1", 0);
         av_dict_set(&opts, "reconnect_streamed", "1", 0);
         av_dict_set(&opts, "reconnect_delay_max", "5", 0);

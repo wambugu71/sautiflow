@@ -1998,6 +1998,9 @@ namespace
 
         std::atomic<bool> normalizerEnabled{false};
         std::atomic<float> normalizerTargetLUFS{-14.0f};
+        std::atomic<float> currentGainLinear_{1.0f};
+        std::atomic<float> currentGainDb_{0.0f};
+        float seedLufsInitial{-100.0f};
 
         void reset(int sampleRate, float seedLufs = -100.0f)
         {
@@ -2020,6 +2023,15 @@ namespace
             blocksSinceAnalysis = 0;
             pass2Powers.reserve(MAX_ACCUMULATED_BLOCKS);
             pass2Powers.clear();
+
+            seedLufsInitial = seedLufs;
+            float initGainDb = 0.0f;
+            if (seedLufs > -70.0f)
+            {
+                initGainDb = clampf(normalizerTargetLUFS.load(std::memory_order_relaxed) - seedLufs, -12.0f, 6.0f);
+            }
+            currentGainDb_.store(initGainDb, std::memory_order_relaxed);
+            currentGainLinear_.store(std::pow(10.0f, initGainDb / 20.0f), std::memory_order_relaxed);
 
             const float initLufs = (seedLufs > -70.0f) ? seedLufs : -100.0f;
             momentaryLUFS.store(initLufs, std::memory_order_relaxed);
@@ -2203,17 +2215,16 @@ namespace
             }
         }
 
-        float getNormalizerGainLinear()
+        float getNormalizerGainLinear(float dt = 0.0f)
         {
             if (!normalizerEnabled.load(std::memory_order_relaxed)) return 1.0f;
             float currentIntegrated = integratedLUFS.load(std::memory_order_relaxed);
             if (currentIntegrated < -70.0f) return 1.0f;
 
             float targetGainDB = normalizerTargetLUFS.load(std::memory_order_relaxed) - currentIntegrated;
-            // Anti-blast guard: During the first ~2 seconds (accCount < 20 blocks), or during quiet
-            // passages (< -30 LUFS), do NOT boost gain above 0 dB. Boost is only allowed after sustained
-            // active programme audio to prevent quiet intros from causing ear-splitting jumps when the music drops.
-            if (accCount < 20 || currentIntegrated < -30.0f)
+            // Anti-blast guard: If loudness was not pre-seeded, prevent excessive upward boost
+            // during quiet intros (< -30 LUFS) or during the first ~2 seconds.
+            if ((accCount < 20 && seedLufsInitial <= -70.0f) || currentIntegrated < -30.0f)
             {
                 if (targetGainDB > 0.0f) targetGainDB = 0.0f;
                 targetGainDB = clampf(targetGainDB, -12.0f, 0.0f);
@@ -2222,7 +2233,30 @@ namespace
             {
                 targetGainDB = clampf(targetGainDB, -12.0f, 6.0f);
             }
-            return std::pow(10.0f, targetGainDB / 20.0f);
+
+            if (dt <= 0.0f)
+            {
+                return std::pow(10.0f, targetGainDB / 20.0f);
+            }
+
+            // Professional broadcast AGC slew rate:
+            // Upward slew rate: 0.75 dB/sec (transparent, imperceptible to ear)
+            // Downward slew rate: 1.50 dB/sec (gentle, avoids sudden ducking)
+            float curDb = currentGainDb_.load(std::memory_order_relaxed);
+            if (targetGainDB > curDb)
+            {
+                constexpr float maxRiseDbPerSec = 0.75f;
+                curDb = std::min(targetGainDB, curDb + maxRiseDbPerSec * dt);
+            }
+            else if (targetGainDB < curDb)
+            {
+                constexpr float maxFallDbPerSec = 1.50f;
+                curDb = std::max(targetGainDB, curDb - maxFallDbPerSec * dt);
+            }
+            currentGainDb_.store(curDb, std::memory_order_relaxed);
+            const float lin = std::pow(10.0f, curDb / 20.0f);
+            currentGainLinear_.store(lin, std::memory_order_relaxed);
+            return lin;
         }
     };
 
@@ -2242,7 +2276,7 @@ namespace
             return target.load(std::memory_order_relaxed);
         }
 
-        void prepareBlock(ma_uint32 frames, float smoothingMs, int sampleRate)
+        void prepareBlock(ma_uint32 frames, float smoothingMs, int sampleRate, int channels = 1)
         {
             float tgt = target.load(std::memory_order_relaxed);
             if (smoothingMs <= 0.0f || frames == 0 || sampleRate <= 0)
@@ -2252,7 +2286,16 @@ namespace
                 return;
             }
 
-            step = (tgt - current) / (float)frames;
+            const int ch = std::max(1, channels);
+            const float totalSmoothSamples = std::max(1.0f, (smoothingMs * 0.001f) * (float)sampleRate * (float)ch);
+            if (totalSmoothSamples <= (float)frames)
+            {
+                step = (tgt - current) / (float)frames;
+            }
+            else
+            {
+                step = (tgt - current) / totalSmoothSamples;
+            }
         }
 
         inline float next()
@@ -7625,6 +7668,19 @@ static void decode_producer_loop(AudioEngineHandle *e)
             }
         }
 
+        // =====================================================================
+        // Measure source programme loudness on raw incoming stream (pre-DSP).
+        // This ensures the BS.1770 normalizer tracks the track's intrinsic loudness
+        // without feedback loops or ducking when the user tweaks downstream EQ,
+        // Bass, Clarity, or Warmth effects.
+        // =====================================================================
+        if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
+            e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
+            e->levellerDsp.isEnabled())
+        {
+            e->loudnessMeter.process(processBuffer, produced, e->channels, 1.0f);
+        }
+
         const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed);
 
         // =====================================================================
@@ -7652,13 +7708,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
                 else
                 {
-                    normTarget = e->loudnessMeter.getNormalizerGainLinear();
+                    const float blockDt = (e->sampleRate > 0) ? ((float)produced / (float)e->sampleRate) : 0.01f;
+                    normTarget = e->loudnessMeter.getNormalizerGainLinear(blockDt);
                 }
             }
             e->paramNormalizerGain.setTarget(normTarget);
             e->paramNormalizerGain.prepareBlock((ma_uint32)totalSamples,
                                                 e->parameterSmoothingMs.load(std::memory_order_relaxed),
-                                                e->sampleRate);
+                                                e->sampleRate,
+                                                e->channels);
 
             const bool normActive = !crossfadeMixing &&
                                     (std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
@@ -8116,24 +8174,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
         //    (incorporating Broadcast Leveller AGC) and never fights the user's volume knob.
         // 2) FFT visualizer remains lively and dynamic at any volume setting.
         // =====================================================================
-        const bool needMeters = e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
-                                e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
-                                e->levellerDsp.isEnabled() ||
-                                e->truePeakMeterEnabled.load(std::memory_order_relaxed) ||
+        const bool needMeters = e->truePeakMeterEnabled.load(std::memory_order_relaxed) ||
                                 e->analyzerEnabled.load(std::memory_order_relaxed);
         if (use64 && needMeters)
         {
             for (size_t i = 0; i < totalSamples; ++i)
                 processBuffer[i] = static_cast<float>(buf64[i]);
-        }
-        if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
-            e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
-            e->levellerDsp.isEnabled())
-        {
-            const bool normOn = e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed);
-            const float curNorm = e->paramNormalizerGain.current;
-            const float invNorm = (normOn && curNorm > 1e-4f) ? (1.0f / curNorm) : 1.0f;
-            e->loudnessMeter.process(processBuffer, produced, e->channels, invNorm);
         }
         if (e->truePeakMeterEnabled.load(std::memory_order_relaxed))
         {
@@ -8151,7 +8197,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
             e->paramUserGain.setTarget(e->gain.load(std::memory_order_relaxed));
             e->paramUserGain.prepareBlock((ma_uint32)totalSamples,
                                           e->parameterSmoothingMs.load(std::memory_order_relaxed),
-                                          e->sampleRate);
+                                          e->sampleRate,
+                                          e->channels);
             const float userGainTarget = e->paramUserGain.getTarget();
             const bool isUnity = std::fabs(userGainTarget - 1.0f) < 1e-6f;
             if (bypassAppDsp && isUnity)
@@ -10460,10 +10507,6 @@ extern "C"
                 e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
             }
         }
-        else if (enabled != 0)
-        {
-            arm_transition_fade_in(e);
-        }
     }
 
     AE_API int ae_get_crossfade_enabled(AudioEngineHandle *e)
@@ -10562,11 +10605,7 @@ extern "C"
         e->automixTempoSyncEnabled.store(config->tempo_sync_enabled != 0, std::memory_order_relaxed);
         e->automixKeyLockEnabled.store(config->key_lock_enabled != 0, std::memory_order_relaxed);
 
-        if (config->enabled != 0)
-        {
-            arm_transition_fade_in(e);
-        }
-        else
+        if (config->enabled == 0)
         {
             reset_automix_dsp(e);
             if (!e->crossfadeEnabled.load(std::memory_order_relaxed))
