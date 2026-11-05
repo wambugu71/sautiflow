@@ -10,6 +10,7 @@ import '../../reverse_engineering/heuristics.dart';
 import '../../reverse_engineering/models/stream_info_provider.dart';
 import '../../reverse_engineering/pages/watch_page.dart';
 import '../../reverse_engineering/youtube_http_client.dart';
+import '../video_controller.dart';
 import '../video_id.dart';
 import '../youtube_api_client.dart';
 import 'stream_controller.dart';
@@ -96,8 +97,9 @@ class StreamClient {
     final hasAuth = _hasAuthenticatedSession(_httpClient.headers);
     final clients = ytClients ??
         [
-          YoutubeApiClient.visionos,
           if (hasAuth && _jsChallengeSolver != null) YoutubeApiClient.webRemix,
+          if (hasAuth) YoutubeApiClient.tv,
+          YoutubeApiClient.visionos,
           YoutubeApiClient.androidVr,
           YoutubeApiClient.ios,
           if (_jsChallengeSolver != null) YoutubeApiClient.safari,
@@ -284,7 +286,7 @@ class StreamClient {
     }
 
     final playerUrl = watchPage?.sourceUrl ??
-        'https://www.youtube.com/s/player/6b2fce74/player_ias.vflset/en_US/base.js';
+        (await VideoController.resolvePlayerMetadata(_httpClient)).playerUrl;
 
     // Bulk solve all challenges
     final solvedChallenges = <String, String?>{};
@@ -312,10 +314,16 @@ class StreamClient {
         // Skip streams that require signature deciphering if no solver is available
         continue;
       }
+      if (stream.url.isEmpty) {
+        continue;
+      }
       final itag = stream.tag;
       late Uri url;
       try {
         url = Uri.parse(stream.url);
+        if (!url.hasScheme || !url.hasAuthority) {
+          continue;
+        }
       } catch (e) {
         continue;
       }

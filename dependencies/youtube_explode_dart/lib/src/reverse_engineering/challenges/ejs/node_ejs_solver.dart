@@ -30,6 +30,9 @@ class NodeEJSSolver extends BaseEJSSolver {
 
   @override
   Future<String> executeJavaScript(String jsCode) async {
+    if (!tmpDir.existsSync()) {
+      await tmpDir.create(recursive: true);
+    }
     final timestamp = DateTime.now().microsecondsSinceEpoch;
     final scriptFile = File(path.join(tmpDir.path, 'eval_$timestamp.js'));
     final outFile = File(path.join(tmpDir.path, 'out_$timestamp.json'));

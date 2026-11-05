@@ -179,6 +179,56 @@ class YouTubeAuthService {
     _notifyAuthChange();
   }
 
+  /// Updates rotated session cookies (e.g. __Secure-1PSIDTS, SIDCC) returned
+  /// in YouTube `Set-Cookie` headers without tearing down active clients.
+  Future<void> updateCookiesFromSetCookieHeader(String? setCookieHeader) async {
+    if (setCookieHeader == null || setCookieHeader.isEmpty) return;
+    final current = currentCookie;
+    if (current == null || current.isEmpty) return;
+
+    final cookieMap = <String, String>{};
+    for (final part in current.split(';')) {
+      final eq = part.indexOf('=');
+      if (eq <= 0) continue;
+      cookieMap[part.substring(0, eq).trim()] = part.substring(eq + 1).trim();
+    }
+
+    const rotatedNames = {
+      '__Secure-1PSIDTS',
+      '__Secure-3PSIDTS',
+      'SIDCC',
+      '__Secure-1PSIDCC',
+      '__Secure-3PSIDCC',
+      '__Secure-1PSID',
+      '__Secure-3PSID',
+      'SAPISID',
+      '__Secure-1PAPISID',
+      '__Secure-3PAPISID',
+      'VISITOR_INFO1_LIVE',
+    };
+
+    var updated = false;
+    final exp = RegExp(r'(?:^|,\s*)([A-Za-z0-9_\-\.]+)=([^;,\s]+)');
+    for (final m in exp.allMatches(setCookieHeader)) {
+      final name = m.group(1)?.trim();
+      final val = m.group(2)?.trim();
+      if (name != null &&
+          val != null &&
+          val.isNotEmpty &&
+          rotatedNames.contains(name) &&
+          cookieMap[name] != val) {
+        cookieMap[name] = val;
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      final merged =
+          cookieMap.entries.map((e) => '${e.key}=${e.value}').join('; ');
+      await PreferencesStore.instance.setString(_kCookieAuthKey, merged);
+    }
+  }
+
   /// Initiates a 1-click Browser Loopback Google OAuth sign-in flow.
   Future<bool> signInWithBrowser({
     ValueChanged<String>? onStatusUpdate,

@@ -25,43 +25,66 @@ class VideoController {
     final userAgent = payload['context']!['client']!['userAgent'] as String?;
     final ytCfg = watchPage?.ytCfg;
 
+    final liveMeta = (ytCfg?.containsKey('STS') ?? false)
+        ? null
+        : await resolvePlayerMetadata(httpClient);
+    final effectiveSts =
+        ytCfg?['STS']?.toString() ?? liveMeta?.sts ?? '20759';
+
+    final contextMap = Map<String, dynamic>.from(payload['context'] as Map);
+    final clientMap = Map<String, dynamic>.from(contextMap['client'] as Map);
+    contextMap['client'] = clientMap;
+
     final body = {
       ...payload,
+      'context': contextMap,
       'videoId': videoId.value,
-      if (ytCfg?.containsKey('STS') ?? false)
-        'playbackContext': {
-          'contentPlaybackContext': {
-            'html5Preference': 'HTML5_PREF_WANTS',
-            'signatureTimestamp': ytCfg!['STS'].toString()
-          }
+      'playbackContext': {
+        'contentPlaybackContext': {
+          'html5Preference': 'HTML5_PREF_WANTS',
+          'signatureTimestamp': int.tryParse(effectiveSts) ?? effectiveSts,
         }
-      else if (payload['playbackContext']?['contentPlaybackContext']?['signatureTimestamp'] != null)
-        'playbackContext': payload['playbackContext']!
-      else
-        'playbackContext': {
-          'contentPlaybackContext': {
-            'html5Preference': 'HTML5_PREF_WANTS',
-            'signatureTimestamp': '20751',
-          }
-        }
+      },
     };
-    if (body['context']!['client']['clientName'] == 'IOS') {
-      body['context']!['client']!['visitorData'] =
+    if (clientMap['clientName'] == 'IOS') {
+      clientMap['visitorData'] =
           await _extractVisitorData(httpClient, client);
     }
 
-    final httpCookie =
-        httpClient.headers['cookie'] ?? httpClient.headers['Cookie'];
+    // Mobile/VR clients reject web session cookies and SAPISIDHASH (HTTP 400),
+    // so only web-family clients (tv, mweb, web, web_remix) get credentials.
+    const noAuthClients = {
+      'IOS',
+      'ANDROID',
+      'ANDROID_VR',
+      'ANDROID_MUSIC',
+      'VISIONOS',
+    };
+    final sendAuth =
+        !noAuthClients.contains(payload['context']!['client']!['clientName']);
+    final httpCookie = !sendAuth
+        ? null
+        : httpClient.headers['cookie'] ?? httpClient.headers['Cookie'];
     final watchCookie = (client == YoutubeApiClient.webRemix) ? null : watchPage?.cookieString;
-    final mergedCookie = [
-      if (httpCookie != null && httpCookie.isNotEmpty) httpCookie,
-      if (watchCookie != null && watchCookie.isNotEmpty) watchCookie,
-    ].join('; ');
+    // Merge by cookie name (first occurrence wins, so the user's session
+    // cookies take precedence over defaults) to avoid duplicate names.
+    final cookieMap = <String, String>{};
+    for (final source in [httpCookie, watchCookie]) {
+      if (source == null || source.isEmpty) continue;
+      for (final part in source.split(';')) {
+        final eq = part.indexOf('=');
+        if (eq <= 0) continue;
+        cookieMap.putIfAbsent(
+            part.substring(0, eq).trim(), () => part.substring(eq + 1).trim());
+      }
+    }
+    final mergedCookie =
+        cookieMap.entries.map((e) => '${e.key}=${e.value}').join('; ');
 
+    final apiUri = Uri.parse(client.apiUrl);
     final targetOrigin = client.headers['Origin'] ??
-        httpClient.headers['Origin'] ??
-        httpClient.headers['origin'] ??
-        'https://www.youtube.com';
+        client.headers['origin'] ??
+        '${apiUri.scheme}://${apiUri.host}';
 
     // Extract SAPISID or __Secure-3PAPISID to calculate SAPISIDHASH for targetOrigin
     String? sapisid;
@@ -76,12 +99,15 @@ class VideoController {
     }
 
     String? authHeader;
-    if (sapisid != null && sapisid.isNotEmpty) {
+    if (sapisid != null && sapisid.isNotEmpty && sendAuth) {
       final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
       final hash = sha1.convert(utf8.encode('$ts $sapisid $targetOrigin')).toString();
       authHeader = 'SAPISIDHASH ${ts}_$hash';
     } else {
-      authHeader = httpClient.headers['Authorization'] ?? httpClient.headers['authorization'];
+      authHeader = !sendAuth
+          ? null
+          : httpClient.headers['Authorization'] ??
+              httpClient.headers['authorization'];
     }
 
     final content = await httpClient.postString(
@@ -98,6 +124,7 @@ class VideoController {
           'X-Goog-Visitor-Id': ytCfg['INNERTUBE_CONTEXT']['client']
               ['visitorData'],
         'Origin': targetOrigin,
+        'Referer': '$targetOrigin/',
         'X-Origin': targetOrigin,
         if (authHeader != null) 'Authorization': authHeader,
         'Sec-Fetch-Mode': 'navigate',
@@ -107,6 +134,53 @@ class VideoController {
       },
     );
     return PlayerResponse.parse(content);
+  }
+
+  static String? _cachedPlayerUrl;
+  static String? _cachedPlayerScript;
+  static String? _cachedSts;
+  static DateTime? _playerCacheTime;
+
+  static String? getCachedPlayerScript(String playerUrl) =>
+      _cachedPlayerUrl == playerUrl ? _cachedPlayerScript : null;
+
+  static Future<({String playerUrl, String sts})> resolvePlayerMetadata(
+      YoutubeHttpClient http) async {
+    final now = DateTime.now();
+    if (_cachedPlayerUrl != null &&
+        _cachedSts != null &&
+        _playerCacheTime != null &&
+        now.difference(_playerCacheTime!) < const Duration(hours: 6)) {
+      return (playerUrl: _cachedPlayerUrl!, sts: _cachedSts!);
+    }
+    try {
+      final iframeJs = await http.getString(
+        'https://www.youtube.com/iframe_api',
+        validate: false,
+      );
+      final idMatch =
+          RegExp(r'\/s\/player\/([a-zA-Z0-9_-]+)\/').firstMatch(iframeJs);
+      if (idMatch != null) {
+        final playerId = idMatch.group(1)!;
+        final playerUrl =
+            'https://www.youtube.com/s/player/$playerId/player_ias.vflset/en_US/base.js';
+        final baseJs = await http.getString(playerUrl, validate: false);
+        final stsMatch =
+            RegExp(r'signatureTimestamp:(\d+)').firstMatch(baseJs);
+        if (stsMatch != null) {
+          _cachedPlayerUrl = playerUrl;
+          _cachedPlayerScript = baseJs;
+          _cachedSts = stsMatch.group(1)!;
+          _playerCacheTime = now;
+          return (playerUrl: _cachedPlayerUrl!, sts: _cachedSts!);
+        }
+      }
+    } catch (_) {}
+    return (
+      playerUrl: _cachedPlayerUrl ??
+          'https://www.youtube.com/s/player/ef321720/player_ias.vflset/en_US/base.js',
+      sts: _cachedSts ?? '20759',
+    );
   }
 
   String? _visitorData;

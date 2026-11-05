@@ -431,8 +431,19 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         bool isYouTube = (m_url.find("googlevideo.com") != std::string::npos ||
                           m_url.find("youtube.com") != std::string::npos);
         if (isYouTube) {
-            av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0", 0);
-            av_dict_set(&opts, "headers", "Referer: https://music.youtube.com/\r\nOrigin: https://music.youtube.com\r\n", 0);
+            if (m_url.find("c=VISIONOS") != std::string::npos) {
+                av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15", 0);
+            } else if (m_url.find("c=ANDROID_VR") != std::string::npos || m_url.find("c=ANDROID") != std::string::npos) {
+                av_dict_set(&opts, "user_agent", "com.google.android.youtube/1.56.21 (Linux; U; Android 12; Quest 3) gzip", 0);
+            } else if (m_url.find("c=IOS") != std::string::npos) {
+                av_dict_set(&opts, "user_agent", "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_1 like Mac OS X; en_US)", 0);
+            } else if (m_url.find("c=TVHTML5") != std::string::npos) {
+                av_dict_set(&opts, "user_agent", "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version,gzip(gfe)", 0);
+                av_dict_set(&opts, "headers", "Origin: https://www.youtube.com\r\n", 0);
+            } else {
+                av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0", 0);
+                av_dict_set(&opts, "headers", "Referer: https://music.youtube.com/\r\nOrigin: https://music.youtube.com\r\n", 0);
+            }
         } else {
             av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MiniAudioDart/1.0 SautiFlow/1.0", 0);
         }

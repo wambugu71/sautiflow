@@ -188,13 +188,19 @@ class _StreamInfo extends StreamInfoProvider {
 
   @override
   late final String? signature =
+      Uri.splitQueryString(root.getT<String>('cipher') ?? '')['s'] ??
       Uri.splitQueryString(root.getT<String>('signatureCipher') ?? '')['s'];
 
   @override
-  late final String? signatureParameter = Uri.splitQueryString(
-        root.getT<String>('cipher') ?? '',
-      )['sp'] ??
-      Uri.splitQueryString(root.getT<String>('signatureCipher') ?? '')['sp'];
+  late final String? signatureParameter = signature == null
+      ? null
+      : (Uri.splitQueryString(
+            root.getT<String>('cipher') ?? '',
+          )['sp'] ??
+          Uri.splitQueryString(
+            root.getT<String>('signatureCipher') ?? '',
+          )['sp'] ??
+          'sig');
 
   @override
   late final int tag = root.getT<int>('itag') ?? 0;

@@ -112,31 +112,52 @@ class BrowserCookieSyncService {
         return const BrowserSyncResult(success: false, errorMessage: 'Firefox profiles directory not found.');
       }
 
-      final Map<String, String> collectedCookies = {};
+      int bestLastAccessed = -1;
+      Map<String, String> collectedCookies = {};
 
       for (final entity in profilesDir.listSync()) {
         if (entity is Directory) {
           final dbFile = File('${entity.path}/cookies.sqlite');
           if (dbFile.existsSync()) {
-            final tempFile = File('${Directory.systemTemp.path}/sp_ff_cookies_${DateTime.now().millisecondsSinceEpoch}.sqlite');
+            final baseTmp =
+                '${Directory.systemTemp.path}/sp_ff_cookies_${DateTime.now().microsecondsSinceEpoch}.sqlite';
+            final tempFile = File(baseTmp);
+            final tempWal = File('$baseTmp-wal');
+            final tempShm = File('$baseTmp-shm');
             try {
               dbFile.copySync(tempFile.path);
+              final walFile = File('${entity.path}/cookies.sqlite-wal');
+              if (walFile.existsSync()) walFile.copySync(tempWal.path);
+              final shmFile = File('${entity.path}/cookies.sqlite-shm');
+              if (shmFile.existsSync()) shmFile.copySync(tempShm.path);
+
               final db = sqlite3.open(tempFile.path);
               try {
                 final inClause = _kTargetCookieNames.map((n) => "'$n'").join(',');
                 final rows = db.select('''
-                  SELECT name, value, host FROM moz_cookies
+                  SELECT name, value, host, lastAccessed FROM moz_cookies
                   WHERE (host LIKE '%youtube.com' OR host LIKE '%google.com')
                     AND name IN ($inClause)
                   ORDER BY CASE WHEN host LIKE '%youtube.com' THEN 0 ELSE 1 END, lastAccessed DESC
                 ''');
 
+                final profileCookies = <String, String>{};
+                int maxTs = -1;
                 for (final row in rows) {
                   final name = row['name'] as String?;
                   final val = row['value'] as String?;
-                  if (name != null && val != null && !collectedCookies.containsKey(name)) {
-                    collectedCookies[name] = val;
+                  final ts = (row['lastAccessed'] as int?) ?? 0;
+                  if (ts > maxTs) maxTs = ts;
+                  if (name != null && val != null && !profileCookies.containsKey(name)) {
+                    profileCookies[name] = val;
                   }
+                }
+                if ((profileCookies.containsKey('SAPISID') ||
+                        profileCookies.containsKey('__Secure-3PAPISID') ||
+                        profileCookies.containsKey('LOGIN_INFO')) &&
+                    maxTs > bestLastAccessed) {
+                  bestLastAccessed = maxTs;
+                  collectedCookies = profileCookies;
                 }
               } finally {
                 db.close();
@@ -144,15 +165,20 @@ class BrowserCookieSyncService {
             } catch (e) {
               debugPrint('[BrowserCookieSync] Error reading Firefox profile at ${dbFile.path}: $e');
             } finally {
-              if (tempFile.existsSync()) {
-                try { tempFile.deleteSync(); } catch (_) {}
+              for (final f in [tempFile, tempWal, tempShm]) {
+                if (f.existsSync()) {
+                  try { f.deleteSync(); } catch (_) {}
+                }
               }
             }
           }
         }
       }
 
-      if (collectedCookies.isNotEmpty && collectedCookies.containsKey('LOGIN_INFO')) {
+      if (collectedCookies.isNotEmpty &&
+          (collectedCookies.containsKey('SAPISID') ||
+              collectedCookies.containsKey('__Secure-3PAPISID') ||
+              collectedCookies.containsKey('LOGIN_INFO'))) {
         final cookieHeader = collectedCookies.entries
             .map((e) => '${e.key}=${e.value}')
             .join('; ');

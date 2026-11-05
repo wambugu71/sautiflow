@@ -155,7 +155,7 @@ class StreamingService {
           }
         } else if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
           _jsSolver = await WebViewEJSSolver.tryInit().timeout(
-            const Duration(seconds: 3),
+            const Duration(seconds: 8),
             onTimeout: () => null,
           );
           if (_jsSolver != null) {
@@ -232,15 +232,21 @@ class StreamingService {
       '[StreamingService] Trying authenticated YouTube extraction for $videoId...',
     );
     final solver = await _getOrInitSolver().timeout(
-      const Duration(seconds: 3),
+      const Duration(seconds: 10),
       onTimeout: () => null,
     );
     final client = _getAuthenticatedClient(solver);
     final manifest = await client.videos.streams.getManifest(
       videoId,
+      requireWatchPage: false,
+      // Cookie-capable clients first: mobile/VR clients ignore session cookies.
+      // TV needs no PO token; web clients need the JS solver.
       ytClients: [
-        YoutubeApiClient.visionos,
         if (solver != null) YoutubeApiClient.webRemix,
+        YoutubeApiClient.tv,
+        if (solver != null) YoutubeApiClient.safari,
+        YoutubeApiClient.mweb,
+        YoutubeApiClient.visionos,
         YoutubeApiClient.androidVr,
         YoutubeApiClient.ios,
       ],
@@ -386,10 +392,9 @@ class StreamingService {
         debugPrint(
             '[StreamingService] Direct extraction attempt $attempt failed for $videoId: $e');
 
-        if ((e is VideoUnplayableException || e is VideoUnavailableException) &&
-            !YouTubeAuthService.instance.hasAuth) {
+        if (e is VideoUnplayableException || e is VideoUnavailableException) {
           debugPrint(
-              '[StreamingService] ℹ️ Bot verification triggered. Attempting seamless 1-click sync from browser session...');
+              '[StreamingService] ℹ️ Bot verification or stale session triggered. Attempting seamless 1-click sync from browser session...');
           try {
             final syncRes =
                 await BrowserCookieSyncService.instance.syncFromAnyBrowser();

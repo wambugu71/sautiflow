@@ -42,6 +42,8 @@ class YTMusic {
   String? _initializedCookies;
   String? ytMusicHomeRawHtml;
 
+  static String? Function()? defaultCookieProvider;
+
   /// Initializes the YTMusic instance with provided cookies, geolocation, and language.
   Future<YTMusic> initialize({
     String? cookies,
@@ -50,6 +52,8 @@ class YTMusic {
     String? ytMusicHomeRawHtml,
     bool force = false,
   }) async {
+    cookies ??= defaultCookieProvider?.call();
+
     // If already initialized with identical cookies and not forced, return early
     final cookiesChanged = cookies != _initializedCookies;
     if (hasInitialized && !force && !cookiesChanged) {
@@ -67,17 +71,34 @@ class YTMusic {
       for (final cookieString in cookies.split(RegExp(r';\s*'))) {
         if (cookieString.trim().isEmpty) continue;
         try {
-          final cookie = Cookie.fromSetCookieValue(cookieString);
-          cookie.domain = '.youtube.com';
-          cookie.path = '/';
-          cookieJar.saveFromResponse(
-            Uri.parse('https://music.youtube.com/'),
-            [cookie],
-          );
-          cookieJar.saveFromResponse(
-            Uri.parse('https://www.youtube.com/'),
-            [cookie],
-          );
+          final eq = cookieString.indexOf('=');
+          if (eq > 0) {
+            final name = cookieString.substring(0, eq).trim();
+            final val = cookieString.substring(eq + 1).trim();
+            final cookie = Cookie(name, val);
+            cookie.domain = '.youtube.com';
+            cookie.path = '/';
+            cookieJar.saveFromResponse(
+              Uri.parse('https://music.youtube.com/'),
+              [cookie],
+            );
+            cookieJar.saveFromResponse(
+              Uri.parse('https://www.youtube.com/'),
+              [cookie],
+            );
+          } else {
+            final cookie = Cookie.fromSetCookieValue(cookieString);
+            cookie.domain = '.youtube.com';
+            cookie.path = '/';
+            cookieJar.saveFromResponse(
+              Uri.parse('https://music.youtube.com/'),
+              [cookie],
+            );
+            cookieJar.saveFromResponse(
+              Uri.parse('https://www.youtube.com/'),
+              [cookie],
+            );
+          }
         } catch (e) {
           // Ignore individual malformed cookie
         }

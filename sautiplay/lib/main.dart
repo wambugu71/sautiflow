@@ -63,6 +63,7 @@ void main() async {
   await DatabaseMigrationHelper.migrateIfNeeded();
   await LikedSongsService.instance.init();
   await YouTubeAuthService.instance.init();
+  YTMusic.defaultCookieProvider = () => YouTubeAuthService.instance.currentCookie;
   StreamingService.ensureInitialized();
   unawaited(ProjectMPresetManager.instance.initialize());
   // Metadata God removed in favor of audiotags

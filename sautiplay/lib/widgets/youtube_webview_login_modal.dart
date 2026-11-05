@@ -99,22 +99,47 @@ class _YouTubeWebViewLoginModalState extends State<YouTubeWebViewLoginModal> {
 
     if (isYouTube && !isAuthPage) {
       try {
-        final ytCookies = await _cookieManager.getCookies(
-          domain: Uri.parse('https://www.youtube.com'),
-        );
-        final googleCookies = await _cookieManager.getCookies(
-          domain: Uri.parse('https://accounts.google.com'),
-        );
+        final domains = [
+          Uri.parse('https://m.youtube.com'),
+          Uri.parse('https://www.youtube.com'),
+          Uri.parse('https://music.youtube.com'),
+          Uri.parse('https://youtube.com'),
+          Uri.parse('https://accounts.google.com'),
+          Uri.parse('https://google.com'),
+        ];
 
         final Map<String, String> merged = {};
-        for (final c in [...ytCookies, ...googleCookies]) {
-          merged[c.name] = c.value;
+        for (final domain in domains) {
+          try {
+            final cookies = await _cookieManager.getCookies(domain: domain);
+            for (final c in cookies) {
+              if (c.name.isNotEmpty && c.value.isNotEmpty) {
+                merged[c.name] = c.value;
+              }
+            }
+          } catch (_) {}
         }
 
-        // Check if critical session tokens are present
+        try {
+          final jsCookies = await _controller.runJavaScriptReturningResult('document.cookie');
+          if (jsCookies is String && jsCookies.isNotEmpty) {
+            final clean = jsCookies.replaceAll('"', '').trim();
+            for (final part in clean.split(';')) {
+              final eq = part.indexOf('=');
+              if (eq > 0) {
+                merged.putIfAbsent(
+                  part.substring(0, eq).trim(),
+                  () => part.substring(eq + 1).trim(),
+                );
+              }
+            }
+          }
+        } catch (_) {}
+
         if (merged.containsKey('LOGIN_INFO') ||
             merged.containsKey('SAPISID') ||
-            merged.containsKey('__Secure-3PAPISID')) {
+            merged.containsKey('__Secure-3PAPISID') ||
+            merged.containsKey('SID')) {
           _isSuccess = true;
           final cookieStr =
               merged.entries.map((e) => '${e.key}=${e.value}').join('; ');
