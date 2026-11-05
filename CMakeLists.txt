@@ -128,3 +128,6 @@ target_link_libraries(test_buffer_config PRIVATE audio_engine)
 target_include_directories(test_buffer_config PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 
+add_executable(test_automix_verification tests/test_automix_verification.cpp)
+target_link_libraries(test_automix_verification PRIVATE audio_engine)
+target_include_directories(test_automix_verification PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

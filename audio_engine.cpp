@@ -3611,6 +3611,8 @@ struct AudioEngineHandle
     std::atomic<float> currentTrackBpm{120.0f};
     std::atomic<float> nextTrackBpm{120.0f};
     std::atomic<float> fadingOutTrackBpm{120.0f};
+    std::atomic<bool> currentTrackBpmExplicit{false};
+    std::atomic<bool> nextTrackBpmExplicit{false};
     // True LR4 Linkwitz-Riley crossover (two cascaded Butterworth stages each)
     sauti::dsp::CytomicSVF automixLpfOut1;
     sauti::dsp::CytomicSVF automixLpfOut2;
@@ -4445,7 +4447,10 @@ static void arm_transition_fade_in(AudioEngineHandle *e)
 
     const bool cfEnabled = e->crossfadeEnabled.load(std::memory_order_relaxed);
     const bool amEnabled = e->automixEnabled.load(std::memory_order_relaxed);
-    if ((!cfEnabled && !amEnabled) || e->exclusiveModeEnabled.load(std::memory_order_relaxed))
+    const bool isCurrentlyCrossfading = e->isCrossfading.load(std::memory_order_acquire);
+    const bool isAborting = e->crossfadeAbortActive.load(std::memory_order_acquire);
+
+    if ((!cfEnabled && !amEnabled && !isAborting) || e->exclusiveModeEnabled.load(std::memory_order_relaxed))
     {
         e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
         e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
@@ -4453,35 +4458,34 @@ static void arm_transition_fade_in(AudioEngineHandle *e)
     }
 
     int durationMs = 0;
-    if (amEnabled)
-    {
-        float bpm = e->currentTrackBpm.load(std::memory_order_relaxed);
-        if (bpm < 40.0f || bpm > 300.0f) bpm = 120.0f;
-        const double msPerBeat = 60000.0 / (double)bpm;
-        const double msPerBar = msPerBeat * 4.0;
-        const int bars = clampi(e->automixTransitionBars.load(std::memory_order_relaxed), 4, 64);
-        durationMs = clampi((int)std::round(bars * msPerBar), 1000, 64000);
-        reset_automix_dsp(e);
-    }
-    else
+    if (cfEnabled)
     {
         durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 32000);
     }
-
-    if (durationMs <= 0)
+    else if (amEnabled)
     {
-        e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
-        e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
-        return;
+        // Solo fade-in (when starting playback or jumping tracks with no active dual-deck crossfade):
+        // use a brief 15 ms click-free micro-ramp instead of a 16-bar (32-second) silence ramp.
+        durationMs = 15;
+    }
+
+    if (!isCurrentlyCrossfading)
+    {
+        reset_automix_dsp(e);
     }
 
     const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
-    const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)durationMs / 1000.0));
-    if (fadeFrames == 0)
+    ma_uint64 fadeFrames = (durationMs > 0)
+                           ? (ma_uint64)((double)sr * ((double)durationMs / 1000.0))
+                           : 0;
+
+    if (isAborting)
     {
-        e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
-        e->crossfadeFramesRemaining.store(0, std::memory_order_relaxed);
-        return;
+        const ma_uint64 abortTotal = e->crossfadeAbortFramesTotal.load(std::memory_order_relaxed);
+        if (fadeFrames < abortTotal)
+        {
+            fadeFrames = abortTotal;
+        }
     }
 
     e->crossfadeFramesTotal.store(fadeFrames, std::memory_order_relaxed);
@@ -4801,9 +4805,18 @@ static void request_crossfade_abort(AudioEngineHandle *e)
     const float startLevel = std::cos((float)progress * halfPi);
 
     const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+    const ma_uint64 abortFrames = (ma_uint64)((double)sr * 0.120);
+    if (remaining < abortFrames)
+    {
+        e->crossfadeFramesRemaining.store(abortFrames, std::memory_order_relaxed);
+        if (total < abortFrames)
+        {
+            e->crossfadeFramesTotal.store(abortFrames, std::memory_order_relaxed);
+        }
+    }
     e->crossfadeAbortStartLevel.store(startLevel, std::memory_order_relaxed);
     e->crossfadeAbortFramesDone.store(0, std::memory_order_relaxed);
-    e->crossfadeAbortFramesTotal.store((ma_uint64)((double)sr * 0.120), std::memory_order_release);
+    e->crossfadeAbortFramesTotal.store(abortFrames, std::memory_order_release);
     e->crossfadeAbortActive.store(true, std::memory_order_release);
 }
 
@@ -5083,7 +5096,7 @@ static void request_jump(AudioEngineHandle *e, int idx)
     e->workerCv.notify_one();
 }
 
-static float compute_preview_lufs(ma_decoder *decoder, float *outPeak = nullptr)
+static float compute_preview_lufs(ma_decoder *decoder, float *outPeak = nullptr, float *outBpm = nullptr)
 {
     if (decoder == nullptr) return -100.0f;
     const ma_uint32 sampleRate = decoder->outputSampleRate > 0 ? decoder->outputSampleRate : 48000;
@@ -5100,6 +5113,21 @@ static float compute_preview_lufs(ma_decoder *decoder, float *outPeak = nullptr)
     const ma_uint32 maxChunks = 100; // 10 seconds max
     std::vector<float> pcmChunk((size_t)chunkFrames * (size_t)channels);
 
+    // Sub-band (kick/bass <180 Hz) & broadband onset flux envelope at 100 Hz (10 ms hops)
+    const ma_uint32 envHopFrames = std::max<ma_uint32>(1u, sampleRate / 100u);
+    std::vector<float> onsetEnv;
+    if (outBpm != nullptr)
+    {
+        onsetEnv.reserve(maxChunks * 10 + 16);
+    }
+    const double lpfAlpha = 1.0 - std::exp(-2.0 * 3.14159265358979323846 * 180.0 / (double)sampleRate);
+    double lpfState = 0.0;
+    double hopLowEnergy = 0.0;
+    double hopFullEnergy = 0.0;
+    ma_uint32 hopFrameCounter = 0;
+    float prevLogLow = 0.0f;
+    float prevLogFull = 0.0f;
+
     double activeBlockSumPwr = 0.0;
     int activeBlockCount = 0;
     float maxSamplePeak = 0.0f;
@@ -5112,13 +5140,37 @@ static float compute_preview_lufs(ma_decoder *decoder, float *outPeak = nullptr)
 
         double blockSumSq[8] = {0};
         for (ma_uint64 i = 0; i < framesRead; ++i) {
+            double mono = 0.0;
             for (ma_uint32 c = 0; c < useCh; ++c) {
                 float rawSample = pcmChunk[(size_t)i * (size_t)channels + (size_t)c];
                 float absSample = std::fabs(rawSample);
                 if (absSample > maxSamplePeak) maxSamplePeak = absSample;
                 double s = (double)rawSample;
+                mono += s;
                 double kf = kFilters[c].process(s);
                 blockSumSq[c] += kf * kf;
+            }
+            if (outBpm != nullptr)
+            {
+                mono /= (double)useCh;
+                lpfState += lpfAlpha * (mono - lpfState);
+                hopLowEnergy += lpfState * lpfState;
+                hopFullEnergy += mono * mono;
+                if (++hopFrameCounter >= envHopFrames)
+                {
+                    const float meanLow = (float)(hopLowEnergy / (double)hopFrameCounter);
+                    const float meanFull = (float)(hopFullEnergy / (double)hopFrameCounter);
+                    const float curLogLow = std::log1p(1000.0f * meanLow);
+                    const float curLogFull = std::log1p(250.0f * meanFull);
+                    const float fluxLow = std::max(0.0f, curLogLow - prevLogLow);
+                    const float fluxFull = std::max(0.0f, curLogFull - prevLogFull);
+                    onsetEnv.push_back(fluxLow + 0.4f * fluxFull);
+                    prevLogLow = curLogLow;
+                    prevLogFull = curLogFull;
+                    hopLowEnergy = 0.0;
+                    hopFullEnergy = 0.0;
+                    hopFrameCounter = 0;
+                }
             }
         }
 
@@ -5140,6 +5192,79 @@ static float compute_preview_lufs(ma_decoder *decoder, float *outPeak = nullptr)
 
     if (outPeak) *outPeak = maxSamplePeak;
 
+    if (outBpm != nullptr)
+    {
+        float estimatedBpm = 120.0f;
+        const size_t nEnv = onsetEnv.size();
+        const double envRate = (double)sampleRate / (double)envHopFrames; // ~100 Hz
+        if (nEnv >= 250)
+        {
+            double mean = 0.0;
+            for (float v : onsetEnv) mean += (double)v;
+            mean /= (double)nEnv;
+            double var = 0.0;
+            for (size_t i = 0; i < nEnv; ++i)
+            {
+                onsetEnv[i] = (float)((double)onsetEnv[i] - mean);
+                var += (double)onsetEnv[i] * (double)onsetEnv[i];
+            }
+            if (var > 1e-6)
+            {
+                const int minLag = std::max(20, (int)std::round(envRate * 60.0 / 180.0)); // 180 BPM
+                const int maxLag = std::min((int)(nEnv / 2) - 1, (int)std::round(envRate * 60.0 / 68.0)); // 68 BPM
+                if (maxLag > minLag + 2)
+                {
+                    std::vector<double> acf((size_t)(maxLag * 2 + 2), 0.0);
+                    const int computeMax = std::min((int)nEnv - 1, maxLag * 2);
+                    for (int lag = minLag; lag <= computeMax; ++lag)
+                    {
+                        double sum = 0.0;
+                        const size_t count = nEnv - (size_t)lag;
+                        for (size_t i = 0; i < count; ++i)
+                        {
+                            sum += (double)onsetEnv[i] * (double)onsetEnv[i + (size_t)lag];
+                        }
+                        acf[(size_t)lag] = sum / (double)count;
+                    }
+
+                    int bestLag = minLag;
+                    double bestScore = -1e30;
+                    for (int lag = minLag; lag <= maxLag; ++lag)
+                    {
+                        const double candBpm = (60.0 * envRate) / (double)lag;
+                        const double logRatio = std::log2(candBpm / 120.0);
+                        const double prior = std::exp(-0.5 * (logRatio / 0.55) * (logRatio / 0.55));
+                        double comb = acf[(size_t)lag];
+                        if (lag * 2 <= computeMax) comb += 0.50 * acf[(size_t)(lag * 2)];
+                        const double score = comb * (0.75 + 0.25 * prior);
+                        if (score > bestScore)
+                        {
+                            bestScore = score;
+                            bestLag = lag;
+                        }
+                    }
+
+                    // Parabolic interpolation around bestLag for sub-sample BPM precision
+                    double refinedLag = (double)bestLag;
+                    if (bestLag > minLag && bestLag < maxLag)
+                    {
+                        const double y0 = acf[(size_t)(bestLag - 1)];
+                        const double y1 = acf[(size_t)bestLag];
+                        const double y2 = acf[(size_t)(bestLag + 1)];
+                        const double denom = y0 - 2.0 * y1 + y2;
+                        if (std::abs(denom) > 1e-12)
+                        {
+                            const double delta = std::clamp(0.5 * (y0 - y2) / denom, -0.5, 0.5);
+                            refinedLag = (double)bestLag + delta;
+                        }
+                    }
+                    estimatedBpm = (float)std::clamp((60.0 * envRate) / refinedLag, 60.0, 200.0);
+                }
+            }
+        }
+        *outBpm = estimatedBpm;
+    }
+
     if (activeBlockCount == 0) return -100.0f;
     double meanPwr = activeBlockSumPwr / (double)activeBlockCount;
     return (meanPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(meanPwr)) : -100.0f;
@@ -5153,6 +5278,8 @@ static void apply_initial_track_loudness(AudioEngineHandle *e, ma_decoder *decod
     float chosenLinear = 1.0f;
     float chosenLufs = targetLufs;
     bool foundLoudness = false;
+    const bool needAutoBpm = !e->currentTrackBpmExplicit.load(std::memory_order_relaxed);
+    float detectedBpm = 0.0f;
 
     if (!is_network_url(path))
     {
@@ -5175,11 +5302,15 @@ static void apply_initial_track_loudness(AudioEngineHandle *e, ma_decoder *decod
             chosenLufs = targetLufs - gainDb;
             foundLoudness = true;
             engine_log("apply_initial_track_loudness: ReplayGain tag %.2f dB (linear %.3f, peak %.3f)", gainDb, chosenLinear, peak);
+            if (needAutoBpm && decoder != nullptr && e->automixEnabled.load(std::memory_order_relaxed))
+            {
+                (void)compute_preview_lufs(decoder, nullptr, &detectedBpm);
+            }
         }
         else if (decoder != nullptr)
         {
             float previewPeak = 0.0f;
-            float previewLufs = compute_preview_lufs(decoder, &previewPeak);
+            float previewLufs = compute_preview_lufs(decoder, &previewPeak, needAutoBpm ? &detectedBpm : nullptr);
             if (previewLufs > -70.0f)
             {
                 float gainDb = std::clamp(targetLufs - previewLufs, -12.0f, 6.0f);
@@ -5195,6 +5326,11 @@ static void apply_initial_track_loudness(AudioEngineHandle *e, ma_decoder *decod
                 engine_log("apply_initial_track_loudness: Preview LUFS %.2f -> gain %.2f dB (linear %.3f, peak %.3f)", previewLufs, gainDb, chosenLinear, previewPeak);
             }
         }
+    }
+
+    if (needAutoBpm && detectedBpm >= 60.0f && detectedBpm <= 200.0f)
+    {
+        e->currentTrackBpm.store(detectedBpm, std::memory_order_relaxed);
     }
 
     if (!foundLoudness)
@@ -5445,6 +5581,7 @@ static void worker_loop(AudioEngineHandle *e)
                 e->nextTrackReplayGain.store(1.0f, std::memory_order_relaxed);
                 e->nextTrackNormalizerGain.store(1.0f, std::memory_order_relaxed);
                 e->nextTrackGainExplicitlySet.store(false, std::memory_order_relaxed);
+                e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
             }
 
             // Deferred auto-play: mark isPlaying=true NOW that the decoder is loaded.
@@ -5527,49 +5664,67 @@ static void worker_loop(AudioEngineHandle *e)
                 continue;
             }
 
-            // Loudness & ReplayGain Preload for local files (NEVER touch online streams)
-            if (!is_network_url(nextPath) && !e->nextTrackGainExplicitlySet.load(std::memory_order_relaxed))
+            // Loudness, ReplayGain & Autonomous BPM Preload for local files (NEVER touch online streams)
+            if (!is_network_url(nextPath))
             {
-                float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
-                std::string art, tit, alb;
-                bool hasTags = sautiflow::read_file_tags_ffmpeg(nextPath.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
-                const float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
-                if (hasTags && (trackGain != 0.0f || albumGain != 0.0f))
+                const bool needNextBpm = !e->nextTrackBpmExplicit.load(std::memory_order_relaxed);
+                float detectedNextBpm = 0.0f;
+                if (!e->nextTrackGainExplicitlySet.load(std::memory_order_relaxed))
                 {
-                    const float gainDb = (trackGain != 0.0f) ? trackGain : albumGain;
-                    float peak = (trackGain != 0.0f) ? trackPeak : albumPeak;
-                    if (peak <= 0.0f && albumPeak > 0.0f)
-                        peak = albumPeak;
-                    float linearGain = std::pow(10.0f, gainDb / 20.0f);
-                    if (peak > 0.0f && std::isfinite(peak))
+                    float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
+                    std::string art, tit, alb;
+                    bool hasTags = sautiflow::read_file_tags_ffmpeg(nextPath.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
+                    const float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
+                    if (hasTags && (trackGain != 0.0f || albumGain != 0.0f))
                     {
-                        const float maxSafeLinear = 1.0f / peak;
-                        if (linearGain > maxSafeLinear)
-                            linearGain = maxSafeLinear;
-                    }
-                    e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
-                    e->nextTrackNormalizerGain.store(linearGain, std::memory_order_relaxed);
-                    engine_log("worker preload next track ReplayGain from tag: %.2f dB (linear %.3f, peak %.3f)", gainDb, linearGain, peak);
-                }
-                else if (decoded != nullptr)
-                {
-                    // Fallback: Autonomous BS.1770-4 preview LUFS
-                    float previewPeak = 0.0f;
-                    float previewLufs = compute_preview_lufs(decoded, &previewPeak);
-                    if (previewLufs > -70.0f)
-                    {
-                        float gainDb = std::clamp(targetLufs - previewLufs, -12.0f, 6.0f);
+                        const float gainDb = (trackGain != 0.0f) ? trackGain : albumGain;
+                        float peak = (trackGain != 0.0f) ? trackPeak : albumPeak;
+                        if (peak <= 0.0f && albumPeak > 0.0f)
+                            peak = albumPeak;
                         float linearGain = std::pow(10.0f, gainDb / 20.0f);
-                        if (previewPeak > 0.0f && std::isfinite(previewPeak))
+                        if (peak > 0.0f && std::isfinite(peak))
                         {
-                            const float maxSafeLinear = 1.0f / previewPeak;
+                            const float maxSafeLinear = 1.0f / peak;
                             if (linearGain > maxSafeLinear)
                                 linearGain = maxSafeLinear;
                         }
                         e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
                         e->nextTrackNormalizerGain.store(linearGain, std::memory_order_relaxed);
-                        engine_log("worker preload autonomous LUFS preview: %.2f LUFS -> gain: %.2f dB (linear %.3f, peak %.3f)", previewLufs, gainDb, linearGain, previewPeak);
+                        engine_log("worker preload next track ReplayGain from tag: %.2f dB (linear %.3f, peak %.3f)", gainDb, linearGain, peak);
+                        if (needNextBpm && decoded != nullptr && e->automixEnabled.load(std::memory_order_relaxed))
+                        {
+                            (void)compute_preview_lufs(decoded, nullptr, &detectedNextBpm);
+                        }
                     }
+                    else if (decoded != nullptr)
+                    {
+                        // Fallback: Autonomous BS.1770-4 preview LUFS + BPM estimation
+                        float previewPeak = 0.0f;
+                        float previewLufs = compute_preview_lufs(decoded, &previewPeak, needNextBpm ? &detectedNextBpm : nullptr);
+                        if (previewLufs > -70.0f)
+                        {
+                            float gainDb = std::clamp(targetLufs - previewLufs, -12.0f, 6.0f);
+                            float linearGain = std::pow(10.0f, gainDb / 20.0f);
+                            if (previewPeak > 0.0f && std::isfinite(previewPeak))
+                            {
+                                const float maxSafeLinear = 1.0f / previewPeak;
+                                if (linearGain > maxSafeLinear)
+                                    linearGain = maxSafeLinear;
+                            }
+                            e->nextTrackReplayGain.store(linearGain, std::memory_order_relaxed);
+                            e->nextTrackNormalizerGain.store(linearGain, std::memory_order_relaxed);
+                            engine_log("worker preload autonomous LUFS preview: %.2f LUFS -> gain: %.2f dB (linear %.3f, peak %.3f)", previewLufs, gainDb, linearGain, previewPeak);
+                        }
+                    }
+                }
+                else if (needNextBpm && decoded != nullptr && e->automixEnabled.load(std::memory_order_relaxed))
+                {
+                    (void)compute_preview_lufs(decoded, nullptr, &detectedNextBpm);
+                }
+
+                if (needNextBpm && detectedNextBpm >= 60.0f && detectedNextBpm <= 200.0f)
+                {
+                    e->nextTrackBpm.store(detectedNextBpm, std::memory_order_relaxed);
                 }
             }
 
@@ -5699,7 +5854,23 @@ static ma_result read_and_resample_crossfade(
             ma_resample_algorithm_linear
         );
         rcfg.linear.lpfOrder = 4;
-        if (ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler) == MA_SUCCESS)
+        const int cfAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
+        e->currentResampleAlgorithm = cfAlgo;
+        if (cfAlgo > 0)
+        {
+            rcfg.algorithm = ma_resample_algorithm_custom;
+            rcfg.pBackendVTable = get_resampler_vtable_for_algorithm(cfAlgo);
+            rcfg.pBackendUserData = &e->currentResampleAlgorithm;
+        }
+        ma_result initRes = ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler);
+        if (initRes != MA_SUCCESS && cfAlgo > 0)
+        {
+            rcfg.algorithm = ma_resample_algorithm_linear;
+            rcfg.pBackendVTable = nullptr;
+            rcfg.pBackendUserData = nullptr;
+            initRes = ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler);
+        }
+        if (initRes == MA_SUCCESS)
         {
             e->crossfadeResamplerInit = true;
             e->crossfadeResamplerInRate = fadeOutRate;
@@ -6061,6 +6232,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->currentIndex = e->nextIndex;
                             e->fadingOutTrackBpm.store(e->currentTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                            e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                            e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
                             e->seekBasePcmFrame.store(0, std::memory_order_release);
                             e->playedPcmFrames.store(0, std::memory_order_release);
 
@@ -6300,7 +6473,23 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                             ma_resample_algorithm_linear
                                         );
                                         rcfg.linear.lpfOrder = 4;
-                                        if (ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler) == MA_SUCCESS)
+                                        const int cfAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
+                                        e->currentResampleAlgorithm = cfAlgo;
+                                        if (cfAlgo > 0)
+                                        {
+                                            rcfg.algorithm = ma_resample_algorithm_custom;
+                                            rcfg.pBackendVTable = get_resampler_vtable_for_algorithm(cfAlgo);
+                                            rcfg.pBackendUserData = &e->currentResampleAlgorithm;
+                                        }
+                                        ma_result initRes = ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler);
+                                        if (initRes != MA_SUCCESS && cfAlgo > 0)
+                                        {
+                                            rcfg.algorithm = ma_resample_algorithm_linear;
+                                            rcfg.pBackendVTable = nullptr;
+                                            rcfg.pBackendUserData = nullptr;
+                                            initRes = ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler);
+                                        }
+                                        if (initRes == MA_SUCCESS)
                                         {
                                             e->crossfadeResamplerInit = true;
                                             e->crossfadeResamplerInRate = curRate;
@@ -6412,6 +6601,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->crossfadeFramesTotal.store(fadeLen, std::memory_order_relaxed);
                             e->crossfadeFramesRemaining.store(fadeLen, std::memory_order_relaxed);
 
+                            e->fadingOutTrackBpm.store(e->currentTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                            e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                            e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                            e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
+
                             e->fadingOutReplayGain.store(e->currentTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             const float promotedGain = e->nextTrackReplayGain.load(std::memory_order_relaxed);
                             e->currentTrackReplayGain.store(promotedGain, std::memory_order_relaxed);
@@ -6505,7 +6699,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 effectiveTempoScale = 1.0f;
             }
 
-            // Automix Tempo Sync: sync incoming deck tempo to outgoing deck during crossfade
+            // Automix Tempo Sync: sync incoming deck tempo to outgoing deck at crossfade start,
+            // then glide smoothly via a C^1 raised-cosine ramp back to 1.0x (native tempo)
+            // over p in [0.35, 0.95] so there is zero tempo/pitch step at crossfade completion.
             if (e->isCrossfading.load(std::memory_order_relaxed) &&
                 e->automixEnabled.load(std::memory_order_relaxed) &&
                 e->automixTempoSyncEnabled.load(std::memory_order_relaxed))
@@ -6514,10 +6710,32 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 const float inBpm = e->currentTrackBpm.load(std::memory_order_relaxed);
                 if (outBpm >= 40.0f && inBpm >= 40.0f)
                 {
-                    const float tempoRatio = outBpm / inBpm;
-                    if (tempoRatio >= 0.75f && tempoRatio <= 1.33f)
+                    float baseRatio = outBpm / inBpm;
+                    // Octave / half-time / double-time folding into [0.707, 1.414]
+                    if (baseRatio > 1.41421356f) baseRatio *= 0.5f;
+                    else if (baseRatio < 0.70710678f) baseRatio *= 2.0f;
+
+                    if (baseRatio >= 0.80f && baseRatio <= 1.25f)
                     {
-                        effectiveTempoScale = std::clamp(effectiveTempoScale * tempoRatio, 0.05f, 10.0f);
+                        const ma_uint64 cfTotal = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
+                        const ma_uint64 cfRem = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
+                        float p = 0.0f;
+                        if (cfTotal > 0 && cfRem <= cfTotal)
+                        {
+                            p = (float)((double)(cfTotal - cfRem) / (double)cfTotal);
+                        }
+                        const float u = std::clamp((p - 0.35f) / 0.60f, 0.0f, 1.0f);
+                        const float glide = 0.5f * (1.0f - std::cos(u * 3.14159265358979323846f));
+                        const float tempoRatio = baseRatio + (1.0f - baseRatio) * glide;
+
+                        if (e->automixKeyLockEnabled.load(std::memory_order_relaxed))
+                        {
+                            effectiveTempoScale = std::clamp(effectiveTempoScale * tempoRatio, 0.05f, 10.0f);
+                        }
+                        else
+                        {
+                            effectiveResampleRatio = std::clamp(effectiveResampleRatio * tempoRatio, 0.05f, 10.0f);
+                        }
                     }
                 }
             }
@@ -6798,6 +7016,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         , e->currentStream
 #endif
                     );
+                    e->fadingOutTrackBpm.store(e->currentTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                    e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                    e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                    e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
                     const float promotedGain = e->nextTrackReplayGain.load(std::memory_order_relaxed);
                     e->currentTrackReplayGain.store(promotedGain, std::memory_order_relaxed);
                     e->replayGainLinear.store(promotedGain, std::memory_order_relaxed);
@@ -7158,6 +7380,20 @@ static void decode_producer_loop(AudioEngineHandle *e)
         {
             e->underrunCount.fetch_add(expectedFrames - (ma_uint64)produced, std::memory_order_relaxed);
         }
+
+        // =====================================================================
+        // Measure source programme loudness on raw incoming stream (pre-DSP & pre-crossfade).
+        // This ensures the BS.1770 normalizer tracks the track's intrinsic loudness
+        // without feedback loops or ducking when the user tweaks downstream EQ,
+        // Bass, Clarity, or Warmth effects, or during crossfades/transitions.
+        // =====================================================================
+        if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
+            e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
+            e->levellerDsp.isEnabled())
+        {
+            e->loudnessMeter.process(processBuffer, produced, e->channels, 1.0f);
+        }
+
         ma_uint64 fadeRemaining = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
         const ma_uint64 fadeTotal = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
         bool crossfadeProcessedThisBlock = false;
@@ -7277,9 +7513,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                     e->automixEchoLpf.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, 3500.0, 0.0, butterworthQ);
 
-                    if (e->automixEchoBuffer.empty())
+                    const size_t minEchoSamples = std::max<size_t>(384000, (size_t)srForAutomix * 2);
+                    if (e->automixEchoBuffer.size() < minEchoSamples)
                     {
-                        e->automixEchoBuffer.assign(262144, 0.0f);
+                        e->automixEchoBuffer.assign(minEchoSamples, 0.0f);
                     }
                     else
                     {
@@ -7288,6 +7525,16 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->automixEchoPos = 0;
                     e->automixDspInit = true;
                 }
+
+                // Precalculate SpaceEcho delay buffer geometry once per block
+                const size_t chCount = (e->channels > 0) ? (size_t)e->channels : 2;
+                const size_t echoBufFrames = e->automixEchoBuffer.size() / chCount;
+                float echoBpm = e->currentTrackBpm.load(std::memory_order_relaxed);
+                if (echoBpm < 40.0f || echoBpm > 300.0f) echoBpm = 120.0f;
+                const double delaySec = std::clamp((60.0 / (double)echoBpm) * 0.75, 0.15, 0.85);
+                size_t delayFrames = (size_t)(delaySec * (double)srForAutomix);
+                if (delayFrames >= echoBufFrames) delayFrames = (echoBufFrames > 1) ? (echoBufFrames - 1) : 1;
+                if (delayFrames == 0) delayFrames = 1;
 
                 // Block-rate parameter cache (updated every 32 frames for max real-time performance)
                 double blockHpfFreq = 20.0;
@@ -7300,18 +7547,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
                     const float tIn = std::sin(t * halfPi);
 
-                    float outEnv;
+                    float abortScale = 1.0f;
                     if (aborting && abortFramesTotal > 0)
                     {
-                        outEnv = abortStartLevel * (1.0f - (float)abortFramesDone / (float)abortFramesTotal);
-                        outEnv = clampf(outEnv, 0.0f, 1.0f);
+                        abortScale = abortStartLevel * (1.0f - (float)abortFramesDone / (float)abortFramesTotal);
+                        abortScale = clampf(abortScale, 0.0f, 1.0f);
                         abortFramesDone += 1;
                     }
-                    else
-                    {
-                        outEnv = std::cos(t * halfPi);
-                    }
 
+                    const float outEnv = aborting ? abortScale : std::cos(t * halfPi);
                     const size_t base = (size_t)i * (size_t)e->channels;
 
                     // Block-rate filter parameter recalculation (eliminates per-sample transcendental overhead)
@@ -7341,17 +7585,22 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         {
                             blockHpfFreq = 20.0 * std::pow(2500.0 / 20.0, (double)t);
                             blockLpfFreq = 300.0 * std::pow(20000.0 / 300.0, (double)t);
-                            e->automixSweepHpfOut.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, srForAutomix, blockHpfFreq, 0.0, 0.85);
-                            e->automixSweepLpfIn.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, blockLpfFreq, 0.0, 0.85);
+                            const double sweepQ = 0.7071 + 0.15 * std::sin(t * 3.14159265358979323846);
+                            e->automixSweepHpfOut.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, srForAutomix, blockHpfFreq, 0.0, sweepQ);
+                            e->automixSweepLpfIn.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, blockLpfFreq, 0.0, sweepQ);
                         }
                         else if (automixMode == 5)
                         {
                             blockHpfFreq = 20.0 * std::pow(3000.0 / 20.0, (double)t);
                             blockLpfFreq = 200.0 * std::pow(20000.0 / 200.0, (double)t);
-                            e->automixSweepHpfOut.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, srForAutomix, blockHpfFreq, 0.0, 0.75);
-                            e->automixSweepLpfIn.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, blockLpfFreq, 0.0, 0.75);
+                            const double sweepQ = 0.7071 + 0.15 * std::sin(t * 3.14159265358979323846);
+                            e->automixSweepHpfOut.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, srForAutomix, blockHpfFreq, 0.0, sweepQ);
+                            e->automixSweepLpfIn.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, blockLpfFreq, 0.0, sweepQ);
                         }
                     }
+
+                    const float deckABassGain = outEnv * bassOut;
+                    const float deckBBassGain = tIn * bassIn;
 
                     if (isAutomixActive && automixMode == 0 /* AE_AUTOMIX_STYLE_BASS_SWAP */)
                     {
@@ -7367,8 +7616,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             const float inBass = (float)e->automixLpfIn2.processSample(e->automixLpfIn1.processSample((double)rawIn, c), c);
                             const float inMidHigh = (float)e->automixHpfIn2.processSample(e->automixHpfIn1.processSample((double)rawIn, c), c);
 
-                            const float finalOut = (outMidHigh * outEnv) + (outBass * bassOut);
-                            const float finalIn  = (inMidHigh * tIn) + (inBass * bassIn);
+                            const float finalOut = (outMidHigh * outEnv) + (outBass * deckABassGain);
+                            const float finalIn  = (inMidHigh * tIn) + (inBass * deckBBassGain);
                             processBuffer[base + (size_t)c] = finalOut + finalIn;
                         }
 
@@ -7377,8 +7626,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->automixProgress.store(t, std::memory_order_relaxed);
                             e->automixDeckAVolume.store(outEnv, std::memory_order_relaxed);
                             e->automixDeckBVolume.store(tIn, std::memory_order_relaxed);
-                            e->automixDeckABassGain.store(bassOut, std::memory_order_relaxed);
-                            e->automixDeckBBassGain.store(bassIn, std::memory_order_relaxed);
+                            e->automixDeckABassGain.store(deckABassGain, std::memory_order_relaxed);
+                            e->automixDeckBBassGain.store(deckBBassGain, std::memory_order_relaxed);
                             e->automixDeckAFilterHz.store(250.0f, std::memory_order_relaxed);
                             e->automixDeckBFilterHz.store(250.0f, std::memory_order_relaxed);
                         }
@@ -7387,8 +7636,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     {
                         // Phase-smoothed raised-cosine equal-power blend
                         const float s = 0.5f * (1.0f - std::cos(t * 3.14159265358979323846f));
-                        const float blendOut = std::cos(s * halfPi);
+                        float blendOut = std::cos(s * halfPi);
                         const float blendIn  = std::sin(s * halfPi);
+                        if (aborting) blendOut *= abortScale;
 
                         for (int c = 0; c < e->channels; ++c)
                         {
@@ -7410,6 +7660,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     }
                     else if (isAutomixActive && automixMode == 2 /* AE_AUTOMIX_STYLE_FILTER_SWEEP */)
                     {
+                        const float sweepWetOut = std::min(1.0f, t / 0.02f);
+                        const float sweepWetIn = std::min(1.0f, (1.0f - t) / 0.02f);
+
                         for (int c = 0; c < e->channels; ++c)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
@@ -7418,7 +7671,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             const float outFilt = (float)e->automixSweepHpfOut.processSample((double)rawOut, c);
                             const float inFilt  = (float)e->automixSweepLpfIn.processSample((double)rawIn, c);
 
-                            processBuffer[base + (size_t)c] = (inFilt * tIn) + (outFilt * outEnv);
+                            const float effOut = rawOut + sweepWetOut * (outFilt - rawOut);
+                            const float effIn  = rawIn + sweepWetIn * (inFilt - rawIn);
+
+                            processBuffer[base + (size_t)c] = (effIn * tIn) + (effOut * outEnv);
                         }
 
                         if (i == 0 || i == produced - 1)
@@ -7433,33 +7689,34 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     else if (isAutomixActive && automixMode == 3 /* AE_AUTOMIX_STYLE_SPACE_ECHO */)
                     {
                         // Dub Space Echo: Delay freeze reverb tail into clean drop
-                        float bpm = e->currentTrackBpm.load(std::memory_order_relaxed);
-                        if (bpm < 40.0f || bpm > 300.0f) bpm = 120.0f;
-                        const double delaySec = std::clamp((60.0 / (double)bpm) * 0.75, 0.15, 0.85);
-                        const size_t delayFrames = (size_t)(delaySec * (double)srForAutomix);
-                        const size_t chCount = (e->channels > 0) ? (size_t)e->channels : 2;
-                        const size_t echoBufFrames = e->automixEchoBuffer.size() / chCount;
-
                         float echoSend = 0.0f;
                         float echoFeedback = 0.0f;
-                        float echoOutEnv = 0.0f;
+                        float echoOutEnv = std::cos(std::min(1.0f, t / 0.50f) * halfPi);
                         float echoInEnv = 0.0f;
 
-                        if (t < 0.50f)
+                        if (t < 0.55f)
                         {
-                            const float normT = t / 0.50f;
-                            echoOutEnv = std::cos(normT * halfPi);
-                            echoInEnv  = 0.0f;
-                            echoSend   = std::sin(normT * halfPi) * 0.85f;
+                            const float normT = t / 0.55f;
+                            echoSend = 0.65f * std::sin(normT * 3.14159265358979323846f);
                             echoFeedback = 0.65f;
                         }
                         else
                         {
-                            const float postT = (t - 0.50f) / 0.50f;
-                            echoOutEnv = 0.0f;
-                            echoInEnv  = std::sin(postT * halfPi);
-                            echoSend   = 0.0f; // Freeze input to delay line
+                            const float postT = (t - 0.55f) / 0.45f;
+                            echoSend = 0.0f; // Freeze input to delay line
                             echoFeedback = std::max(0.0f, 0.65f * (1.0f - postT * 1.25f));
+                        }
+
+                        if (t >= 0.35f)
+                        {
+                            const float inNormT = std::clamp((t - 0.35f) / 0.50f, 0.0f, 1.0f);
+                            echoInEnv = 0.5f * (1.0f - std::cos(inNormT * 3.14159265358979323846f));
+                        }
+
+                        if (aborting)
+                        {
+                            echoOutEnv *= abortScale;
+                            echoSend *= abortScale;
                         }
 
                         for (int c = 0; c < e->channels; ++c)
@@ -7521,6 +7778,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             cutOut = 0.5f * (1.0f + std::cos(clampedT * 3.14159265358979323846f));
                             cutIn  = 0.5f * (1.0f - std::cos(clampedT * 3.14159265358979323846f));
                         }
+                        if (aborting) cutOut *= abortScale;
 
                         for (int c = 0; c < e->channels; ++c)
                         {
@@ -7542,23 +7800,26 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     }
                     else if (isAutomixActive && automixMode == 5 /* AE_AUTOMIX_STYLE_SMART_HYBRID */)
                     {
-                        // Multi-stage hybrid: LR4 Bass-Swap + Resonant Filter Sweep + Equal Power Mid/High Blend
+                        const float sweepWetOut = std::min(1.0f, t / 0.02f);
+                        const float sweepWetIn = std::min(1.0f, (1.0f - t) / 0.02f);
+
+                        // Multi-stage hybrid: Resonant Filter Sweep on wideband + LR4 Bass-Swap + Equal Power Mid/High Blend
                         for (int c = 0; c < e->channels; ++c)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             const float rawIn  = processBuffer[base + (size_t)c] * inGain;
 
-                            const float outBass = (float)e->automixLpfOut2.processSample(e->automixLpfOut1.processSample((double)rawOut, c), c);
-                            const float outMidHigh = (float)e->automixHpfOut2.processSample(e->automixHpfOut1.processSample((double)rawOut, c), c);
+                            const float sweepOut = rawOut + sweepWetOut * ((float)e->automixSweepHpfOut.processSample((double)rawOut, c) - rawOut);
+                            const float sweepIn  = rawIn + sweepWetIn * ((float)e->automixSweepLpfIn.processSample((double)rawIn, c) - rawIn);
 
-                            const float inBass = (float)e->automixLpfIn2.processSample(e->automixLpfIn1.processSample((double)rawIn, c), c);
-                            const float inMidHigh = (float)e->automixHpfIn2.processSample(e->automixHpfIn1.processSample((double)rawIn, c), c);
+                            const float outBass = (float)e->automixLpfOut2.processSample(e->automixLpfOut1.processSample((double)sweepOut, c), c);
+                            const float outMidHigh = (float)e->automixHpfOut2.processSample(e->automixHpfOut1.processSample((double)sweepOut, c), c);
 
-                            const float outMidHighFiltered = (float)e->automixSweepHpfOut.processSample((double)outMidHigh, c);
-                            const float inMidHighFiltered  = (float)e->automixSweepLpfIn.processSample((double)inMidHigh, c);
+                            const float inBass = (float)e->automixLpfIn2.processSample(e->automixLpfIn1.processSample((double)sweepIn, c), c);
+                            const float inMidHigh = (float)e->automixHpfIn2.processSample(e->automixHpfIn1.processSample((double)sweepIn, c), c);
 
-                            const float finalOut = (outMidHighFiltered * outEnv) + (outBass * bassOut);
-                            const float finalIn  = (inMidHighFiltered * tIn) + (inBass * bassIn);
+                            const float finalOut = (outMidHigh * outEnv) + (outBass * deckABassGain);
+                            const float finalIn  = (inMidHigh * tIn) + (inBass * deckBBassGain);
                             processBuffer[base + (size_t)c] = finalOut + finalIn;
                         }
 
@@ -7567,8 +7828,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->automixProgress.store(t, std::memory_order_relaxed);
                             e->automixDeckAVolume.store(outEnv, std::memory_order_relaxed);
                             e->automixDeckBVolume.store(tIn, std::memory_order_relaxed);
-                            e->automixDeckABassGain.store(bassOut, std::memory_order_relaxed);
-                            e->automixDeckBBassGain.store(bassIn, std::memory_order_relaxed);
+                            e->automixDeckABassGain.store(deckABassGain, std::memory_order_relaxed);
+                            e->automixDeckBBassGain.store(deckBBassGain, std::memory_order_relaxed);
                             e->automixDeckAFilterHz.store((float)blockHpfFreq, std::memory_order_relaxed);
                             e->automixDeckBFilterHz.store((float)blockLpfFreq, std::memory_order_relaxed);
                         }
@@ -7614,7 +7875,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     // A zero-length ramp can't make progress in the sample loop
                     // (e.g. fade counters were re-armed to 0); end immediately
                     // rather than leaving a stale abort flag behind.
-                    if (abortFramesTotal == 0 || abortFramesDone >= abortFramesTotal)
+                    if (abortFramesTotal == 0 || abortFramesDone >= abortFramesTotal || fadeRemaining == 0)
                     {
                         e->crossfadeAbortActive.store(false, std::memory_order_release);
                         e->crossfadeAbortFramesTotal.store(0, std::memory_order_relaxed);
@@ -7666,19 +7927,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 buf64[i] = static_cast<double>(processBuffer[i]);
             }
-        }
-
-        // =====================================================================
-        // Measure source programme loudness on raw incoming stream (pre-DSP).
-        // This ensures the BS.1770 normalizer tracks the track's intrinsic loudness
-        // without feedback loops or ducking when the user tweaks downstream EQ,
-        // Bass, Clarity, or Warmth effects.
-        // =====================================================================
-        if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
-            e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
-            e->levellerDsp.isEnabled())
-        {
-            e->loudnessMeter.process(processBuffer, produced, e->channels, 1.0f);
         }
 
         const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed);
@@ -9361,7 +9609,7 @@ extern "C"
         e->processBuffer64.resize(preallocSamples);
         e->dspStereoBuffer.resize(preallocSamples);
         e->dspStereoBuffer64.resize(preallocSamples);
-        e->automixEchoBuffer.assign(preallocSamples, 0.0f);
+        e->automixEchoBuffer.assign(384000, 0.0f);
 
         // Initialize advanced settings
         e->outputSampleRate = sample_rate;
@@ -10151,6 +10399,7 @@ extern "C"
             e->nextLengthFrames = 0;
             e->hasNext = false;
             e->nextTrackNormalizerGain.store(e->currentTrackNormalizerGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
         }
 
         if (e->pendingAutoPlay.exchange(false, std::memory_order_acq_rel) ||
@@ -10678,6 +10927,7 @@ extern "C"
         if (e == nullptr)
             return;
         e->currentTrackBpm.store(std::clamp(bpm, 20.0f, 300.0f), std::memory_order_relaxed);
+        e->currentTrackBpmExplicit.store(true, std::memory_order_relaxed);
     }
 
     AE_API void ae_set_next_track_bpm(AudioEngineHandle *e, float bpm)
@@ -10685,6 +10935,7 @@ extern "C"
         if (e == nullptr)
             return;
         e->nextTrackBpm.store(std::clamp(bpm, 20.0f, 300.0f), std::memory_order_relaxed);
+        e->nextTrackBpmExplicit.store(true, std::memory_order_relaxed);
     }
 
     AE_API float ae_get_track_bpm(AudioEngineHandle *e)
