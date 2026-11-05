@@ -16,8 +16,6 @@
 namespace libprojectM {
 namespace MilkdropPreset {
 
-static constexpr uint32_t VerticesPerDrawCall = 1024 * 3;
-
 PerPixelMesh::PerPixelMesh()
     : RenderItem()
 {
@@ -28,15 +26,24 @@ PerPixelMesh::PerPixelMesh()
                                         staticShaders->GetPresetWarpFragmentShader());
 }
 
+PerPixelMesh::~PerPixelMesh()
+{
+    if (m_eboID != 0)
+    {
+        glDeleteBuffers(1, &m_eboID);
+        m_eboID = 0;
+    }
+}
+
 void PerPixelMesh::InitVertexAttrib()
 {
-    m_drawVertices.resize(VerticesPerDrawCall); // Fixed size, may scale it later depending on GPU caps.
-
     glGenVertexArrays(1, &m_vaoID);
     glGenBuffers(1, &m_vboID);
+    glGenBuffers(1, &m_eboID);
 
     glBindVertexArray(m_vaoID);
     glBindBuffer(GL_ARRAY_BUFFER, m_vboID);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_eboID);
 
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
@@ -52,9 +59,6 @@ void PerPixelMesh::InitVertexAttrib()
     glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), reinterpret_cast<void*>(offsetof(MeshVertex, centerX)));   // Center coord
     glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), reinterpret_cast<void*>(offsetof(MeshVertex, distanceX))); // Distance
     glVertexAttribPointer(5, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), reinterpret_cast<void*>(offsetof(MeshVertex, stretchX)));  // Stretch
-
-    // Pre-allocate vertex buffer
-    glBufferData(GL_ARRAY_BUFFER, sizeof(MeshVertex) * m_drawVertices.size(), m_drawVertices.data(), GL_STREAM_DRAW);
 
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -139,11 +143,13 @@ void PerPixelMesh::Draw(const PresetState& presetState,
 
 void PerPixelMesh::InitializeMesh(const PresetState& presetState)
 {
+    bool gridChanged = false;
     if (m_gridSizeX != presetState.renderContext.perPixelMeshX ||
         m_gridSizeY != presetState.renderContext.perPixelMeshY)
     {
         m_gridSizeX = presetState.renderContext.perPixelMeshX;
         m_gridSizeY = presetState.renderContext.perPixelMeshY;
+        gridChanged = true;
 
         // Grid size has changed, reallocate vertex buffers
         m_vertices.resize((m_gridSizeX + 1) * (m_gridSizeY + 1));
@@ -156,68 +162,87 @@ void PerPixelMesh::InitializeMesh(const PresetState& presetState)
         return;
     }
 
+    m_viewportWidth = presetState.renderContext.viewportSizeX;
+    m_viewportHeight = presetState.renderContext.viewportSizeY;
+
     float aspectX = static_cast<float>(presetState.renderContext.aspectX);
     float aspectY = static_cast<float>(presetState.renderContext.aspectY);
+    float invGridX = 2.0f / static_cast<float>(m_gridSizeX);
+    float invGridY = 2.0f / static_cast<float>(m_gridSizeY);
 
     // Either viewport size or mesh size changed, reinitialize the vertices.
     int vertexIndex{0};
     for (int gridY = 0; gridY <= m_gridSizeY; gridY++)
     {
+        float const vy = static_cast<float>(gridY) * invGridY - 1.0f;
+        float const vyAspect = vy * aspectY;
         for (int gridX = 0; gridX <= m_gridSizeX; gridX++)
         {
-            auto& vertex = m_vertices.at(vertexIndex);
+            auto& vertex = m_vertices[vertexIndex];
 
-            vertex.x = static_cast<float>(gridX) / static_cast<float>(m_gridSizeX) * 2.0f - 1.0f;
-            vertex.y = static_cast<float>(gridY) / static_cast<float>(m_gridSizeY) * 2.0f - 1.0f;
+            float const vx = static_cast<float>(gridX) * invGridX - 1.0f;
+            float const vxAspect = vx * aspectX;
+            vertex.x = vx;
+            vertex.y = vy;
 
-            // Milkdrop uses sqrtf, but hypotf is probably safer.
-            vertex.radius = hypotf(vertex.x * aspectX, vertex.y * aspectY);
+            vertex.radius = std::sqrt(vxAspect * vxAspect + vyAspect * vyAspect);
             if (gridY == m_gridSizeY / 2 && gridX == m_gridSizeX / 2)
             {
                 vertex.angle = 0.0f;
             }
             else
             {
-                vertex.angle = atan2f(vertex.y * aspectY, vertex.x * aspectX);
+                vertex.angle = atan2f(vyAspect, vxAspect);
             }
 
             vertexIndex++;
         }
     }
 
-    // Generate triangle lists for drawing the main warp mesh
-    int vertexListIndex{0};
-    for (int quadrant = 0; quadrant < 4; quadrant++)
+    if (gridChanged)
     {
-        for (int slice = 0; slice < m_gridSizeY / 2; slice++)
+        // Generate triangle lists for drawing the main warp mesh
+        int vertexListIndex{0};
+        for (int quadrant = 0; quadrant < 4; quadrant++)
         {
-            for (int gridX = 0; gridX < m_gridSizeX / 2; gridX++)
+            for (int slice = 0; slice < m_gridSizeY / 2; slice++)
             {
-                int xReference = gridX;
-                int yReference = slice;
-
-                if ((quadrant & 1) != 0)
+                for (int gridX = 0; gridX < m_gridSizeX / 2; gridX++)
                 {
-                    xReference = m_gridSizeX - 1 - xReference;
-                }
-                if ((quadrant & 2) != 0)
-                {
-                    yReference = m_gridSizeY - 1 - yReference;
-                }
+                    int xReference = gridX;
+                    int yReference = slice;
 
-                int const vertex = xReference + yReference * (m_gridSizeX + 1);
+                    if ((quadrant & 1) != 0)
+                    {
+                        xReference = m_gridSizeX - 1 - xReference;
+                    }
+                    if ((quadrant & 2) != 0)
+                    {
+                        yReference = m_gridSizeY - 1 - yReference;
+                    }
 
-                // 0 - 1      3
-                //   /      /
-                // 2      4 - 5
-                m_listIndices.at(vertexListIndex++) = vertex;
-                m_listIndices.at(vertexListIndex++) = vertex + 1;
-                m_listIndices.at(vertexListIndex++) = vertex + m_gridSizeX + 1;
-                m_listIndices.at(vertexListIndex++) = vertex + 1;
-                m_listIndices.at(vertexListIndex++) = vertex + m_gridSizeX + 1;
-                m_listIndices.at(vertexListIndex++) = vertex + m_gridSizeX + 2;
+                    uint32_t const vertex = static_cast<uint32_t>(xReference + yReference * (m_gridSizeX + 1));
+
+                    // 0 - 1      3
+                    //   /      /
+                    // 2      4 - 5
+                    m_listIndices[vertexListIndex++] = vertex;
+                    m_listIndices[vertexListIndex++] = vertex + 1;
+                    m_listIndices[vertexListIndex++] = vertex + m_gridSizeX + 1;
+                    m_listIndices[vertexListIndex++] = vertex + 1;
+                    m_listIndices[vertexListIndex++] = vertex + m_gridSizeX + 1;
+                    m_listIndices[vertexListIndex++] = vertex + m_gridSizeX + 2;
+                }
             }
         }
+
+        glBindVertexArray(m_vaoID);
+        glBindBuffer(GL_ARRAY_BUFFER, m_vboID);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(MeshVertex) * m_vertices.size(), nullptr, GL_STREAM_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_eboID);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(uint32_t) * m_listIndices.size(), m_listIndices.data(), GL_STATIC_DRAW);
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
     }
 }
 
@@ -357,32 +382,8 @@ void PerPixelMesh::WarpedBlit(const PresetState& presetState,
 
     glBindVertexArray(m_vaoID);
     glBindBuffer(GL_ARRAY_BUFFER, m_vboID);
-
-    int trianglesPerBatch = static_cast<int>(m_drawVertices.size() / 3 - 4);
-    int triangleCount = m_gridSizeX * m_gridSizeY * 2; // Two triangles per quad/grid cell.
-    int sourceIndex = 0;
-
-    while (sourceIndex < triangleCount * 3)
-    {
-        int trianglesQueued = 0;
-        int vertex = 0;
-        while (trianglesQueued < trianglesPerBatch && sourceIndex < triangleCount * 3)
-        {
-            // Copy one triangle/3 vertices
-            for (int i = 0; i < 3; i++)
-            {
-                m_drawVertices[vertex++] = m_vertices[m_listIndices[sourceIndex++]];
-            }
-
-            trianglesQueued++;
-        }
-
-        if (trianglesQueued > 0)
-        {
-            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(MeshVertex) * trianglesQueued * 3, m_drawVertices.data());
-            glDrawArrays(GL_TRIANGLES, 0, trianglesQueued * 3);
-        }
-    }
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(MeshVertex) * m_vertices.size(), m_vertices.data());
+    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(m_listIndices.size()), GL_UNSIGNED_INT, nullptr);
 
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);

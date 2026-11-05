@@ -102,7 +102,8 @@ private:
     WaveformPerFrameContext m_perFrameContext; //!< Holds the code execution context for per-frame expressions
     WaveformPerPointContext m_perPointContext; //!< Holds the code execution context for per-point expressions
 
-    std::vector<ColoredPoint> m_points; //!< Points in this waveform.
+    std::vector<ColoredPoint> m_pointsTransformed; //!< Pre-allocated transformed points buffer.
+    std::vector<ColoredPoint> m_pointsSmoothed;    //!< Pre-allocated smoothed points buffer.
 
     friend class WaveformPerFrameContext;
     friend class WaveformPerPointContext;

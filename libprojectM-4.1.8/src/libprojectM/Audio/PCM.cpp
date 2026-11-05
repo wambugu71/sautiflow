@@ -92,29 +92,25 @@ auto PCM::GetFrameAudioData() const -> FrameAudioData
 
 void PCM::UpdateSpectrum(const WaveformBuffer& waveformData, SpectrumBuffer& spectrumData)
 {
-    std::vector<float> waveformSamples(AudioBufferSamples);
-    std::vector<float> spectrumValues;
-
-    size_t oldI{0};
-    for (size_t i = 0; i < AudioBufferSamples; i++)
+    m_dampedWaveform[0] = waveformData[0];
+    for (size_t i = 1; i < AudioBufferSamples; i++)
     {
         // Damp the input into the FFT a bit, to reduce high-frequency noise:
-        waveformSamples[i] = 0.5f * (waveformData[i] + waveformData[oldI]);
-        oldI = i;
+        m_dampedWaveform[i] = 0.5f * (waveformData[i] + waveformData[i - 1]);
     }
 
-    m_fft.TimeToFrequencyDomain(waveformSamples, spectrumValues);
-
-    std::copy(spectrumValues.begin(), spectrumValues.end(), spectrumData.begin());
+    m_fft.TimeToFrequencyDomain(m_dampedWaveform.data(), spectrumData.data());
 }
 
 void PCM::CopyNewWaveformData(const WaveformBuffer& source, WaveformBuffer& destination)
 {
-    auto const bufferStartIndex = m_start.load();
+    auto const bufferStartIndex = m_start.load(std::memory_order_relaxed) % AudioBufferSamples;
+    size_t const firstChunk = AudioBufferSamples - bufferStartIndex;
 
-    for (size_t i = 0; i < AudioBufferSamples; i++)
+    std::copy_n(source.data() + bufferStartIndex, firstChunk, destination.data());
+    if (bufferStartIndex > 0)
     {
-        destination[i] = source[(bufferStartIndex + i) % AudioBufferSamples];
+        std::copy_n(source.data(), bufferStartIndex, destination.data() + firstChunk);
     }
 }
 

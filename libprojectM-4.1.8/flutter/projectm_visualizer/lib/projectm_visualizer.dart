@@ -125,9 +125,6 @@ class ProjectMVisualizer {
   void _initBuffers(int w, int h) {
     _curWidth = w > 0 ? w : 1280;
     _curHeight = h > 0 ? h : 720;
-    // Preallocate for up to 1080p desktop/mobile so setSize never reallocates during playback
-    _pixelBufferSize = math.max(_curWidth * _curHeight * 4, 1920 * 1080 * 4);
-    _nativePixelBuffer = calloc<ffi.Uint8>(_pixelBufferSize);
     _outWidthPtr = calloc<ffi.Int>();
     _outHeightPtr = calloc<ffi.Int>();
     _outFrameIdPtr = calloc<ffi.Uint64>();
@@ -173,11 +170,13 @@ class ProjectMVisualizer {
 
     _curWidth = width;
     _curHeight = height;
-    final newSize = width * height * 4;
-    if (newSize > _pixelBufferSize) {
-      calloc.free(_nativePixelBuffer);
-      _nativePixelBuffer = calloc<ffi.Uint8>(newSize);
-      _pixelBufferSize = newSize;
+    if (_nativePixelBuffer != ffi.nullptr) {
+      final newSize = width * height * 4;
+      if (newSize > _pixelBufferSize) {
+        calloc.free(_nativePixelBuffer);
+        _nativePixelBuffer = calloc<ffi.Uint8>(newSize);
+        _pixelBufferSize = newSize;
+      }
     }
     _bindings.pmvis_set_size(_handle, width, height);
 
@@ -339,6 +338,15 @@ class ProjectMVisualizer {
   bool copyFrameRgba(void Function(Uint8List pixels, int width, int height, int frameId) onFrame) {
     if (_isDisposed) return false;
 
+    final requiredBytes = math.max(_curWidth * _curHeight * 4, 1920 * 1080 * 4);
+    if (_nativePixelBuffer == ffi.nullptr || _pixelBufferSize < requiredBytes) {
+      if (_nativePixelBuffer != ffi.nullptr) {
+        calloc.free(_nativePixelBuffer);
+      }
+      _pixelBufferSize = requiredBytes;
+      _nativePixelBuffer = calloc<ffi.Uint8>(_pixelBufferSize);
+    }
+
     final hasNewFrame = _bindings.pmvis_copy_frame_rgba(
       _handle,
       _nativePixelBuffer,
@@ -406,7 +414,10 @@ class ProjectMVisualizer {
     _bindings.pmvis_destroy(_handle);
     _handle = ffi.nullptr;
 
-    calloc.free(_nativePixelBuffer);
+    if (_nativePixelBuffer != ffi.nullptr) {
+      calloc.free(_nativePixelBuffer);
+      _nativePixelBuffer = ffi.nullptr;
+    }
     calloc.free(_outWidthPtr);
     calloc.free(_outHeightPtr);
     calloc.free(_outFrameIdPtr);

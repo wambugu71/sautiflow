@@ -59,11 +59,12 @@
 #include <thread>
 #include <vector>
 
-// Lock-Free SPSC Ring Buffer for Stereo Float PCM
+// Lock-Free SPSC Ring Buffer for Stereo Float PCM (Power-of-Two capacity with slice memcpy)
 class PcmRingBuffer {
 public:
     explicit PcmRingBuffer(size_t capacity_frames = 16384)
         : m_capacity(capacity_frames * 2)
+        , m_mask(capacity_frames * 2 - 1)
         , m_buffer(capacity_frames * 2, 0.0f)
         , m_write_pos(0)
         , m_read_pos(0) {}
@@ -71,9 +72,16 @@ public:
     void Push(const float* interleaved_lr, size_t frames) {
         if (!interleaved_lr || frames == 0) return;
         size_t samples = frames * 2;
+        if (samples > m_capacity) {
+            interleaved_lr += (samples - m_capacity);
+            samples = m_capacity;
+        }
         size_t write_idx = m_write_pos.load(std::memory_order_relaxed);
-        for (size_t i = 0; i < samples; ++i) {
-            m_buffer[(write_idx + i) % m_capacity] = interleaved_lr[i];
+        size_t pos = write_idx & m_mask;
+        size_t first_chunk = std::min(samples, m_capacity - pos);
+        std::memcpy(m_buffer.data() + pos, interleaved_lr, first_chunk * sizeof(float));
+        if (samples > first_chunk) {
+            std::memcpy(m_buffer.data(), interleaved_lr + first_chunk, (samples - first_chunk) * sizeof(float));
         }
         m_write_pos.store(write_idx + samples, std::memory_order_release);
     }
@@ -89,9 +97,11 @@ public:
 
         size_t samples_to_read = (available_samples > max_samples) ? max_samples : available_samples;
         size_t start_idx = write_idx - samples_to_read;
-
-        for (size_t i = 0; i < samples_to_read; ++i) {
-            out_interleaved_lr[i] = m_buffer[(start_idx + i) % m_capacity];
+        size_t pos = start_idx & m_mask;
+        size_t first_chunk = std::min(samples_to_read, m_capacity - pos);
+        std::memcpy(out_interleaved_lr, m_buffer.data() + pos, first_chunk * sizeof(float));
+        if (samples_to_read > first_chunk) {
+            std::memcpy(out_interleaved_lr + first_chunk, m_buffer.data(), (samples_to_read - first_chunk) * sizeof(float));
         }
 
         m_read_pos.store(write_idx, std::memory_order_relaxed);
@@ -100,29 +110,30 @@ public:
 
 private:
     const size_t m_capacity;
+    const size_t m_mask;
     std::vector<float> m_buffer;
     std::atomic<size_t> m_write_pos;
     std::atomic<size_t> m_read_pos;
 };
 
-// Lock-free, non-blocking Triple-buffered Pixel Sink
+// Lock-free, non-blocking Triple-buffered Pixel Sink (Lazily allocated only when software readback is used)
 class PixelBufferSink {
 public:
     PixelBufferSink()
         : m_width(0), m_height(0), m_frame_id(0)
-        , m_write_idx(0), m_shared_idx(1), m_read_idx(2) {
-        for (int i = 0; i < 3; ++i) {
-            m_buffers[i].resize(1280 * 720 * 4, 0);
-        }
-    }
+        , m_write_idx(0), m_shared_idx(1), m_read_idx(2) {}
 
     void Resize(int w, int h) {
         std::lock_guard<std::mutex> lock(m_resize_mutex);
         m_width = w;
         m_height = h;
-        size_t bytes = static_cast<size_t>(w * h * 4);
+    }
+
+    void ReleaseMemory() {
+        std::lock_guard<std::mutex> lock(m_resize_mutex);
         for (int i = 0; i < 3; ++i) {
-            m_buffers[i].assign(bytes, 0);
+            m_buffers[i].clear();
+            m_buffers[i].shrink_to_fit();
         }
     }
 
@@ -137,7 +148,7 @@ public:
             m_height = h;
             for (int i = 0; i < 3; ++i) {
                 if (m_buffers[i].size() < bytes) {
-                    m_buffers[i].resize(bytes, 0);
+                    m_buffers[i].resize(bytes);
                 }
             }
         }
@@ -404,7 +415,8 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
         EGL_GREEN_SIZE, 8,
         EGL_RED_SIZE, 8,
         EGL_ALPHA_SIZE, 8,
-        EGL_DEPTH_SIZE, 24,
+        EGL_DEPTH_SIZE, 0,
+        EGL_STENCIL_SIZE, 0,
         EGL_NONE
     };
 
@@ -418,11 +430,10 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
     };
     EGLContext egl_context = eglCreateContext(egl_display, egl_config, EGL_NO_CONTEXT, ctx_attribs);
 
-    int max_pbuf_w = (initial_width > 1920) ? initial_width : 1920;
-    int max_pbuf_h = (initial_height > 1080) ? initial_height : 1080;
+    // Lightweight 1x1 dummy Pbuffer until ANativeWindow SurfaceTexture is attached (saves ~8.3 MB VRAM)
     const EGLint pbuf_attribs[] = {
-        EGL_WIDTH, max_pbuf_w,
-        EGL_HEIGHT, max_pbuf_h,
+        EGL_WIDTH, 1,
+        EGL_HEIGHT, 1,
         EGL_NONE
     };
     EGLSurface egl_pbuffer = eglCreatePbufferSurface(egl_display, egl_config, pbuf_attribs);
@@ -506,7 +517,8 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
         EGL_GREEN_SIZE, 8,
         EGL_BLUE_SIZE, 8,
         EGL_ALPHA_SIZE, 8,
-        EGL_DEPTH_SIZE, 24,
+        EGL_DEPTH_SIZE, 0,
+        EGL_STENCIL_SIZE, 0,
         EGL_NONE
     };
 
@@ -545,7 +557,7 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
 
     int cur_w = initial_width;
     int cur_h = initial_height;
-    std::vector<uint8_t> read_buffer(initial_width * initial_height * 4);
+    std::vector<uint8_t> read_buffer;
     float pcm_feed_buf[576 * 2];
 
     // Asynchronous PBO double-buffering to eliminate synchronous GPU readback stalls
@@ -577,10 +589,9 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
         cleanup_pbos();
         glGenBuffers(2, pbos);
         size_t size = static_cast<size_t>(w * h * 4);
-        std::vector<uint8_t> clear_buf(size, 0);
         for (int i = 0; i < 2; ++i) {
             glBindBuffer(GL_PIXEL_PACK_BUFFER, pbos[i]);
-            glBufferData(GL_PIXEL_PACK_BUFFER, size, clear_buf.data(), GL_STREAM_READ);
+            glBufferData(GL_PIXEL_PACK_BUFFER, size, nullptr, GL_STREAM_READ);
         }
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         pbo_read_idx = 0;
@@ -588,7 +599,9 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
         pbo_primed = false;
     };
 
+#if !defined(__ANDROID__)
     setup_pbos(cur_w, cur_h);
+#endif
 
     auto prev_time = std::chrono::high_resolution_clock::now();
     auto fps_time = prev_time;
@@ -630,19 +643,7 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
                 }
 #elif defined(__ANDROID__)
                 if (active_window) {
-                    if (egl_surface != EGL_NO_SURFACE && egl_surface != egl_pbuffer) {
-                        eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-                        eglDestroySurface(egl_display, egl_surface);
-                        egl_surface = EGL_NO_SURFACE;
-                    }
                     ANativeWindow_setBuffersGeometry(active_window, cur_w, cur_h, WINDOW_FORMAT_RGBA_8888);
-                    egl_surface = eglCreateWindowSurface(egl_display, egl_config, static_cast<EGLNativeWindowType>(active_window), nullptr);
-                    if (egl_surface != EGL_NO_SURFACE) {
-                        eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context);
-                    } else if (egl_pbuffer != EGL_NO_SURFACE) {
-                        egl_surface = egl_pbuffer;
-                        eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context);
-                    }
                 }
 #elif defined(__APPLE__)
 #if TARGET_OS_IPHONE
@@ -660,10 +661,15 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
                 glDisable(GL_SCISSOR_TEST);
                 glViewport(0, 0, cur_w, cur_h);
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                read_buffer.resize(cur_w * cur_h * 4);
+                glClear(GL_COLOR_BUFFER_BIT);
                 pmvis->pixel_sink.Resize(cur_w, cur_h);
+#ifdef __ANDROID__
+                if (!active_window) {
+                    setup_pbos(cur_w, cur_h);
+                }
+#else
                 setup_pbos(cur_w, cur_h);
+#endif
                 break;
             case CommandType::SetFps:
                 projectm_set_fps(pmvis->pm_handle, cmd.int_val1);
@@ -715,10 +721,11 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
                         glDisable(GL_SCISSOR_TEST);
                         glViewport(0, 0, cur_w, cur_h);
                         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                        read_buffer.resize(cur_w * cur_h * 4);
-                        pmvis->pixel_sink.Resize(cur_w, cur_h);
-                        setup_pbos(cur_w, cur_h);
+                        glClear(GL_COLOR_BUFFER_BIT);
+                        cleanup_pbos();
+                        read_buffer.clear();
+                        read_buffer.shrink_to_fit();
+                        pmvis->pixel_sink.ReleaseMemory();
                         pmvis->has_surface.store(true, std::memory_order_release);
                     }
                 }
@@ -777,7 +784,7 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
             pmvis->last_treb.store(clamp1(t_acc * inv * 3.0), std::memory_order_relaxed);
         } else {
             // Keep projectM audio pipeline active with continuous silence while paused or idle
-            float silence_buf[576 * 2] = {0.0f};
+            static constexpr float silence_buf[576 * 2] = {0.0f};
             projectm_pcm_add_float(pmvis->pm_handle, silence_buf, 576, PROJECTM_STEREO);
 
             // Smooth decay of VU meters
@@ -833,6 +840,10 @@ static void RenderThreadFunc(PmVis* pmvis, int initial_width, int initial_height
 
                 std::swap(pbo_read_idx, pbo_map_idx);
             } else {
+                size_t needed = static_cast<size_t>(cur_w * cur_h * 4);
+                if (read_buffer.size() < needed) {
+                    read_buffer.resize(needed);
+                }
                 glReadBuffer(GL_BACK);
                 glPixelStorei(GL_PACK_ALIGNMENT, 4);
                 glReadPixels(0, 0, cur_w, cur_h, GL_RGBA, GL_UNSIGNED_BYTE, read_buffer.data());

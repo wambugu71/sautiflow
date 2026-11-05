@@ -11,8 +11,8 @@ Texture::Texture(std::string name, const int width, const int height, const bool
     , m_width(width)
     , m_height(height)
     , m_isUserTexture(isUserTexture)
-    , m_internalFormat(GL_RGB)
-    , m_format(GL_RGB)
+    , m_internalFormat(GL_RGBA8)
+    , m_format(GL_RGBA)
     , m_type(GL_UNSIGNED_BYTE)
 {
     CreateNewTexture();

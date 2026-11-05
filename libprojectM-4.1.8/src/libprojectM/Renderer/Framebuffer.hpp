@@ -214,6 +214,13 @@ public:
      */
     void MaskDrawBuffer(int bufferIndex, bool masked);
 
+    /**
+     * @brief Sets the active color draw buffer count (1 or 2) on the currently bound draw framebuffer
+     * without detaching or reattaching textures.
+     * @param count Number of active color attachments (1 = GL_COLOR_ATTACHMENT0, 2 = GL_COLOR_ATTACHMENT0..1).
+     */
+    void SetColorDrawBufferCount(int count);
+
 private:
     /**
      * @brief Updates the draw buffer list for the fragment shader outputs of the given framebuffer.

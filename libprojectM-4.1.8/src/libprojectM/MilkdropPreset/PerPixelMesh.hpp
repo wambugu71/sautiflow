@@ -31,6 +31,7 @@ class PerPixelMesh : public Renderer::RenderItem
 {
 public:
     PerPixelMesh();
+    ~PerPixelMesh() override;
 
     void InitVertexAttrib() override;
 
@@ -119,8 +120,8 @@ private:
 
     VertexList m_vertices; //!< The calculated mesh vertices.
 
-    std::vector<int> m_listIndices; //!< List of vertex indices to render.
-    VertexList m_drawVertices;      //!< Temp data buffer for the vertices to be drawn.
+    std::vector<uint32_t> m_listIndices; //!< List of vertex indices to render.
+    GLuint m_eboID{};                    //!< Element buffer object for indexed mesh rendering.
 
     Renderer::Shader m_perPixelMeshShader;                            //!< Special shader which calculates the per-pixel UV coordinates.
     std::unique_ptr<MilkdropShader> m_warpShader;           //!< The warp shader. Either preset-defined or a default shader.

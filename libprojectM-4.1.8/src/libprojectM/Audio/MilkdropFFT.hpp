@@ -101,6 +101,13 @@ public:
     void TimeToFrequencyDomain(const std::vector<float>& waveformData, std::vector<float>& spectralData);
 
     /**
+     * @brief Zero-allocation overload converting time-domain samples into frequency-domain samples.
+     * @param waveformData Pointer to at least m_samplesIn float samples.
+     * @param spectralData Pointer to output buffer of at least (m_numFrequencies / 2) float samples.
+     */
+    void TimeToFrequencyDomain(const float* waveformData, float* spectralData);
+
+    /**
      * @brief Returns the number of frequency samples calculated.
      * This is twice the value of samplesOut passed to Init().
      * @return The number of frequency samples calculated.
@@ -153,6 +160,7 @@ private:
     std::vector<float> m_envelope; //!< Equalizer envelope table.
     std::vector<float> m_equalize; //!< Equalization values.
     std::vector<std::complex<float>> m_cosSinTable; //!< Table with complex polar coordinates for the different frequency domains used in the FFT.
+    std::vector<std::complex<float>> m_spectrumBuffer; //!< Pre-allocated working buffer for zero-allocation FFT execution.
 };
 
 } // namespace Audio

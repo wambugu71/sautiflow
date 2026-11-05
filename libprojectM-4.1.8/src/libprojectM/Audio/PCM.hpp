@@ -97,6 +97,7 @@ private:
     // Frame waveform data
     WaveformBuffer m_waveformL{0.f}; //!< Left-channel waveform data, aligned. Only the first WaveformSamples number of samples are valid.
     WaveformBuffer m_waveformR{0.f}; //!< Right-channel waveform data, aligned. Only the first WaveformSamples number of samples are valid.
+    WaveformBuffer m_dampedWaveform{0.f}; //!< Pre-allocated damped waveform scratch buffer for zero-allocation FFT updates.
 
     // Frame spectrum data
     SpectrumBuffer m_spectrumL{0.f}; //!< Left-channel spectrum data.

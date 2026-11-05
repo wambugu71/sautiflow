@@ -73,7 +73,38 @@ add_library(projectm_visualizer SHARED
 set_target_properties(projectm_visualizer PROPERTIES
     PUBLIC_HEADER pmvis.h
     OUTPUT_NAME "projectm_visualizer"
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
 )
+
+if(MSVC)
+    target_compile_options(projectm_visualizer PRIVATE
+        $<$<CONFIG:Release>:/O2>
+        $<$<CONFIG:Release>:/Oi>
+        $<$<CONFIG:Release>:/Ot>
+        $<$<CONFIG:Release>:/fp:fast>
+        $<$<CONFIG:Release>:/Gw>
+        $<$<CONFIG:Release>:/Gy>
+    )
+    target_link_options(projectm_visualizer PRIVATE
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
+    )
+else()
+    target_compile_options(projectm_visualizer PRIVATE
+        $<$<CONFIG:Release>:-O3>
+        $<$<CONFIG:Release>:-ffast-math>
+        $<$<CONFIG:Release>:-fno-math-errno>
+        $<$<CONFIG:Release>:-ffunction-sections>
+        $<$<CONFIG:Release>:-fdata-sections>
+    )
+    if(NOT APPLE)
+        target_link_options(projectm_visualizer PRIVATE $<$<CONFIG:Release>:-Wl,--gc-sections>)
+    else()
+        target_link_options(projectm_visualizer PRIVATE $<$<CONFIG:Release>:-Wl,-dead_strip>)
+    endif()
+endif()
 
 target_compile_definitions(projectm_visualizer PUBLIC DART_SHARED_LIB)
 

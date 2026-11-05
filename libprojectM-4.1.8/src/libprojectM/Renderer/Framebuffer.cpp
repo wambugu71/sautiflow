@@ -192,7 +192,7 @@ void Framebuffer::SetAttachment(int framebufferIndex, int attachmentIndex, const
 
 void Framebuffer::CreateColorAttachment(int framebufferIndex, int attachmentIndex)
 {
-    CreateColorAttachment(framebufferIndex, attachmentIndex, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE);
+    CreateColorAttachment(framebufferIndex, attachmentIndex, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE);
 }
 
 void Framebuffer::CreateColorAttachment(int framebufferIndex, int attachmentIndex, GLint internalFormat, GLenum format, GLenum type)
@@ -320,6 +320,19 @@ void Framebuffer::MaskDrawBuffer(int bufferIndex, bool masked)
 #else
     glColorMaski(bufferIndex, glMasked, glMasked, glMasked, glMasked);
 #endif
+}
+
+void Framebuffer::SetColorDrawBufferCount(int count)
+{
+    static constexpr GLenum kColorBuffers[2] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+    if (count == 2)
+    {
+        glDrawBuffers(2, kColorBuffers);
+    }
+    else
+    {
+        glDrawBuffers(1, kColorBuffers);
+    }
 }
 
 void Framebuffer::UpdateDrawBuffers(int framebufferIndex)

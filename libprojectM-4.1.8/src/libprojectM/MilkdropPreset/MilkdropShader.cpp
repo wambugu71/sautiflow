@@ -237,70 +237,63 @@ void MilkdropShader::LoadVariables(const PresetState& presetState, const PerFram
                                        blurMax[2]});
 
 
-    std::array<glm::mat4, 24> tempMatrices{};
+    static constexpr std::array<const char*, 24> rotUniformNames = {
+        "rot_s1", "rot_s2", "rot_s3", "rot_s4",
+        "rot_d1", "rot_d2", "rot_d3", "rot_d4",
+        "rot_f1", "rot_f2", "rot_f3", "rot_f4",
+        "rot_vf1", "rot_vf2", "rot_vf3", "rot_vf4",
+        "rot_uf1", "rot_uf2", "rot_uf3", "rot_uf4",
+        "rot_rand1", "rot_rand2", "rot_rand3", "rot_rand4"
+    };
 
-    // write matrices
+    // Only compute and upload rotation matrices that are actually referenced in the compiled shader
     for (int i = 0; i < 20; i++)
     {
+        if (m_shader.GetUniformLocation(rotUniformNames[i]) < 0)
+        {
+            continue;
+        }
         glm::mat4 const rotationX = glm::rotate(glm::mat4(1.0f), m_randRotationCenters[i].x + m_randRotationSpeeds[i].x * floatTime, glm::vec3(1.0f, 0.0f, 0.0f));
         glm::mat4 const rotationY = glm::rotate(glm::mat4(1.0f), m_randRotationCenters[i].y + m_randRotationSpeeds[i].y * floatTime, glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 const rotationZ = glm::rotate(glm::mat4(1.0f), m_randRotationCenters[i].z + m_randRotationSpeeds[i].z * floatTime, glm::vec3(0.0f, 0.0f, 1.0f));
 
         glm::mat4 const randomTranslation = glm::translate(glm::mat4(1.0f), glm::vec3(m_randTranslation[i].x, m_randTranslation[i].y, m_randTranslation[i].z));
 
-        tempMatrices[i] = randomTranslation * rotationX;
-        tempMatrices[i] = rotationZ * tempMatrices[i];
-        tempMatrices[i] = rotationY * tempMatrices[i];
+        glm::mat4 mat = randomTranslation * rotationX;
+        mat = rotationZ * mat;
+        mat = rotationY * mat;
+        m_shader.SetUniformMat3x4(rotUniformNames[i], mat);
     }
 
     // the last 4 are totally random, each frame
     for (int i = 20; i < 24; i++)
     {
+        if (m_shader.GetUniformLocation(rotUniformNames[i]) < 0)
+        {
+            continue;
+        }
         glm::mat4 const rotationX = glm::rotate(glm::mat4(1.0f), floatRand() * 6.28f, glm::vec3(1.0f, 0.0f, 0.0f));
         glm::mat4 const rotationY = glm::rotate(glm::mat4(1.0f), floatRand() * 6.28f, glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 const rotationZ = glm::rotate(glm::mat4(1.0f), floatRand() * 6.28f, glm::vec3(0.0f, 0.0f, 1.0f));
 
         glm::mat4 const randomTranslation = glm::translate(glm::mat4(1.0f), glm::vec3(floatRand(), floatRand(), floatRand()));
 
-        tempMatrices[i] = randomTranslation * rotationX;
-        tempMatrices[i] = rotationZ * tempMatrices[i];
-        tempMatrices[i] = rotationY * tempMatrices[i];
+        glm::mat4 mat = randomTranslation * rotationX;
+        mat = rotationZ * mat;
+        mat = rotationY * mat;
+        m_shader.SetUniformMat3x4(rotUniformNames[i], mat);
     }
 
-    m_shader.SetUniformMat3x4("rot_s1", tempMatrices[0]);
-    m_shader.SetUniformMat3x4("rot_s2", tempMatrices[1]);
-    m_shader.SetUniformMat3x4("rot_s3", tempMatrices[2]);
-    m_shader.SetUniformMat3x4("rot_s4", tempMatrices[3]);
-    m_shader.SetUniformMat3x4("rot_d1", tempMatrices[4]);
-    m_shader.SetUniformMat3x4("rot_d2", tempMatrices[5]);
-    m_shader.SetUniformMat3x4("rot_d3", tempMatrices[6]);
-    m_shader.SetUniformMat3x4("rot_d4", tempMatrices[7]);
-    m_shader.SetUniformMat3x4("rot_f1", tempMatrices[8]);
-    m_shader.SetUniformMat3x4("rot_f2", tempMatrices[9]);
-    m_shader.SetUniformMat3x4("rot_f3", tempMatrices[10]);
-    m_shader.SetUniformMat3x4("rot_f4", tempMatrices[11]);
-    m_shader.SetUniformMat3x4("rot_vf1", tempMatrices[12]);
-    m_shader.SetUniformMat3x4("rot_vf2", tempMatrices[13]);
-    m_shader.SetUniformMat3x4("rot_vf3", tempMatrices[14]);
-    m_shader.SetUniformMat3x4("rot_vf4", tempMatrices[15]);
-    m_shader.SetUniformMat3x4("rot_uf1", tempMatrices[16]);
-    m_shader.SetUniformMat3x4("rot_uf2", tempMatrices[17]);
-    m_shader.SetUniformMat3x4("rot_uf3", tempMatrices[18]);
-    m_shader.SetUniformMat3x4("rot_uf4", tempMatrices[19]);
-    m_shader.SetUniformMat3x4("rot_rand1", tempMatrices[20]);
-    m_shader.SetUniformMat3x4("rot_rand2", tempMatrices[21]);
-    m_shader.SetUniformMat3x4("rot_rand3", tempMatrices[22]);
-    m_shader.SetUniformMat3x4("rot_rand4", tempMatrices[23]);
-
     // set program uniform "_q[a-h]" values (_qa.x, _qa.y, _qa.z, _qa.w, _qb.x, _qb.y ... ) alias q[1-32]
+    static constexpr std::array<const char*, 8> qVarNames = {
+        "_qa", "_qb", "_qc", "_qd", "_qe", "_qf", "_qg", "_qh"
+    };
     for (int i = 0; i < QVarCount; i += 4)
     {
-        std::string varName = "_q";
-        varName.push_back(static_cast<char>('a' + i / 4));
-        m_shader.SetUniformFloat4(varName.c_str(), {presetState.frameQVariables[i],
-                                                    presetState.frameQVariables[i + 1],
-                                                    presetState.frameQVariables[i + 2],
-                                                    presetState.frameQVariables[i + 3]});
+        m_shader.SetUniformFloat4(qVarNames[i / 4], {presetState.frameQVariables[i],
+                                                     presetState.frameQVariables[i + 1],
+                                                     presetState.frameQVariables[i + 2],
+                                                     presetState.frameQVariables[i + 3]});
     }
 
     // Bind all texture and sampler descriptors. This includes the main and blur textures.

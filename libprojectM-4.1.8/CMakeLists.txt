@@ -55,6 +55,35 @@ project(libprojectM
         VERSION 4.1.8
         )
 
+# Aggressive cross-platform Release optimization flags (SIMD auto-vectorization, fast-math, dead-code stripping)
+if(MSVC)
+    add_compile_options(
+        $<$<CONFIG:Release>:/O2>
+        $<$<CONFIG:Release>:/Oi>
+        $<$<CONFIG:Release>:/Ot>
+        $<$<CONFIG:Release>:/fp:fast>
+        $<$<CONFIG:Release>:/Gw>
+        $<$<CONFIG:Release>:/Gy>
+    )
+    add_link_options(
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
+    )
+else()
+    add_compile_options(
+        $<$<CONFIG:Release>:-O3>
+        $<$<CONFIG:Release>:-ffast-math>
+        $<$<CONFIG:Release>:-fno-math-errno>
+        $<$<CONFIG:Release>:-ffunction-sections>
+        $<$<CONFIG:Release>:-fdata-sections>
+    )
+    if(NOT APPLE)
+        add_link_options($<$<CONFIG:Release>:-Wl,--gc-sections>)
+    else()
+        add_link_options($<$<CONFIG:Release>:-Wl,-dead_strip>)
+    endif()
+endif()
+
 # The API (SO) version for the shared library. Should be incremented whenever the binary interface changes
 # in a non-backwards-compatible way, e.g. changing parameters or return values of existing functions or removing
 # functions. Adding new function should be okay if documented.

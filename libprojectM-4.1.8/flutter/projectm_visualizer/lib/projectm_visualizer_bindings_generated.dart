@@ -57,7 +57,7 @@ class ProjectmVisualizerBindings {
         >
       >('pmvis_set_size');
   late final _pmvis_set_size = _pmvis_set_sizePtr
-      .asFunction<int Function(ffi.Pointer<PmVis>, int, int)>();
+      .asFunction<int Function(ffi.Pointer<PmVis>, int, int)>(isLeaf: true);
 
   int pmvis_set_fps(ffi.Pointer<PmVis> pmvis, int fps) {
     return _pmvis_set_fps(pmvis, fps);
@@ -68,7 +68,7 @@ class ProjectmVisualizerBindings {
         ffi.NativeFunction<ffi.Int Function(ffi.Pointer<PmVis>, ffi.Int)>
       >('pmvis_set_fps');
   late final _pmvis_set_fps = _pmvis_set_fpsPtr
-      .asFunction<int Function(ffi.Pointer<PmVis>, int)>();
+      .asFunction<int Function(ffi.Pointer<PmVis>, int)>(isLeaf: true);
 
   int pmvis_load_preset_file(
     ffi.Pointer<PmVis> pmvis,
@@ -200,7 +200,7 @@ class ProjectmVisualizerBindings {
         ffi.NativeFunction<ffi.Int Function(ffi.Pointer<PmVis>, ffi.Float)>
       >('pmvis_audio_set_volume');
   late final _pmvis_audio_set_volume = _pmvis_audio_set_volumePtr
-      .asFunction<int Function(ffi.Pointer<PmVis>, double)>();
+      .asFunction<int Function(ffi.Pointer<PmVis>, double)>(isLeaf: true);
 
   /// External audio feed (if user supplies PCM directly)
   int pmvis_push_pcm(
@@ -224,7 +224,7 @@ class ProjectmVisualizerBindings {
   late final _pmvis_push_pcm = _pmvis_push_pcmPtr
       .asFunction<
         int Function(ffi.Pointer<PmVis>, ffi.Pointer<ffi.Float>, int)
-      >();
+      >(isLeaf: true);
 
   /// Frame readout (for Flutter texture / pixel buffer)
   /// Returns 1 if a new frame was copied, 0 if no new frame since last call
@@ -287,7 +287,7 @@ class ProjectmVisualizerBindings {
         >
       >('pmvis_set_mesh_size');
   late final _pmvis_set_mesh_size = _pmvis_set_mesh_sizePtr
-      .asFunction<int Function(ffi.Pointer<PmVis>, int, int)>();
+      .asFunction<int Function(ffi.Pointer<PmVis>, int, int)>(isLeaf: true);
 
   int pmvis_set_soft_cut_duration(
     ffi.Pointer<PmVis> pmvis,
@@ -303,7 +303,7 @@ class ProjectmVisualizerBindings {
         >
       >('pmvis_set_soft_cut_duration');
   late final _pmvis_set_soft_cut_duration = _pmvis_set_soft_cut_durationPtr
-      .asFunction<int Function(ffi.Pointer<PmVis>, double)>();
+      .asFunction<int Function(ffi.Pointer<PmVis>, double)>(isLeaf: true);
 
   int pmvis_set_battery_saver(
     ffi.Pointer<PmVis> pmvis,
@@ -319,7 +319,7 @@ class ProjectmVisualizerBindings {
         >
       >('pmvis_set_battery_saver');
   late final _pmvis_set_battery_saver = _pmvis_set_battery_saverPtr
-      .asFunction<int Function(ffi.Pointer<PmVis>, int)>();
+      .asFunction<int Function(ffi.Pointer<PmVis>, int)>(isLeaf: true);
 
   /// Telemetry
   int pmvis_get_stats(

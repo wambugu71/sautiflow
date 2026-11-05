@@ -14,6 +14,7 @@
 
 #include <map>
 #include <string>
+#include <unordered_map>
 
 namespace libprojectM {
 namespace Renderer {
@@ -172,6 +173,13 @@ public:
     void SetUniformMat4x4(const char* uniform, const glm::mat4x4& values) const;
 
     /**
+     * @brief Returns the cached uniform location for the given name, or -1 if not active.
+     * @param uniform The uniform name.
+     * @return The OpenGL uniform location.
+     */
+    auto GetUniformLocation(const char* uniform) const -> GLint;
+
+    /**
      * @brief Parses the shading language version string returned from OpenGL.
      * If this function does not return a good version (e.g. "major" not >0), then OpenGL is probably
      * not properly initialized or the context not made current.
@@ -190,6 +198,7 @@ private:
     auto CompileShader(const std::string& source, GLenum type) -> GLuint;
 
     GLuint m_shaderProgram{}; //!< The program ID.
+    mutable std::unordered_map<std::string, GLint> m_uniformLocationCache; //!< Cached uniform locations to avoid per-frame driver queries.
 };
 
 } // namespace Renderer

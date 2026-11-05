@@ -16,6 +16,8 @@ CustomWaveform::CustomWaveform(PresetState& presetState)
     , m_presetState(presetState)
     , m_perFrameContext(presetState.globalMemory, &presetState.globalRegisters)
     , m_perPointContext(presetState.globalMemory, &presetState.globalRegisters)
+    , m_pointsTransformed(CustomWaveformMaxSamples)
+    , m_pointsSmoothed(CustomWaveformMaxSamples * 2)
 {
     RenderItem::Init();
 
@@ -157,8 +159,6 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
         sampleDataR[sample] *= mult;
     }
 
-    std::vector<ColoredPoint> pointsTransformed(sampleCount);
-
     float const sampleMultiplicator = sampleCount > 1 ? 1.0f / static_cast<float>(sampleCount - 1) : 0.0f;
     for (int sample = 0; sample < sampleCount; sample++)
     {
@@ -167,17 +167,16 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
 
         m_perPointContext.ExecutePerPointCode();
 
-        pointsTransformed[sample].x = static_cast<float>((*m_perPointContext.x * 2.0 - 1.0) * m_presetState.renderContext.invAspectX);
-        pointsTransformed[sample].y = static_cast<float>((*m_perPointContext.y * -2.0 + 1.0) * m_presetState.renderContext.invAspectY);
+        m_pointsTransformed[sample].x = static_cast<float>((*m_perPointContext.x * 2.0 - 1.0) * m_presetState.renderContext.invAspectX);
+        m_pointsTransformed[sample].y = static_cast<float>((*m_perPointContext.y * -2.0 + 1.0) * m_presetState.renderContext.invAspectY);
 
-        pointsTransformed[sample].r = Renderer::color_modulo(*m_perPointContext.r);
-        pointsTransformed[sample].g = Renderer::color_modulo(*m_perPointContext.g);
-        pointsTransformed[sample].b = Renderer::color_modulo(*m_perPointContext.b);
-        pointsTransformed[sample].a = Renderer::color_modulo(*m_perPointContext.a);
+        m_pointsTransformed[sample].r = Renderer::color_modulo(*m_perPointContext.r);
+        m_pointsTransformed[sample].g = Renderer::color_modulo(*m_perPointContext.g);
+        m_pointsTransformed[sample].b = Renderer::color_modulo(*m_perPointContext.b);
+        m_pointsTransformed[sample].a = Renderer::color_modulo(*m_perPointContext.a);
     }
 
-    std::vector<ColoredPoint> pointsSmoothed(sampleCount * 2);
-    auto smoothedVertexCount = SmoothWave(pointsTransformed.data(), sampleCount, pointsSmoothed.data());
+    auto smoothedVertexCount = SmoothWave(m_pointsTransformed.data(), sampleCount, m_pointsSmoothed.data());
 
 #ifndef USE_GLES
     glDisable(GL_LINE_SMOOTH);
@@ -223,26 +222,26 @@ void CustomWaveform::Draw(const PerFrameContext& presetPerFrameContext)
             case 1:
                 for (auto j = 0; j < smoothedVertexCount; j++)
                 {
-                    pointsSmoothed[j].x += incrementX;
+                    m_pointsSmoothed[j].x += incrementX;
                 }
                 break;
 
             case 2:
                 for (auto j = 0; j < smoothedVertexCount; j++)
                 {
-                    pointsSmoothed[j].y += incrementY;
+                    m_pointsSmoothed[j].y += incrementY;
                 }
                 break;
 
             case 3:
                 for (auto j = 0; j < smoothedVertexCount; j++)
                 {
-                    pointsSmoothed[j].x -= incrementX;
+                    m_pointsSmoothed[j].x -= incrementX;
                 }
                 break;
         }
 
-        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(ColoredPoint) * smoothedVertexCount, pointsSmoothed.data());
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(ColoredPoint) * smoothedVertexCount, m_pointsSmoothed.data());
         glDrawArrays(drawType, 0, smoothedVertexCount);
     }
 

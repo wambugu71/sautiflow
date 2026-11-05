@@ -169,6 +169,9 @@ void FinalComposite::InitializeMesh(const PresetState& presetState)
         return;
     }
 
+    m_viewportWidth = presetState.renderContext.viewportSizeX;
+    m_viewportHeight = presetState.renderContext.viewportSizeY;
+
     float const halfTexelWidth = 0.5f / static_cast<float>(presetState.renderContext.viewportSizeX);
     float const halfTexelHeight = 0.5f / static_cast<float>(presetState.renderContext.viewportSizeY);
 

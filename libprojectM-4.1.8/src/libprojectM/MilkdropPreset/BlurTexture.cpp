@@ -20,7 +20,7 @@ BlurTexture::BlurTexture()
     m_blur2Shader.CompileProgram(staticShaders->GetBlurVertexShader(),
                                  staticShaders->GetBlur2FragmentShader());
 
-    m_blurFramebuffer.CreateColorAttachment(0, 0);
+    glGenFramebuffers(NumBlurTextures, m_blurFbos.data());
 
     // Initialize Blur VAO/VBO with a single fullscreen quad.
     static constexpr std::array<float, 16> pointsBlur{
@@ -61,6 +61,7 @@ BlurTexture::BlurTexture()
 
 BlurTexture::~BlurTexture()
 {
+    glDeleteFramebuffers(NumBlurTextures, m_blurFbos.data());
     glDeleteBuffers(1, &m_vboBlur);
     glDeleteVertexArrays(1, &m_vaoBlur);
 }
@@ -133,14 +134,6 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
     scale[2] = 1.0f / (tempMax - tempMin);
     bias[2] = -tempMin * scale[2];
 
-    // Remember previously bound framebuffer
-    GLint origReadFramebuffer;
-    GLint origDrawFramebuffer;
-    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &origReadFramebuffer);
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &origDrawFramebuffer);
-
-    m_blurFramebuffer.Bind(0);
-
     glBlendFunc(GL_ONE, GL_ZERO);
     glBindVertexArray(m_vaoBlur);
 
@@ -150,6 +143,8 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
         {
             continue;
         }
+
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_blurFbos[pass]);
 
         // set pixel shader
         Renderer::Shader* blurShader;
@@ -240,21 +235,13 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
             }
         }
 
-        // Draw fullscreen quad
+        // Draw fullscreen quad directly into m_blurTextures[pass] attached to m_blurFbos[pass]
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-        // Save to blur texture
-        m_blurTextures[pass]->Bind(0);
-        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, m_blurTextures[pass]->Width(), m_blurTextures[pass]->Height());
-        m_blurTextures[pass]->Unbind(0);
     }
 
+    glBindTexture(GL_TEXTURE_2D, 0);
     glBindVertexArray(0);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // Bind previous framebuffer and reset viewport size
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, origReadFramebuffer);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, origDrawFramebuffer);
     glViewport(0, 0, sourceTexture.Width(), sourceTexture.Height());
 
     Renderer::Shader::Unbind();
@@ -262,12 +249,15 @@ void BlurTexture::Update(const Renderer::Texture& sourceTexture, const PerFrameC
 
 void BlurTexture::Bind(GLint& unit, Renderer::Shader& shader) const
 {
+    static constexpr std::array<const char*, 3> blurSamplerNames = {
+        "sampler_blur1", "sampler_blur2", "sampler_blur3"
+    };
     for (size_t i = 0; i < static_cast<size_t>(m_blurLevel) * 2; i++)
     {
         if (i % 2 == 1)
         {
             m_blurTextures[i]->Bind(unit, m_blurSampler);
-            shader.SetUniformInt(std::string("sampler_blur" + std::to_string(i / 2 + 1)).c_str(), unit);
+            shader.SetUniformInt(blurSamplerNames[i / 2], unit);
             unit++;
         }
     }
@@ -343,20 +333,18 @@ void BlurTexture::AllocateTextures(const Renderer::Texture& sourceTexture)
         int width2 = ((width + 3) / 16) * 16;
         int height2 = ((height + 3) / 4) * 4;
 
-        if (i == 0)
-        {
-            // Only use as much space as needed to render the blur textures.
-            m_blurFramebuffer.SetSize(width2, height2);
-        }
-
         std::string textureName;
         if (i % 2 == 1)
         {
             textureName = "blur" + std::to_string(i / 2 + 1);
         }
 
-        // This will automatically replace any old texture.
+        // This will automatically replace any old texture and attach it directly to its pass FBO.
         m_blurTextures[i] = std::make_shared<Renderer::Texture>(textureName, width2, height2, false);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_blurFbos[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_blurTextures[i]->TextureID(), 0);
+        GLenum drawBuf = GL_COLOR_ATTACHMENT0;
+        glDrawBuffers(1, &drawBuf);
     }
 
     m_sourceTextureWidth = sourceTexture.Width();

@@ -107,7 +107,7 @@ private:
     int m_sourceTextureWidth{};  //!< Width of the source texture used to create the blur textures.
     int m_sourceTextureHeight{}; //!< Height of the source texture used to create the blur textures.
 
-    Renderer::Framebuffer m_blurFramebuffer;                                        //!< The framebuffer used to draw the blur textures.
+    std::array<GLuint, NumBlurTextures> m_blurFbos{};                               //!< Dedicated FBOs per blur pass for zero-copy render-to-texture.
     std::shared_ptr<Renderer::Sampler> m_blurSampler;                               //!< The blur sampler.
     std::array<std::shared_ptr<Renderer::Texture>, NumBlurTextures> m_blurTextures; //!< The blur textures for each pass.
     BlurLevel m_blurLevel{BlurLevel::None};                                         //!< Current blur level.
