@@ -226,6 +226,12 @@ class _StreamInfo extends StreamInfoProvider {
   late final bool isAudioOnly = codec.type == 'audio';
 
   @override
+  bool get audioOnly => isAudioOnly;
+
+  @override
+  bool get videoOnly => codec.type == 'video' && audioCodec == null;
+
+  @override
   late final MediaType codec =
       _getMimeType() ?? MediaType('application', 'octet-stream');
 

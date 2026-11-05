@@ -250,4 +250,36 @@ class YoutubeApiClient {
         'Content-Type': 'application/json',
         'Origin': 'https://www.youtube.com',
       });
+
+  /// YouTube Music Web client. Highly reliable when authenticated with session cookies.
+  static const webRemix = YoutubeApiClient(
+    {
+      'context': {
+        'client': {
+          'clientName': 'WEB_REMIX',
+          'clientVersion': '1.20240726.01.00',
+          'userAgent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0',
+          'hl': 'en',
+          'gl': 'US',
+          'utcOffsetMinutes': 0,
+        },
+      },
+      'playbackContext': {
+        'contentPlaybackContext': {
+          'html5Preference': 'HTML5_PREF_WANTS',
+          'signatureTimestamp': 20751,
+        }
+      },
+      'contentCheckOk': true,
+      'racyCheckOk': true,
+    },
+    'https://music.youtube.com/youtubei/v1/player?prettyPrint=false',
+    headers: {
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0',
+      'Origin': 'https://music.youtube.com',
+      'X-Origin': 'https://music.youtube.com',
+    },
+  );
 }

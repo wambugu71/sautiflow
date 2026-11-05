@@ -14,12 +14,18 @@ class AuthenticatedYoutubeHttpClient extends YoutubeHttpClient {
     final cookie = authHeaders['Cookie'];
     if (cookie != null && cookie.isNotEmpty) {
       final defaultCookies = baseHeaders['cookie'] ?? 'PREF=hl=en&tz=UTC; SOCS=CAI; GPS=1';
+      final mergedCookie = '$cookie; $defaultCookies';
       return {
         ...baseHeaders,
-        'cookie': '$cookie; $defaultCookies',
+        ...authHeaders,
+        'Cookie': mergedCookie,
+        'cookie': mergedCookie,
       };
     }
 
-    return baseHeaders;
+    return {
+      ...baseHeaders,
+      ...authHeaders,
+    };
   }
 }

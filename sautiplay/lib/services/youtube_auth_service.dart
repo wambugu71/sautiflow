@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import '../database/preferences_store.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -90,12 +91,38 @@ class YouTubeAuthService {
   }
 
   /// Synchronous retrieval of active Cookie / Bearer headers for instant HTTP client setup.
-  Map<String, String> getAuthHeadersSync() {
+  Map<String, String> getAuthHeadersSync({String origin = 'https://www.youtube.com'}) {
     try {
       final prefs = PreferencesStore.instance;
       final cookie = prefs.getString(_kCookieAuthKey);
       if (cookie != null && cookie.trim().isNotEmpty) {
-        return {'Cookie': cookie.trim()};
+        final trimmed = cookie.trim();
+        final headers = <String, String>{
+          'Cookie': trimmed,
+          'cookie': trimmed,
+          'Origin': origin,
+          'X-Origin': origin,
+        };
+
+        // Extract SAPISID or __Secure-3PAPISID to calculate SAPISIDHASH
+        String? sapisid;
+        for (final part in trimmed.split('; ')) {
+          if (part.startsWith('SAPISID=') || part.startsWith('__Secure-3PAPISID=')) {
+            final eq = part.indexOf('=');
+            if (eq != -1) {
+              sapisid = part.substring(eq + 1).trim();
+              break;
+            }
+          }
+        }
+
+        if (sapisid != null && sapisid.isNotEmpty) {
+          final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+          final hash = sha1.convert(utf8.encode('$ts $sapisid $origin')).toString();
+          headers['Authorization'] = 'SAPISIDHASH ${ts}_$hash';
+        }
+
+        return headers;
       }
       final token = prefs.getString(_kAccessTokenKey);
       if (token != null && token.trim().isNotEmpty) {

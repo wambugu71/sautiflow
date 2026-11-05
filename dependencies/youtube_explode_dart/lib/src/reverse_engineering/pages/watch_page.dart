@@ -96,12 +96,16 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
 
   late final PlayerResponse? playerResponse = getInitialPlayerResponse();
 
-  late final Map<String, dynamic> ytCfg = _getYtCfg();
+  late final Map<String, dynamic>? ytCfg = _getYtCfg();
 
-  Map<String, dynamic> _getYtCfg() {
-    return json.decode(RegExp(r'ytcfg\.set\s*\(\s*({.+?})\s*\)\s*;')
-        .firstMatch(root.outerHtml)!
-        .group(1)!);
+  Map<String, dynamic>? _getYtCfg() {
+    try {
+      final match = RegExp(r'ytcfg\.set\s*\(\s*({.+?})\s*\)\s*;').firstMatch(root.outerHtml);
+      if (match != null && match.group(1) != null) {
+        return json.decode(match.group(1)!);
+      }
+    } catch (_) {}
+    return null;
   }
 
   ///
@@ -167,9 +171,23 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
       final matches = cookieHeader != null
           ? cookiesExp.allMatches(cookieHeader)
           : <RegExpMatch>[];
-      final cookies = Map.fromEntries(
-          matches.map((e) => MapEntry(e.group(1)!, e.group(2)!)))
-        ..addAll({'PREF': 'hl=en', 'SOCS': 'CAI', 'GPS': '1'});
+      final cookies = <String, String>{};
+      if (customCookie != null && customCookie.isNotEmpty) {
+        for (final pair in customCookie.split(';')) {
+          final trimmed = pair.trim();
+          final eqIdx = trimmed.indexOf('=');
+          if (eqIdx > 0) {
+            cookies[trimmed.substring(0, eqIdx).trim()] =
+                trimmed.substring(eqIdx + 1).trim();
+          }
+        }
+      }
+      for (final m in matches) {
+        cookies[m.group(1)!] = m.group(2)!;
+      }
+      cookies.putIfAbsent('PREF', () => 'hl=en');
+      cookies.putIfAbsent('SOCS', () => 'CAI');
+      cookies.putIfAbsent('GPS', () => '1');
 
       final result = WatchPage.parse(req.body, VideoId(videoId), cookies);
 
@@ -181,10 +199,14 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
         throw VideoUnavailableException.unavailable(VideoId(videoId));
       }
 
+      // If bot verification or sign-in is flagged on the watch page initial HTML,
+      // do not throw immediately if player JS (sourceUrl) is available or fallback
+      // InnerTube clients (e.g. WEB_REMIX with session cookies) can resolve streams.
       if (result.playerResponse?.videoPlayabilityError != null) {
         final err = result.playerResponse!.videoPlayabilityError!;
-        if (err.toLowerCase().contains('bot') ||
-            err.toLowerCase().contains('sign in')) {
+        if ((err.toLowerCase().contains('bot') ||
+                err.toLowerCase().contains('sign in')) &&
+            result.sourceUrl == null) {
           throw VideoUnplayableException.unplayable(
             VideoId(videoId),
             reason: err,

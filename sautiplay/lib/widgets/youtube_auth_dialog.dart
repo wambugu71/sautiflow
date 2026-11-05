@@ -142,14 +142,25 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
     final theme = Theme.of(context);
     final isConnected = YouTubeAuthService.instance.hasAuth;
     final primaryColor = theme.colorScheme.primary;
+    final size = MediaQuery.sizeOf(context);
+    final isMobile = size.width < 500;
+    final horizontalPadding = isMobile ? 18.0 : 24.0;
+    final verticalPadding = isMobile ? 20.0 : 24.0;
 
     return Dialog(
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 16.0 : 40.0,
+        vertical: 24.0,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       backgroundColor: theme.colorScheme.surface,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 540),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: EdgeInsets.symmetric(
+            horizontal: horizontalPadding,
+            vertical: verticalPadding,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,7 +169,7 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(9),
                     decoration: BoxDecoration(
                       color: primaryColor.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
@@ -166,10 +177,10 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
                     child: Icon(
                       Icons.account_circle_rounded,
                       color: primaryColor,
-                      size: 26,
+                      size: isMobile ? 24 : 26,
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -178,22 +189,27 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
                           'YouTube Connection',
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
-                            fontSize: 18,
+                            fontSize: isMobile ? 17 : 18,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         Text(
                           isConnected
-                              ? 'Active Session • 100% Bot Immunity'
-                              : 'Optional • Bypasses Bot Verification',
+                              ? 'Active Session • Bot Immunity Active'
+                              : 'Optional • Bypasses Verification',
                           style: TextStyle(
                             fontSize: 12,
                             color: isConnected ? Colors.greenAccent : theme.colorScheme.onSurfaceVariant,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
                   IconButton(
+                    visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.close_rounded),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
@@ -342,20 +358,23 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          ),
+                          icon: const Icon(Icons.login_rounded, size: 18),
+                          label: const Text('📱 Sign In to YouTube', style: TextStyle(fontWeight: FontWeight.w600)),
+                          onPressed: () async {
+                            final nav = Navigator.of(context);
+                            final success = await YouTubeWebViewLoginModal.show(context);
+                            if (success == true && mounted) {
+                              nav.pop(true);
+                            }
+                          },
                         ),
-                        icon: const Icon(Icons.login_rounded, size: 16),
-                        label: const Text('📱 Sign In to YouTube'),
-                        onPressed: () async {
-                          final nav = Navigator.of(context);
-                          final success = await YouTubeWebViewLoginModal.show(context);
-                          if (success == true && mounted) {
-                            nav.pop(true);
-                          }
-                        },
                       ),
                     ],
                   ),
@@ -384,21 +403,25 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
 
               // Cookie input field
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Session Cookies (or cookies.txt)',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                  Expanded(
+                    child: Text(
+                      'Session Cookies / cookies.txt',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        fontSize: isMobile ? 12.5 : 13,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   TextButton.icon(
                     style: TextButton.styleFrom(
                       visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     ),
-                    icon: const Icon(Icons.content_paste_rounded, size: 16),
-                    label: const Text('Paste Clipboard', style: TextStyle(fontSize: 12)),
+                    icon: const Icon(Icons.content_paste_rounded, size: 15),
+                    label: Text(isMobile ? 'Paste' : 'Paste Clipboard', style: const TextStyle(fontSize: 12)),
                     onPressed: _handlePasteFromClipboard,
                   ),
                 ],
@@ -445,43 +468,99 @@ class _YouTubeAuthDialogState extends State<YouTubeAuthDialog> {
               const SizedBox(height: 20),
 
               // Action buttons
-              Row(
-                children: [
-                  if (isConnected)
-                    OutlinedButton.icon(
+              if (isMobile) ...[
+                if (isConnected) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.redAccent,
                         side: const BorderSide(color: Colors.redAccent),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
                       ),
                       icon: const Icon(Icons.logout_rounded, size: 16),
-                      label: const Text('Disconnect'),
+                      label: const Text('Disconnect Account'),
                       onPressed: _handleDisconnect,
                     ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
                   ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    ),
-                    icon: _isSaving
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.save_rounded, size: 16),
-                    label: Text(_isSaving ? 'Connecting...' : 'Save & Connect'),
-                    onPressed: _isSaving ? null : _handleSave,
-                  ),
+                  const SizedBox(height: 10),
                 ],
-              ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                        ),
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                        ),
+                        icon: _isSaving
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.save_rounded, size: 16),
+                        label: Text(
+                          _isSaving ? 'Connecting...' : 'Save & Connect',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onPressed: _isSaving ? null : _handleSave,
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                Row(
+                  children: [
+                    if (isConnected)
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.redAccent,
+                          side: const BorderSide(color: Colors.redAccent),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                        icon: const Icon(Icons.logout_rounded, size: 16),
+                        label: const Text('Disconnect'),
+                        onPressed: _handleDisconnect,
+                      ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      ),
+                      icon: _isSaving
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.save_rounded, size: 16),
+                      label: Text(_isSaving ? 'Connecting...' : 'Save & Connect'),
+                      onPressed: _isSaving ? null : _handleSave,
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),

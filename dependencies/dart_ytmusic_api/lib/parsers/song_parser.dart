@@ -25,9 +25,30 @@ class SongParser {
 
   static SongDetailed parseSearchResult(dynamic item) {
     final columns = traverseList(item, ["flexColumns", "runs"]);
+    if (columns.isEmpty) {
+      return SongDetailed(
+        type: "SONG",
+        videoId: traverseString(item, ["watchEndpoint", "videoId"]) ?? '',
+        name: '',
+        artist: ArtistBasic(
+          name: '',
+          artistId: null,
+        ),
+        album: null,
+        duration: null,
+        thumbnails: traverseList(item, ["thumbnails"])
+            .map((item) => ThumbnailFull.fromMap(item))
+            .toList(),
+      );
+    }
     // It is not possible to identify the title and author
     final title = columns[0];
-    final artist = columns.firstWhere(isArtist, orElse: () => columns[3]);
+    final artist = columns.firstWhere(
+      isArtist,
+      orElse: () => columns.length > 3
+          ? columns[3]
+          : (columns.length > 1 ? columns[1] : null),
+    );
     final album = columns.firstWhere(isAlbum, orElse: () => null);
     final duration = columns.firstWhere(
         (item) => isDuration(item) && item != title,

@@ -1263,8 +1263,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         _player.setNextReplayGainWithPeak(rgDb, trackPeak);
         return;
       } else {
-        final defaultDb = (loudnessNorm.targetLUFS - (-10.0)).clamp(-12.0, 0.0);
-        _player.setNextReplayGainWithPeak(defaultDb, 1.0);
+        _player.setNextReplayGainWithPeak(0.0, 1.0);
         return;
       }
     }

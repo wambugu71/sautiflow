@@ -9,6 +9,7 @@ import 'services/app_state_service.dart';
 import 'services/authenticated_youtube_client.dart';
 import 'services/browser_cookie_sync_service.dart';
 import 'services/youtube_auth_service.dart';
+import 'services/webview_ejs_solver.dart';
 
 /// Supported audio streaming quality presets.
 enum AudioQualityPreset {
@@ -125,20 +126,143 @@ class StreamResolutionResult {
 /// High-efficiency stream resolver for YouTube audio.
 ///
 /// Features:
-/// 1. Direct on-device extraction via [YoutubeExplode] with dynamic session cookie injection.
+/// 1. Cookie-free visionOS extraction for standalone playback URLs.
 /// 2. Audio quality presets (Low, Medium, High, Audiophile).
-/// 3. Resilient fallback to validated scraper API if YouTube blocks or errors.
+/// 3. Authenticated extraction and hosted scraping as isolated fallbacks.
 /// 4. In-memory cache with ~5.5-hour TTL to prevent expired URL playback errors.
 /// 5. Concurrency-limited batch lookahead resolution for smooth queueing.
 class StreamingService {
-  static YoutubeExplode _createClient() {
-    return YoutubeExplode(
-      httpClient: AuthenticatedYoutubeHttpClient(),
+  static BaseJSChallengeSolver? _jsSolver;
+  static Completer<BaseJSChallengeSolver?>? _solverCompleter;
+  static BaseJSChallengeSolver? _authenticatedClientSolver;
+  static YoutubeExplode? _anonymousClient;
+  static YoutubeExplode? _authenticatedClient;
+  static bool _authListenerInitialized = false;
+
+  static Future<BaseJSChallengeSolver?> _getOrInitSolver() {
+    if (_solverCompleter != null) return _solverCompleter!.future;
+    final completer = Completer<BaseJSChallengeSolver?>();
+    _solverCompleter = completer;
+
+    () async {
+      try {
+        if (!kIsWeb &&
+            (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+          _jsSolver = await NodeEJSSolver.tryInit();
+          if (_jsSolver != null) {
+            debugPrint(
+                '[StreamingService] ✓ NodeEJSSolver initialized successfully');
+          }
+        } else if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+          _jsSolver = await WebViewEJSSolver.tryInit().timeout(
+            const Duration(seconds: 3),
+            onTimeout: () => null,
+          );
+          if (_jsSolver != null) {
+            debugPrint(
+                '[StreamingService] ✓ Mobile WebViewEJSSolver initialized successfully');
+          }
+        }
+      } catch (e) {
+        debugPrint(
+            '[StreamingService] Could not initialize JavaScript solver: $e');
+      }
+      completer.complete(_jsSolver);
+    }();
+
+    return completer.future;
+  }
+
+  static YoutubeExplode _getAnonymousClient() {
+    return _anonymousClient ??= YoutubeExplode();
+  }
+
+  static YoutubeExplode _getAuthenticatedClient(
+    BaseJSChallengeSolver? solver,
+  ) {
+    if (_authenticatedClient == null || _authenticatedClientSolver != solver) {
+      try {
+        _authenticatedClient?.close();
+      } catch (_) {}
+      _authenticatedClientSolver = solver;
+      _authenticatedClient = YoutubeExplode(
+        httpClient: AuthenticatedYoutubeHttpClient(),
+        jsSolver: solver,
+      );
+    }
+    return _authenticatedClient!;
+  }
+
+  static Future<
+      ({
+        YoutubeExplode client,
+        StreamManifest manifest,
+        bool authenticated,
+      })> _resolveManifest(
+    VideoId videoId, {
+    required Duration timeout,
+  }) async {
+    // 1. Direct on-device extraction with visionOS and cipher-free mobile clients.
+    // visionOS returns clean, unthrottled audio streams (Opus 140-160kbps / AAC 128kbps)
+    // without requiring PO tokens or JavaScript challenge solvers.
+    try {
+      final client = _getAnonymousClient();
+      final manifest = await client.videos.streams.getManifest(
+        videoId,
+        ytClients: [
+          YoutubeApiClient.visionos,
+          YoutubeApiClient.androidVr,
+          YoutubeApiClient.ios,
+        ],
+      ).timeout(timeout);
+      return (
+        client: client,
+        manifest: manifest,
+        authenticated: false,
+      );
+    } catch (anonErr) {
+      debugPrint('[StreamingService] Anonymous client cascade failed for $videoId: $anonErr');
+      if (!YouTubeAuthService.instance.hasAuth) {
+        rethrow;
+      }
+    }
+
+    // 2. Authenticated extraction fallback when user has connected their session
+    debugPrint(
+      '[StreamingService] Trying authenticated YouTube extraction for $videoId...',
+    );
+    final solver = await _getOrInitSolver().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => null,
+    );
+    final client = _getAuthenticatedClient(solver);
+    final manifest = await client.videos.streams.getManifest(
+      videoId,
+      ytClients: [
+        YoutubeApiClient.visionos,
+        if (solver != null) YoutubeApiClient.webRemix,
+        YoutubeApiClient.androidVr,
+        YoutubeApiClient.ios,
+      ],
+    ).timeout(timeout);
+    return (
+      client: client,
+      manifest: manifest,
+      authenticated: true,
     );
   }
 
-  static YoutubeExplode _ytExplode = _createClient();
-  static bool _authListenerInitialized = false;
+  static void _resetClients() {
+    try {
+      _anonymousClient?.close();
+    } catch (_) {}
+    try {
+      _authenticatedClient?.close();
+    } catch (_) {}
+    _anonymousClient = null;
+    _authenticatedClient = null;
+    _authenticatedClientSolver = null;
+  }
 
   /// Ensures auth changes cleanly recreate the Explode client with fresh session headers.
   static void ensureInitialized() {
@@ -146,11 +270,12 @@ class StreamingService {
     _authListenerInitialized = true;
     YouTubeAuthService.instance.onAuthStateChanged = () {
       debugPrint(
-          '[StreamingService] YouTube auth state changed. Recreating Explode client...');
+          '[StreamingService] YouTube auth state changed. Recreating authenticated client...');
       try {
-        _ytExplode.close();
+        _authenticatedClient?.close();
       } catch (_) {}
-      _ytExplode = _createClient();
+      _authenticatedClient = null;
+      _authenticatedClientSolver = null;
       clearCache();
     };
   }
@@ -224,14 +349,17 @@ class StreamingService {
     for (int attempt = 1; attempt <= 2; attempt++) {
       try {
         final targetVideoId = VideoId(videoId);
-        final manifest = await _ytExplode.videos.streams
-            .getManifest(targetVideoId)
-            .timeout(const Duration(seconds: 25));
+        final resolution = await _resolveManifest(
+          targetVideoId,
+          timeout: const Duration(seconds: 45),
+        );
         final streamInfo = AudioStreamSelector.selectStream(
-          manifest,
+          resolution.manifest,
           quality: activeQuality,
           preferAac: activePreferAac,
         );
+
+
 
         final now = DateTime.now();
         // Direct YouTube URLs typically expire after 6 hours; set safety TTL to 5.5 hours
@@ -263,11 +391,12 @@ class StreamingService {
           debugPrint(
               '[StreamingService] ℹ️ Bot verification triggered. Attempting seamless 1-click sync from browser session...');
           try {
-            final syncRes = await BrowserCookieSyncService.instance.syncFromAnyBrowser();
+            final syncRes =
+                await BrowserCookieSyncService.instance.syncFromAnyBrowser();
             if (syncRes.success) {
               debugPrint(
                   '[StreamingService] ✓ Seamlessly auto-synced session from ${syncRes.browserName}! Retrying extraction...');
-              return resolveStreamDetailed(
+              return await resolveStreamDetailed(
                 videoId,
                 quality: quality,
                 preferAac: preferAac,
@@ -275,15 +404,13 @@ class StreamingService {
               );
             }
           } catch (syncErr) {
-            debugPrint('[StreamingService] Seamless sync attempt error: $syncErr');
+            debugPrint(
+                '[StreamingService] Seamless sync attempt error: $syncErr');
           }
         }
 
-        // Re-instantiate client safely if connection or state error occurred
-        try {
-          _ytExplode.close();
-        } catch (_) {}
-        _ytExplode = _createClient();
+        // Re-instantiate clients safely if connection or state error occurred.
+        _resetClients();
 
         // If it's the first attempt and looks like a transient network hitch, wait 1.2s and retry
         if (attempt == 1 &&
@@ -349,17 +476,18 @@ class StreamingService {
     for (int attempt = 1; attempt <= 2; attempt++) {
       try {
         final targetVideoId = VideoId(videoId);
-        final manifest = await _ytExplode.videos.streams
-            .getManifest(targetVideoId)
-            .timeout(const Duration(seconds: 25));
+        final resolution = await _resolveManifest(
+          targetVideoId,
+          timeout: const Duration(seconds: 25),
+        );
         final streamInfo = AudioStreamSelector.selectStream(
-          manifest,
+          resolution.manifest,
           quality: activeQuality,
           preferAac: activePreferAac,
         );
 
         final sink = targetFile.openWrite();
-        await _ytExplode.videos.streamsClient.get(streamInfo).pipe(sink);
+        await resolution.client.videos.streamsClient.get(streamInfo).pipe(sink);
         await sink.flush();
         await sink.close();
 
@@ -370,10 +498,7 @@ class StreamingService {
       } catch (e) {
         debugPrint(
             '[StreamingService] Direct download attempt $attempt failed for $videoId: $e');
-        try {
-          _ytExplode.close();
-        } catch (_) {}
-        _ytExplode = _createClient();
+        _resetClients();
 
         if (attempt == 1 &&
             (e is SocketException ||
@@ -455,10 +580,10 @@ class StreamingService {
   /// Closes underlying HTTP and Explode clients.
   static void dispose() {
     _cache.clear();
-    try {
-      _ytExplode.close();
-    } catch (_) {}
-    _ytExplode = _createClient();
+    _resetClients();
+    _jsSolver?.dispose();
+    _solverCompleter = null;
+    _jsSolver = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -526,7 +651,9 @@ class StreamingService {
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 5);
     try {
-      final req = await client.headUrl(Uri.parse(url)).timeout(const Duration(seconds: 5));
+      final req = await client
+          .headUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 5));
       req.followRedirects = false;
       final res = await req.close().timeout(const Duration(seconds: 5));
 
@@ -551,11 +678,14 @@ class StreamingService {
     } catch (_) {
       // In case HEAD is disallowed by CDN, test 1st byte range
       try {
-        final req2 = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 4));
+        final req2 = await client
+            .getUrl(Uri.parse(url))
+            .timeout(const Duration(seconds: 4));
         req2.headers.set('Range', 'bytes=0-10');
         req2.followRedirects = false;
         final res2 = await req2.close().timeout(const Duration(seconds: 4));
-        final contentType2 = res2.headers.contentType?.mimeType.toLowerCase() ?? '';
+        final contentType2 =
+            res2.headers.contentType?.mimeType.toLowerCase() ?? '';
         if (contentType2.contains('text/html')) return false;
         return res2.statusCode < 400;
       } catch (_) {

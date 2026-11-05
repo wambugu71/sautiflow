@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 
 import '../../youtube_explode_dart.dart';
@@ -34,10 +35,53 @@ class VideoController {
             'signatureTimestamp': ytCfg!['STS'].toString()
           }
         }
+      else if (payload['playbackContext']?['contentPlaybackContext']?['signatureTimestamp'] != null)
+        'playbackContext': payload['playbackContext']!
+      else
+        'playbackContext': {
+          'contentPlaybackContext': {
+            'html5Preference': 'HTML5_PREF_WANTS',
+            'signatureTimestamp': '20751',
+          }
+        }
     };
     if (body['context']!['client']['clientName'] == 'IOS') {
       body['context']!['client']!['visitorData'] =
           await _extractVisitorData(httpClient, client);
+    }
+
+    final httpCookie =
+        httpClient.headers['cookie'] ?? httpClient.headers['Cookie'];
+    final watchCookie = (client == YoutubeApiClient.webRemix) ? null : watchPage?.cookieString;
+    final mergedCookie = [
+      if (httpCookie != null && httpCookie.isNotEmpty) httpCookie,
+      if (watchCookie != null && watchCookie.isNotEmpty) watchCookie,
+    ].join('; ');
+
+    final targetOrigin = client.headers['Origin'] ??
+        httpClient.headers['Origin'] ??
+        httpClient.headers['origin'] ??
+        'https://www.youtube.com';
+
+    // Extract SAPISID or __Secure-3PAPISID to calculate SAPISIDHASH for targetOrigin
+    String? sapisid;
+    for (final part in mergedCookie.split('; ')) {
+      if (part.startsWith('SAPISID=') || part.startsWith('__Secure-3PAPISID=')) {
+        final eq = part.indexOf('=');
+        if (eq != -1) {
+          sapisid = part.substring(eq + 1).trim();
+          break;
+        }
+      }
+    }
+
+    String? authHeader;
+    if (sapisid != null && sapisid.isNotEmpty) {
+      final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+      final hash = sha1.convert(utf8.encode('$ts $sapisid $targetOrigin')).toString();
+      authHeader = 'SAPISIDHASH ${ts}_$hash';
+    } else {
+      authHeader = httpClient.headers['Authorization'] ?? httpClient.headers['authorization'];
     }
 
     final content = await httpClient.postString(
@@ -48,18 +92,17 @@ class VideoController {
         'X-Youtube-Client-Name': payload['context']!['client']!['clientName'],
         'X-Youtube-Client-Version':
             payload['context']!['client']!['clientVersion'],
-        if (ytCfg != null)
+        if (client != YoutubeApiClient.webRemix &&
+            ytCfg != null &&
+            ytCfg['INNERTUBE_CONTEXT']?['client']?['visitorData'] != null)
           'X-Goog-Visitor-Id': ytCfg['INNERTUBE_CONTEXT']['client']
               ['visitorData'],
-        'Origin': 'https://www.youtube.com',
+        'Origin': targetOrigin,
+        'X-Origin': targetOrigin,
+        if (authHeader != null) 'Authorization': authHeader,
         'Sec-Fetch-Mode': 'navigate',
         'Content-Type': 'application/json',
-        if (watchPage != null)
-          'Cookie': watchPage.cookieString
-        else if (httpClient.headers['cookie'] != null)
-          'Cookie': httpClient.headers['cookie']!
-        else if (httpClient.headers['Cookie'] != null)
-          'Cookie': httpClient.headers['Cookie']!,
+        if (mergedCookie.isNotEmpty) 'Cookie': mergedCookie,
         ...client.headers,
       },
     );

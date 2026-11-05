@@ -1,3 +1,4 @@
+import 'embedded_ejs.dart';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -49,6 +50,9 @@ abstract class EJSBuilder {
   }
 
   static Future<String> getJSModules() async {
+    if (embeddedEjsScript.isNotEmpty) {
+      return embeddedEjsScript;
+    }
     if (_libCache != null && _coreCache != null) {
       return _buildScript(_libCache!, _coreCache!);
     }

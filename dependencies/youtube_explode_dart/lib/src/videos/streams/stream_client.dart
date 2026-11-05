@@ -27,6 +27,34 @@ class StreamClient {
       : _controller = StreamController(_httpClient),
         _jsChallengeSolver = jsSolver;
 
+  static bool _hasAuthenticatedSession(Map<String, String> headers) {
+    final authorization =
+        headers['Authorization'] ?? headers['authorization'] ?? '';
+    if (authorization.isNotEmpty) {
+      return true;
+    }
+
+    final cookie = headers['Cookie'] ?? headers['cookie'] ?? '';
+    if (cookie.isEmpty) {
+      return false;
+    }
+
+    const authenticatedCookieNames = {
+      'SAPISID',
+      '__Secure-1PAPISID',
+      '__Secure-3PAPISID',
+      'LOGIN_INFO',
+    };
+    return cookie.split(';').any((part) {
+      final separatorIndex = part.indexOf('=');
+      if (separatorIndex <= 0) {
+        return false;
+      }
+      return authenticatedCookieNames
+          .contains(part.substring(0, separatorIndex).trim());
+    });
+  }
+
   /// Gets the manifest that contains information
   /// about available streams in the specified video.
   ///
@@ -65,11 +93,15 @@ class StreamClient {
         'ytClients cannot be an empty list');
 
     videoId = VideoId.fromString(videoId);
-    final clients = ytClients ?? [YoutubeApiClient.visionos];
-
-    if (_jsChallengeSolver != null && ytClients == null) {
-      clients.add(YoutubeApiClient.safari);
-    }
+    final hasAuth = _hasAuthenticatedSession(_httpClient.headers);
+    final clients = ytClients ??
+        [
+          YoutubeApiClient.visionos,
+          if (hasAuth && _jsChallengeSolver != null) YoutubeApiClient.webRemix,
+          YoutubeApiClient.androidVr,
+          YoutubeApiClient.ios,
+          if (_jsChallengeSolver != null) YoutubeApiClient.safari,
+        ];
 
     final uniqueStreams = LinkedHashSet<StreamInfo>(
       equals: (a, b) {
@@ -90,6 +122,9 @@ class StreamClient {
     Object? lastException;
 
     for (final client in clients) {
+      if (uniqueStreams.any((s) => s is AudioStreamInfo)) {
+        break;
+      }
       _logger.fine(
           'Getting stream manifest for video $videoId with client: ${client.payload['context']['client']['clientName']}');
       try {
@@ -102,13 +137,6 @@ class StreamClient {
           if (streams.isEmpty) {
             throw VideoUnavailableException(
               'Video "$videoId" does not contain any playable streams.',
-            );
-          }
-
-          final response = await _httpClient.head(streams.first.url);
-          if (response.statusCode == 403) {
-            throw YoutubeExplodeException(
-              'Video $videoId returned 403 (stream: ${streams.first.tag})',
             );
           }
           uniqueStreams.addAll(streams);
@@ -184,8 +212,16 @@ class StreamClient {
   Stream<StreamInfo> _getStream(VideoId videoId, YoutubeApiClient ytClient,
       {bool requireWatchPage = true}) async* {
     WatchPage? watchPage;
-    if (requireWatchPage) {
-      watchPage = await WatchPage.get(_httpClient, videoId.value);
+    if (requireWatchPage &&
+        ytClient != YoutubeApiClient.webRemix &&
+        ytClient != YoutubeApiClient.visionos &&
+        ytClient != YoutubeApiClient.androidVr &&
+        ytClient != YoutubeApiClient.ios) {
+      try {
+        watchPage = await WatchPage.get(_httpClient, videoId.value);
+      } catch (e) {
+        _logger.warning('Failed to load watch page for $videoId: $e');
+      }
     }
     final playerResponse = await _controller
         .getPlayerResponse(videoId, ytClient, watchPage: watchPage);
@@ -247,10 +283,12 @@ class StreamClient {
       }
     }
 
+    final playerUrl = watchPage?.sourceUrl ??
+        'https://www.youtube.com/s/player/6b2fce74/player_ias.vflset/en_US/base.js';
+
     // Bulk solve all challenges
     final solvedChallenges = <String, String?>{};
-    if (watchPage != null &&
-        solver != null &&
+    if (solver != null &&
         (nChallenges.isNotEmpty || sigChallenges.isNotEmpty)) {
       final requests = <JSChallengeType, List<String>>{};
       if (nChallenges.isNotEmpty) {
@@ -261,8 +299,7 @@ class StreamClient {
       }
 
       try {
-        solvedChallenges
-            .addAll(await solver.solveBulk(watchPage.sourceUrl!, requests));
+        solvedChallenges.addAll(await solver.solveBulk(playerUrl, requests));
       } catch (e) {
         _logger.warning('Could not bulk solve challenges: $e');
         // Fall back to individual solving if bulk fails
@@ -271,6 +308,10 @@ class StreamClient {
 
     // Second pass: process streams with solved challenges
     for (final stream in streams) {
+      if (stream.signatureParameter != null && solver == null) {
+        // Skip streams that require signature deciphering if no solver is available
+        continue;
+      }
       final itag = stream.tag;
       late Uri url;
       try {
@@ -279,7 +320,7 @@ class StreamClient {
         continue;
       }
 
-      if (solver != null && watchPage != null) {
+      if (solver != null) {
         if (url.queryParameters.containsKey('n')) {
           final nParam = url.queryParameters['n']!;
           final decoded = solvedChallenges[nParam];
@@ -290,8 +331,8 @@ class StreamClient {
           } else {
             // Fallback to individual solving if bulk solving didn't provide result
             try {
-              final individualDecoded = await solver.solve(
-                  watchPage.sourceUrl!, JSChallengeType.n, nParam);
+              final individualDecoded =
+                  await solver.solve(playerUrl, JSChallengeType.n, nParam);
               url = url.setQueryParam('n', individualDecoded);
               _logger.fine(
                   'Decoded n-sig for stream itag $itag (individual). $nParam -> $individualDecoded}');
@@ -311,8 +352,8 @@ class StreamClient {
           } else {
             // Fallback to individual solving if bulk solving didn't provide result
             try {
-              final individualDecoded = await solver.solve(
-                  watchPage.sourceUrl!, JSChallengeType.sig, sig);
+              final individualDecoded =
+                  await solver.solve(playerUrl, JSChallengeType.sig, sig);
               url = url.setQueryParam(sigParam, individualDecoded);
               _logger.fine(
                   'Decoded signature for stream itag $itag (individual). $sigParam -> $individualDecoded}');

@@ -1132,21 +1132,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              _buildLeadingIcon(Icons.font_download_outlined),
-                              const SizedBox(width: 14),
-                              Text(
-                                'Font Family',
-                                style: TextStyle(
-                                  color: textPrimaryColor,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                          _buildLeadingIcon(Icons.font_download_outlined),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Text(
+                              'Font Family',
+                              style: TextStyle(
+                                color: textPrimaryColor,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
                               ),
-                            ],
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           Text(
                             _fontFamily == 'System'
@@ -2112,12 +2111,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 20),
                       SizedBox(
-                        height: 40,
                         width: double.infinity,
-                        child: // ListView(
-                            //    ScrollDirection: Axis.horizontal,
-                            //children: [
-                            M3EChipGroup(
+                        child: M3EChipGroup(
                           groupLabel: 'Graphic  Equalizer  Bands',
                           child: Wrap(
                             spacing: 8,
@@ -4542,8 +4537,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ? 'Connected YouTube Account'
                           : 'Connect YouTube Account',
                       subtitle: isAuthenticated
-                          ? 'Active session • Bot immunity enabled'
-                          : 'Optional: 1-click sync from browser to bypass bot verification',
+                          ? 'Active session • Bot immunity active'
+                          : 'Connect account to stream directly & bypass bot verification',
                       leading: _buildLeadingIcon(
                         isAuthenticated
                             ? Icons.verified_user_rounded
@@ -5892,49 +5887,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required Widget child,
     double? height,
   }) {
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: height ?? MediaQuery.of(context).size.height * 0.75,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24.0, 4.0, 24.0, 12.0),
-            child: Column(
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: _textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
+    final mediaSize = MediaQuery.sizeOf(context);
+    final isMobile = mediaSize.width < 600;
+    final defaultMaxHeight = mediaSize.height * (isMobile ? 0.82 : 0.75);
+
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: height ?? defaultMaxHeight,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                margin: const EdgeInsets.only(top: 8, bottom: 4),
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _textDark.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(2),
                 ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(color: _textDark, fontSize: 12),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ],
+              ),
             ),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20.0),
-            child: M3EDivider(),
-          ),
-          const SizedBox(height: 8),
-          if (height != null)
-            Expanded(child: child)
-          else
-            Flexible(child: child),
-          const SizedBox(height: 8),
-        ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 10.0),
+              child: Column(
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: _textPrimary,
+                      fontSize: isMobile ? 17 : 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(color: _textDark, fontSize: 12),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20.0),
+              child: M3EDivider(),
+            ),
+            const SizedBox(height: 6),
+            Expanded(
+              child: child,
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
       ),
     );
   }
@@ -5964,7 +5980,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
           title: 'Anti-Aliasing Oversampling',
           subtitle: 'Improves DSP effects clarity and prevents harshness',
-          child: M3EList(
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -6233,7 +6250,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'Spectrum Analyzer Resolution',
           subtitle:
               'Balances visual smoothness against pitch frequency accuracy',
-          child: M3EList(
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -6306,7 +6324,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'Spectrum Window Shape',
           subtitle:
               'Smoothing filter shaping how frequencies appear in the visualizer',
-          child: M3EList(
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -6520,7 +6539,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
           title: 'Output Bit Depth',
           subtitle: 'Target PCM resolution sent to audio hardware or DAC',
-          child: M3EList(
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -6583,7 +6603,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
           title: 'Output Sample Rate',
           subtitle: 'Target sample rate sent to the audio output stream',
-          child: M3EList(
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -6669,7 +6690,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
           title: 'Android Audio Driver',
           subtitle: 'Select the low-level audio driver for sound output',
-          child: M3EList(
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -7017,7 +7039,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'Sub-Bass Protection Filter',
           subtitle:
               'Removes inaudible rumble below human hearing to protect woofers',
-          child: M3EList(
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -7030,7 +7053,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() => _subsonicCutoffHz = val);
               _persistSpeakerProtectionSettings();
               onDone?.call();
-              Navigator.pop(context);
+              Navigator.pop(ctx);
             },
             itemBuilder: (context, index) {
               final opt = options[index];
@@ -7046,7 +7069,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() => _subsonicCutoffHz = val);
                     _persistSpeakerProtectionSettings();
                     onDone?.call();
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                   },
                 ),
               );
@@ -7084,7 +7107,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'High-Frequency Guard Filter',
           subtitle:
               'Filters ultrasonic frequencies above human hearing to protect tweeters and ears',
-          child: M3EList(
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -7097,7 +7121,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() => _ultrasonicCutoffHz = val);
               _persistSpeakerProtectionSettings();
               onDone?.call();
-              Navigator.pop(context);
+              Navigator.pop(ctx);
             },
             itemBuilder: (context, index) {
               final opt = options[index];
@@ -7113,7 +7137,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() => _ultrasonicCutoffHz = val);
                     _persistSpeakerProtectionSettings();
                     onDone?.call();
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                   },
                 ),
               );
@@ -7185,7 +7209,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'Render Resolution & Detail',
           subtitle:
               'Configures rendering canvas resolution and texture scaling for visualizers',
-          child: M3EList(
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
             padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),

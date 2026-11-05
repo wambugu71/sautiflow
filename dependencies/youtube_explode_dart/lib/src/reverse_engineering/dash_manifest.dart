@@ -220,6 +220,12 @@ class _StreamInfo extends StreamInfoProvider {
   bool get isAudioOnly => codec.type == 'audio';
 
   @override
+  bool get audioOnly => isAudioOnly;
+
+  @override
+  bool get videoOnly => codec.type == 'video' && audioCodec == null;
+
+  @override
   String? get audioCodec => isAudioOnly ? codec.subtype : null;
 
   @override

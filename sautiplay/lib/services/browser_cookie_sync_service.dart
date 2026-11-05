@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -37,6 +36,13 @@ class BrowserCookieSyncService {
     'SSID',
     'HSID',
     'SID',
+    '__Secure-1PSID',
+    '__Secure-3PSID',
+    '__Secure-1PSIDTS',
+    '__Secure-3PSIDTS',
+    'SIDCC',
+    '__Secure-1PSIDCC',
+    '__Secure-3PSIDCC',
     'VISITOR_INFO1_LIVE',
     'PREF',
   ];
@@ -122,7 +128,7 @@ class BrowserCookieSyncService {
                   SELECT name, value, host FROM moz_cookies
                   WHERE (host LIKE '%youtube.com' OR host LIKE '%google.com')
                     AND name IN ($inClause)
-                  ORDER BY lastAccessed DESC
+                  ORDER BY CASE WHEN host LIKE '%youtube.com' THEN 0 ELSE 1 END, lastAccessed DESC
                 ''');
 
                 for (final row in rows) {
@@ -133,7 +139,7 @@ class BrowserCookieSyncService {
                   }
                 }
               } finally {
-                db.dispose();
+                db.close();
               }
             } catch (e) {
               debugPrint('[BrowserCookieSync] Error reading Firefox profile at ${dbFile.path}: $e');
@@ -201,8 +207,8 @@ Copy-Item \$dbPath \$tempCopy -Force
 if (\$cmd) { \$sqliteExe = \$cmd.Source }
 
 if (Test-Path \$sqliteExe) {
-    \$names = "'LOGIN_INFO','SAPISID','__Secure-3PAPISID','__Secure-1PAPISID','APISID','SSID','HSID','SID','VISITOR_INFO1_LIVE'"
-    \$query = "SELECT name, hex(encrypted_value) FROM cookies WHERE (host_key LIKE '%youtube.com' OR host_key LIKE '%google.com') AND name IN (\$names);"
+    \$names = "'LOGIN_INFO','SAPISID','__Secure-3PAPISID','__Secure-1PAPISID','APISID','SSID','HSID','SID','__Secure-1PSID','__Secure-3PSID','__Secure-1PSIDTS','__Secure-3PSIDTS','SIDCC','__Secure-1PSIDCC','__Secure-3PSIDCC','VISITOR_INFO1_LIVE','PREF'"
+    \$query = "SELECT name, hex(encrypted_value) FROM cookies WHERE (host_key LIKE '%youtube.com' OR host_key LIKE '%google.com') AND name IN (\$names) ORDER BY CASE WHEN host_key LIKE '%youtube.com' THEN 0 ELSE 1 END, last_access_utc DESC;"
     \$rows = & \$sqliteExe \$tempCopy \$query
     Remove-Item \$tempCopy -Force -ErrorAction SilentlyContinue
     if (\$rows) {

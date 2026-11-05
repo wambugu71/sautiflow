@@ -45,9 +45,8 @@ class IsolateAudioPlayer {
       final gainDb = (_loudnessTargetLUFS - cached.lufs).clamp(-24.0, 6.0);
       setCurrentTrackLoudness(gainDb, cached.peak);
     } else {
-      // Safe modern mastering baseline (-10 LUFS)
-      final defaultDb = (_loudnessTargetLUFS - (-10.0)).clamp(-12.0, 0.0);
-      setCurrentTrackLoudness(defaultDb, 1.0);
+      // Neutral unity gain for unmeasured tracks until real-time meter locks in
+      setCurrentTrackLoudness(0.0, 1.0);
     }
   }
 
@@ -72,8 +71,7 @@ class IsolateAudioPlayer {
         final gainDb = (_loudnessTargetLUFS - cached.lufs).clamp(-24.0, 6.0);
         setNextReplayGainWithPeak(gainDb, cached.peak);
       } else {
-        final defaultDb = (_loudnessTargetLUFS - (-10.0)).clamp(-12.0, 0.0);
-        setNextReplayGainWithPeak(defaultDb, 1.0);
+        setNextReplayGainWithPeak(0.0, 1.0);
       }
     }
   }

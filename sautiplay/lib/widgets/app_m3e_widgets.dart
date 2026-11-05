@@ -247,6 +247,8 @@ class AppSettingsValueTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textMuted = context.textMuted;
+    final isCompact = MediaQuery.sizeOf(context).width < 400;
+
     return AppSettingsTile(
       title: title,
       subtitle: subtitle,
@@ -255,19 +257,19 @@ class AppSettingsValueTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 130),
+            constraints: BoxConstraints(maxWidth: isCompact ? 95 : 130),
             child: Text(
               value,
               style: TextStyle(
                 color: textMuted,
-                fontSize: 13,
+                fontSize: isCompact ? 12 : 13,
                 fontWeight: FontWeight.w500,
               ),
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.end,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           Icon(Icons.chevron_right_rounded, color: textMuted, size: 20),
         ],
       ),
@@ -316,6 +318,7 @@ class AppSubScreenScaffold extends StatelessWidget {
   final List<Widget>? actions;
   final Widget? bottomNavigationBar;
   final double maxWidth;
+  final Widget? leading;
 
   const AppSubScreenScaffold({
     super.key,
@@ -324,39 +327,65 @@ class AppSubScreenScaffold extends StatelessWidget {
     this.actions,
     this.bottomNavigationBar,
     this.maxWidth = 800.0,
+    this.leading,
   });
 
   @override
   Widget build(BuildContext context) {
     final bg = context.bgDark;
     final textPrimary = context.textPrimary;
+    final size = MediaQuery.sizeOf(context);
+    final isCompact = size.width < 420;
+    final horizontalPadding = isCompact ? 12.0 : 16.0;
+    final bottomPadding = MediaQuery.paddingOf(context).bottom + 56.0;
+
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
         backgroundColor: bg,
         elevation: 0,
         scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.keyboard_arrow_down_rounded, color: textPrimary, size: 28),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        leading: leading ??
+            IconButton(
+              icon: Icon(
+                Icons.arrow_back_rounded,
+                color: textPrimary,
+                size: 24,
+              ),
+              tooltip: 'Back',
+              onPressed: () => Navigator.of(context).pop(),
+            ),
         title: Text(
           title,
-          style: TextStyle(color: textPrimary, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: textPrimary,
+            fontWeight: FontWeight.bold,
+            fontSize: isCompact ? 18 : 20,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
         centerTitle: true,
         actions: actions,
       ),
       bottomNavigationBar: bottomNavigationBar,
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: children,
+      body: SafeArea(
+        top: false,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                14.0,
+                horizontalPadding,
+                bottomPadding,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: children,
+              ),
             ),
           ),
         ),
