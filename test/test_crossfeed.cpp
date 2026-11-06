@@ -257,12 +257,12 @@ void test_openstage_properties()
     }
     std::cout << "  [PASS] OpenStage mono symmetry verified for angles 0°, 30°, 60°, 90°\n";
 
-    // 3. CrossfeedNode integration test for OpenStage
+    // 3. CrossfeedNode integration test for OpenStage + Live parameter smoothing without reset()
     CrossfeedNode node;
     node.setSampleRate(sr);
     node.setAlgorithm(CrossfeedAlgorithm::OpenStage);
     node.setAngle(60.0f);
-    node.setGainDb(-1.0f);
+    node.setGainDb(0.0f);
     node.setMix(1.0f);
     node.reset();
 
@@ -278,6 +278,76 @@ void test_openstage_properties()
     }
     assert(nodePeakR > 0.05f);
     std::cout << "  [PASS] CrossfeedNode::OpenStage routing verified (cross peak=" << nodePeakR << ")\n";
+
+    // Verify live gain & angle updates take effect during playback WITHOUT calling reset()
+    std::vector<float> settleBuf0(4800 * 2, 0.25f);
+    node.process(settleBuf0.data(), 4800, 2);
+    const float outAtZeroDb = settleBuf0[(4800 - 1) * 2];
+
+    node.setGainDb(-6.0f); // -6 dB (~0.501x linear amplitude)
+    node.setAngle(90.0f);
+    std::vector<float> settleBuf(9600 * 2, 0.25f); // 200ms to fully settle 25ms smoother
+    node.process(settleBuf.data(), 9600, 2);
+    const float finalOutL = settleBuf[(9600 - 1) * 2];
+    assert(finalOutL < outAtZeroDb * 0.55f && finalOutL > outAtZeroDb * 0.45f);
+    std::cout << "  [PASS] CrossfeedNode::OpenStage live parameter smoothing verified (0dB="
+              << outAtZeroDb << " -> -6dB=" << finalOutL << ")\n";
+}
+
+void test_meier_and_64bit_precision()
+{
+    std::cout << "\nRunning Meier -3dB Cutoff & 64-Bit Double Precision Tests:\n";
+    const double sr = 48000.0;
+    const float fcut = 700.0f;
+
+    // 1. Verify Jan Meier 1-pole crossfeed path has exact -3 dB attenuation at cutoffHz
+    CrossfeedNode node;
+    node.setSampleRate(sr);
+    node.setAlgorithm(CrossfeedAlgorithm::Meier);
+    node.setCutoffHz(fcut);
+    node.setMix(1.0f);
+    node.setOutputCompensation(false);
+    node.reset();
+
+    constexpr uint32_t frames = 4800;
+    constexpr double kTwoPi = 6.28318530717958647692;
+    std::vector<float> sineBuf(frames * 2, 0.0f);
+    for (uint32_t i = 0; i < frames; ++i)
+    {
+        sineBuf[i * 2] = static_cast<float>(std::sin(kTwoPi * fcut * i / sr)); // Left = sine at fcut
+        sineBuf[i * 2 + 1] = 0.0f; // Right = 0
+    }
+    node.process(sineBuf.data(), frames, 2);
+
+    float maxCrossR = 0.0f;
+    for (uint32_t i = 2400; i < frames; ++i)
+    {
+        maxCrossR = std::max(maxCrossR, std::abs(sineBuf[i * 2 + 1]));
+    }
+    // Expected amplitude at -3 dB corner: crossGain (0.35) * (1 / sqrt(2)) = 0.247487
+    const float expectedCornerAmp = 0.35f * 0.70710678f;
+    assert(std::abs(maxCrossR - expectedCornerAmp) < 0.015f);
+    std::cout << "  [PASS] Jan Meier -3dB cutoff accuracy @ 700 Hz: expected "
+              << expectedCornerAmp << ", measured " << maxCrossR << "\n";
+
+    // 2. Verify native 64-bit double processing overload across all algorithms
+    for (auto algo : {CrossfeedAlgorithm::Simple, CrossfeedAlgorithm::BS2B, CrossfeedAlgorithm::Meier,
+                      CrossfeedAlgorithm::Natural, CrossfeedAlgorithm::RACE, CrossfeedAlgorithm::OpenStage})
+    {
+        CrossfeedNode node64;
+        node64.setSampleRate(sr);
+        node64.setAlgorithm(algo);
+        node64.setMix(0.6f);
+        node64.reset();
+
+        std::vector<double> buf64(512 * 2, 0.25);
+        node64.process(buf64.data(), 512, 2);
+        for (double v : buf64)
+        {
+            assert(!std::isnan(v) && !std::isinf(v));
+        }
+    }
+    std::cout << "  [PASS] 64-bit double-precision process(double*) verified for all 6 algorithms\n";
 }
 
 int main()
@@ -301,6 +371,7 @@ int main()
 
     test_race_properties();
     test_openstage_properties();
+    test_meier_and_64bit_precision();
 
     std::cout << "\nRunning PDC Latency Reporting Tests:\n";
     CrossfeedNode pdcNode;

@@ -8394,44 +8394,56 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // image in a lush, physical acoustic environment. Reverb tails decay cleanly
             // into quiet black without downstream gating flutter or saturation IMD.
             const bool isStereoSpatial = (e->channels == 2);
-            const bool hasSpatialFx = e->crossfeedEnabled || e->stereoWidenEnabled ||
-                                      e->stereoEnhancementEnabled || (isStereoSpatial && e->surroundDsp.isEnabled()) ||
-                                      e->reverbEnabled || e->crystalizerEnabled;
+            const bool hasFloatOnlySpatialFx = e->stereoWidenEnabled ||
+                                               e->stereoEnhancementEnabled ||
+                                               (isStereoSpatial && e->surroundDsp.isEnabled()) ||
+                                               e->reverbEnabled ||
+                                               e->crystalizerEnabled;
+            const bool hasSpatialFx = e->crossfeedEnabled || hasFloatOnlySpatialFx;
             if (hasSpatialFx)
             {
                 std::unique_lock<std::mutex> fxLock(e->fxMutex, std::try_to_lock);
                 if (fxLock.owns_lock())
                 {
-                    if (use64)
+                    if (use64 && !hasFloatOnlySpatialFx)
                     {
-                        for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                        // 5.1 Binaural Headphone Crossfeed / OpenStage (native 64-bit path)
+                        if (e->crossfeedEnabled)
+                            e->crossfeedNode.process(buf64, produced, e->channels);
                     }
-
-                    // 5.1 Binaural Headphone Crossfeed / OpenStage
-                    if (e->crossfeedEnabled)
-                        e->crossfeedNode.process(processBuffer, produced, e->channels);
-
-                    // 5.2 3D Surround & HRTF Virtualizer (Stereo only)
-                    if (isStereoSpatial && e->surroundDsp.isEnabled())
-                        e->surroundDsp.process(processBuffer, produced);
-
-                    // 5.3 Stereo Soundstage Widening & M/S Enhancement
-                    if (e->stereoWidenEnabled)
-                        e->stereoWiden.process(processBuffer, produced, e->channels);
-                    if (e->stereoEnhancementEnabled)
-                        e->stereoEnhancement.process(processBuffer, produced, e->channels);
-
-                    // 5.4 Studio-Grade Dattorro Diffuse Tank Reverb
-                    if (e->reverbEnabled)
-                        e->reverbNode.process(processBuffer, produced, e->channels);
-
-                    // 5.5 Crystalizer (High-Frequency Air & Transient Dispersion)
-                    if (e->crystalizerEnabled)
-                        e->crystalizer.process(processBuffer, produced, e->channels);
-
-                    if (use64)
+                    else
                     {
-                        for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                        if (use64)
+                        {
+                            for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
+                        }
+
+                        // 5.1 Binaural Headphone Crossfeed / OpenStage
+                        if (e->crossfeedEnabled)
+                            e->crossfeedNode.process(processBuffer, produced, e->channels);
+
+                        // 5.2 3D Surround & HRTF Virtualizer (Stereo only)
+                        if (isStereoSpatial && e->surroundDsp.isEnabled())
+                            e->surroundDsp.process(processBuffer, produced);
+
+                        // 5.3 Stereo Soundstage Widening & M/S Enhancement
+                        if (e->stereoWidenEnabled)
+                            e->stereoWiden.process(processBuffer, produced, e->channels);
+                        if (e->stereoEnhancementEnabled)
+                            e->stereoEnhancement.process(processBuffer, produced, e->channels);
+
+                        // 5.4 Studio-Grade Dattorro Diffuse Tank Reverb
+                        if (e->reverbEnabled)
+                            e->reverbNode.process(processBuffer, produced, e->channels);
+
+                        // 5.5 Crystalizer (High-Frequency Air & Transient Dispersion)
+                        if (e->crystalizerEnabled)
+                            e->crystalizer.process(processBuffer, produced, e->channels);
+
+                        if (use64)
+                        {
+                            for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
+                        }
                     }
                 }
             }
@@ -11237,7 +11249,12 @@ extern "C"
         ps.input_sample_rate = (e->sourceSampleRate > 0) ? e->sourceSampleRate : e->sampleRate;
         ps.input_channels = e->channels;
 
-        ps.processing_format = (int)AE_FORMAT_F32;
+        const bool is64Active = e->use64BitProcessing.load(std::memory_order_relaxed) ||
+                                e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                (e->outputFormat == AE_FORMAT_U8 || e->outputFormat == AE_FORMAT_S16 ||
+                                 e->outputFormat == AE_FORMAT_S24 || e->outputFormat == AE_FORMAT_S32);
+        // Report 64-bit float internal precision as 64 (or AE_FORMAT_F32 = 0 for 32-bit float)
+        ps.processing_format = is64Active ? 64 : (int)AE_FORMAT_F32;
         ps.processing_sample_rate = e->sampleRate;
         ps.processing_channels = e->channels;
 
@@ -11930,6 +11947,11 @@ extern "C"
             if (engine->crossfeedPreset == 4)
             {
                 engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::RACE);
+                engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
+            }
+            else if (engine->crossfeedPreset == 5)
+            {
+                engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::OpenStage);
                 engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
             }
             else

@@ -169,30 +169,40 @@ class _CrossfeedPainter extends CustomPainter {
       double lpfAtt;
 
       if (algorithmIndex == 2) {
-        // Bauer BS2B shelf
+        // Bauer BS2B shelf (high-boost direct + low-pass crossfeed, scaled by mix)
         final feed = mix * 6.5 + 3.0;
         final level = feed / 10.0;
         final gbLo = level * -5.0 / 6.0 - 3.0;
-        final gLo = math.pow(10.0, gbLo / 20.0).toDouble();
+        final gbHi = level / 6.0 - 3.0;
+        final gLoFull = math.pow(10.0, gbLo / 20.0).toDouble();
+        final gHiFull = 1.0 - math.pow(10.0, gbHi / 20.0).toDouble();
+        final gLo = gLoFull * mix;
+        final gHi = gHiFull * mix;
+        final bs2bComp = compensation ? (1.0 / (1.0 - gHi + gLo)) : 1.0;
         final ratio = f / effectiveFc;
-        lpfAtt = gLo / math.sqrt(1.0 + ratio * ratio);
-        directGain = 1.0;
+        lpfAtt = (gLo / math.sqrt(1.0 + ratio * ratio)) * bs2bComp;
+        final hpfShelf = 1.0 - (gHi / math.sqrt(1.0 + ratio * ratio));
+        directGain = hpfShelf * bs2bComp;
       } else if (algorithmIndex == 3) {
-        // Jan Meier: 1-pole + direct high boost
+        // Jan Meier: exact 1-pole RC lowpass + complementary direct high-shelf boost
         final ratio = f / effectiveFc;
         lpfAtt = 1.0 / math.sqrt(1.0 + ratio * ratio);
-        directGain = (1.0 + 0.15 * (1.0 - lpfAtt)) * directGainLinear;
+        final highBoost = crossGainLinear * 0.50;
+        final meierComp = compensation
+            ? (1.0 / math.sqrt(1.0 + highBoost * highBoost + crossGainLinear * crossGainLinear))
+            : 1.0;
+        directGain = (1.0 + highBoost * (1.0 - lpfAtt)) * meierComp;
+        lpfAtt *= meierComp;
       } else if (algorithmIndex == 4) {
-        // Natural: 2-pole SVF
+        // Natural: 2-pole Butterworth TPT SVF
         final ratio = f / effectiveFc;
         lpfAtt = 1.0 / math.sqrt(1.0 + math.pow(ratio, 4));
       } else {
-        // Simple: 1-pole lowpass
-        final ratio = f / effectiveFc;
-        lpfAtt = 1.0 / math.sqrt(1.0 + ratio * ratio);
+        // Simple: Pure fractional ITD delay line + linear crossfeed (broadband)
+        lpfAtt = 1.0;
       }
 
-      final crossLinear = crossGainLinear * lpfAtt;
+      final crossLinear = (algorithmIndex == 2) ? lpfAtt : (crossGainLinear * lpfAtt);
       final directDb = 20.0 * (math.log(math.max(1e-4, directGain)) / math.ln10);
       final crossDb = 20.0 * (math.log(math.max(1e-4, crossLinear)) / math.ln10);
 

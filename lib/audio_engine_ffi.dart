@@ -2652,16 +2652,20 @@ class PipelineAudioState {
 
   String formatToString(int format) {
     switch (format) {
+      case 0:
+        return '32-bit Float';
       case 1:
-        return '8-bit Unsigned';
-      case 2:
         return '16-bit Signed';
+      case 2:
+        return '8-bit Unsigned';
       case 3:
         return '24-bit Signed';
       case 4:
         return '32-bit Signed';
       case 5:
         return '32-bit Float';
+      case 64:
+        return '64-bit Float';
       default:
         return 'Unknown ($format)';
     }

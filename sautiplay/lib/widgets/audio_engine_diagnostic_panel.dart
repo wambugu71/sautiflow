@@ -343,12 +343,15 @@ class _AudioEngineDiagnosticPanelState
         t['inputBitDepth'] as int? ?? ((hw['bitDepth'] as int?) ?? 16);
     final int dspRate = t['processingSampleRate'] as int? ?? 48000;
     final int dspChannels = t['processingChannels'] as int? ?? 2;
+    final int? procFmtCode = t['processingFormat'] as int?;
     final int dacRate = t['outputSampleRate'] as int? ??
         (hw['sampleRate'] as int? ?? specs.sampleRate);
     final int? outFmtCode = t['outputFormat'] as int?;
     final int dacDepth = switch (outFmtCode) {
       0 => 32,
-      4 => 32,
+      4 => (t['dacValidBitDepth'] as int? ?? 32) > 0
+          ? (t['dacValidBitDepth'] as int? ?? 32)
+          : 32,
       3 => 24,
       1 => 16,
       2 => 8,
@@ -359,6 +362,16 @@ class _AudioEngineDiagnosticPanelState
       1 || 2 || 3 || 4 => 'Int',
       _ => (hw['isFloat'] as bool? ?? specs.isFloat) ? 'Float' : 'Int',
     };
+    final bool is64BitDsp = (t['is64BitProcessing'] == true) ||
+        (procFmtCode == 64) ||
+        (outFmtCode != null && outFmtCode >= 1 && outFmtCode <= 4);
+    final String dspPrecisionLabel = specs.isDirectPcm
+        ? 'Bypassed (Bit-Perfect)'
+        : (is64BitDsp
+            ? (dacFormatType == 'Int'
+                ? 'Float64 → $dacDepth-bit Int'
+                : 'Float64')
+            : 'Float32');
     final bool isExclusive =
         hw['isExclusiveMode'] as bool? ?? specs.isExclusiveMode;
     final String backend = hw['backendName'] as String? ?? specs.backendName;
@@ -541,7 +554,7 @@ class _AudioEngineDiagnosticPanelState
                   '${(srcRate / 1000.0).toStringAsFixed(1)} kHz PCM',
                   context: context),
               _buildTelemetryRow('DSP',
-                  '${(dspRate / 1000.0).toStringAsFixed(1)} kHz Float32 ($dspChannels ch)',
+                  '${(dspRate / 1000.0).toStringAsFixed(1)} kHz $dspPrecisionLabel ($dspChannels ch)',
                   context: context),
               _buildTelemetryRow('Output',
                   '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit $dacFormatType (${specs.deviceType})',

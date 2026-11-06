@@ -2881,6 +2881,10 @@ void _isolateEntry(_IsolateInitData initData) {
               'processingFormat': ps.processingFormat,
               'processingSampleRate': ps.processingSampleRate,
               'processingChannels': ps.processingChannels,
+              'is64BitProcessing': player.is64BitProcessingEnabled ||
+                  ps.processingFormat == 64 ||
+                  (ps.outputFormat >= 1 && ps.outputFormat <= 4),
+              'dacValidBitDepth': player.getDacValidBitDepth(),
               'outputFormat': ps.outputFormat,
               'outputSampleRate': ps.outputSampleRate,
               'outputChannels': ps.outputChannels,

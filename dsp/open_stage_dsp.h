@@ -101,6 +101,23 @@ public:
 
     float getMix() const { return targetMix_; }
 
+    // Immediately sets the wet/dry mix without a secondary smoothing lag
+    void setMixImmediate(float mix) noexcept {
+        const float clamped = std::clamp(mix, 0.0f, 1.0f);
+        targetMix_ = clamped;
+        currentMix_ = clamped;
+    }
+
+    // Current physical Interaural Time Difference in seconds
+    double getItdSeconds() const noexcept {
+        return static_cast<double>(computeITD(currentAngle_));
+    }
+
+    // Current physical Interaural Time Difference in milliseconds
+    float getItdMs() const noexcept {
+        return computeITD(currentAngle_) * 1000.0f;
+    }
+
     // Reset internal biquad histories and snap smoothed parameters
     void reset() {
         for (int ch = 0; ch < 2; ++ch) {
@@ -114,14 +131,16 @@ public:
         currentGainLinear_ = targetGainLinear_;
         currentMix_ = targetMix_;
         currentWetLevel_ = targetWetLevel_;
+        sampleCounter_ = 0;
 
         if (sampleRate_ > 0.0) {
             updateFilters(currentAngle_);
         }
     }
 
-    // Process interleaved stereo 32-bit float audio in-place
-    void process(float* interleavedStereo, uint32_t frames, int channels = 2) {
+    // Process interleaved stereo 32-bit float or 64-bit double audio in-place
+    template <typename SampleT>
+    void process(SampleT* interleavedStereo, uint32_t frames, int channels = 2) {
         if (!interleavedStereo || frames == 0 || channels < 2) return;
 
         // Fast-path bypass check when completely faded out
@@ -133,33 +152,38 @@ public:
         ScopedDenormalsDisable denormalsScope;
 
         for (uint32_t i = 0; i < frames; ++i) {
-            // 1. Parameter smoothing (de-zippering)
-            currentMix_ += paramSmoothAlpha_ * (targetMix_ - currentMix_);
-            currentGainLinear_ += paramSmoothAlpha_ * (targetGainLinear_ - currentGainLinear_);
-
-            // Block-interpolate crossfeed angle updates every 32 samples instead of per-sample
-            if ((i & 31) == 0 && std::abs(targetAngle_ - currentAngle_) > 0.02f) {
-                currentAngle_ += std::min(1.0f, paramSmoothAlpha_ * 32.0f) * (targetAngle_ - currentAngle_);
-                updateFilters(currentAngle_);
-            }
-
-            // 2. Anti-pop click-free bypass ramping
-            if (currentWetLevel_ < targetWetLevel_) {
-                currentWetLevel_ = std::min(targetWetLevel_, currentWetLevel_ + bypassFadeRate_);
-            } else if (currentWetLevel_ > targetWetLevel_) {
-                currentWetLevel_ = std::max(targetWetLevel_, currentWetLevel_ - bypassFadeRate_);
-            }
-
             const size_t baseIdx = static_cast<size_t>(i) * static_cast<size_t>(channels);
-            const float inL = interleavedStereo[baseIdx];
-            const float inR = interleavedStereo[baseIdx + 1];
+            const float inL = static_cast<float>(interleavedStereo[baseIdx]);
+            const float inR = static_cast<float>(interleavedStereo[baseIdx + 1]);
 
-            processSample(inL, inR, interleavedStereo[baseIdx], interleavedStereo[baseIdx + 1]);
+            float outL = inL;
+            float outR = inR;
+            processSample(inL, inR, outL, outR);
+
+            interleavedStereo[baseIdx] = static_cast<SampleT>(outL);
+            interleavedStereo[baseIdx + 1] = static_cast<SampleT>(outR);
         }
     }
 
-    // Process a single stereo sample pair in-place or out-of-place
+    // Process a single stereo sample pair in-place or out-of-place, advancing smoothers
     inline void processSample(float inL, float inR, float& outL, float& outR) noexcept {
+        // 1. Parameter smoothing (de-zippering)
+        currentMix_ += paramSmoothAlpha_ * (targetMix_ - currentMix_);
+        currentGainLinear_ += paramSmoothAlpha_ * (targetGainLinear_ - currentGainLinear_);
+
+        // Block-interpolate crossfeed angle updates every 32 samples instead of per-sample
+        if ((sampleCounter_++ & 31u) == 0u && std::abs(targetAngle_ - currentAngle_) > 0.02f) {
+            currentAngle_ += std::min(1.0f, paramSmoothAlpha_ * 32.0f) * (targetAngle_ - currentAngle_);
+            updateFilters(currentAngle_);
+        }
+
+        // 2. Anti-pop click-free bypass ramping
+        if (currentWetLevel_ < targetWetLevel_) {
+            currentWetLevel_ = std::min(targetWetLevel_, currentWetLevel_ + bypassFadeRate_);
+        } else if (currentWetLevel_ > targetWetLevel_) {
+            currentWetLevel_ = std::max(targetWetLevel_, currentWetLevel_ - bypassFadeRate_);
+        }
+
         const float directL = highShelf_[0].process(inL);
         const float directR = highShelf_[1].process(inR);
 
@@ -380,6 +404,7 @@ private:
     float currentWetLevel_    = 1.0f;
     float bypassFadeRate_     = 0.0001f;
     float paramSmoothAlpha_   = 0.001f;
+    uint32_t sampleCounter_   = 0;
 
     // Direct Form II biquad filter pairs (L, R)
     Biquad highShelf_[2];
