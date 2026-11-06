@@ -397,11 +397,26 @@ class AudioHardwareInspector {
 
   /// Single async fetch — updates cached specs and notifies broadcast subscribers.
   static Future<AudioHardwareSpecs> inspectAsync(dynamic player) async {
+    AEHardwareInfo? nativeHw;
+    try {
+      final rawNative = await player.getHardwareInfo();
+      if (rawNative is AEHardwareInfo) {
+        nativeHw = rawNative;
+      }
+    } catch (e) {
+      debugPrint('[AudioHardwareInspector] Native getHardwareInfo error: $e');
+    }
+
     if (Platform.isAndroid) {
       try {
         final res = await _methodChannel.invokeMethod('getHardwareAudioSpecs');
         if (res is Map) {
-          _currentSpecs = AudioHardwareSpecs.fromAndroidMap(res);
+          final merged = Map<dynamic, dynamic>.from(res);
+          if (nativeHw != null && nativeHw.bitDepth > 0) {
+            merged['bitDepth'] = nativeHw.bitDepth;
+            merged['isFloat'] = nativeHw.isFloat;
+          }
+          _currentSpecs = AudioHardwareSpecs.fromAndroidMap(merged);
           _controller.add(_currentSpecs!);
           return _currentSpecs!;
         }
@@ -410,15 +425,10 @@ class AudioHardwareInspector {
       }
     }
 
-    try {
-      final rawNative = await player.getHardwareInfo();
-      if (rawNative is AEHardwareInfo) {
-        _currentSpecs = AudioHardwareSpecs.fromNative(rawNative);
-        _controller.add(_currentSpecs!);
-        return _currentSpecs!;
-      }
-    } catch (e) {
-      debugPrint('[AudioHardwareInspector] Native getHardwareInfo error: $e');
+    if (nativeHw != null) {
+      _currentSpecs = AudioHardwareSpecs.fromNative(nativeHw);
+      _controller.add(_currentSpecs!);
+      return _currentSpecs!;
     }
 
     _currentSpecs ??= const AudioHardwareSpecs(
@@ -447,9 +457,17 @@ class AudioHardwareInspector {
 
     if (Platform.isAndroid && _androidEventSub == null) {
       _androidEventSub = _eventChannel.receiveBroadcastStream().listen(
-        (event) {
+        (event) async {
           if (event is Map) {
-            _currentSpecs = AudioHardwareSpecs.fromAndroidMap(event);
+            final merged = Map<dynamic, dynamic>.from(event);
+            try {
+              final rawNative = await player.getHardwareInfo();
+              if (rawNative is AEHardwareInfo && rawNative.bitDepth > 0) {
+                merged['bitDepth'] = rawNative.bitDepth;
+                merged['isFloat'] = rawNative.isFloat;
+              }
+            } catch (_) {}
+            _currentSpecs = AudioHardwareSpecs.fromAndroidMap(merged);
             _controller.add(_currentSpecs!);
           }
         },

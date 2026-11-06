@@ -1299,8 +1299,8 @@ namespace
         const R8brainBackend *backend = (const R8brainBackend *)pBackend;
         if (!backend || std::fabs(backend->ratio - 1.0) < 1.0e-5 || backend->resamplers.empty() || !backend->resamplers[0] || backend->ratio <= 0.0)
             return 0;
-        int lat = backend->resamplers[0]->getLatency();
-        return (ma_uint64)(lat >= 0 ? lat : 0);
+        const ma_uint64 inLat = r8b_onGetInputLatency(pUserData, pBackend);
+        return (ma_uint64)std::ceil((double)inLat * backend->ratio);
     }
 
     static ma_result r8b_onGetRequiredInputFrameCount(void *pUserData, const ma_resampling_backend *pBackend, ma_uint64 outputFrameCount, ma_uint64 *pInputFrameCount)
@@ -2967,31 +2967,31 @@ namespace
             std::memset(history, 0, sizeof(history));
         }
 
-        inline float getRpdfDither(float scale, int ch)
+        inline double getRpdfDither(double scale, int ch)
         {
             uint32_t s = prngState[ch & 15];
             s ^= s << 13;
             s ^= s >> 17;
             s ^= s << 5;
             prngState[ch & 15] = s;
-            const float r = (float)(s & 0xFFFFFF) * (1.0f / 16777216.0f) - 0.5f;
+            const double r = (double)(s & 0xFFFFFF) * (1.0 / 16777216.0) - 0.5;
             return r * scale;
         }
 
-        inline float getTpdfDither(float scale, int ch)
+        inline double getTpdfDither(double scale, int ch)
         {
             uint32_t s = prngState[ch & 15];
             s ^= s << 13;
             s ^= s >> 17;
             s ^= s << 5;
             prngState[ch & 15] = s;
-            const float r1 = (float)(s & 0xFFFFFF) * (1.0f / 16777216.0f);
+            const double r1 = (double)(s & 0xFFFFFF) * (1.0 / 16777216.0);
 
             s ^= s << 13;
             s ^= s >> 17;
             s ^= s << 5;
             prngState[ch & 15] = s;
-            const float r2 = (float)(s & 0xFFFFFF) * (1.0f / 16777216.0f);
+            const double r2 = (double)(s & 0xFFFFFF) * (1.0 / 16777216.0);
 
             return (r1 - r2) * scale;
         }
@@ -3085,7 +3085,7 @@ namespace
                     for (int c = 0; c < ch; ++c)
                     {
                         SampleT x = inOutSamples[base + c];
-                        double d = static_cast<double>(getRpdfDither(static_cast<float>(ditherAmp), c));
+                        double d = getRpdfDither(ditherAmp, c);
                         double q = std::round((static_cast<double>(x) + d) / lsbScale) * lsbScale;
                         // Dither can push a near-full-scale sample past ±1.0;
                         // clamp so the downstream converter doesn't wrap/clip.
@@ -3106,7 +3106,7 @@ namespace
                     for (int c = 0; c < ch; ++c)
                     {
                         SampleT x = inOutSamples[base + c];
-                        double d = static_cast<double>(getTpdfDither(static_cast<float>(ditherAmp), c));
+                        double d = getTpdfDither(ditherAmp, c);
                         double q = std::round((static_cast<double>(x) + d) / lsbScale) * lsbScale;
                         if (q > 1.0) q = 1.0;
                         else if (q < -1.0) q = -1.0;
@@ -3117,13 +3117,13 @@ namespace
             }
 
             // Modes 3-8: Psychoacoustic Noise Shaping
-            // 44.1 kHz standard curves (human audiological contour):
+            // 44.1 kHz standard curves (human audiological contour, minimum-phase stabilized):
             static const float coefLipshitz_44k[5]   = {2.0330f, -2.1650f, 1.9590f, -1.1370f, 0.3210f};
             static const float coefFWeighted_44k[5]  = {2.4120f, -2.9700f, 2.4530f, -1.3320f, 0.3660f};
             static const float coefModE_44k[5]       = {1.8360f, -1.5740f, 1.2120f, -0.6380f, 0.1740f};
             static const float coefShibata_44k[5]    = {2.2700f, -2.4200f, 1.9600f, -1.0900f, 0.2800f};
             static const float coefLowShibata_44k[5] = {1.4500f, -1.0200f, 0.5800f, -0.2100f, 0.0400f};
-            static const float coefHighShibata_44k[5]= {2.7500f, -3.3100f, 2.7800f, -1.4800f, 0.4100f};
+            static const float coefHighShibata_44k[5]= {2.1558f, -2.4724f, 1.9359f, -0.9595f, 0.2282f};
 
             // 48 kHz calibrated curves:
             static const float coefLipshitz_48k[5]   = {2.2330f, -2.5120f, 2.2210f, -1.2290f, 0.3210f};
@@ -3131,7 +3131,7 @@ namespace
             static const float coefModE_48k[5]       = {2.0120f, -1.8650f, 1.4110f, -0.6980f, 0.1740f};
             static const float coefShibata_48k[5]    = {2.4350f, -2.7560f, 2.2150f, -1.1680f, 0.2800f};
             static const float coefLowShibata_48k[5] = {1.5640f, -1.1820f, 0.6650f, -0.2280f, 0.0400f};
-            static const float coefHighShibata_48k[5]= {2.9150f, -3.6720f, 3.0820f, -1.5840f, 0.4100f};
+            static const float coefHighShibata_48k[5]= {2.2498f, -2.6552f, 2.0491f, -0.9659f, 0.2133f};
 
             // 88.2 / 96 kHz calibrated curves (zeros dynamically mapped to preserve audio band attenuation):
             static const float coefLipshitz_96k[5]   = {3.5554f, -5.3740f, 4.3271f, -1.8280f, 0.3210f};
@@ -3139,7 +3139,7 @@ namespace
             static const float coefModE_96k[5]       = {3.1662f, -4.1933f, 2.9620f, -1.1072f, 0.1740f};
             static const float coefShibata_96k[5]    = {3.5189f, -5.1838f, 4.0324f, -1.6474f, 0.2800f};
             static const float coefLowShibata_96k[5] = {2.3872f, -2.3768f, 1.2518f, -0.3460f, 0.0400f};
-            static const float coefHighShibata_96k[5]= {3.9514f, -6.3265f, 5.2567f, -2.2734f, 0.4100f};
+            static const float coefHighShibata_96k[5]= {3.3578f, -4.7762f, 3.5783f, -1.4018f, 0.2284f};
 
             // 176.4 / 192 kHz+ calibrated curves:
             static const float coefLipshitz_192k[5]   = {3.9261f, -6.2211f, 4.9682f, -1.9939f, 0.3210f};
@@ -3147,7 +3147,7 @@ namespace
             static const float coefModE_192k[5]       = {3.4944f, -4.8941f, 3.4479f, -1.2216f, 0.1740f};
             static const float coefShibata_192k[5]    = {3.8201f, -5.8782f, 4.5593f, -1.7812f, 0.2800f};
             static const float coefLowShibata_192k[5] = {2.6118f, -2.7318f, 1.4347f, -0.3782f, 0.0400f};
-            static const float coefHighShibata_192k[5]= {4.2301f, -7.0751f, 5.8959f, -2.4563f, 0.4100f};
+            static const float coefHighShibata_192k[5]= {3.6363f, -5.3589f, 3.9943f, -1.5034f, 0.2283f};
 
             const bool is192k = (sampleRate > 128000);
             const bool is96k  = (!is192k && sampleRate > 64000);
@@ -3179,7 +3179,7 @@ namespace
                                      static_cast<double>(a[3]) * static_cast<double>(history[c][3]) +
                                      static_cast<double>(a[4]) * static_cast<double>(history[c][4]);
 
-                    double dither = static_cast<double>(getTpdfDither(static_cast<float>(ditherAmp), c));
+                    double dither = getTpdfDither(ditherAmp, c);
                     double xShaped = static_cast<double>(x) + feedback + dither;
 
                     double quantized = std::round(xShaped / lsbScale) * lsbScale;
@@ -3216,6 +3216,11 @@ namespace
         alignas(64) std::atomic<size_t> m_readIndex{0};
 
     public:
+        size_t capacity() const
+        {
+            return m_buffer.size();
+        }
+
         void init(size_t capacitySamples)
         {
             size_t cap = 1;
@@ -3780,6 +3785,7 @@ struct AudioEngineHandle
 
     // Advanced Audio Features
     AEAudioFormat outputFormat = AE_FORMAT_F32;
+    std::atomic<bool> userOutputFormatExplicit{false};
     int outputSampleRate = 0;     // Active hardware DAC output rate (0 = native)
     int userOutputSampleRate = 0; // User-selected preferred output rate (0 = native)
     int outputChannels = 2;       // default stereo
@@ -4362,10 +4368,10 @@ static void sync_dac_valid_bit_depth(AudioEngineHandle *e)
     if (e->dacValidBitDepthExplicit.load(std::memory_order_relaxed))
         return;
 
-    ma_format devFmt = e->device.playback.format;
+    ma_format devFmt = ae_format_to_ma_format(e->outputFormat);
     if (devFmt == ma_format_unknown)
     {
-        devFmt = ae_format_to_ma_format(e->outputFormat);
+        devFmt = e->device.playback.format;
     }
 
     int depth = 24;
@@ -4852,7 +4858,7 @@ static bool load_decoder_for_path(
         {
             decFormat = ae_format_to_ma_format(e->outputFormat);
         }
-        else
+        else if (!e->userOutputFormatExplicit.load(std::memory_order_relaxed))
         {
             decFormat = ma_format_unknown;
         }
@@ -4964,7 +4970,10 @@ static bool load_decoder_for_path(
         e->sourceFormat = nativeFmt;
         e->sourceChannels = (int)nativeCh;
         e->sourceSampleRate = (nativeRate > 0) ? (int)nativeRate : (int)tmp->outputSampleRate;
-        if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) && e->outputFormat == AE_FORMAT_F32 && nativeFmt != ma_format_unknown)
+        if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+            !e->userOutputFormatExplicit.load(std::memory_order_relaxed) &&
+            e->outputFormat == AE_FORMAT_F32 &&
+            nativeFmt != ma_format_unknown)
         {
             e->outputFormat = ma_format_to_ae_format(nativeFmt);
         }
@@ -5460,7 +5469,9 @@ static void worker_loop(AudioEngineHandle *e)
                         needRestart = true;
                     }
                 }
-                if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) && nativeFmt != ma_format_unknown)
+                if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+                    !e->userOutputFormatExplicit.load(std::memory_order_relaxed) &&
+                    nativeFmt != ma_format_unknown)
                 {
                     AEAudioFormat targetFmt = ma_format_to_ae_format(nativeFmt);
                     if (e->outputFormat != targetFmt)
@@ -6046,6 +6057,15 @@ static bool evaluate_direct_pcm_eligibility(AudioEngineHandle *e)
         return false;
     if (std::abs(e->pan.load(std::memory_order_relaxed)) > 1e-4f)
         return false;
+    if (e->phaseInvertLeft.load(std::memory_order_relaxed) ||
+        e->phaseInvertRight.load(std::memory_order_relaxed) ||
+        e->lrSwapEnabled.load(std::memory_order_relaxed))
+        return false;
+
+    const int ditherMode = e->ditherMode.load(std::memory_order_relaxed);
+    const int dacDepth = e->dacValidBitDepth.load(std::memory_order_relaxed);
+    if (ditherMode > 0 && dacDepth > 0 && get_ma_format_bit_depth(e->currentDecoder->outputFormat) > dacDepth)
+        return false;
 
     // Rates must match (no decoder or device resampling)
     const int decRate = (int)e->currentDecoder->outputSampleRate;
@@ -6122,7 +6142,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 size_t bpf = (size_t)ma_get_bytes_per_frame(decFmt, (ma_uint32)ch);
                 if (bpf == 0) bpf = sizeof(float) * ch;
                 const size_t targetChunkBytes = targetChunkFrames * bpf;
-                const size_t targetHeadroomBytes = std::max<size_t>(targetChunkBytes * 4, (size_t)((double)sr * 0.35) * bpf);
+                const size_t maxDirectHeadroom = (e->pcmDirectRingBuffer.capacity() > targetChunkBytes * 2)
+                                                     ? (e->pcmDirectRingBuffer.capacity() - targetChunkBytes * 2)
+                                                     : targetChunkBytes * 4;
+                const size_t targetHeadroomBytes = std::min<size_t>(
+                    maxDirectHeadroom,
+                    std::max<size_t>(targetChunkBytes * 4, (size_t)((double)sr * 0.35) * bpf));
 
                 if (e->pcmDirectRingBuffer.available_write() < targetChunkBytes ||
                     e->pcmDirectRingBuffer.available_read() >= targetHeadroomBytes)
@@ -6303,7 +6328,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
         const bool lowLatency = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
                                 e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
         const double headroomSeconds = lowLatency ? 0.05 : 0.35;
-        const size_t targetHeadroomSamples = std::max<size_t>(targetChunkSamples * 2, (size_t)((double)sr * headroomSeconds) * ch);
+        const size_t maxRingHeadroom = (e->pcmRingBuffer.capacity() > targetChunkSamples * 2)
+                                           ? (e->pcmRingBuffer.capacity() - targetChunkSamples * 2)
+                                           : targetChunkSamples * 2;
+        const size_t targetHeadroomSamples = std::min<size_t>(
+            maxRingHeadroom,
+            std::max<size_t>(targetChunkSamples * 2, (size_t)((double)sr * headroomSeconds) * ch));
 
         if (e->pcmRingBuffer.available_write() < targetChunkSamples ||
             e->pcmRingBuffer.available_read() >= targetHeadroomSamples)
@@ -7209,6 +7239,60 @@ static void decode_producer_loop(AudioEngineHandle *e)
         floatToIntExact(fmt, dst, src, count);
     }
 
+    template <typename FloatT>
+    static void quantizeFloatToFormatGrid(AEAudioFormat fmt, float *dst, const FloatT *src, size_t count)
+    {
+        switch (fmt)
+        {
+        case AE_FORMAT_U8:
+            for (size_t i = 0; i < count; ++i)
+            {
+                int r = (int)std::lrint(static_cast<double>(src[i]) * 128.0);
+                if (r < -128) r = -128;
+                else if (r > 127) r = 127;
+                dst[i] = static_cast<float>((double)r * (1.0 / 128.0));
+            }
+            break;
+        case AE_FORMAT_S16:
+            for (size_t i = 0; i < count; ++i)
+            {
+                int r = (int)std::lrint(static_cast<double>(src[i]) * 32768.0);
+                if (r < -32768) r = -32768;
+                else if (r > 32767) r = 32767;
+                dst[i] = static_cast<float>((double)r * (1.0 / 32768.0));
+            }
+            break;
+        case AE_FORMAT_S24:
+            for (size_t i = 0; i < count; ++i)
+            {
+                long long r = (long long)std::llround(static_cast<double>(src[i]) * 8388608.0);
+                if (r < -8388608LL) r = -8388608LL;
+                else if (r > 8388607LL) r = 8388607LL;
+                dst[i] = static_cast<float>((double)r * (1.0 / 8388608.0));
+            }
+            break;
+        case AE_FORMAT_S32:
+            for (size_t i = 0; i < count; ++i)
+            {
+                long long r = (long long)std::llround(static_cast<double>(src[i]) * 2147483648.0);
+                if (r < (-2147483647LL - 1)) r = -2147483648LL;
+                else if (r > 2147483647LL) r = 2147483647LL;
+                dst[i] = static_cast<float>((double)r * (1.0 / 2147483648.0));
+            }
+            break;
+        case AE_FORMAT_F32:
+        default:
+            if (static_cast<const void *>(src) != static_cast<const void *>(dst))
+            {
+                for (size_t i = 0; i < count; ++i)
+                {
+                    dst[i] = static_cast<float>(src[i]);
+                }
+            }
+            break;
+        }
+    }
+
     static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
     {
     if (pDevice == nullptr || pOutput == nullptr || frameCount == 0)
@@ -7232,7 +7316,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         float *processBuffer = nullptr;
     ma_uint32 totalSamples = frameCount * (ma_uint32)e->channels;
 
-    if (e->outputFormat == AE_FORMAT_F32)
+    if (e->outputFormat == AE_FORMAT_F32 && pDevice->playback.format == ma_format_f32)
     {
         processBuffer = reinterpret_cast<float *>(pOutput);
     }
@@ -7293,7 +7377,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     const bool needsDeviceSRC = (e->engineSampleRate > 0 && e->deviceSampleRate > 0 && e->engineSampleRate != e->deviceSampleRate);
     const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed) ||
                        e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                       (e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24);
+                       (e->outputFormat == AE_FORMAT_U8 || e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24 || e->outputFormat == AE_FORMAT_S32);
     double *buf64 = nullptr;
     ma_uint64 inNeeded = (ma_uint64)frameCount;
 
@@ -7373,12 +7457,16 @@ static void decode_producer_loop(AudioEngineHandle *e)
         const ma_uint64 sourceAdvance = (std::abs(curRate - 1.0f) < 0.001f)
                                         ? (ma_uint64)produced
                                         : (ma_uint64)std::round((double)produced * (double)curRate);
-        e->playedPcmFrames.fetch_add(sourceAdvance, std::memory_order_relaxed);
-        // Telemetry: count realtime starvation honestly.
+        const ma_uint64 prevPlayed = e->playedPcmFrames.fetch_add(sourceAdvance, std::memory_order_relaxed);
+        // Telemetry: count realtime starvation honestly during active playback (ignore initial startup pre-roll).
         const ma_uint64 expectedFrames = needsDeviceSRC ? inNeeded : (ma_uint64)frameCount;
-        if ((ma_uint64)produced < expectedFrames)
+        const ma_uint64 preRollThreshold = (e->sampleRate > 0) ? (ma_uint64)e->sampleRate / 10 : 4800;
+        if ((ma_uint64)produced < expectedFrames && prevPlayed >= preRollThreshold)
         {
             e->underrunCount.fetch_add(expectedFrames - (ma_uint64)produced, std::memory_order_relaxed);
+            std::printf(">>> UNDERRUN INC: produced=%u expected=%llu prevPlayed=%llu preRoll=%llu\n",
+                        produced, (unsigned long long)expectedFrames,
+                        (unsigned long long)prevPlayed, (unsigned long long)preRollThreshold);
         }
 
         // =====================================================================
@@ -8706,7 +8794,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     }
 
     // Explicit Engine-to-Device Output Resampling Stage (if engineSampleRate != deviceSampleRate)
-    float *finalDstBuffer = (e->outputFormat == AE_FORMAT_F32) ? reinterpret_cast<float *>(pOutput) : e->conversionBuffer.data();
+    float *finalDstBuffer = (e->outputFormat == AE_FORMAT_F32 && pDevice->playback.format == ma_format_f32) ? reinterpret_cast<float *>(pOutput) : e->conversionBuffer.data();
 
     if (needsDeviceSRC)
     {
@@ -8795,7 +8883,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     if (effectiveDither == 0 && activeIntFormat != AE_FORMAT_F32)
     {
         const bool isIntExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                                    (activeIntFormat == AE_FORMAT_S16 || activeIntFormat == AE_FORMAT_S24 || activeIntFormat == AE_FORMAT_S32);
+                                    (activeIntFormat == AE_FORMAT_U8 || activeIntFormat == AE_FORMAT_S16 || activeIntFormat == AE_FORMAT_S24 || activeIntFormat == AE_FORMAT_S32);
         if (isIntExclusive && isVolumeAttenuated)
         {
             effectiveDither = 2; // Mode 2: Triangle (TPDF 2.0 LSB p-p)
@@ -8823,10 +8911,24 @@ static void decode_producer_loop(AudioEngineHandle *e)
         targetValidBits = 8;
     }
 
-    const bool isDspActive = e->eqEnabled || e->multibandEqEnabled || e->limiterEnabled ||
-                             e->compressorEnabled || e->stereoWidenEnabled || e->stereoEnhancementEnabled ||
-                             e->crossfeedEnabled || e->crystalizerEnabled || e->reverbEnabled ||
-                             needsDeviceSRC || isVolumeAttenuated;
+    const bool isAppFxActive = !e->exclusiveModeEnabled.load(std::memory_order_relaxed) && (
+                               e->eqEnabled || e->multibandEqEnabled || (e->multibandFxEnabled && e->has_active_multiband_fx()) ||
+                               e->toneCrossoverDsp.isEnabled() || e->subsonicFilter.isEnabled() ||
+                               e->noiseGateDsp.isEnabled() || e->downwardExpanderDsp.isEnabled() ||
+                               e->dynamicEqDsp.isEnabled() || e->deEsserDsp.isEnabled() ||
+                               e->harmonicBassDsp.isEnabled() || e->dynamicSystemDsp.isEnabled() ||
+                               e->analogWarmthDsp.isEnabled() || e->tapeDriftDsp.isEnabled() ||
+                               e->dialogEnhancerDsp.isEnabled() || e->clarityDsp.isEnabled() ||
+                               e->compressorEnabled || e->crossfeedEnabled || e->stereoWidenEnabled ||
+                               e->stereoEnhancementEnabled || e->surroundDsp.isEnabled() ||
+                               e->reverbEnabled || e->crystalizerEnabled || e->fftConvolverDsp.isEnabled() ||
+                               e->levellerDsp.isEnabled() || e->dynamicLoudnessDsp.isEnabled() ||
+                               e->masterLimiterDsp.isEnabled() || e->lookaheadLimiterEnabled.load(std::memory_order_relaxed) ||
+                               e->limiterEnabled);
+    const bool isDspActive = isAppFxActive ||
+                             e->ratePlan.decoderSRC || needsDeviceSRC || isVolumeAttenuated ||
+                             std::fabs(e->rateMultiplier.load(std::memory_order_relaxed) - 1.0f) > 1e-4f ||
+                             std::fabs(e->pitchMultiplier.load(std::memory_order_relaxed) - 1.0f) > 1e-4f;
 
     int sourceBits = 0;
     if (isDspActive)
@@ -8865,10 +8967,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         else if (pDevice->playback.format == ma_format_f32)
         {
             float *outF32 = reinterpret_cast<float *>(pOutput);
-            for (size_t i = 0; i < totalSamples; ++i)
-            {
-                outF32[i] = static_cast<float>(buf64[i]);
-            }
+            quantizeFloatToFormatGrid(activeIntFormat, outF32, buf64, totalSamples);
         }
     }
     else
@@ -8901,8 +9000,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
         else if (pDevice->playback.format == ma_format_f32)
         {
-            // P0.2: Guard against undefined behavior when finalDstBuffer == pOutput (in-place F32 playback)
-            if (static_cast<const void*>(finalDstBuffer) != pOutput)
+            float *outF32 = reinterpret_cast<float *>(pOutput);
+            if (activeIntFormat != AE_FORMAT_F32)
+            {
+                quantizeFloatToFormatGrid(activeIntFormat, outF32, finalDstBuffer, totalSamples);
+            }
+            else if (static_cast<const void*>(finalDstBuffer) != pOutput)
             {
                 std::memcpy(pOutput, finalDstBuffer, totalSamples * sizeof(float));
             }
@@ -9128,38 +9231,17 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
         static void convert_f32_to_s24_packed(uint8_t* dst, const float* src, size_t count)
         {
-            for (size_t i = 0; i < count; ++i)
-            {
-                float s = src[i];
-                if (s > 1.0f) s = 1.0f;
-                else if (s < -1.0f) s = -1.0f;
-                int32_t val = static_cast<int32_t>(s * 8388607.0f);
-                dst[i * 3 + 0] = static_cast<uint8_t>(val & 0xFF);
-                dst[i * 3 + 1] = static_cast<uint8_t>((val >> 8) & 0xFF);
-                dst[i * 3 + 2] = static_cast<uint8_t>((val >> 16) & 0xFF);
-            }
+            floatToIntExact(AE_FORMAT_S24, dst, src, count);
         }
 
         static void convert_f32_to_s16(int16_t* dst, const float* src, size_t count)
         {
-            for (size_t i = 0; i < count; ++i)
-            {
-                float s = src[i];
-                if (s > 1.0f) s = 1.0f;
-                else if (s < -1.0f) s = -1.0f;
-                dst[i] = static_cast<int16_t>(s * 32767.0f);
-            }
+            floatToIntExact(AE_FORMAT_S16, dst, src, count);
         }
 
         static void convert_f32_to_s32(int32_t* dst, const float* src, size_t count)
         {
-            for (size_t i = 0; i < count; ++i)
-            {
-                float s = src[i];
-                if (s > 1.0f) s = 1.0f;
-                else if (s < -1.0f) s = -1.0f;
-                dst[i] = static_cast<int32_t>(s * 2147483647.0);
-            }
+            floatToIntExact(AE_FORMAT_S32, dst, src, count);
         }
 
         bool init(AudioEngineHandle* e, int targetSampleRate, int targetChannels, bool wantDirect)
@@ -9250,9 +9332,36 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 // Candidate encodings:
                 // Hardware DSPs (Qualcomm Hexagon, MediaTek HiFi, Exynos) require integer PCM on direct_pcm HAL profiles.
-                // 21 = ENCODING_PCM_24BIT_PACKED, 22 = ENCODING_PCM_32BIT, 4 = ENCODING_PCM_FLOAT, 2 = ENCODING_PCM_16BIT
+                // 21 = ENCODING_PCM_24BIT_PACKED, 22 = ENCODING_PCM_32BIT, 4 = ENCODING_PCM_FLOAT, 2 = ENCODING_PCM_16BIT, 3 = ENCODING_PCM_8BIT
                 std::vector<int> candidates;
-                if (wantDirect)
+                const AEAudioFormat reqFmt = (this->engine != nullptr) ? this->engine->outputFormat : AE_FORMAT_F32;
+                const bool explicitFmt = (this->engine != nullptr) && this->engine->userOutputFormatExplicit.load(std::memory_order_relaxed);
+                if (explicitFmt)
+                {
+                    switch (reqFmt)
+                    {
+                    case AE_FORMAT_U8:
+                        candidates = {3 /* 8-bit */, 2 /* 16-bit */, 4 /* float */};
+                        break;
+                    case AE_FORMAT_S16:
+                        candidates = {2 /* 16-bit */, 4 /* float */, 21 /* 24-bit packed */, 22 /* 32-bit int */};
+                        break;
+                    case AE_FORMAT_S24:
+                        candidates = {21 /* 24-bit packed */, 22 /* 32-bit int */, 4 /* float */, 2 /* 16-bit */};
+                        break;
+                    case AE_FORMAT_S32:
+                        candidates = {22 /* 32-bit int */, 21 /* 24-bit packed */, 4 /* float */, 2 /* 16-bit */};
+                        break;
+                    case AE_FORMAT_F32:
+                    default:
+                        if (wantDirect)
+                            candidates = {4 /* float */, 21 /* 24-bit packed */, 22 /* 32-bit int */, 2 /* 16-bit */};
+                        else
+                            candidates = {4 /* float */, 2 /* 16-bit */};
+                        break;
+                    }
+                }
+                else if (wantDirect)
                 {
                     candidates = {21 /* 24-bit packed */, 22 /* 32-bit int */, 4 /* float */, 2 /* 16-bit */};
                 }
@@ -9380,10 +9489,35 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 encoding = chosenEncoding;
                 framesPerBuffer = (sampleRate <= 48000) ? 1024 : 2048;
                 size_t bytesPerSample = 4;
-                if (encoding == 21) bytesPerSample = 3;
-                else if (encoding == 2) bytesPerSample = 2;
-                else if (encoding == 22) bytesPerSample = 4;
-                else bytesPerSample = 4;
+                if (encoding == 21)
+                {
+                    bytesPerSample = 3;
+                    if (this->engine && !explicitFmt) this->engine->outputFormat = AE_FORMAT_S24;
+                }
+                else if (encoding == 2)
+                {
+                    bytesPerSample = 2;
+                    if (this->engine && !explicitFmt) this->engine->outputFormat = AE_FORMAT_S16;
+                }
+                else if (encoding == 3)
+                {
+                    bytesPerSample = 1;
+                    if (this->engine && !explicitFmt) this->engine->outputFormat = AE_FORMAT_U8;
+                }
+                else if (encoding == 22)
+                {
+                    bytesPerSample = 4;
+                    if (this->engine && !explicitFmt) this->engine->outputFormat = AE_FORMAT_S32;
+                }
+                else
+                {
+                    bytesPerSample = 4;
+                    if (this->engine && !explicitFmt) this->engine->outputFormat = AE_FORMAT_F32;
+                }
+                if (this->engine)
+                {
+                    sync_dac_valid_bit_depth(this->engine);
+                }
 
                 directBufferSize = framesPerBuffer * (size_t)channels * bytesPerSample;
 
@@ -9502,6 +9636,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 else if (encoding == 2)
                 {
                     convert_f32_to_s16(reinterpret_cast<int16_t*>(directBufferAddress), renderBuffer.data(), totalSamples);
+                }
+                else if (encoding == 3)
+                {
+                    floatToIntExact(AE_FORMAT_U8, directBufferAddress, renderBuffer.data(), totalSamples);
                 }
                 else if (encoding == 22)
                 {
@@ -9671,9 +9809,9 @@ extern "C"
         }
 
         engine_log("engine created (sampleRate=%d channels=%d)", e->sampleRate, e->channels);
-        e->pcmRingBuffer.init(192000);
-        e->pcmDirectRingBuffer.init(192000 * 8);
-        e->crossfadeRingBuffer.init(192000);
+        e->pcmRingBuffer.init(1048576);
+        e->pcmDirectRingBuffer.init(1048576 * 4);
+        e->crossfadeRingBuffer.init(1048576);
         e->decodeProducerExit.store(false, std::memory_order_release);
         e->decodeProducerThread = std::thread(decode_producer_loop, e);
         e->worker = std::thread(worker_loop, e);
@@ -10284,7 +10422,9 @@ extern "C"
                     needRestart = true;
                 }
             }
-            if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) && nativeFmt != ma_format_unknown)
+            if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+                !e->userOutputFormatExplicit.load(std::memory_order_relaxed) &&
+                nativeFmt != ma_format_unknown)
             {
                 AEAudioFormat targetFmt = ma_format_to_ae_format(nativeFmt);
                 if (e->outputFormat != targetFmt)
@@ -11091,7 +11231,9 @@ extern "C"
         if (e == nullptr)
             return ps;
 
-        ps.input_format = (int)AE_FORMAT_F32;
+        ps.input_format = (e->sourceFormat != ma_format_unknown)
+                              ? (int)ma_format_to_ae_format(e->sourceFormat)
+                              : (int)e->outputFormat;
         ps.input_sample_rate = (e->sourceSampleRate > 0) ? e->sourceSampleRate : e->sampleRate;
         ps.input_channels = e->channels;
 
@@ -12392,12 +12534,18 @@ extern "C"
             e->pcmDirectRingBuffer.reset();
             e->ringBufferFlushing.store(false, std::memory_order_release);
             engine_log("RING BUFFER RESET");
+            e->underrunCount.store(0, std::memory_order_relaxed);
+            e->rateTransitionInProgress.store(false, std::memory_order_release);
             e->decodeProducerCv.notify_one();
-
-
 
             if (wasPlaying)
             {
+                // Pre-buffer so the initial audio device callback doesn't immediately starve
+                const size_t targetPreload = (newRate > 0) ? (size_t)newRate / 10 * (size_t)newCh : 4800 * 2;
+                for (int spin = 0; spin < 200 && e->pcmRingBuffer.available_read() < targetPreload && e->hasCurrent; ++spin)
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
                 engine_log("DEVICE START");
 #if defined(__ANDROID__)
                 if (e->pAudioTrackSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) >= AE_BACKEND_AUDIOTRACK)
@@ -12412,7 +12560,6 @@ extern "C"
             }
 
             request_preload(e);
-            e->rateTransitionInProgress.store(false, std::memory_order_release);
             engine_log("AUTO DISABLE END");
         }
         catch (...)
@@ -12664,12 +12811,19 @@ extern "C"
     {
         if (!engine)
             return;
+        if (format < (int)AE_FORMAT_F32 || format > (int)AE_FORMAT_S32)
+            format = (int)AE_FORMAT_F32;
+        engine->userOutputFormatExplicit.store(true, std::memory_order_relaxed);
         if (engine->outputFormat == (AEAudioFormat)format)
+        {
+            sync_dac_valid_bit_depth(engine);
             return;
+        }
         // No unlocked ma_device_stop() here: restart_and_apply_config() already
         // stops/uninits the device while holding deviceMutex. Stopping outside
         // the lock raced a concurrent control call into a double-uninit.
         engine->outputFormat = (AEAudioFormat)format;
+        sync_dac_valid_bit_depth(engine);
         restart_and_apply_config(engine);
     }
 
@@ -12926,6 +13080,7 @@ extern "C"
             return;
         engine->phaseInvertLeft.store(invert_left != 0, std::memory_order_relaxed);
         engine->phaseInvertRight.store(invert_right != 0, std::memory_order_relaxed);
+        engine->decodeProducerCv.notify_one();
         engine_log("Phase Inversion updated: Left=%d, Right=%d", invert_left != 0 ? 1 : 0, invert_right != 0 ? 1 : 0);
     }
 
@@ -12949,6 +13104,7 @@ extern "C"
         if (!engine)
             return;
         engine->lrSwapEnabled.store(enabled != 0, std::memory_order_relaxed);
+        engine->decodeProducerCv.notify_one();
         engine_log("L/R Swap: %s", enabled ? "ON" : "OFF");
     }
 
@@ -15697,39 +15853,68 @@ extern "C"
                 }
                 info.is_exclusive_mode = (activeBkForHw == AE_BACKEND_DIRECT_HIRES) ? 1 : 0;
 
-                if (sink->encoding == 21)
+                AEAudioFormat effectiveAtFmt = engine->outputFormat;
+                if (!engine->userOutputFormatExplicit.load(std::memory_order_relaxed))
                 {
-                    info.output_format = AE_FORMAT_S24;
-                    info.bit_depth = 24;
-                    info.is_float = 0;
+                    if (sink->encoding == 21) effectiveAtFmt = AE_FORMAT_S24;
+                    else if (sink->encoding == 2) effectiveAtFmt = AE_FORMAT_S16;
+                    else if (sink->encoding == 3) effectiveAtFmt = AE_FORMAT_U8;
+                    else if (sink->encoding == 22) effectiveAtFmt = AE_FORMAT_S32;
+                    else effectiveAtFmt = AE_FORMAT_F32;
                 }
-                else if (sink->encoding == 2)
+
+                switch (effectiveAtFmt)
                 {
+                case AE_FORMAT_U8:
+                    info.output_format = AE_FORMAT_U8;
+                    info.bit_depth = 8;
+                    info.is_float = 0;
+                    break;
+                case AE_FORMAT_S16:
                     info.output_format = AE_FORMAT_S16;
                     info.bit_depth = 16;
                     info.is_float = 0;
-                }
-                else if (sink->encoding == 22)
-                {
-                    info.output_format = AE_FORMAT_S32;
-                    info.bit_depth = (engine && engine->dacValidBitDepth.load(std::memory_order_relaxed) > 0)
-                                         ? engine->dacValidBitDepth.load(std::memory_order_relaxed)
-                                         : 24;
+                    break;
+                case AE_FORMAT_S24:
+                    info.output_format = AE_FORMAT_S24;
+                    info.bit_depth = 24;
                     info.is_float = 0;
-                }
-                else
-                {
+                    break;
+                case AE_FORMAT_S32:
+                    info.output_format = AE_FORMAT_S32;
+                    if (engine->userOutputFormatExplicit.load(std::memory_order_relaxed) &&
+                        !engine->dacValidBitDepthExplicit.load(std::memory_order_relaxed))
+                    {
+                        info.bit_depth = 32;
+                    }
+                    else
+                    {
+                        info.bit_depth = (engine->dacValidBitDepth.load(std::memory_order_relaxed) > 0)
+                                             ? engine->dacValidBitDepth.load(std::memory_order_relaxed)
+                                             : 24;
+                    }
+                    info.is_float = 0;
+                    break;
+                case AE_FORMAT_F32:
+                default:
                     info.output_format = AE_FORMAT_F32;
                     info.bit_depth = 32;
                     info.is_float = 1;
+                    break;
                 }
             }
             else
 #endif
             {
-                ma_format hwFormat = pDevice->playback.internalFormat;
+                ma_format hwFormat = pDevice->playback.format;
+                if (hwFormat == ma_format_unknown || engine->userOutputFormatExplicit.load(std::memory_order_relaxed))
+                {
+                    hwFormat = ae_format_to_ma_format(engine->outputFormat);
+                }
                 info.sample_rate = (int)pDevice->playback.internalSampleRate;
+                if (info.sample_rate <= 0) info.sample_rate = (int)pDevice->sampleRate;
                 info.channels = (int)pDevice->playback.internalChannels;
+                if (info.channels <= 0) info.channels = (int)pDevice->playback.channels;
                 info.period_size_frames = (uint32_t)pDevice->playback.internalPeriodSizeInFrames;
                 info.period_count = (uint32_t)pDevice->playback.internalPeriods;
 
@@ -15765,9 +15950,17 @@ extern "C"
                     break;
                 case ma_format_s32:
                     info.output_format = AE_FORMAT_S32;
-                    info.bit_depth = (engine && engine->dacValidBitDepth.load(std::memory_order_relaxed) > 0)
-                                         ? engine->dacValidBitDepth.load(std::memory_order_relaxed)
-                                         : 24;
+                    if (engine->userOutputFormatExplicit.load(std::memory_order_relaxed) &&
+                        !engine->dacValidBitDepthExplicit.load(std::memory_order_relaxed))
+                    {
+                        info.bit_depth = 32;
+                    }
+                    else
+                    {
+                        info.bit_depth = (engine->dacValidBitDepth.load(std::memory_order_relaxed) > 0)
+                                             ? engine->dacValidBitDepth.load(std::memory_order_relaxed)
+                                             : 24;
+                    }
                     info.is_float = 0;
                     break;
                 case ma_format_f32:
@@ -16029,9 +16222,11 @@ extern "C"
                     }
                 }
             }
-            if (decoderSrcActive && engine->currentDecoder != nullptr && engine->engineSampleRate > 0)
+            if (decoderSrcActive && engine->currentDecoder != nullptr && info.input_sample_rate > 0)
             {
-                latencyMs += (double)ma_data_converter_get_input_latency(&engine->currentDecoder->converter) / (double)engine->engineSampleRate * 1000.0;
+                // Converter input latency is expressed in SOURCE-rate frames (the
+                // decoder converter's input domain), so convert with input_sample_rate.
+                latencyMs += (double)ma_data_converter_get_input_latency(&engine->currentDecoder->converter) / (double)info.input_sample_rate * 1000.0;
             }
             info.resampler_latency_ms = latencyMs;
             info.filter_passband_ratio = 0.45;

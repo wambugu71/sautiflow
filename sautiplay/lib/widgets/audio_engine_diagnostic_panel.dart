@@ -345,7 +345,20 @@ class _AudioEngineDiagnosticPanelState
     final int dspChannels = t['processingChannels'] as int? ?? 2;
     final int dacRate = t['outputSampleRate'] as int? ??
         (hw['sampleRate'] as int? ?? specs.sampleRate);
-    final int dacDepth = hw['bitDepth'] as int? ?? specs.bitDepth;
+    final int? outFmtCode = t['outputFormat'] as int?;
+    final int dacDepth = switch (outFmtCode) {
+      0 => 32,
+      4 => 32,
+      3 => 24,
+      1 => 16,
+      2 => 8,
+      _ => hw['bitDepth'] as int? ?? specs.bitDepth,
+    };
+    final String dacFormatType = switch (outFmtCode) {
+      0 => 'Float',
+      1 || 2 || 3 || 4 => 'Int',
+      _ => (hw['isFloat'] as bool? ?? specs.isFloat) ? 'Float' : 'Int',
+    };
     final bool isExclusive =
         hw['isExclusiveMode'] as bool? ?? specs.isExclusiveMode;
     final String backend = hw['backendName'] as String? ?? specs.backendName;
@@ -531,7 +544,7 @@ class _AudioEngineDiagnosticPanelState
                   '${(dspRate / 1000.0).toStringAsFixed(1)} kHz Float32 ($dspChannels ch)',
                   context: context),
               _buildTelemetryRow('Output',
-                  '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit (${specs.deviceType})',
+                  '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit $dacFormatType (${specs.deviceType})',
                   context: context),
               if (specs.socName != null && specs.socName!.isNotEmpty)
                 _buildTelemetryRow('SoC Processor', specs.socName!,

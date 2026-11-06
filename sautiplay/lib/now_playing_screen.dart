@@ -71,6 +71,7 @@ class NowPlayingScreen extends StatefulWidget {
   final bool analyzerAutoFit;
   final bool analyzerShowGrids;
   final int outputSampleRate;
+  final AudioFormat outputFormat;
   final VoidCallback? onNavigateToHistory;
 
   const NowPlayingScreen({
@@ -102,6 +103,7 @@ class NowPlayingScreen extends StatefulWidget {
     required this.analyzerAutoFit,
     required this.analyzerShowGrids,
     required this.outputSampleRate,
+    this.outputFormat = AudioFormat.f32,
     this.onNavigateToHistory,
   });
 
@@ -140,6 +142,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   int _fileSizeBytes = 0;
   String _originalBitDepth = '';
+  String _outputBitDepth = '';
   String _sampleRate = '...';
   String _channels = '...';
   String? _detectedCodec;
@@ -196,6 +199,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _pageController = PageController(initialPage: 0);
     _pageController.addListener(_handlePageScroll);
     _isAnalyzerEnabled = widget.analyzerEnabled;
+    _outputBitDepth = _formatOutputBitDepth(widget.outputFormat);
     _fetchLyrics();
     _fetchAudioProperties();
     _loadPlaybackSpeed();
@@ -504,6 +508,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       final sr = widget.outputSampleRate > 0 ? widget.outputSampleRate : 48000;
       _fftProcessor?.setSampleRate(sr);
     }
+    if (oldWidget.outputFormat != widget.outputFormat) {
+      _outputBitDepth = _formatOutputBitDepth(widget.outputFormat);
+      _fetchAudioProperties();
+      AudioHardwareInspector.inspectAsync(widget.player).then((specs) {
+        if (mounted) setState(() => _hardwareSpecs = specs);
+      });
+    }
     final currentIdx = widget.statusNotifier.value.currentIndex;
     final oldTitle = oldWidget.getTitle(currentIdx);
     final newTitle = widget.getTitle(currentIdx);
@@ -592,6 +603,37 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     _analyzerValuesNotifier.value = [];
   }
 
+  String _formatOutputBitDepth(AudioFormat fmt) {
+    switch (fmt) {
+      case AudioFormat.f32:
+        return '32 bit float';
+      case AudioFormat.s32:
+        return '32 bit';
+      case AudioFormat.s24:
+        return '24 bit';
+      case AudioFormat.s16:
+        return '16 bit';
+      case AudioFormat.u8:
+        return '8 bit';
+    }
+  }
+
+  String _formatPipelineFormatCode(int code) {
+    switch (code) {
+      case 0:
+        return '32 bit float';
+      case 4:
+        return '32 bit';
+      case 3:
+        return '24 bit';
+      case 2:
+        return '8 bit';
+      case 1:
+      default:
+        return '16 bit';
+    }
+  }
+
   String _formatSampleRate(int rateHz) {
     if (rateHz <= 0) return '44.1 kHz';
     if (rateHz % 1000 == 0) {
@@ -672,26 +714,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (channelsStr == null && pipelineState.inputChannels > 0) {
         channelsStr = pipelineState.inputChannels == 1 ? 'MONO' : 'STEREO';
       }
-      if (depthStr == null) {
-        switch (pipelineState.inputFormat) {
-          case 0:
-            depthStr = '32 bit';
-            break;
-          case 3:
-            depthStr = '24 bit';
-            break;
-          case 4:
-            depthStr = '32 bit';
-            break;
-          case 2:
-            depthStr = '8 bit';
-            break;
-          case 1:
-          default:
-            depthStr = '16 bit';
-            break;
-        }
-      }
+      final String activeOutDepth =
+          _formatPipelineFormatCode(pipelineState.outputFormat);
+      depthStr ??= activeOutDepth;
 
       if (mounted) {
         setState(() {
@@ -700,7 +725,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
           final int channels = props['channels'] as int? ?? 2;
           _channels = channelsStr ?? (channels == 1 ? 'MONO' : 'STEREO');
-          _originalBitDepth = depthStr ?? '16 bit';
+          _originalBitDepth = depthStr ?? activeOutDepth;
+          _outputBitDepth = activeOutDepth;
           _detectedCodec = codecStr;
           _bitrateKbps = bitrate;
         });
@@ -3099,7 +3125,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         // Audio Diagnostics Badge Row
                                                         AudioDiagnosticsBadgeRow(
                                                           format: _resolveCurrentAudioFormat(),
-                                                          bitDepth: _originalBitDepth,
+                                                          bitDepth: _outputBitDepth.isNotEmpty ? _outputBitDepth : _originalBitDepth,
                                                           sampleRate: _sampleRate,
                                                           isBitPerfect: _hardwareSpecs?.isExclusiveMode == true,
                                                           color: primaryColor,
@@ -3670,7 +3696,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         horizontal: 4.0),
                                                 child: AudioDiagnosticsBadgeRow(
                                                   format: _resolveCurrentAudioFormat(),
-                                                  bitDepth: _originalBitDepth,
+                                                  bitDepth: _outputBitDepth.isNotEmpty ? _outputBitDepth : _originalBitDepth,
                                                   sampleRate: _sampleRate,
                                                   isBitPerfect: _hardwareSpecs?.isExclusiveMode == true,
                                                   color: primaryColor,

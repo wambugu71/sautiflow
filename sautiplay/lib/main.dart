@@ -360,7 +360,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   StreamSubscription? _replayGainSubscription;
   StreamSubscription<AudioFocusSettings>? _audioFocusSubscription;
   StreamSubscription? _bufferingSubscription;
+  StreamSubscription<StreamTelemetry>? _telemetrySubscription;
   StreamSubscription<AudioHardwareSpecs>? _hardwareSubscription;
+  final Set<String> _retriedStreamVideoIds = <String>{};
+  String _lastLoggedStreamError = '';
 
   final List<double> _eqFrequencies = const [
     31.25,
@@ -555,6 +558,29 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         setState(() => _isPlayerBuffering = buffering);
       }
     });
+    _telemetrySubscription = _player.streamTelemetryStream.listen((tel) {
+      if (!mounted) return;
+      if (tel.state == StreamPlaybackState.error || tel.errorCode != 0) {
+        final errMsg = 'Stream playback failed (code ${tel.errorCode})';
+        final idx = _status.value.currentIndex;
+        final curSource =
+            (idx >= 0 && idx < _playlist.length) ? _playlist[idx] : null;
+        final track =
+            curSource != null ? _onlineTrackMetadata[curSource.uri] : null;
+        final errKey = '${track?.videoId ?? curSource?.uri}_$errMsg';
+        if (_lastLoggedStreamError != errKey) {
+          _lastLoggedStreamError = errKey;
+          _logs.insert(0, '[stream-error] $errMsg');
+          _logUpdateCounter.value++;
+          if (track != null && track.videoId.isNotEmpty) {
+            unawaited(_recoverFromStreamError(track, idx));
+          }
+        }
+      } else if (tel.state == StreamPlaybackState.playing ||
+          tel.state == StreamPlaybackState.ready) {
+        _lastLoggedStreamError = '';
+      }
+    });
 
     _hardwareSubscription =
         AudioHardwareInspector.hardwareStream(_player).listen((specs) {
@@ -721,6 +747,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     });
 
     // Apply basic engine settings
+    _player.setOutputFormat(_outputFormat);
     if (_outputSampleRate > 0) {
       _player.setOutputSampleRate(_outputSampleRate);
     } else {
@@ -903,6 +930,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _replayGainSubscription?.cancel();
     _audioFocusSubscription?.cancel();
     _bufferingSubscription?.cancel();
+    _telemetrySubscription?.cancel();
     _hardwareSubscription?.cancel();
     _metadata.removeListener(_applyReplayGain);
     _metadata.removeListener(_extractArtworkTheme);
@@ -1576,7 +1604,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _logs.insert(0, '[stream] Fetching "Up Next" suggestions...');
     try {
       final yt = YTMusic();
-      await yt.initialize();
+      await yt.initialize(
+        cookies: YouTubeAuthService.instance.currentCookie,
+      );
       if (!mounted || _playbackSessionId != session) return;
       final upNexts = await yt.getUpNexts(videoId).timeout(const Duration(seconds: 8));
 
@@ -1906,7 +1936,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
           return true;
         }
       } else {
-        _showOfflineSnackBar();
+        _logs.insert(0, '[stream] Could not resolve preload for ${track.title}');
       }
     } catch (e) {
       if (e is SocketException || e is HandshakeException || e is TimeoutException) {
@@ -1914,6 +1944,76 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       }
     }
     return false;
+  }
+
+  Future<void> _recoverFromStreamError(
+    TrackInfo track,
+    int failedPlaylistIndex,
+  ) async {
+    final videoId = track.videoId;
+    if (videoId.isEmpty) return;
+
+    // Evict stale/403 URL from StreamingService in-memory cache immediately
+    StreamingService.evictFromCache(videoId);
+
+    // Retry re-resolving once per videoId to avoid infinite loops
+    if (_retriedStreamVideoIds.contains(videoId)) {
+      _showOfflineSnackBar(
+        message: 'Stream playback failed for "${track.title}".',
+      );
+      return;
+    }
+    _retriedStreamVideoIds.add(videoId);
+
+    final session = _playbackSessionId;
+    _logs.insert(
+      0,
+      '[stream-recovery] Evicted stale URL and re-resolving "${track.title}"...',
+    );
+
+    try {
+      final detail = await StreamingService.resolveStreamDetailed(videoId);
+      if (!mounted || _playbackSessionId != session) return;
+      if (detail == null) {
+        _showOfflineSnackBar(
+          message: 'Unable to play "${track.title}". Try refreshing your YouTube session.',
+        );
+        return;
+      }
+
+      final freshSrc = await _materializeSource(Uri.parse(detail.url));
+      if (!mounted || _playbackSessionId != session || freshSrc == null) return;
+
+      _onlineTrackMetadata[freshSrc.uri] = track;
+      _registerCachedStreamMeta(freshSrc, track, streamUrl: detail.url);
+
+      final targetIdx = (failedPlaylistIndex >= 0 &&
+              failedPlaylistIndex < _playlist.length)
+          ? failedPlaylistIndex
+          : 0;
+
+      setState(() {
+        if (targetIdx < _playlist.length) {
+          _playlist[targetIdx] = freshSrc;
+        } else {
+          _playlist.add(freshSrc);
+        }
+      });
+
+      _player.setAudioSources(
+        _playlist,
+        initialIndex: targetIdx,
+        initialPosition: Duration.zero,
+        useLazyPreparation: true,
+      );
+      _retriedStreamVideoIds.remove(videoId);
+      _logs.insert(
+        0,
+        '[stream-recovery] ✓ Recovered stream for "${track.title}"',
+      );
+    } catch (e) {
+      _logs.insert(0, '[stream-recovery] Failed to recover "${track.title}": $e');
+    }
   }
 
   Future<void> _resolveLookaheadAndAppend(List<TrackInfo> tracks, {int? sessionId}) async {
@@ -1983,7 +2083,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
               }
             }
           } else {
-            isNetworkDown = true;
+            _logs.insert(
+              0,
+              '[stream] Lookahead could not resolve: ${firstTrack.title}',
+            );
           }
         }
       }
@@ -2059,9 +2162,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
                   }
                 }
               } else {
-                // Network failed / offline, abort background lookahead loop
-                _showOfflineSnackBar();
-                break;
+                _logs.insert(
+                  0,
+                  '[stream] Background lookahead skipped: ${track.title}',
+                );
               }
             }
           }
@@ -3048,6 +3152,7 @@ void _showNowPlayingScreen() {
               analyzerAutoFit: _analyzerAutoFit,
               analyzerShowGrids: _analyzerShowGrids,
               outputSampleRate: _outputSampleRate,
+              outputFormat: _outputFormat,
               onAnalyzerEnabledChanged: (v) {
                 setState(() => _analyzerEnabled = v);
                 _player.setAnalyzerEnabled(v);
@@ -3195,6 +3300,7 @@ void _showNowPlayingScreen() {
                   onOutputFormatChanged: (v) {
                     setState(() => _outputFormat = v);
                     _saveEngineSettings();
+                    AudioHardwareInspector.inspectAsync(_player);
                   },
                   outputSampleRate: _outputSampleRate,
                   onOutputSampleRateChanged: (v) {

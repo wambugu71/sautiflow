@@ -1518,6 +1518,30 @@ static void test_dither_24in32_and_noise_shaping_fixes()
         AEHardwareInfo info = ae_get_hardware_info(e);
         CHECK(info.bit_depth > 0, "ae_get_hardware_info reports valid bit depth");
 
+        // Verify explicit output format changes take effect across all bit depths
+        ae_set_output_format(e, AE_FORMAT_U8);
+        CHECK(ae_get_dac_valid_bit_depth(e) == 8, "U8 output format syncs DAC bit depth to 8");
+        info = ae_get_hardware_info(e);
+        CHECK(info.bit_depth == 8 && info.is_float == 0, "ae_get_hardware_info reports 8-bit Int for U8");
+
+        ae_set_output_format(e, AE_FORMAT_S16);
+        CHECK(ae_get_dac_valid_bit_depth(e) == 16, "S16 output format syncs DAC bit depth to 16");
+        info = ae_get_hardware_info(e);
+        CHECK(info.bit_depth == 16 && info.is_float == 0, "ae_get_hardware_info reports 16-bit Int for S16");
+
+        ae_set_output_format(e, AE_FORMAT_S24);
+        CHECK(ae_get_dac_valid_bit_depth(e) == 24, "S24 output format syncs DAC bit depth to 24");
+        info = ae_get_hardware_info(e);
+        CHECK(info.bit_depth == 24 && info.is_float == 0, "ae_get_hardware_info reports 24-bit Int for S24");
+
+        ae_set_output_format(e, AE_FORMAT_S32);
+        info = ae_get_hardware_info(e);
+        CHECK(info.bit_depth == 32 && info.is_float == 0, "ae_get_hardware_info reports 32-bit Int for explicit S32");
+
+        ae_set_output_format(e, AE_FORMAT_F32);
+        info = ae_get_hardware_info(e);
+        CHECK(info.bit_depth == 32 && info.is_float == 1, "ae_get_hardware_info reports 32-bit Float for F32");
+
         ae_destroy_engine(e);
     }
 
@@ -1683,6 +1707,114 @@ static void test_dither_24in32_and_noise_shaping_fixes()
     }
 }
 
+static void test_hires_384khz_and_fidelity_alignment()
+{
+    std::printf("\n== 384 kHz Ring Buffer Headroom, Minimum-Phase High-Shibata & Direct PCM Guards ==\n");
+
+    // 1. High-Shibata minimum-phase stability on zero input (<= 4 LSB peak at 44.1/48 kHz)
+    {
+        AEResampler *r = ae_resampler_create(
+            AE_FORMAT_S16, 2, 48000, 48000,
+            AE_RESAMPLE_ALGORITHM_MINIAUDIO_LINEAR, AE_DITHER_MODE_HIGH_SHIBATA);
+        CHECK(r != nullptr, "48 kHz resampler created with High-Shibata");
+
+        const uint64_t inFrames = 2048;
+        std::vector<int16_t> inData(inFrames * 2, 0);
+        std::vector<int16_t> outData(inFrames * 2, 0);
+        uint64_t actualIn = inFrames;
+        uint64_t actualOut = inFrames;
+        int ret = ae_resampler_process(r, inData.data(), &actualIn, outData.data(), &actualOut);
+        CHECK(ret == 1 && actualOut == inFrames, "High-Shibata processed 2048 zero-input frames");
+
+        int maxZeroExcursion = 0;
+        for (size_t i = 0; i < actualOut * 2; ++i)
+        {
+            int v = std::abs((int)outData[i]);
+            if (v > maxZeroExcursion) maxZeroExcursion = v;
+        }
+        CHECK(maxZeroExcursion > 0 && maxZeroExcursion <= 4,
+              "Minimum-phase High-Shibata zero-input excursion bounded <= 4 LSB");
+        ae_resampler_destroy(r);
+    }
+
+    // 2. r8brain output latency reporting (> 0 when active)
+    {
+        AEResampler *r = ae_resampler_create(
+            AE_FORMAT_F32, 2, 44100, 384000,
+            AE_RESAMPLE_ALGORITHM_R8BRAIN_24_LINEAR_PHASE, 0);
+        CHECK(r != nullptr, "r8brain 44.1k -> 384k resampler created");
+
+        const uint64_t inLat = ae_resampler_get_input_latency(r);
+        const uint64_t outLat = ae_resampler_get_output_latency(r);
+        CHECK(inLat > 0, "r8brain 44.1k -> 384k reports non-zero input latency");
+        CHECK(outLat > inLat, "r8brain 44.1k -> 384k reports scaled non-zero output latency");
+
+        const uint64_t inFrames = 1024;
+        std::vector<float> inBuf(inFrames * 2, 0.0f);
+        for (size_t i = 0; i < inFrames; ++i)
+        {
+            inBuf[i * 2 + 0] = 0.5f * std::sin(2.0f * (float)M_PI * 1000.0f * (float)i / 44100.0f);
+            inBuf[i * 2 + 1] = 0.5f * std::cos(2.0f * (float)M_PI * 1000.0f * (float)i / 44100.0f);
+        }
+        uint64_t expectedOut = ae_resampler_get_expected_output_frame_count(r, inFrames);
+        std::vector<float> outBuf((expectedOut + 64) * 2, 0.0f);
+        uint64_t actualIn = inFrames;
+        uint64_t actualOut = expectedOut + 64;
+        int ok = ae_resampler_process(r, inBuf.data(), &actualIn, outBuf.data(), &actualOut);
+        CHECK(ok == 1 && actualOut > 0, "r8brain 44.1k -> 384k produced output on first 1024-frame block");
+        ae_resampler_destroy(r);
+    }
+
+    // 3. Direct PCM disengagement on phase-invert / L/R swap
+    {
+        const char *wavPath = "test_hires_384k_guard.wav";
+        CHECK(write_test_wav(wavPath, 44100, 2, 0.5f), "test WAV written (44.1 kHz, 2s)");
+
+        AudioEngineHandle *e = ae_create_engine(44100, 2);
+        CHECK(e != nullptr, "engine created at 44.1 kHz");
+        ae_set_exclusive_mode(e, 1);
+        ae_set_output_format(e, AE_FORMAT_S16);
+        ae_set_output_sample_rate(e, 44100);
+
+        const char *paths[1] = { wavPath };
+        CHECK(ae_set_playlist(e, paths, 1), "playlist set");
+        CHECK(ae_play(e), "playback started");
+
+        const auto deadline = Clock::now() + std::chrono::milliseconds(800);
+        int directActive = 0;
+        while (Clock::now() < deadline)
+        {
+            directActive = ae_is_direct_pcm_active(e);
+            if (directActive == 1) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        CHECK(directActive == 1, "direct PCM active initially at unity settings");
+
+        // Enable phase inversion: direct PCM must disengage so Stage 5 can invert polarity
+        ae_set_phase_inversion(e, 1, 0);
+        const auto invDeadline = Clock::now() + std::chrono::milliseconds(200);
+        while (Clock::now() < invDeadline && ae_is_direct_pcm_active(e) != 0)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        CHECK(ae_is_direct_pcm_active(e) == 0, "direct PCM disengages when phase inversion is enabled");
+
+        ae_set_phase_inversion(e, 0, 0);
+        ae_set_lr_swap(e, 1);
+        const auto swapDeadline = Clock::now() + std::chrono::milliseconds(200);
+        while (Clock::now() < swapDeadline && ae_is_direct_pcm_active(e) != 0)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        CHECK(ae_is_direct_pcm_active(e) == 0, "direct PCM disengages when L/R swap is enabled");
+
+        ae_set_lr_swap(e, 0);
+        ae_stop(e);
+        ae_destroy_engine(e);
+        std::remove(wavPath);
+    }
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -1709,6 +1841,7 @@ int main()
     test_pitch_resampler_and_noise_shaping_p23_p24();
     test_ffmpeg_swr_options_and_midstream_p05_p06();
     test_dither_24in32_and_noise_shaping_fixes();
+    test_hires_384khz_and_fidelity_alignment();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

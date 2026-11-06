@@ -22,6 +22,7 @@ import 'widgets/album_art_shape_selector.dart';
 import 'network_sources_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
+import 'services/audio_hardware_inspector.dart';
 import 'services/app_locale_service.dart';
 import 'services/m3e_typography_service.dart';
 import 'l10n/app_strings.dart';
@@ -6553,6 +6554,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setDlgState(() {});
               widget.onOutputFormatChanged(fmt);
               widget.player.setOutputFormat(fmt);
+              AudioHardwareInspector.inspectAsync(widget.player);
               setState(() {});
               onDone?.call();
               Navigator.pop(ctx);
@@ -6572,6 +6574,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setDlgState(() {});
                     widget.onOutputFormatChanged(fmt);
                     widget.player.setOutputFormat(fmt);
+                    AudioHardwareInspector.inspectAsync(widget.player);
                     setState(() {});
                     onDone?.call();
                     Navigator.pop(ctx);
