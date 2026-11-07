@@ -75,8 +75,8 @@ public:
         alpha_slow_rel_ = calcAlpha(0.1500f); // 150 ms
         alpha_demask_   = calcAlpha(0.0300f); // 30 ms
 
-        // Chebyshev DC blocker pole at 4x rate: R = 1 - (2*pi*20 / (4*fs))
-        dc_block_r_ = 1.0f - (2.0f * 3.14159265f * 20.0f / (4.0f * sample_rate_));
+        // Chebyshev DC blocker pole at oversampled rate: R = exp(-2*pi*20 / (os*fs))
+        updateDcBlocker();
 
         initialized_ = true;
     }
@@ -112,6 +112,7 @@ public:
 
     void setOversampling(int factor) {
         oversampling_factor_ = (factor >= 4) ? 4 : ((factor >= 2) ? 2 : 1);
+        updateDcBlocker();
     }
 
     int getOversampling() const { return oversampling_factor_; }
@@ -165,6 +166,11 @@ public:
         }
 
         current_intensity_ = target_intensity_;
+        last_air_intensity_ = target_intensity_;
+        last_boost_l_ = -1.0f;
+        last_boost_r_ = -1.0f;
+        last_cut_l_ = 1.0f;
+        last_cut_r_ = 1.0f;
         anti_pop_ = 1.0f;
         oversampler_.reset();
         oversampler4x_.reset();
@@ -254,8 +260,14 @@ private:
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 100.0f);
             }
 
-            transient_shelf_[0].setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 4000.0, boost_l, 0.7071);
-            transient_shelf_[1].setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 4000.0, boost_r, 0.7071);
+            if (std::abs(boost_l - last_boost_l_) > 0.005f) {
+                transient_shelf_[0].setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 4000.0, boost_l, 0.7071);
+                last_boost_l_ = boost_l;
+            }
+            if (std::abs(boost_r - last_boost_r_) > 0.005f) {
+                transient_shelf_[1].setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 4000.0, boost_r, 0.7071);
+                last_boost_r_ = boost_r;
+            }
 
             float out_l = static_cast<float>(transient_shelf_[0].processSample(static_cast<double>(in_l)));
             float out_r = static_cast<float>(transient_shelf_[1].processSample(static_cast<double>(in_r)));
@@ -270,6 +282,12 @@ private:
     // =========================================================================
     void processAirShelf(float* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
+            current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
+            if (std::abs(current_intensity_ - last_air_intensity_) > 0.002f) {
+                calcHighshelf(12000.0f, current_intensity_ * 8.0f, air_b0_, air_b1_, air_b2_, air_a1_, air_a2_);
+                last_air_intensity_ = current_intensity_;
+            }
+
             float in_l = samples[2 * i];
             float in_r = samples[2 * i + 1];
 
@@ -479,12 +497,23 @@ private:
                 cut_r = -std::clamp((ratio_r - 1.25f) * 2.0f, 0.0f, 3.0f) * demask_amount_;
             }
 
-            demask_peaking_[0].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 240.0, cut_l, 1.8);
-            demask_peaking_[1].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 240.0, cut_r, 1.8);
+            if (std::abs(cut_l - last_cut_l_) > 0.005f) {
+                demask_peaking_[0].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 240.0, cut_l, 1.8);
+                last_cut_l_ = cut_l;
+            }
+            if (std::abs(cut_r - last_cut_r_) > 0.005f) {
+                demask_peaking_[1].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 240.0, cut_r, 1.8);
+                last_cut_r_ = cut_r;
+            }
 
             samples[2 * i]     = static_cast<float>(demask_peaking_[0].processSample(in_l));
             samples[2 * i + 1] = static_cast<float>(demask_peaking_[1].processSample(in_r));
         }
+    }
+
+    void updateDcBlocker() {
+        const float os_rate = sample_rate_ * static_cast<float>(std::max(1, oversampling_factor_));
+        dc_block_r_ = std::exp(-2.0f * 3.14159265f * 20.0f / os_rate);
     }
 
     void updateFilters() {
@@ -492,12 +521,15 @@ private:
         for (int c = 0; c < 2; ++c) {
             transient_band_hp_[c].setParameters(CytomicSVF::FilterType::HighPass, sample_rate_, 2500.0, 0.0, 0.70710678);
             transient_band_lp_[c].setParameters(CytomicSVF::FilterType::LowPass, sample_rate_, 12000.0, 0.0, 0.70710678);
-            transient_shelf_[c].setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 6000.0, 0.0, 0.65);
+            transient_shelf_[c].setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 4000.0, 0.0, 0.7071);
         }
+        last_boost_l_ = 0.0f;
+        last_boost_r_ = 0.0f;
 
         // 2. Air Shelf: 12 kHz High-Shelf Biquad (+0 dB to +8 dB)
-        float shelf_gain_db = target_intensity_ * 8.0f;
+        float shelf_gain_db = current_intensity_ * 8.0f;
         calcHighshelf(12000.0f, shelf_gain_db, air_b0_, air_b1_, air_b2_, air_a1_, air_a2_);
+        last_air_intensity_ = current_intensity_;
 
         // 3. 3-Way Crossover (PresenceExciter)
         calcLowpass(120.0f, 0.7071f, x_low_b0_, x_low_b1_, x_low_b2_, x_low_a1_, x_low_a2_);
@@ -525,7 +557,8 @@ private:
         if (w0 > PI * 0.95) w0 = PI * 0.95;
         const double cos_w0 = std::cos(w0);
         const double sin_w0 = std::sin(w0);
-        const double alpha = sin_w0 / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / 0.7071 - 1.0) + 2.0);
+        // Butterworth shelf slope S = 1.0 (Q = 1/sqrt(2) = 0.70710678)
+        const double alpha = sin_w0 / (2.0 * 0.7071067811865475);
         const double sqrt_A = 2.0 * std::sqrt(A) * alpha;
 
         const double a0 = (A + 1.0) - (A - 1.0) * cos_w0 + sqrt_A;
@@ -591,6 +624,11 @@ private:
     float sample_period_ = 1.0f / 48000.0f;
     float target_intensity_ = 0.5f;
     float current_intensity_ = 0.5f;
+    float last_air_intensity_ = 0.5f;
+    float last_boost_l_ = -1.0f;
+    float last_boost_r_ = -1.0f;
+    float last_cut_l_ = 1.0f;
+    float last_cut_r_ = 1.0f;
     float smoothing_coeff_ = 0.002f;
     float anti_pop_ = 0.0f;
 

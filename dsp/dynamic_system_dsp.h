@@ -140,6 +140,7 @@ public:
 
     void setBassGain(float gain) {
         target_bass_gain_ = std::max(0.0f, gain);
+        updateCoefficients(); // keep 55 Hz biquad Q in sync with bass gain
     }
 
     void setSideGain(float gain_low, float gain_high) {

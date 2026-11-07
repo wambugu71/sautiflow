@@ -298,7 +298,7 @@ private:
     static constexpr size_t MAX_SEGMENTS = 128; // Up to ~1.36 seconds of impulse response at 48kHz
 
     std::atomic<bool> enabled_{false};
-    bool has_ir_{false};
+    std::atomic<bool> has_ir_{false}; // read lock-free by process() fast-path
     float fade_progress_{0.0f};
     float crossfade_step_{0.001f};
 

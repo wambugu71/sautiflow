@@ -68,7 +68,11 @@ public:
     // Configure filter parameters with optional Orfanidis Nyquist de-cramping
     void setParameters(FilterType type, double sampleRate, double frequencyHz,
                        double gainDb, double q) {
-        if (sampleRate <= 0.0) sampleRate = 48000.0;
+        if (!(sampleRate > 0.0) || !std::isfinite(sampleRate)) sampleRate = 48000.0;
+        // NaN guards: std::clamp propagates NaN, which would poison filter state.
+        if (!std::isfinite(frequencyHz)) frequencyHz = 1000.0;
+        if (!std::isfinite(gainDb)) gainDb = 0.0;
+        if (!std::isfinite(q)) q = 0.7071;
         sampleRate_ = sampleRate;
         frequencyHz_ = std::clamp(frequencyHz, 10.0, sampleRate * 0.499);
         gainDb_ = std::clamp(gainDb, -36.0, 36.0);

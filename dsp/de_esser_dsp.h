@@ -129,7 +129,7 @@ public:
     void setIntensity(float intensity) {
         target_intensity_ = std::clamp(intensity, 0.0f, 1.0f);
         use_macro_intensity_ = true;
-        updateMacroParameters();
+        updateMacroParameters(target_intensity_);
     }
 
     float getIntensity() const { return target_intensity_; }
@@ -139,7 +139,7 @@ public:
         preset_ = DeEsserPreset::Custom;
         frequency_hz_ = std::clamp(freqHz, 2000.0f, 12000.0f);
         updateSidechainFilter();
-        updateShelfCoeffs(current_gr_db_);
+        updateShelfCoeffs(-current_gr_db_);
     }
 
     float getFrequencyHz() const { return frequency_hz_; }
@@ -251,7 +251,8 @@ public:
             current_threshold_db_ += smoothing_coeff_ * (target_threshold_db_ - current_threshold_db_);
 
             if (use_macro_intensity_) {
-                updateMacroParameters();
+                updateMacroParameters(current_intensity_);
+                current_threshold_db_ = target_threshold_db_;
             }
 
             const float in_l = interleaved_samples[2 * i];
@@ -398,16 +399,16 @@ private:
     float env_l_ = 0.0f;
     float env_r_ = 0.0f;
 
-    void updateMacroParameters() {
-        if (current_intensity_ <= 0.001f) {
+    void updateMacroParameters(float intensity) {
+        if (intensity <= 0.001f) {
             target_threshold_db_ = 0.0f;
             ratio_ = 1.0f;
             max_reduction_db_ = 0.0f;
         } else {
             // Map macro intensity (0.0, 1.0] to threshold, ratio, max reduction
-            target_threshold_db_ = -10.0f - current_intensity_ * 30.0f; // -10 dB down to -40 dB
-            ratio_ = 2.0f + current_intensity_ * 6.0f;                 // 2:1 up to 8:1
-            max_reduction_db_ = 4.0f + current_intensity_ * 14.0f;      // 4 dB up to 18 dB
+            target_threshold_db_ = -10.0f - intensity * 30.0f; // -10 dB down to -40 dB
+            ratio_ = 2.0f + intensity * 6.0f;                 // 2:1 up to 8:1
+            max_reduction_db_ = 4.0f + intensity * 14.0f;      // 4 dB up to 18 dB
         }
     }
 
@@ -441,7 +442,7 @@ private:
 
     void updateShelfCoeffs(float gain_db) {
         // Throttled recalculation: recompute transcendentals only when change exceeds 0.1 dB
-        if (std::abs(gain_db - prev_shelf_gain_db_) < 0.1f) return;
+        if (std::abs(gain_db) >= 0.01f && std::abs(gain_db - prev_shelf_gain_db_) < 0.1f) return;
         prev_shelf_gain_db_ = gain_db;
 
         if (std::abs(gain_db) < 0.01f) {
@@ -460,7 +461,7 @@ private:
         if (w0 > PI * 0.95) w0 = PI * 0.95;
         const double cos_w0 = std::cos(w0);
         const double sin_w0 = std::sin(w0);
-        const double alpha = sin_w0 / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / 0.7071 - 1.0) + 2.0);
+        const double alpha = sin_w0 / (2.0 * 0.7071067811865475);
         const double sqrt_A = 2.0 * std::sqrt(A) * alpha;
 
         const double a0 = (A + 1.0) - (A - 1.0) * cos_w0 + sqrt_A;

@@ -837,7 +837,8 @@ private:
         ch->y[3] += upp_ang * (ch->y[2] - ch->y[3]) + kDenormal;
 
         out1 = ch->x[3];                 // Low-pass sub-band (fundamental bass)
-        out2 = oldest_sample - ch->y[3]; // High-pass residual
+        (void)oldest_sample;
+        out2 = sample - ch->y[3];        // High-pass residual (time-aligned with y[3] so bands sum to identity)
         out3 = ch->y[3] - ch->x[3];      // Mid-frequency crossover band
     }
 

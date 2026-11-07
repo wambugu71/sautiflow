@@ -59,7 +59,7 @@ struct DynamicEqBandConfig {
 class DynamicEqDSP {
 public:
     static constexpr size_t kMaxBands = 6;
-    static constexpr size_t kMaxChannels = 2;
+    static constexpr size_t kMaxChannels = 8;
     static constexpr size_t kSubBlockSize = 32;
 
     DynamicEqDSP() {
@@ -247,7 +247,7 @@ public:
 
                 // Smooth gain change
                 float gain_diff = target_total_db - band.current_gain_db;
-                band.current_gain_db += band.smoothing_coeff * static_cast<float>(sub_frames) * gain_diff;
+                band.current_gain_db += std::min(1.0f, band.smoothing_coeff * static_cast<float>(sub_frames)) * gain_diff;
 
                 // Update filter coefficients if gain moved significantly
                 if (std::abs(band.current_gain_db - band.last_computed_gain_db) > 0.02f) {
@@ -336,7 +336,7 @@ public:
                 float target_total_db = band.config.base_gain_db + dyn_gain_db;
 
                 float gain_diff = target_total_db - band.current_gain_db;
-                band.current_gain_db += band.smoothing_coeff * static_cast<float>(sub_frames) * gain_diff;
+                band.current_gain_db += std::min(1.0f, band.smoothing_coeff * static_cast<float>(sub_frames)) * gain_diff;
 
                 if (std::abs(band.current_gain_db - band.last_computed_gain_db) > 0.02f) {
                     updateAudioFilterCoeffs(b, band.current_gain_db);
@@ -389,8 +389,8 @@ private:
         // Audio filter coefficients (TDF2 normalized)
         double b0 = 1.0, b1 = 0.0, b2 = 0.0;
         double a1 = 0.0, a2 = 0.0;
-        std::array<double, kMaxChannels> s1{0.0, 0.0};
-        std::array<double, kMaxChannels> s2{0.0, 0.0};
+        std::array<double, kMaxChannels> s1{};
+        std::array<double, kMaxChannels> s2{};
 
         void resetStates() {
             sc_envelope = 0.0f;
@@ -425,7 +425,8 @@ private:
     void updateSidechainCoeffs(size_t b) {
         auto &band = bands_[b];
         constexpr double PI = 3.14159265358979323846;
-        const double w0 = 2.0 * PI * static_cast<double>(band.config.freq_hz) / static_cast<double>(sample_rate_);
+        const double fc = std::clamp(static_cast<double>(band.config.freq_hz), 20.0, static_cast<double>(sample_rate_) * 0.48);
+        const double w0 = 2.0 * PI * fc / static_cast<double>(sample_rate_);
         const double cosw0 = std::cos(w0);
         const double sinw0 = std::sin(w0);
         const double q = static_cast<double>(std::max(band.config.q, 0.1f));
@@ -473,7 +474,8 @@ private:
             return;
         }
 
-        const double w0 = 2.0 * PI * static_cast<double>(band.config.freq_hz) / static_cast<double>(sample_rate_);
+        const double fc = std::clamp(static_cast<double>(band.config.freq_hz), 20.0, static_cast<double>(sample_rate_) * 0.48);
+        const double w0 = 2.0 * PI * fc / static_cast<double>(sample_rate_);
         const double cosw0 = std::cos(w0);
         const double sinw0 = std::sin(w0);
         const double q = static_cast<double>(std::max(band.config.q, 0.1f));

@@ -72,6 +72,7 @@ public:
         q_factors_.resize(band_count_);
         target_gains_db_.assign(band_count_, 0.0);
         optimized_gains_db_.assign(band_count_, 0.0);
+        parallel_scales_.assign(band_count_, 0.0);
         filters_.resize(band_count_);
         filters64_.resize(band_count_);
 
@@ -248,6 +249,7 @@ private:
     std::vector<double> q_factors_;
     std::vector<double> target_gains_db_;
     std::vector<double> optimized_gains_db_;
+    std::vector<double> parallel_scales_;
 
     // Leakage Interaction Matrix B and its Inverse B^-1
     double B_[kMaxBands][kMaxBands]{};
@@ -418,6 +420,7 @@ private:
 
         if (all_zero) {
             optimized_gains_db_.assign(band_count_, 0.0);
+            parallel_scales_.assign(band_count_, 0.0);
             for (int i = 0; i < band_count_; ++i) {
                 filters_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], 0.0, q_factors_[i]);
                 filters64_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], 0.0, q_factors_[i]);
@@ -432,6 +435,7 @@ private:
             // Uncompensated direct assignment
             for (int i = 0; i < band_count_; ++i) {
                 optimized_gains_db_[i] = target_gains_db_[i];
+                parallel_scales_[i] = 0.0;
                 filters_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], target_gains_db_[i], q_factors_[i]);
                 filters64_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], target_gains_db_[i], q_factors_[i]);
             }
@@ -444,6 +448,11 @@ private:
                 }
                 // Clamp within safe physical filter bounds [-36, +36] dB
                 optimized_gains_db_[i] = std::clamp(sum, -36.0, 36.0);
+                // SVF BandPass (m1=1) has peak gain Q; scale by k=1/Q for a unity-peak
+                // bandpass so the parallel band peaks at exactly 10^(g/20).
+                parallel_scales_[i] = (std::abs(optimized_gains_db_[i]) >= 0.005)
+                                          ? ((std::pow(10.0, optimized_gains_db_[i] / 20.0) - 1.0) / q_factors_[i])
+                                          : 0.0;
             }
 
             for (int i = 0; i < band_count_; ++i) {
@@ -466,24 +475,19 @@ private:
 
     template <typename T>
     void processParallel(T* frames, size_t frame_count, int channels) {
-        // Parallel filter bank: y[n] = x[n] + sum_m( (10^(g_m/20) - 1) * BP_m(x[n]) )
-        // Evaluates bandpass responses in parallel and sums with direct dry path
-        const size_t total_samples = frame_count * channels;
-        std::vector<T> dry(total_samples);
-        std::memcpy(dry.data(), frames, total_samples * sizeof(T));
-
-        std::vector<T> bp_buffer(total_samples);
-
-        for (int m = 0; m < band_count_; ++m) {
-            const double g_opt = optimized_gains_db_[m];
-            if (std::abs(g_opt) < 0.005) continue;
-
-            const double linear_scale = std::pow(10.0, g_opt / 20.0) - 1.0;
-            std::memcpy(bp_buffer.data(), dry.data(), total_samples * sizeof(T));
-            filters_[m].process(bp_buffer.data(), (uint32_t)frame_count, channels);
-
-            for (size_t s = 0; s < total_samples; ++s) {
-                frames[s] += (T)(bp_buffer[s] * linear_scale);
+        // Parallel filter bank: y[n] = x[n] + sum_m( ((10^(g_m/20) - 1) / Q_m) * BP_m(x[n]) )
+        // Zero-allocation evaluation using per-channel SVF states
+        for (size_t s = 0; s < frame_count; ++s) {
+            T* frame = frames + s * (size_t)channels;
+            for (int c = 0; c < channels; ++c) {
+                const double dry = static_cast<double>(frame[c]);
+                double acc = dry;
+                for (int m = 0; m < band_count_; ++m) {
+                    const double scale = parallel_scales_[m];
+                    if (scale == 0.0) continue;
+                    acc += filters_[m].processSample(dry, c) * scale;
+                }
+                frame[c] = static_cast<T>(acc);
             }
         }
     }
@@ -498,24 +502,16 @@ private:
 
     template <typename T>
     void processParallelChannel(T* frames, size_t frame_count, int channels, int channel_index) {
-        std::vector<T> dry(frame_count);
         for (size_t s = 0; s < frame_count; ++s) {
-            dry[s] = frames[s * channels + channel_index];
-        }
-
-        std::vector<T> bp_buffer(frame_count);
-
-        for (int m = 0; m < band_count_; ++m) {
-            const double g_opt = optimized_gains_db_[m];
-            if (std::abs(g_opt) < 0.005) continue;
-
-            const double linear_scale = std::pow(10.0, g_opt / 20.0) - 1.0;
-            std::memcpy(bp_buffer.data(), dry.data(), frame_count * sizeof(T));
-            filters_[m].processChannel(bp_buffer.data(), (uint32_t)frame_count, 1, 0);
-
-            for (size_t s = 0; s < frame_count; ++s) {
-                frames[s * channels + channel_index] += (T)(bp_buffer[s] * linear_scale);
+            T& sample = frames[s * (size_t)channels + (size_t)channel_index];
+            const double dry = static_cast<double>(sample);
+            double acc = dry;
+            for (int m = 0; m < band_count_; ++m) {
+                const double scale = parallel_scales_[m];
+                if (scale == 0.0) continue;
+                acc += filters_[m].processSample(dry, channel_index) * scale;
             }
+            sample = static_cast<T>(acc);
         }
     }
 };

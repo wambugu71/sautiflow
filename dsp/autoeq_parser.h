@@ -7,6 +7,7 @@
 #include <cctype>
 #include <fstream>
 #include <cstdlib>
+#include <cmath>
 
 namespace sauti::dsp {
 
@@ -114,7 +115,7 @@ private:
             std::string valStr = (colonPos != std::string::npos) ? upperLine.substr(colonPos + 1) : upperLine.substr(6);
             std::istringstream valStream(valStr);
             float pVal = 0.0f;
-            if (valStream >> pVal) {
+            if ((valStream >> pVal) && std::isfinite(pVal)) {
                 profile.preampDb = pVal;
             }
             return;
@@ -176,29 +177,31 @@ private:
             }
 
             // Parse key-value pairs (Fc, Gain, Q, etc.)
+            bool hasQ = false;
             while (idx < tokens.size()) {
                 std::string key = toUpper(tokens[idx++]);
                 if (idx >= tokens.size()) break;
 
                 if (key == "FC" || key == "FREQ" || key == "FREQUENCY") {
                     float val = std::strtof(tokens[idx++].c_str(), nullptr);
-                    if (val > 0.0f) band.frequencyHz = val;
+                    if (std::isfinite(val) && val > 0.0f) band.frequencyHz = val;
                     // Skip optional "Hz" token
                     if (idx < tokens.size() && toUpper(tokens[idx]) == "HZ") idx++;
                 } else if (key == "GAIN") {
                     float val = std::strtof(tokens[idx++].c_str(), nullptr);
-                    band.gainDb = val;
+                    if (std::isfinite(val)) band.gainDb = val;
                     // Skip optional "dB" token
                     if (idx < tokens.size() && toUpper(tokens[idx]) == "DB") idx++;
                 } else if (key == "Q" || key == "Q-FACTOR") {
                     float val = std::strtof(tokens[idx++].c_str(), nullptr);
-                    if (val > 0.0f) band.q = val;
+                    if (std::isfinite(val) && val > 0.0f) { band.q = val; hasQ = true; }
                 } else if (key == "SLOPE" || key == "S") {
                     float val = std::strtof(tokens[idx++].c_str(), nullptr);
-                    if (val > 0.0f) band.slope = val;
+                    if (std::isfinite(val) && val > 0.0f) band.slope = val;
                 }
             }
 
+            if (!hasQ && (band.type == AUTOEQ_BAND_LOWSHELF || band.type == AUTOEQ_BAND_HIGHSHELF || band.type == AUTOEQ_BAND_LOWPASS || band.type == AUTOEQ_BAND_HIGHPASS)) { band.q = 0.70710678f; }
             profile.bands.push_back(band);
         }
     }
