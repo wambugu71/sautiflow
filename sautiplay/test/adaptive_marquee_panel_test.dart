@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:marquee/marquee.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:sautiflow/sautiflow.dart';
 import 'package:sautiplay/database/preferences_store.dart';
