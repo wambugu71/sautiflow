@@ -188,10 +188,39 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   StreamTelemetry _streamTelemetry = const StreamTelemetry();
   int _lastKnownTrackIndex = -1;
   bool _queueMounted = false;
+  Size? _albumArtNaturalSize;
+  Uint8List? _lastMeasuredArt;
+
+  Future<void> _updateAlbumArtSize(Uint8List? bytes) async {
+    if (identical(bytes, _lastMeasuredArt)) return;
+    _lastMeasuredArt = bytes;
+    if (bytes == null || bytes.isEmpty) {
+      if (mounted && _albumArtNaturalSize != null) {
+        setState(() => _albumArtNaturalSize = null);
+      }
+      return;
+    }
+    try {
+      final buffer = await ImmutableBuffer.fromUint8List(bytes);
+      final descriptor = await ImageDescriptor.encoded(buffer);
+      final size =
+          Size(descriptor.width.toDouble(), descriptor.height.toDouble());
+      descriptor.dispose();
+      buffer.dispose();
+      if (mounted && identical(widget.albumArt, bytes)) {
+        setState(() => _albumArtNaturalSize = size);
+      }
+    } catch (_) {
+      if (mounted && identical(widget.albumArt, bytes)) {
+        setState(() => _albumArtNaturalSize = null);
+      }
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    _updateAlbumArtSize(widget.albumArt);
     _showLyrics = PreferencesStore.instance
         .getBool('now_playing_show_lyrics', defaultValue: false)!;
     _showLyricsOverlayOnAlbumArt = PreferencesStore.instance
@@ -500,6 +529,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   @override
   void didUpdateWidget(covariant NowPlayingScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.albumArt, widget.albumArt)) {
+      _updateAlbumArtSize(widget.albumArt);
+    }
     if (oldWidget.analyzerEnabled != widget.analyzerEnabled) {
       _isAnalyzerEnabled = widget.analyzerEnabled;
       _setupAnalyzer(_isAnalyzerEnabled);
@@ -1418,6 +1450,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     required Color primaryColor,
   }) {
     final hasArt = widget.albumArt != null && widget.albumArt!.isNotEmpty;
+    final isShortArt = _albumArtNaturalSize != null &&
+        (_albumArtNaturalSize!.width < 260 ||
+            _albumArtNaturalSize!.height < 260);
     final borderRadius = BorderRadius.circular(isDesktop ? 32.0 : 24.0);
 
     if (!useM3EShape) {
@@ -1441,23 +1476,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           ],
         ),
         clipBehavior: Clip.antiAlias,
-        child: hasArt
+        child: (hasArt && !isShortArt)
             ? Image.memory(
                 widget.albumArt!,
                 fit: BoxFit.cover,
-                cacheWidth: 800,
-                cacheHeight: 800,
+                filterQuality: FilterQuality.high,
               )
-            : RotationTransition(
-                turns: _rotationController,
-                child: Container(
-                  color: surfaceColor,
-                  padding: EdgeInsets.all(isDesktop ? 32.0 : 24.0),
-                  child: Image.asset(
-                    'assets/icon/splash.png',
-                    fit: BoxFit.contain,
-                  ),
-                ),
+            : Image.asset(
+                'assets/icon/cover.jpg',
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
               ),
       );
     }
@@ -1480,7 +1508,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             offset: const Offset(0, 12),
           ),
       ],
-      child: hasArt
+      child: (hasArt && !isShortArt)
           ? (isDesktop
               ? RepaintBoundary(
                   child: M3EContainer(
@@ -1489,8 +1517,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     child: Image.memory(
                       widget.albumArt!,
                       fit: BoxFit.cover,
-                      cacheWidth: 800,
-                      cacheHeight: 800,
+                      filterQuality: FilterQuality.high,
                     ),
                   ),
                 )
@@ -1500,22 +1527,30 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   child: Image.memory(
                     widget.albumArt!,
                     fit: BoxFit.cover,
-                    cacheWidth: 800,
-                    cacheHeight: 800,
+                    filterQuality: FilterQuality.high,
                   ),
                 ))
-          : RotationTransition(
-              turns: _rotationController,
-              child: M3EContainer(
-                albumArtShape,
-                color: surfaceColor,
-                padding: EdgeInsets.all(isDesktop ? 32.0 : 24.0),
-                child: Image.asset(
-                  'assets/icon/splash.png',
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
+          : (isDesktop
+              ? RepaintBoundary(
+                  child: M3EContainer(
+                    albumArtShape,
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset(
+                      'assets/icon/cover.jpg',
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.high,
+                    ),
+                  ),
+                )
+              : M3EContainer(
+                  albumArtShape,
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.asset(
+                    'assets/icon/cover.jpg',
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                  ),
+                )),
     );
   }
 
@@ -1524,11 +1559,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     required double bottomOffset,
     required double displayPosMs,
     String? title,
+    double topOffset = 0.0,
   }) {
     if (!_showLyricsOverlayOnAlbumArt) return const SizedBox.shrink();
 
     return Positioned(
-      top: 0,
+      top: topOffset,
       left: 0,
       right: 0,
       bottom: bottomOffset,
@@ -3165,359 +3201,362 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         );
                       } else {
                         // Mobile Layout (< 800px)
+                        final topPadding = MediaQuery.paddingOf(context).top;
+                        final isSmallOrShortArt = _albumArtNaturalSize != null &&
+                            (_albumArtNaturalSize!.width < 260 ||
+                                _albumArtNaturalSize!.height < 260);
                         content = Column(
                           children: [
-                            const SizedBox(height: 24),
-                            // Mobile Header Bar
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16.0, vertical: 4.0),
-                              child: Row(
+                            // Full-bleed half-screen blended cover art hero
+                            Expanded(
+                              child: Stack(
+                                fit: StackFit.expand,
                                 children: [
-                                  M3EIconButton(
-                                    variant: M3EIconButtonVariant.tonal,
-                                    icon: const Icon(
-                                        Icons.keyboard_arrow_down_rounded,
-                                        size: 28),
-                                    onPressed: widget.onMinimize,
+                                  // Artwork or centered rotating default, feathered into background
+                                  ShaderMask(
+                                    shaderCallback: (bounds) =>
+                                        const LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.white,
+                                        Colors.white,
+                                        Color(0x66FFFFFF),
+                                        Colors.transparent,
+                                      ],
+                                      stops: [0.0, 0.52, 0.82, 1.0],
+                                    ).createShader(bounds),
+                                    blendMode: BlendMode.dstIn,
+                                    child: RepaintBoundary(
+                                      child: AnimatedSwitcher(
+                                      duration:
+                                          const Duration(milliseconds: 350),
+                                      switchInCurve: Curves.easeOutCubic,
+                                      switchOutCurve: Curves.easeInCubic,
+                                      transitionBuilder: (child, animation) {
+                                        final dir = _swipeDirection == 0
+                                            ? 1
+                                            : _swipeDirection;
+                                        final begin = child.key ==
+                                                ValueKey(status.currentIndex)
+                                            ? Offset(dir.toDouble(), 0.0)
+                                            : Offset(-dir.toDouble(), 0.0);
+                                        final slideAnimation = Tween<Offset>(
+                                          begin: begin,
+                                          end: Offset.zero,
+                                        ).animate(animation);
+                                        return FadeTransition(
+                                          opacity: animation,
+                                          child: SlideTransition(
+                                            position: slideAnimation,
+                                            child: child,
+                                          ),
+                                        );
+                                      },
+                                      child: SizedBox.expand(
+                                        key: ValueKey(status.currentIndex),
+                                        child: (hasArt && !isSmallOrShortArt)
+                                            ? Image.memory(
+                                                widget.albumArt!,
+                                                fit: BoxFit.cover,
+                                                alignment: Alignment.center,
+                                                filterQuality:
+                                                    FilterQuality.high,
+                                              )
+                                            : Image.asset(
+                                                'assets/icon/cover.jpg',
+                                                fit: BoxFit.cover,
+                                                alignment: Alignment.center,
+                                                filterQuality:
+                                                    FilterQuality.high,
+                                              ),
+                                      ),
+                                    ),
+                                    ),
                                   ),
-                                  Expanded(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        AdaptiveMarqueeText(
-                                          text: 'PLAYING FROM PLAYLIST',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 1.5,
-                                            color: primaryColor,
+
+                                  // Soft legibility scrim (fades to transparent at bottom for zero seam)
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [
+                                              Colors.black
+                                                  .withValues(alpha: 0.45),
+                                              Colors.transparent,
+                                              Colors.black
+                                                  .withValues(alpha: 0.28),
+                                              Colors.transparent,
+                                            ],
+                                            stops: const [0.0, 0.30, 0.75, 1.0],
                                           ),
                                         ),
-                                        const SizedBox(height: 2),
-                                        AdaptiveMarqueeText(
-                                          text: context.strings.nowPlaying,
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
-                                            color: textLight,
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Mobile Header Bar overlaid at top
+                                  Positioned(
+                                    top: topPadding + 8,
+                                    left: 16,
+                                    right: 16,
+                                    child: Row(
+                                      children: [
+                                        M3EIconButton(
+                                          variant: M3EIconButtonVariant.tonal,
+                                          icon: const Icon(
+                                              Icons.keyboard_arrow_down_rounded,
+                                              size: 28),
+                                          onPressed: widget.onMinimize,
+                                        ),
+                                        Expanded(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              AdaptiveMarqueeText(
+                                                text: 'PLAYING FROM PLAYLIST',
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 1.5,
+                                                  color: primaryColor,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              AdaptiveMarqueeText(
+                                                text: context.strings.nowPlaying,
+                                                textAlign: TextAlign.center,
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: textLight,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        M3EIconButton(
+                                          variant:
+                                              M3EIconButtonVariant.outlined,
+                                          icon: Icon(
+                                            Icons.more_vert_rounded,
+                                            color: _isCustomLyricsLoaded
+                                                ? primaryColor
+                                                : textLight,
+                                          ),
+                                          onPressed: () =>
+                                              _showMoreOptionsMenu(context),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Title & Artist overlaid above the action row
+                                  Positioned(
+                                    left: 20,
+                                    bottom: 62,
+                                    right: 20,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        RepaintBoundary(
+                                          child: AdaptiveMarqueeText(
+                                            text: title,
+                                            style: const TextStyle(
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.bold,
+                                              color: textLight,
+                                            ),
+                                            blankSpace: 40.0,
+                                            velocity: 30.0,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        InkWell(
+                                          onTap: () => _openArtistProfile(
+                                              subtitle,
+                                              artistId: dynamicArtistId),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Flexible(
+                                                child: RepaintBoundary(
+                                                  child: AdaptiveMarqueeText(
+                                                    text: subtitle,
+                                                    style: const TextStyle(
+                                                      fontSize: 15,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: Colors.white70,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              const Icon(
+                                                Icons.chevron_right_rounded,
+                                                color: Colors.white54,
+                                                size: 16,
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
                                     ),
                                   ),
-                                  M3EIconButton(
-                                    variant: M3EIconButtonVariant.outlined,
-                                    icon: Icon(
-                                      Icons.more_vert_rounded,
-                                      color: _isCustomLyricsLoaded
-                                          ? primaryColor
-                                          : textLight,
-                                    ),
-                                    onPressed: () =>
-                                        _showMoreOptionsMenu(context),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
 
-                            // Mobile Album Art Container wrapped in RepaintBoundary
-                            Expanded(
-                              flex: 5,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 20.0),
-                                child: Center(
-                                  child: AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 350),
-                                    switchInCurve: Curves.easeOutCubic,
-                                    switchOutCurve: Curves.easeInCubic,
-                                    transitionBuilder: (child, animation) {
-                                      final dir = _swipeDirection == 0
-                                          ? 1
-                                          : _swipeDirection;
-                                      final begin = child.key ==
-                                              ValueKey(status.currentIndex)
-                                          ? Offset(dir.toDouble(), 0.0)
-                                          : Offset(-dir.toDouble(), 0.0);
-                                      final slideAnimation = Tween<Offset>(
-                                        begin: begin,
-                                        end: Offset.zero,
-                                      ).animate(animation);
-                                      return FadeTransition(
-                                        opacity: animation,
-                                        child: SlideTransition(
-                                          position: slideAnimation,
-                                          child: child,
-                                        ),
-                                      );
-                                    },
-                                    child: AspectRatio(
-                                      key: ValueKey(status.currentIndex),
-                                      aspectRatio: 1.0,
-                                      child: Stack(
-                                        children: [
-                                          Positioned.fill(
-                                            child: RepaintBoundary(
-                                              child: _buildAlbumArtContainer(
-                                                isDesktop: false,
-                                                albumArtShape: albumArtShape,
-                                                useM3EShape: useM3EShape,
-                                                surfaceColor: surfaceColor,
+                                  // Like, Dislike, Cache, Lyrics, Queue Row on top of cover art
+                                  Positioned(
+                                    bottom: 12,
+                                    left: 20,
+                                    right: 20,
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            ValueListenableBuilder<
+                                                List<LikedSong>>(
+                                              valueListenable: LikedSongsService
+                                                  .instance.likedSongsNotifier,
+                                              builder:
+                                                  (context, likedSongs, _) {
+                                                final trackId = widget
+                                                        .videoId ??
+                                                    widget.getTitle(
+                                                        status.currentIndex);
+                                                final isCurrentlyLiked =
+                                                    likedSongs.any((s) =>
+                                                        s.videoId == trackId);
+                                                return M3EIconButton(
+                                                  variant: isCurrentlyLiked
+                                                      ? M3EIconButtonVariant
+                                                          .filled
+                                                      : M3EIconButtonVariant
+                                                          .outlined,
+                                                  icon: const Icon(
+                                                      SautiIcons.like),
+                                                  onPressed: () async {
+                                                    if (trackId.isEmpty) {
+                                                      return;
+                                                    }
+                                                    if (isCurrentlyLiked) {
+                                                      await LikedSongsService
+                                                          .instance
+                                                          .removeLikedSong(
+                                                              trackId);
+                                                    } else {
+                                                      await LikedSongsService
+                                                          .instance
+                                                          .addLikedSong(
+                                                              LikedSong(
+                                                        videoId: trackId,
+                                                        title: title,
+                                                        artist: subtitle,
+                                                        artistId:
+                                                            dynamicArtistId,
+                                                        thumbnailUrl:
+                                                            widget.albumArt ==
+                                                                    null
+                                                                ? null
+                                                                : trackId,
+                                                        durationSeconds:
+                                                            duration.inSeconds,
+                                                        likedAt: DateTime.now(),
+                                                      ));
+                                                    }
+                                                  },
+                                                );
+                                              },
+                                            ),
+                                            const SizedBox(width: 8),
+                                            M3EIconButton(
+                                              variant:
+                                                  M3EIconButtonVariant.outlined,
+                                              icon: const Icon(
+                                                  SautiIcons.dislike),
+                                              onPressed: () {},
+                                            ),
+                                            if (widget.sourceType ==
+                                                'online') ...[
+                                              const SizedBox(width: 8),
+                                              _buildStreamCacheButton(
+                                                curTrack: curTrack,
+                                                status: status,
+                                                title: title,
+                                                subtitle: subtitle,
                                                 primaryColor: primaryColor,
                                               ),
-                                            ),
-                                          ),
-                                          /* Positioned(
-                                          bottom: 0,
-                                          left: 0,
-                                          right: 0,
-                                          height: 120,
-                                          child: Container(
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  const BorderRadius.vertical(
-                                                      bottom: Radius.circular(
-                                                          24.0)),
-                                              gradient: LinearGradient(
-                                                begin: Alignment.topCenter,
-                                                end: Alignment.bottomCenter,
-                                                colors: [
-                                                  Colors.transparent,
-                                                  Colors.black
-                                                      .withValues(alpha: 0.85),
-                                                ],
+                                            ],
+                                          ],
+                                        ),
+                                        Row(
+                                          children: [
+                                            M3EIconButton(
+                                              variant:
+                                                  (_showLyricsOverlayOnAlbumArt ||
+                                                          _showLyrics)
+                                                      ? M3EIconButtonVariant
+                                                          .filled
+                                                      : M3EIconButtonVariant
+                                                          .tonal,
+                                              icon: Icon(
+                                                SautiIcons.lyrics,
+                                                color:
+                                                    (_showLyricsOverlayOnAlbumArt ||
+                                                            _showLyrics)
+                                                        ? Colors.white
+                                                        : primaryColor,
                                               ),
+                                              onPressed: () {
+                                                setState(() {
+                                                  _showLyricsOverlayOnAlbumArt =
+                                                      !_showLyricsOverlayOnAlbumArt;
+                                                  _showLyrics =
+                                                      _showLyricsOverlayOnAlbumArt;
+                                                });
+                                                PreferencesStore.instance
+                                                    .setBool(
+                                                        'now_playing_show_lyrics_overlay',
+                                                        _showLyricsOverlayOnAlbumArt);
+                                                PreferencesStore.instance
+                                                    .setBool(
+                                                        'now_playing_show_lyrics',
+                                                        _showLyrics);
+                                              },
                                             ),
-                                          ),
-                                        ),*/
-                                          Positioned(
-                                            left: 16,
-                                            bottom: 56,
-                                            right: 16,
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                RepaintBoundary(
-                                                  child: AdaptiveMarqueeText(
-                                                    text: title,
-                                                    style: const TextStyle(
-                                                      fontSize: 22,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      color: textLight,
-                                                    ),
-                                                    blankSpace: 40.0,
-                                                    velocity: 30.0,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 4),
-                                                InkWell(
-                                                  onTap: () =>
-                                                      _openArtistProfile(
-                                                          subtitle,
-                                                          artistId:
-                                                              dynamicArtistId),
-                                                  borderRadius:
-                                                      BorderRadius.circular(6),
-                                                  child: Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      Flexible(
-                                                        child: RepaintBoundary(
-                                                          child:
-                                                              AdaptiveMarqueeText(
-                                                            text: subtitle,
-                                                            style:
-                                                                const TextStyle(
-                                                              fontSize: 15,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w600,
-                                                              color: Colors
-                                                                  .white70,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 4),
-                                                      const Icon(
-                                                        Icons
-                                                            .chevron_right_rounded,
-                                                        color: Colors.white54,
-                                                        size: 16,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
+                                            const SizedBox(width: 8),
+                                            M3EIconButton(
+                                              variant:
+                                                  M3EIconButtonVariant.tonal,
+                                              icon: const Icon(
+                                                  SautiIcons.playlists),
+                                              onPressed: () =>
+                                                  _showQueueSheet(context),
                                             ),
-                                          ),
-                                          Positioned(
-                                            bottom: 12,
-                                            left: 16,
-                                            right: 16,
-                                            child: Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment
-                                                      .spaceBetween,
-                                              children: [
-                                                Row(
-                                                  children: [
-                                                    ValueListenableBuilder<
-                                                        List<LikedSong>>(
-                                                      valueListenable:
-                                                          LikedSongsService
-                                                              .instance
-                                                              .likedSongsNotifier,
-                                                      builder: (context,
-                                                          likedSongs, _) {
-                                                        final trackId = widget
-                                                                .videoId ??
-                                                            widget.getTitle(status
-                                                                .currentIndex);
-                                                        final isCurrentlyLiked =
-                                                            likedSongs.any(
-                                                                (s) =>
-                                                                    s.videoId ==
-                                                                    trackId);
-                                                        return M3EIconButton(
-                                                          variant: isCurrentlyLiked
-                                                              ? M3EIconButtonVariant
-                                                                  .filled
-                                                              : M3EIconButtonVariant
-                                                                  .outlined,
-                                                          icon: const Icon(SautiIcons.like),
-                                                          onPressed: () async {
-                                                            if (trackId
-                                                                .isEmpty) {
-                                                              return;
-                                                            }
-                                                            if (isCurrentlyLiked) {
-                                                              await LikedSongsService
-                                                                  .instance
-                                                                  .removeLikedSong(
-                                                                      trackId);
-                                                            } else {
-                                                              await LikedSongsService
-                                                                  .instance
-                                                                  .addLikedSong(
-                                                                      LikedSong(
-                                                                videoId:
-                                                                    trackId,
-                                                                title: title,
-                                                                artist:
-                                                                    subtitle,
-                                                                artistId:
-                                                                    dynamicArtistId,
-                                                                thumbnailUrl:
-                                                                    widget.albumArt ==
-                                                                            null
-                                                                        ? null
-                                                                        : trackId,
-                                                                durationSeconds:
-                                                                    duration
-                                                                        .inSeconds,
-                                                                likedAt:
-                                                                    DateTime
-                                                                        .now(),
-                                                              ));
-                                                            }
-                                                          },
-                                                        );
-                                                      },
-                                                    ),
-                                                    const SizedBox(width: 8),
-                                                    M3EIconButton(
-                                                      variant:
-                                                          M3EIconButtonVariant
-                                                              .outlined,
-                                                      icon: const Icon(SautiIcons
-                                                          .dislike),
-                                                      onPressed: () {},
-                                                    ),
-                                                    if (widget.sourceType ==
-                                                        'online') ...[
-                                                      const SizedBox(width: 8),
-                                                      _buildStreamCacheButton(
-                                                        curTrack: curTrack,
-                                                        status: status,
-                                                        title: title,
-                                                        subtitle: subtitle,
-                                                        primaryColor:
-                                                            primaryColor,
-                                                      ),
-                                                    ],
-                                                  ],
-                                                ),
-                                                Row(
-                                                  children: [
-                                                    M3EIconButton(
-                                                      variant: (_showLyricsOverlayOnAlbumArt ||
-                                                              _showLyrics)
-                                                          ? M3EIconButtonVariant
-                                                              .filled
-                                                          : M3EIconButtonVariant
-                                                              .tonal,
-                                                      icon: Icon(
-                                                          SautiIcons.lyrics,
-                                                          color:
-                                                              (_showLyricsOverlayOnAlbumArt ||
-                                                                      _showLyrics)
-                                                                  ? Colors.white
-                                                                  : primaryColor,
-                                                        ),
-                                                      onPressed: () {
-                                                        setState(() {
-                                                          _showLyricsOverlayOnAlbumArt =
-                                                              !_showLyricsOverlayOnAlbumArt;
-                                                          _showLyrics =
-                                                              _showLyricsOverlayOnAlbumArt;
-                                                        });
-                                                        PreferencesStore
-                                                            .instance
-                                                            .setBool(
-                                                                'now_playing_show_lyrics_overlay',
-                                                                _showLyricsOverlayOnAlbumArt);
-                                                        PreferencesStore
-                                                            .instance
-                                                            .setBool(
-                                                                'now_playing_show_lyrics',
-                                                                _showLyrics);
-                                                      },
-                                                    ),
-                                                    const SizedBox(width: 8),
-                                                    M3EIconButton(
-                                                      variant:
-                                                          M3EIconButtonVariant
-                                                              .tonal,
-                                                      icon: const Icon(SautiIcons.playlists),
-                                                      onPressed: () =>
-                                                          _showQueueSheet(
-                                                              context),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          // Lyrics Overlay on Album Art (Topmost layer)
-                                          _buildAlbumArtLyricsOverlay(
-                                            borderRadius: 24.0,
-                                            bottomOffset: 0.0,
-                                            displayPosMs: displayPosMs,
-                                            title: title,
-                                          ),
-                                        ],
-                                      ),
+                                          ],
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ),
+
+                                  // Lyrics Overlay on Album Art (between header and action row)
+                                  _buildAlbumArtLyricsOverlay(
+                                    borderRadius: 16.0,
+                                    topOffset: topPadding + 62,
+                                    bottomOffset: 62.0,
+                                    displayPosMs: displayPosMs,
+                                    title: title,
+                                  ),
+                                ],
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -3917,6 +3956,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             constraints: BoxConstraints(
                                 maxWidth: isDesktop ? double.infinity : 600.0),
                             child: SafeArea(
+                              top: isDesktop,
+                              bottom: true,
                               child: content,
                             ),
                           ),

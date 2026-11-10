@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -77,6 +78,10 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
   TrackViewMode _trackViewMode = TrackViewMode.list;
   CachedStreamsTab _activeTab = CachedStreamsTab.tracks;
 
+  bool _isSelectionMode = false;
+  final Set<String> _selectedTrackPaths = {};
+  List<SavedM3uPlaylist> _m3uPlaylists = [];
+
   Color get _bgDark => context.bgDark;
   Color get _surfaceColor => context.cardDark;
   Color get _primary => context.primaryColor;
@@ -87,7 +92,774 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
   @override
   void initState() {
     super.initState();
-    CachedStreamService.instance.refreshCache();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        CachedStreamService.instance.refreshCache();
+      }
+    });
+    _loadM3uPlaylists();
+  }
+
+  Future<void> _loadM3uPlaylists() async {
+    try {
+      final playlists = await M3uPlaylistService.instance.loadPlaylists();
+      if (mounted) {
+        setState(() => _m3uPlaylists = playlists);
+      }
+    } catch (e) {
+      debugPrint('[CachedStreams] Error loading playlists: $e');
+    }
+  }
+
+  void _toggleSelectionMode(bool enable) {
+    setState(() {
+      _isSelectionMode = enable;
+      if (!enable) {
+        _selectedTrackPaths.clear();
+      }
+    });
+  }
+
+  void _toggleTrackSelection(String path) {
+    setState(() {
+      if (_selectedTrackPaths.contains(path)) {
+        _selectedTrackPaths.remove(path);
+        if (_selectedTrackPaths.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedTrackPaths.add(path);
+      }
+    });
+  }
+
+  void _selectAllTracks(List<CachedStreamItem> items) {
+    setState(() {
+      _selectedTrackPaths.addAll(items.map((s) => s.filePath));
+    });
+  }
+
+  void _deselectAllTracks() {
+    setState(() {
+      _selectedTrackPaths.clear();
+    });
+  }
+
+  void _playSelectedTracks(List<CachedStreamItem> allTracks,
+      {bool shuffle = false}) {
+    if (_selectedTrackPaths.isEmpty) return;
+    final selected = allTracks
+        .where((t) => _selectedTrackPaths.contains(t.filePath))
+        .toList();
+    if (selected.isEmpty) return;
+
+    if (shuffle) {
+      selected.shuffle();
+    }
+    _toggleSelectionMode(false);
+    _playAndPop(selected, initialIndex: 0);
+  }
+
+  void _queueSelectedTracks(List<CachedStreamItem> allTracks) {
+    if (_selectedTrackPaths.isEmpty) return;
+    final selected = allTracks
+        .where((t) => _selectedTrackPaths.contains(t.filePath))
+        .toList();
+    if (selected.isEmpty) return;
+
+    for (final track in selected) {
+      final trackInfo = TrackInfo(
+        videoId: track.filePath,
+        title: track.title,
+        artist: track.artist.isNotEmpty ? track.artist : 'Online Stream',
+        thumbnailUrl: track.thumbnailUrl,
+        durationSeconds: track.durationSeconds,
+      );
+      widget.onQueueTrack?.call(trackInfo);
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+            'Added ${selected.length} track${selected.length == 1 ? '' : 's'} to Queue'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    _toggleSelectionMode(false);
+  }
+
+  Future<void> _shareSelectedTracks(List<CachedStreamItem> allTracks) async {
+    if (_selectedTrackPaths.isEmpty) return;
+    final selected = allTracks
+        .where((t) => _selectedTrackPaths.contains(t.filePath))
+        .toList();
+    if (selected.isEmpty) return;
+
+    final xfiles = <XFile>[];
+    for (final t in selected) {
+      if (File(t.filePath).existsSync()) {
+        xfiles.add(XFile(t.filePath));
+      }
+    }
+
+    if (xfiles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('No local audio files found for selected tracks')),
+      );
+      return;
+    }
+
+    try {
+      await Share.shareXFiles(
+        xfiles,
+        text:
+            'Shared ${xfiles.length} cached track${xfiles.length == 1 ? '' : 's'} from SautiPlay',
+      );
+    } catch (e) {
+      debugPrint('[CachedStreams] Error sharing files: $e');
+    }
+    _toggleSelectionMode(false);
+  }
+
+  Future<void> _deleteSelectedTracks(List<CachedStreamItem> allTracks) async {
+    final count = _selectedTrackPaths.length;
+    if (count == 0) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Delete $count Cached Track${count > 1 ? 's' : ''}?',
+          style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'This will remove $count selected audio file${count > 1 ? 's' : ''} from your offline cache. They will re-cache when streamed again.',
+          style: TextStyle(color: _textDark, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Cancel', style: TextStyle(color: _textDark)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('Delete $count File${count > 1 ? 's' : ''}'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    final pathsToDelete = List<String>.from(_selectedTrackPaths);
+    int deleted = 0;
+    for (final path in pathsToDelete) {
+      await CachedStreamService.instance.removeCachedStream(path);
+      deleted++;
+    }
+
+    _toggleSelectionMode(false);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text('Deleted $deleted cached track${deleted == 1 ? '' : 's'}.'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _showAddToPlaylistSheet({
+    List<CachedStreamItem>? explicitTracks,
+    required List<CachedStreamItem> allTracks,
+  }) async {
+    final tracksToAdd = explicitTracks ??
+        allTracks
+            .where((t) => _selectedTrackPaths.contains(t.filePath))
+            .toList();
+
+    if (tracksToAdd.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No tracks selected to add.')),
+      );
+      return;
+    }
+
+    final songsToAdd = tracksToAdd
+        .map((track) => LocalSongItem(
+              path: track.filePath,
+              title: track.title,
+              artist: track.artist.isNotEmpty ? track.artist : 'Online Stream',
+              album: (track.album != null && track.album!.isNotEmpty)
+                  ? track.album!
+                  : 'Cached Streams',
+              sizeBytes: track.fileSizeBytes,
+              lastModified: track.cachedAt,
+            ))
+        .toList();
+
+    await _loadM3uPlaylists();
+    if (!mounted) return;
+
+    final isMobile = MediaQuery.of(context).size.width < 600;
+    final primaryColor = _primary;
+    final textPrimary = _textPrimary;
+    final textDark = _textDark;
+    final cardDark = _surfaceColor;
+
+    final sheetContent = Material(
+      color: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 450),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.playlist_add_rounded,
+                        color: primaryColor, size: 24),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Add to Playlist (${songsToAdd.length} track${songsToAdd.length == 1 ? '' : 's'})',
+                        style: TextStyle(
+                          color: textPrimary,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: Colors.white.withValues(alpha: 0.1)),
+              const SizedBox(height: 6),
+              // Create New Playlist Option
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: Material(
+                  color: primaryColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () async {
+                      Navigator.of(context).pop();
+                      await _createNewPlaylistDialog(songsToAdd);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: primaryColor.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(Icons.add_rounded,
+                                color: primaryColor, size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'New Playlist',
+                                  style: TextStyle(
+                                    color: textPrimary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Create a new playlist from selected songs',
+                                  style:
+                                      TextStyle(color: textDark, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.arrow_forward_ios_rounded,
+                              color: primaryColor, size: 16),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (_m3uPlaylists.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                  child: Text(
+                    'EXISTING PLAYLISTS',
+                    style: TextStyle(
+                      color: textDark.withValues(alpha: 0.8),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+                ...List.generate(_m3uPlaylists.length, (idx) {
+                  final pl = _m3uPlaylists[idx];
+                  return Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+                    child: Material(
+                      color: cardDark,
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () async {
+                          Navigator.of(context).pop();
+                          final updated = await M3uPlaylistService.instance
+                              .addTracksToPlaylist(
+                            playlistId: pl.id,
+                            tracks: songsToAdd,
+                          );
+                          if (updated != null) {
+                            await _loadM3uPlaylists();
+                            _toggleSelectionMode(false);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                      'Added ${songsToAdd.length} tracks to "${pl.name}"'),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: primaryColor.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                                child: Icon(
+                                  Icons.queue_music_rounded,
+                                  color: primaryColor,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      pl.name,
+                                      style: TextStyle(
+                                        color: textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${pl.tracks.length} track${pl.tracks.length == 1 ? '' : 's'}',
+                                      style: TextStyle(
+                                          color: textDark, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(Icons.add_circle_outline_rounded,
+                                  color: primaryColor, size: 22),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 12),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (isMobile) {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: _surfaceColor,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: sheetContent,
+          ),
+        ),
+      );
+    } else {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: _surfaceColor,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Add to Playlist',
+            style: TextStyle(color: textPrimary, fontWeight: FontWeight.bold),
+          ),
+          content: SizedBox(
+            width: 440,
+            child: sheetContent,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text('Cancel', style: TextStyle(color: textDark)),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Future<void> _createNewPlaylistDialog(List<LocalSongItem> songsToAdd) async {
+    final controller = TextEditingController(
+      text: 'Cached Playlist ${_m3uPlaylists.length + 1}',
+    );
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surfaceColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Create Playlist',
+          style: TextStyle(color: _textPrimary, fontWeight: FontWeight.bold),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: TextStyle(color: _textPrimary),
+          decoration: InputDecoration(
+            labelText: 'Playlist Name',
+            labelStyle: TextStyle(color: _textDark),
+            filled: true,
+            fillColor: _bgDark,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Cancel', style: TextStyle(color: _textDark)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _primary,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && controller.text.trim().isNotEmpty) {
+      final pl = await M3uPlaylistService.instance.createPlaylist(
+        name: controller.text.trim(),
+        tracks: songsToAdd,
+      );
+      await _loadM3uPlaylists();
+      _toggleSelectionMode(false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Created playlist "${pl.name}" with ${songsToAdd.length} tracks'),
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildSelectionActionBar(
+    List<CachedStreamItem> displayedItems, {
+    bool isDesktop = false,
+  }) {
+    final selectedCount = _selectedTrackPaths.length;
+    final allSelected = selectedCount == displayedItems.length &&
+        displayedItems.isNotEmpty;
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 10 : 6,
+        vertical: isDesktop ? 6 : 4,
+      ),
+      decoration: BoxDecoration(
+        color: _primary.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(isDesktop ? 16 : 14),
+        border: Border.all(
+          color: _primary.withValues(alpha: 0.45),
+          width: 1.2,
+        ),
+      ),
+      child: Row(
+        children: [
+          // Close button to cancel selection mode
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            icon: Icon(Icons.close_rounded,
+                size: isDesktop ? 22 : 19, color: _textPrimary),
+            tooltip: 'Cancel selection',
+            onPressed: () => _toggleSelectionMode(false),
+          ),
+          const SizedBox(width: 4),
+
+          // Selection count badge
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 10 : 7,
+              vertical: 4,
+            ),
+            decoration: BoxDecoration(
+              color: _primary.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              isDesktop ? '$selectedCount Selected' : '$selectedCount',
+              style: TextStyle(
+                color: _textPrimary,
+                fontWeight: FontWeight.bold,
+                fontSize: isDesktop ? 13.5 : 12,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+
+          // Actions inside M3ESegmentedButton - compact and never overstretches on mobile!
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: isDesktop ? 340 : 255,
+                        minWidth: isDesktop ? 280 : 210,
+                      ),
+                      child: M3ESegmentedButton<String>(
+                        showSelectedIcon: false,
+                        segments: [
+                          M3ESegment<String>(
+                            value: 'selectAll',
+                            semanticLabel:
+                                allSelected ? 'Deselect all' : 'Select all',
+                            icon: Tooltip(
+                              message:
+                                  allSelected ? 'Deselect all' : 'Select all',
+                              child: Icon(
+                                allSelected
+                                    ? Icons.deselect_rounded
+                                    : Icons.select_all_rounded,
+                                size: isDesktop ? 20 : 17,
+                              ),
+                            ),
+                          ),
+                          M3ESegment<String>(
+                            value: 'playlist',
+                            semanticLabel: 'Add to playlist',
+                            icon: Tooltip(
+                              message: 'Add to playlist',
+                              child: Icon(
+                                Icons.playlist_add_rounded,
+                                size: isDesktop ? 20 : 17,
+                              ),
+                            ),
+                          ),
+                          M3ESegment<String>(
+                            value: 'queue',
+                            semanticLabel: 'Add to queue',
+                            icon: Tooltip(
+                              message: 'Add to queue',
+                              child: Icon(
+                                Icons.queue_music_rounded,
+                                size: isDesktop ? 20 : 17,
+                              ),
+                            ),
+                          ),
+                          M3ESegment<String>(
+                            value: 'delete',
+                            semanticLabel: 'Delete selected',
+                            icon: Tooltip(
+                              message: 'Delete selected',
+                              child: Icon(
+                                Icons.delete_outline_rounded,
+                                size: isDesktop ? 20 : 17,
+                                color: Colors.redAccent,
+                              ),
+                            ),
+                          ),
+                          M3ESegment<String>(
+                            value: 'play',
+                            semanticLabel: 'Play selected',
+                            icon: Tooltip(
+                              message: 'Play selected',
+                              child: Icon(
+                                Icons.play_arrow_rounded,
+                                size: isDesktop ? 23 : 19,
+                                color: _primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                        selected: const <String>{},
+                        onSelectionChanged: (selectedSet) {
+                          if (selectedSet.isEmpty) return;
+                          final action = selectedSet.first;
+                          switch (action) {
+                            case 'selectAll':
+                              if (allSelected) {
+                                _deselectAllTracks();
+                              } else {
+                                _selectAllTracks(displayedItems);
+                              }
+                              break;
+                            case 'playlist':
+                              _showAddToPlaylistSheet(
+                                  allTracks: displayedItems);
+                              break;
+                            case 'queue':
+                              _queueSelectedTracks(displayedItems);
+                              break;
+                            case 'delete':
+                              _deleteSelectedTracks(displayedItems);
+                              break;
+                            case 'play':
+                              _playSelectedTracks(displayedItems);
+                              break;
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    // More options popup menu
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.more_vert_rounded,
+                          size: isDesktop ? 20 : 18, color: _textPrimary),
+                      tooltip: 'More actions',
+                      color: _surfaceColor,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      onSelected: (val) {
+                        switch (val) {
+                          case 'shuffle':
+                            _playSelectedTracks(displayedItems, shuffle: true);
+                            break;
+                          case 'share':
+                            _shareSelectedTracks(displayedItems);
+                            break;
+                          case 'selectAll':
+                            _selectAllTracks(displayedItems);
+                            break;
+                          case 'deselectAll':
+                            _deselectAllTracks();
+                            break;
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        PopupMenuItem(
+                          value: 'shuffle',
+                          child: Row(
+                            children: [
+                              Icon(Icons.shuffle_rounded,
+                                  color: _primary, size: 18),
+                              const SizedBox(width: 10),
+                              const Text('Shuffle Selected'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'share',
+                          child: Row(
+                            children: [
+                              Icon(Icons.share_rounded,
+                                  color: Colors.blueAccent, size: 18),
+                              const SizedBox(width: 10),
+                              const Text('Share Selected'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuDivider(),
+                        PopupMenuItem(
+                          value: allSelected ? 'deselectAll' : 'selectAll',
+                          child: Row(
+                            children: [
+                              Icon(
+                                allSelected
+                                    ? Icons.deselect_rounded
+                                    : Icons.select_all_rounded,
+                                color: _textPrimary,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(allSelected
+                                  ? 'Deselect All'
+                                  : 'Select All'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -198,44 +970,10 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
         }
         break;
       case SongOption.addToPlaylist:
-        final song = LocalSongItem(
-          path: track.filePath,
-          title: track.title,
-          artist: track.artist,
-          album: 'Cached Streams',
-          sizeBytes: track.fileSizeBytes,
-          lastModified: DateTime.now(),
+        _showAddToPlaylistSheet(
+          explicitTracks: [track],
+          allTracks: CachedStreamService.instance.cachedStreamsNotifier.value,
         );
-        final playlists = await M3uPlaylistService.instance.loadPlaylists();
-        if (!mounted) break;
-        if (playlists.isNotEmpty) {
-          final first = playlists.first;
-          await M3uPlaylistService.instance.addTracksToPlaylist(
-            playlistId: first.id,
-            tracks: [song],
-          );
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Added "${track.title}" to "${first.name}"'),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
-        } else {
-          final pl = await M3uPlaylistService.instance.createPlaylist(
-            name: 'Favorite Streams',
-            tracks: [song],
-          );
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Created playlist "${pl.name}" with "${track.title}"'),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
-        }
         break;
       case SongOption.info:
         MusicInfoDialog.show(
@@ -339,6 +1077,31 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                     },
                   ),
 
+                // Option: Add to Playlist
+                ListTile(
+                  leading:
+                      Icon(Icons.playlist_add_rounded, color: _primary),
+                  title: Text('Add to Playlist',
+                      style: TextStyle(color: _textPrimary)),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _handleSongOption(track, SongOption.addToPlaylist);
+                  },
+                ),
+
+                // Option: Select & Multi-select
+                ListTile(
+                  leading:
+                      Icon(Icons.checklist_rounded, color: _textPrimary),
+                  title: Text('Select Tracks',
+                      style: TextStyle(color: _textPrimary)),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _toggleSelectionMode(true);
+                    _toggleTrackSelection(track.filePath);
+                  },
+                ),
+
                 // Option: Song Details & Diagnostics
                 ListTile(
                   leading: Icon(Icons.info_outline_rounded, color: _primary),
@@ -419,6 +1182,16 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                           return Column(
                             children: [
                               _buildViewTabs(isDesktop, rawItems),
+                              if (_activeTab == CachedStreamsTab.tracks &&
+                                  _isSelectionMode)
+                                Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isDesktop ? 32 : 16,
+                                    vertical: 4,
+                                  ),
+                                  child: _buildSelectionActionBar(items,
+                                      isDesktop: isDesktop),
+                                ),
                               Expanded(
                                 child: _activeTab == CachedStreamsTab.tracks
                                     ? (items.isEmpty && _searchQuery.isNotEmpty
@@ -530,6 +1303,21 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                   });
                 },
               ),
+              if (_activeTab == CachedStreamsTab.tracks)
+                IconButton(
+                  icon: Icon(
+                    _isSelectionMode
+                        ? Icons.check_circle_rounded
+                        : Icons.checklist_rounded,
+                    color: _isSelectionMode ? _primary : _textPrimary,
+                    size: isDesktop ? 24 : 22,
+                  ),
+                  tooltip: _isSelectionMode
+                      ? 'Cancel Selection'
+                      : 'Select Tracks',
+                  onPressed: () =>
+                      _toggleSelectionMode(!_isSelectionMode),
+                ),
               // View Mode Selector
               PopupMenuButton<TrackViewMode>(
                 icon: Icon(_trackViewMode.icon,
@@ -666,7 +1454,12 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
             label: 'Albums (${albums.length})',
             icon: Icons.album_rounded,
             isSelected: _activeTab == CachedStreamsTab.albums,
-            onTap: () => setState(() => _activeTab = CachedStreamsTab.albums),
+            onTap: () {
+              setState(() {
+                _activeTab = CachedStreamsTab.albums;
+                _toggleSelectionMode(false);
+              });
+            },
           ),
         ],
       ),
@@ -1373,7 +2166,7 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
               },
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           // Shuffle Button
           Expanded(
             child: OutlinedButton.icon(
@@ -1398,6 +2191,25 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
               },
             ),
           ),
+          const SizedBox(width: 8),
+          // Select Button
+          IconButton.filledTonal(
+            style: IconButton.styleFrom(
+              backgroundColor: _surfaceColor,
+              foregroundColor: _textPrimary,
+              padding: EdgeInsets.all(isDesktop ? 14 : 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(
+                    color: _outline.withValues(alpha: 0.25), width: 1),
+              ),
+            ),
+            icon: Icon(Icons.checklist_rounded, size: isDesktop ? 22 : 20),
+            tooltip: 'Select Tracks',
+            onPressed: () {
+              _toggleSelectionMode(true);
+            },
+          ),
         ],
       ),
     );
@@ -1406,17 +2218,19 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
   Widget _buildListContent(List<CachedStreamItem> items,
       List<CachedStreamItem> rawItems, bool isDesktop) {
     if (_trackViewMode == TrackViewMode.compact) {
+      final showSummaryCard = !_isSelectionMode;
+      final itemCount = showSummaryCard ? 1 + items.length : items.length;
       return ListView.builder(
         padding: EdgeInsets.symmetric(
           horizontal: isDesktop ? 32 : 16,
           vertical: 8,
         ).copyWith(bottom: 140),
-        itemCount: 1 + items.length,
+        itemCount: itemCount,
         itemBuilder: (context, index) {
-          if (index == 0) {
+          if (showSummaryCard && index == 0) {
             return _buildActionSummaryCard(rawItems, items, isDesktop);
           }
-          final itemIndex = index - 1;
+          final itemIndex = showSummaryCard ? index - 1 : index;
           final track = items[itemIndex];
           final isFirst = itemIndex == 0;
           final isLast = itemIndex == items.length - 1;
@@ -1428,25 +2242,29 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
             isDesktop: isDesktop,
             isFirst: isFirst,
             isLast: isLast,
+            isSelectionMode: _isSelectionMode,
+            isSelected: _selectedTrackPaths.contains(track.filePath),
+            onSelectionChanged: (_) => _toggleTrackSelection(track.filePath),
           );
         },
       );
     } else if (_trackViewMode == TrackViewMode.grid) {
       return CustomScrollView(
         slivers: [
-          SliverPadding(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 32 : 16,
-              vertical: 8,
+          if (!_isSelectionMode)
+            SliverPadding(
+              padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 32 : 16,
+                vertical: 8,
+              ),
+              sliver: SliverToBoxAdapter(
+                child: _buildActionSummaryCard(rawItems, items, isDesktop),
+              ),
             ),
-            sliver: SliverToBoxAdapter(
-              child: _buildActionSummaryCard(rawItems, items, isDesktop),
-            ),
-          ),
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
               isDesktop ? 32 : 16,
-              0,
+              _isSelectionMode ? 8 : 0,
               isDesktop ? 32 : 16,
               140,
             ),
@@ -1460,8 +2278,16 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
                   final track = items[index];
-                  return _buildGridTrackItem(track, items, index,
-                      isDesktop: isDesktop);
+                  return _buildGridTrackItem(
+                    track,
+                    items,
+                    index,
+                    isDesktop: isDesktop,
+                    isSelectionMode: _isSelectionMode,
+                    isSelected: _selectedTrackPaths.contains(track.filePath),
+                    onSelectionChanged: (_) =>
+                        _toggleTrackSelection(track.filePath),
+                  );
                 },
                 childCount: items.length,
               ),
@@ -1471,17 +2297,19 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
       );
     } else {
       // Standard Virtualized ListView with connected M3E rounded card style matching library tracks screen
+      final showSummaryCard = !_isSelectionMode;
+      final itemCount = showSummaryCard ? 1 + items.length : items.length;
       return ListView.builder(
         padding: EdgeInsets.symmetric(
           horizontal: isDesktop ? 32 : 16,
           vertical: 8,
         ).copyWith(bottom: 140),
-        itemCount: 1 + items.length,
+        itemCount: itemCount,
         itemBuilder: (context, index) {
-          if (index == 0) {
+          if (showSummaryCard && index == 0) {
             return _buildActionSummaryCard(rawItems, items, isDesktop);
           }
-          final itemIndex = index - 1;
+          final itemIndex = showSummaryCard ? index - 1 : index;
           final track = items[itemIndex];
           final isFirst = itemIndex == 0;
           final isLast = itemIndex == items.length - 1;
@@ -1493,6 +2321,9 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
             isDesktop: isDesktop,
             isFirst: isFirst,
             isLast: isLast,
+            isSelectionMode: _isSelectionMode,
+            isSelected: _selectedTrackPaths.contains(track.filePath),
+            onSelectionChanged: (_) => _toggleTrackSelection(track.filePath),
           );
         },
       );
@@ -1507,6 +2338,9 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
     bool isDesktop = false,
     bool isFirst = false,
     bool isLast = false,
+    bool isSelectionMode = false,
+    bool isSelected = false,
+    ValueChanged<bool?>? onSelectionChanged,
   }) {
     final borderRadius = BorderRadius.only(
       topLeft: Radius.circular(isFirst ? 20 : 6),
@@ -1516,25 +2350,60 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
     );
     final thumbSize = isDesktop ? 60.0 : 48.0;
 
+    final itemColor =
+        isSelected ? _primary.withValues(alpha: 0.16) : _surfaceColor;
+    final borderColor = isSelected
+        ? _primary.withValues(alpha: 0.55)
+        : _outline.withValues(alpha: 0.12);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 3.0),
       child: Material(
-        color: _surfaceColor,
+        color: itemColor,
         shape: RoundedRectangleBorder(
           borderRadius: borderRadius,
           side: BorderSide(
-            color: _outline.withValues(alpha: 0.12),
-            width: 1.0,
+            color: borderColor,
+            width: isSelected ? 1.4 : 1.0,
           ),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => _playAndPop(allTracks, initialIndex: index),
-          onLongPress: () => _showTrackOptions(context, track, isDesktop),
+          onTap: () {
+            if (isSelectionMode) {
+              _toggleTrackSelection(track.filePath);
+            } else {
+              _playAndPop(allTracks, initialIndex: index);
+            }
+          },
+          onLongPress: () {
+            if (!isSelectionMode) {
+              _toggleSelectionMode(true);
+            }
+            _toggleTrackSelection(track.filePath);
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               children: [
+                if (isSelectionMode) ...[
+                  Checkbox(
+                    value: isSelected,
+                    activeColor: _primary,
+                    checkColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    side: BorderSide(
+                      color: isSelected
+                          ? _primary
+                          : _textDark.withValues(alpha: 0.6),
+                      width: 1.5,
+                    ),
+                    onChanged: onSelectionChanged,
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 _buildArtwork(track, thumbSize, isDesktop, shape: Shapes.pill),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1566,11 +2435,12 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                SongOptionsMenuButton(
-                  iconSize: isDesktop ? 22 : 18,
-                  onOptionSelected: (option) =>
-                      _handleSongOption(track, option),
-                ),
+                if (!isSelectionMode)
+                  SongOptionsMenuButton(
+                    iconSize: isDesktop ? 22 : 18,
+                    onOptionSelected: (option) =>
+                        _handleSongOption(track, option),
+                  ),
               ],
             ),
           ),
@@ -1587,6 +2457,9 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
     bool isDesktop = false,
     bool isFirst = false,
     bool isLast = false,
+    bool isSelectionMode = false,
+    bool isSelected = false,
+    ValueChanged<bool?>? onSelectionChanged,
   }) {
     final borderRadius = BorderRadius.only(
       topLeft: Radius.circular(isFirst ? 20 : 6),
@@ -1595,25 +2468,60 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
       bottomRight: Radius.circular(isLast ? 20 : 6),
     );
 
+    final itemColor =
+        isSelected ? _primary.withValues(alpha: 0.16) : _surfaceColor;
+    final borderColor = isSelected
+        ? _primary.withValues(alpha: 0.55)
+        : _outline.withValues(alpha: 0.12);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 3.0),
       child: Material(
-        color: _surfaceColor,
+        color: itemColor,
         shape: RoundedRectangleBorder(
           borderRadius: borderRadius,
           side: BorderSide(
-            color: _outline.withValues(alpha: 0.12),
-            width: 1.0,
+            color: borderColor,
+            width: isSelected ? 1.4 : 1.0,
           ),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => _playAndPop(allTracks, initialIndex: index),
-          onLongPress: () => _showTrackOptions(context, track, isDesktop),
+          onTap: () {
+            if (isSelectionMode) {
+              _toggleTrackSelection(track.filePath);
+            } else {
+              _playAndPop(allTracks, initialIndex: index);
+            }
+          },
+          onLongPress: () {
+            if (!isSelectionMode) {
+              _toggleSelectionMode(true);
+            }
+            _toggleTrackSelection(track.filePath);
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             child: Row(
               children: [
+                if (isSelectionMode) ...[
+                  Checkbox(
+                    value: isSelected,
+                    activeColor: _primary,
+                    checkColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    side: BorderSide(
+                      color: isSelected
+                          ? _primary
+                          : _textDark.withValues(alpha: 0.6),
+                      width: 1.5,
+                    ),
+                    onChanged: onSelectionChanged,
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 _buildArtwork(track, isDesktop ? 40 : 34, isDesktop,
                     shape: Shapes.pill),
                 const SizedBox(width: 12),
@@ -1645,11 +2553,12 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                     ],
                   ),
                 ),
-                SongOptionsMenuButton(
-                  iconSize: isDesktop ? 18 : 16,
-                  onOptionSelected: (option) =>
-                      _handleSongOption(track, option),
-                ),
+                if (!isSelectionMode)
+                  SongOptionsMenuButton(
+                    iconSize: isDesktop ? 18 : 16,
+                    onOptionSelected: (option) =>
+                        _handleSongOption(track, option),
+                  ),
               ],
             ),
           ),
@@ -1664,24 +2573,45 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
     List<CachedStreamItem> allTracks,
     int index, {
     bool isDesktop = false,
+    bool isSelectionMode = false,
+    bool isSelected = false,
+    ValueChanged<bool?>? onSelectionChanged,
   }) {
     const Shapes itemShape = Shapes.slanted;
+
+    final itemBg = isSelected
+        ? _primary.withValues(alpha: 0.16)
+        : _surfaceColor.withAlpha(240);
+    final itemBorder = isSelected
+        ? _primary.withValues(alpha: 0.7)
+        : _primary.withValues(alpha: 0.18);
 
     return RepaintBoundary(
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => _playAndPop(allTracks, initialIndex: index),
-          onLongPress: () => _showTrackOptions(context, track, isDesktop),
+          onTap: () {
+            if (isSelectionMode) {
+              _toggleTrackSelection(track.filePath);
+            } else {
+              _playAndPop(allTracks, initialIndex: index);
+            }
+          },
+          onLongPress: () {
+            if (!isSelectionMode) {
+              _toggleSelectionMode(true);
+            }
+            _toggleTrackSelection(track.filePath);
+          },
           child: M3EContainer(
             Shapes.bun,
             width: double.infinity,
             height: double.infinity,
-            color: _surfaceColor.withAlpha(240),
+            color: itemBg,
             border: BorderSide(
-              color: _primary.withValues(alpha: 0.18),
-              width: 1.2,
+              color: itemBorder,
+              width: isSelected ? 1.8 : 1.2,
             ),
             boxShadow: [
               BoxShadow(
@@ -1708,52 +2638,79 @@ class _CachedStreamsScreenState extends State<CachedStreamsScreen> {
                           shape: itemShape,
                         ),
                       ),
-                      // Top-Right Options Badge
-                      Positioned(
-                        top: 4,
-                        right: 4,
-                        child: M3EContainer.circle(
-                          width: 32,
-                          height: 32,
-                          color: Colors.black.withValues(alpha: 0.65),
-                          child: SongOptionsMenuButton(
-                            iconSize: 18,
-                            onOptionSelected: (option) =>
-                                _handleSongOption(track, option),
+                      // Top-Left Checkbox in Selection Mode
+                      if (isSelectionMode)
+                        Positioned(
+                          top: 4,
+                          left: 4,
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: isSelected ? _primary : Colors.black54,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: isSelected
+                                ? const Icon(
+                                    Icons.check_rounded,
+                                    size: 18,
+                                    color: Colors.white,
+                                  )
+                                : null,
                           ),
                         ),
-                      ),
-                      // Bottom-Right Play Badge
-                      Positioned(
-                        bottom: 4,
-                        right: 4,
-                        child: M3EContainer.circle(
-                          width: 32,
-                          height: 32,
-                          gradient: LinearGradient(
-                            colors: [
-                              _primary,
-                              _primary.withValues(alpha: 0.8),
+                      // Top-Right Options Badge (when not in selection mode)
+                      if (!isSelectionMode)
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: M3EContainer.circle(
+                            width: 32,
+                            height: 32,
+                            color: Colors.black.withValues(alpha: 0.65),
+                            child: SongOptionsMenuButton(
+                              iconSize: 18,
+                              onOptionSelected: (option) =>
+                                  _handleSongOption(track, option),
+                            ),
+                          ),
+                        ),
+                      // Bottom-Right Play Badge (when not in selection mode)
+                      if (!isSelectionMode)
+                        Positioned(
+                          bottom: 4,
+                          right: 4,
+                          child: M3EContainer.circle(
+                            width: 32,
+                            height: 32,
+                            gradient: LinearGradient(
+                              colors: [
+                                _primary,
+                                _primary.withValues(alpha: 0.8),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.4),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
                             ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.4),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                          child: const Center(
-                            child: Icon(
-                              Icons.play_arrow_rounded,
-                              size: 20,
-                              color: Colors.white,
+                            child: const Center(
+                              child: Icon(
+                                Icons.play_arrow_rounded,
+                                size: 20,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),

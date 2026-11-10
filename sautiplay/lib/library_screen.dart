@@ -3248,6 +3248,8 @@ class LibraryScreenState extends State<LibraryScreen>
                     segments: [
                       M3ESegment<String>(
                         value: 'selectAll',
+                        semanticLabel:
+                            allSelected ? 'Deselect all' : 'Select all',
                         icon: Tooltip(
                           message: allSelected ? 'Deselect all' : 'Select all',
                           child: Icon(
@@ -3260,6 +3262,7 @@ class LibraryScreenState extends State<LibraryScreen>
                       ),
                       M3ESegment<String>(
                         value: 'playlist',
+                        semanticLabel: 'Add to playlist',
                         icon: Tooltip(
                           message: 'Add to playlist',
                           child: Icon(
@@ -3270,6 +3273,7 @@ class LibraryScreenState extends State<LibraryScreen>
                       ),
                       M3ESegment<String>(
                         value: 'queue',
+                        semanticLabel: 'Add to queue',
                         icon: Tooltip(
                           message: 'Add to queue',
                           child: Icon(
@@ -3280,6 +3284,7 @@ class LibraryScreenState extends State<LibraryScreen>
                       ),
                       M3ESegment<String>(
                         value: 'delete',
+                        semanticLabel: 'Delete selected',
                         icon: Tooltip(
                           message: 'Delete selected',
                           child: Icon(
@@ -3291,6 +3296,7 @@ class LibraryScreenState extends State<LibraryScreen>
                       ),
                       M3ESegment<String>(
                         value: 'play',
+                        semanticLabel: 'Play selected',
                         icon: Tooltip(
                           message: 'Play selected',
                           child: Icon(
