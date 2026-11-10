@@ -1450,7 +1450,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     required Color primaryColor,
   }) {
     final hasArt = widget.albumArt != null && widget.albumArt!.isNotEmpty;
-    final isShortArt = _albumArtNaturalSize != null &&
+    final isOnlineOrCached = widget.sourceType == 'online' ||
+        (widget.videoId != null &&
+            widget.videoId!.isNotEmpty &&
+            CachedStreamService.instance.getCachedItem(widget.videoId!) != null);
+    final isShortArt = !isOnlineOrCached &&
+        _albumArtNaturalSize != null &&
         (_albumArtNaturalSize!.width < 260 ||
             _albumArtNaturalSize!.height < 260);
     final borderRadius = BorderRadius.circular(isDesktop ? 32.0 : 24.0);
@@ -1479,11 +1484,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         child: (hasArt && !isShortArt)
             ? Image.memory(
                 widget.albumArt!,
+                width: double.infinity,
+                height: double.infinity,
                 fit: BoxFit.cover,
                 filterQuality: FilterQuality.high,
               )
             : Image.asset(
                 'assets/icon/cover.jpg',
+                width: double.infinity,
+                height: double.infinity,
                 fit: BoxFit.cover,
                 filterQuality: FilterQuality.high,
               ),
@@ -1516,6 +1525,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     clipBehavior: Clip.antiAlias,
                     child: Image.memory(
                       widget.albumArt!,
+                      width: double.infinity,
+                      height: double.infinity,
                       fit: BoxFit.cover,
                       filterQuality: FilterQuality.high,
                     ),
@@ -1526,6 +1537,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   clipBehavior: Clip.antiAlias,
                   child: Image.memory(
                     widget.albumArt!,
+                    width: double.infinity,
+                    height: double.infinity,
                     fit: BoxFit.cover,
                     filterQuality: FilterQuality.high,
                   ),
@@ -1537,6 +1550,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     clipBehavior: Clip.antiAlias,
                     child: Image.asset(
                       'assets/icon/cover.jpg',
+                      width: double.infinity,
+                      height: double.infinity,
                       fit: BoxFit.cover,
                       filterQuality: FilterQuality.high,
                     ),
@@ -1547,6 +1562,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   clipBehavior: Clip.antiAlias,
                   child: Image.asset(
                     'assets/icon/cover.jpg',
+                    width: double.infinity,
+                    height: double.infinity,
                     fit: BoxFit.cover,
                     filterQuality: FilterQuality.high,
                   ),
@@ -3202,7 +3219,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       } else {
                         // Mobile Layout (< 800px)
                         final topPadding = MediaQuery.paddingOf(context).top;
-                        final isSmallOrShortArt = _albumArtNaturalSize != null &&
+                        final isOnlineOrCached = widget.sourceType == 'online' ||
+                            (widget.videoId != null &&
+                                widget.videoId!.isNotEmpty &&
+                                CachedStreamService.instance
+                                        .getCachedItem(widget.videoId!) !=
+                                    null);
+                        final isSmallOrShortArt = !isOnlineOrCached &&
+                            _albumArtNaturalSize != null &&
                             (_albumArtNaturalSize!.width < 260 ||
                                 _albumArtNaturalSize!.height < 260);
                         content = Column(
@@ -3258,7 +3282,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         child: useM3EShape
                                             ? Padding(
                                                 padding: EdgeInsets.only(
-                                                  top: topPadding + 62,
+                                                  top: topPadding + 80,
                                                   bottom: 120,
                                                   left: 32,
                                                   right: 32,
@@ -3282,6 +3306,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                             : ((hasArt && !isSmallOrShortArt)
                                                 ? Image.memory(
                                                     widget.albumArt!,
+                                                    width: double.infinity,
+                                                    height: double.infinity,
                                                     fit: BoxFit.cover,
                                                     alignment: Alignment.center,
                                                     filterQuality:
@@ -3289,6 +3315,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   )
                                                 : Image.asset(
                                                     'assets/icon/cover.jpg',
+                                                    width: double.infinity,
+                                                    height: double.infinity,
                                                     fit: BoxFit.cover,
                                                     alignment: Alignment.center,
                                                     filterQuality:
@@ -3324,7 +3352,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
                                   // Mobile Header Bar overlaid at top
                                   Positioned(
-                                    top: topPadding + 8,
+                                    top: topPadding + 26,
                                     left: 16,
                                     right: 16,
                                     child: Row(
@@ -3575,7 +3603,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                   // Lyrics Overlay on Album Art (between header and action row)
                                   _buildAlbumArtLyricsOverlay(
                                     borderRadius: 16.0,
-                                    topOffset: topPadding + 62,
+                                    topOffset: topPadding + 80,
                                     bottomOffset: 62.0,
                                     displayPosMs: displayPosMs,
                                     title: title,
