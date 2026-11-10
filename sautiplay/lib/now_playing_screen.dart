@@ -3255,21 +3255,45 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                       },
                                       child: SizedBox.expand(
                                         key: ValueKey(status.currentIndex),
-                                        child: (hasArt && !isSmallOrShortArt)
-                                            ? Image.memory(
-                                                widget.albumArt!,
-                                                fit: BoxFit.cover,
-                                                alignment: Alignment.center,
-                                                filterQuality:
-                                                    FilterQuality.high,
+                                        child: useM3EShape
+                                            ? Padding(
+                                                padding: EdgeInsets.only(
+                                                  top: topPadding + 62,
+                                                  bottom: 120,
+                                                  left: 32,
+                                                  right: 32,
+                                                ),
+                                                child: Center(
+                                                  child: AspectRatio(
+                                                    aspectRatio: 1.0,
+                                                    child: _buildAlbumArtContainer(
+                                                      isDesktop: false,
+                                                      albumArtShape:
+                                                          albumArtShape,
+                                                      useM3EShape: true,
+                                                      surfaceColor:
+                                                          surfaceColor,
+                                                      primaryColor:
+                                                          primaryColor,
+                                                    ),
+                                                  ),
+                                                ),
                                               )
-                                            : Image.asset(
-                                                'assets/icon/cover.jpg',
-                                                fit: BoxFit.cover,
-                                                alignment: Alignment.center,
-                                                filterQuality:
-                                                    FilterQuality.high,
-                                              ),
+                                            : ((hasArt && !isSmallOrShortArt)
+                                                ? Image.memory(
+                                                    widget.albumArt!,
+                                                    fit: BoxFit.cover,
+                                                    alignment: Alignment.center,
+                                                    filterQuality:
+                                                        FilterQuality.high,
+                                                  )
+                                                : Image.asset(
+                                                    'assets/icon/cover.jpg',
+                                                    fit: BoxFit.cover,
+                                                    alignment: Alignment.center,
+                                                    filterQuality:
+                                                        FilterQuality.high,
+                                                  )),
                                       ),
                                     ),
                                     ),
