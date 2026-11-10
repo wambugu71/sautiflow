@@ -342,6 +342,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   bool _nativeNetworkStreamingSupported = false;
   bool _allowInvalidTlsForDownloads = false;
   int _lastPublishedNowPlayingIndex = -1;
+  String? _lastPublishedNowPlayingUri;
+  int _lastPublishedDurationSecs = 0;
+  int _nowPlayingPublishGeneration = 0;
   int _playbackSessionId = 0;
 
   // FTP Background Downloading State
@@ -943,6 +946,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (notif.isGranted) return;
 
     final req = await Permission.notification.request();
+    if (req.isGranted) {
+      _player.refreshSystemNotification();
+      return;
+    }
     if (!req.isGranted) {
       _logs.insert(
         0,
@@ -962,6 +969,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (idx < 0 || idx >= _playlist.length) return;
 
     final source = _playlist[idx];
+    final sourceUri = source.uri.toString();
     final title = _nameFromSource(source);
 
     final overrideDuration = _durationFromSource(source);
@@ -969,15 +977,39 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         ? overrideDuration
         : status.durationSeconds.toInt();
 
-    // Only re-publish system audio notification when the track index changes.
-    // But always ensure metadata (including album art) is loaded.
-    final isNewTrack = idx != _lastPublishedNowPlayingIndex;
-    _lastPublishedNowPlayingIndex = idx;
+    // Re-publish system audio notification when either track index OR track URI changes,
+    // so replacing a queue at index 0 still updates the notification.
+    final isNewTrack =
+        idx != _lastPublishedNowPlayingIndex ||
+        sourceUri != _lastPublishedNowPlayingUri;
+    final durationBecameKnown =
+        !isNewTrack && _lastPublishedDurationSecs <= 0 && finalDurationSecs > 0;
 
-    _updateMetadata(source).then((_) async {
-      // --- DLNA Casting & Local Mute ---
-      if (DlnaService.instance.activeRenderer != null) {
-        if (isNewTrack) {
+    if (isNewTrack) {
+      _lastPublishedNowPlayingIndex = idx;
+      _lastPublishedNowPlayingUri = sourceUri;
+      _lastPublishedDurationSecs = finalDurationSecs;
+      final gen = ++_nowPlayingPublishGeneration;
+
+      // Immediately publish basic track info so the Android notification never
+      // appears without a MediaItem while artwork/metadata are still loading.
+      final initialOnline = _onlineTrackMetadata[source.uri];
+      final initialArtist = initialOnline?.artist ?? _subtitleFromSource(source);
+      unawaited(
+        _player.updateNowPlaying(
+          id: 'track_${idx}_$sourceUri',
+          title: title,
+          artist: initialArtist,
+          duration: Duration(milliseconds: finalDurationSecs * 1000),
+          artUri: initialOnline?.thumbnailUrl,
+        ),
+      );
+
+      _updateMetadata(source).then((_) async {
+        if (!mounted || gen != _nowPlayingPublishGeneration) return;
+
+        // --- DLNA Casting & Local Mute ---
+        if (DlnaService.instance.activeRenderer != null) {
           String? castUrl;
           if (source.uri.scheme == 'file') {
             final path = _safeFilePathFromUri(source.uri);
@@ -995,83 +1027,118 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
               title: title,
             );
           }
+          _player.setGain(0.0); // Mute local audio
         }
-        _player.setGain(0.0); // Mute local audio
-      }
 
-      if (!isNewTrack) return; // art is loaded, skip notification re-publish
+        if (!mounted || gen != _nowPlayingPublishGeneration) return;
 
-      // Lookahead: ensure immediate next track in the queue is resolved and ready in the engine
-      _ensureLookaheadForActiveTrack(source);
+        // Lookahead: ensure immediate next track in the queue is resolved and ready in the engine
+        _ensureLookaheadForActiveTrack(source);
 
-      // Pre-fetch next track's ReplayGain and Dynamic Theme artwork
-      _prefetchNextTrack(idx);
+        // Pre-fetch next track's ReplayGain and Dynamic Theme artwork
+        _prefetchNextTrack(idx);
 
-      final artUri = await _resolveNowPlayingArtUri(
-        source,
-        _metadata.value.albumArt,
-      );
+        String? artUri;
+        try {
+          artUri = await _resolveNowPlayingArtUri(
+            source,
+            _metadata.value.albumArt,
+          );
+        } catch (_) {
+          artUri = initialOnline?.thumbnailUrl;
+        }
+        if (!mounted || gen != _nowPlayingPublishGeneration) return;
 
-      final finalArtist = _metadata.value.artist;
+        final finalArtist = _metadata.value.artist;
 
-      String currentTrackId = title;
-      if (_onlineTrackMetadata.containsKey(source.uri)) {
-        currentTrackId = _onlineTrackMetadata[source.uri]!.videoId;
-      } else if (source.uri.scheme == 'file') {
-        final path = _safeFilePathFromUri(source.uri);
-        if (path != null) currentTrackId = path;
-      }
-      final isCurrentLiked = await LikedSongsService.instance.isLiked(currentTrackId);
+        String currentTrackId = title;
+        if (_onlineTrackMetadata.containsKey(source.uri)) {
+          currentTrackId = _onlineTrackMetadata[source.uri]!.videoId;
+        } else if (source.uri.scheme == 'file') {
+          final path = _safeFilePathFromUri(source.uri);
+          if (path != null) currentTrackId = path;
+        }
+        bool isCurrentLiked = false;
+        try {
+          isCurrentLiked =
+              await LikedSongsService.instance.isLiked(currentTrackId);
+        } catch (_) {}
+        if (!mounted || gen != _nowPlayingPublishGeneration) return;
 
-      unawaited(
-        _player.updateNowPlaying(
-          id: 'track_$idx',
-          title: title,
-          artist: finalArtist,
-          duration: Duration(milliseconds: finalDurationSecs * 1000),
-          artUri: artUri,
-          isFavorite: isCurrentLiked,
-        ),
-      );
+        final latestSecs = (_lastPublishedDurationSecs > 0)
+            ? _lastPublishedDurationSecs
+            : finalDurationSecs;
 
-      unawaited(
-        LastFmService.instance.onTrackStarted(
-          title: title,
-          artist: finalArtist,
-          durationSeconds: finalDurationSecs,
-        ),
-      );
-
-      // Record in History
-      String videoIdToSave = title; // fallback
-      String? thumbnailUrlToSave;
-      String? artistIdToSave;
-      if (_onlineTrackMetadata.containsKey(source.uri)) {
-        videoIdToSave = _onlineTrackMetadata[source.uri]!.videoId;
-        thumbnailUrlToSave = _onlineTrackMetadata[source.uri]!.thumbnailUrl;
-        artistIdToSave = _onlineTrackMetadata[source.uri]!.artistId;
-      } else if (source.uri.scheme == 'file') {
-        final path = _safeFilePathFromUri(source.uri);
-        if (path != null) videoIdToSave = path;
-      }
-      if (artistIdToSave == null && idx >= 0 && idx < _currentUiQueue.length) {
-        artistIdToSave = _currentUiQueue[idx].artistId;
-      }
-
-      unawaited(
-        RecentlyPlayedService.instance.addTrack(
-          RecentlyPlayedTrack(
-            videoId: videoIdToSave,
+        unawaited(
+          _player.updateNowPlaying(
+            id: 'track_${idx}_$sourceUri',
             title: title,
             artist: finalArtist,
-            artistId: artistIdToSave,
-            thumbnailUrl: thumbnailUrlToSave,
-            durationSeconds: finalDurationSecs,
-            playedAt: DateTime.now(),
+            duration: Duration(milliseconds: latestSecs * 1000),
+            artUri: artUri,
+            isFavorite: isCurrentLiked,
           ),
-        ),
-      );
-    });
+        );
+
+        unawaited(
+          LastFmService.instance.onTrackStarted(
+            title: title,
+            artist: finalArtist,
+            durationSeconds: latestSecs,
+          ),
+        );
+
+        // Record in History
+        String videoIdToSave = title; // fallback
+        String? thumbnailUrlToSave;
+        String? artistIdToSave;
+        if (_onlineTrackMetadata.containsKey(source.uri)) {
+          videoIdToSave = _onlineTrackMetadata[source.uri]!.videoId;
+          thumbnailUrlToSave = _onlineTrackMetadata[source.uri]!.thumbnailUrl;
+          artistIdToSave = _onlineTrackMetadata[source.uri]!.artistId;
+        } else if (source.uri.scheme == 'file') {
+          final path = _safeFilePathFromUri(source.uri);
+          if (path != null) videoIdToSave = path;
+        }
+        if (artistIdToSave == null &&
+            idx >= 0 &&
+            idx < _currentUiQueue.length) {
+          artistIdToSave = _currentUiQueue[idx].artistId;
+        }
+
+        unawaited(
+          RecentlyPlayedService.instance.addTrack(
+            RecentlyPlayedTrack(
+              videoId: videoIdToSave,
+              title: title,
+              artist: finalArtist,
+              artistId: artistIdToSave,
+              thumbnailUrl: thumbnailUrlToSave,
+              durationSeconds: latestSecs,
+              playedAt: DateTime.now(),
+            ),
+          ),
+        );
+      });
+    } else if (durationBecameKnown) {
+      _lastPublishedDurationSecs = finalDurationSecs;
+      final gen = _nowPlayingPublishGeneration;
+      _resolveNowPlayingArtUri(source, _metadata.value.albumArt).then((artUri) {
+        if (!mounted || gen != _nowPlayingPublishGeneration) return;
+        unawaited(
+          _player.updateNowPlaying(
+            id: 'track_${idx}_$sourceUri',
+            title: title,
+            artist: _metadata.value.artist,
+            duration: Duration(milliseconds: finalDurationSecs * 1000),
+            artUri: artUri,
+          ),
+        );
+      });
+    } else {
+      // Ensure metadata (including album art) is loaded if not already
+      _updateMetadata(source);
+    }
   }
 
   Future<void> _syncNotificationFavoriteStatus() async {

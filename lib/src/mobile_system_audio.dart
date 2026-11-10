@@ -140,6 +140,8 @@ class MiniAudioSystemAudioController {
   bool _audioSessionActive = false;
   PlayerStatus? _lastPlayerStatus;
   bool _wasPlayingBeforeInterruption = false;
+  MediaItem? _pendingMediaItem;
+  bool? _pendingIsFavorite;
 
   bool get isSupported => Platform.isAndroid || Platform.isIOS;
   bool get isEnabled => _config != null;
@@ -200,6 +202,19 @@ class MiniAudioSystemAudioController {
         _typedHandler?.updateHeadsetSettings(
           handleHeadsetMultiClicks: config.handleHeadsetMultiClicks,
           headsetClickTimeoutMs: config.headsetClickTimeoutMs,
+        );
+      }
+
+      if (_pendingIsFavorite != null) {
+        _typedHandler?.setFavorite(_pendingIsFavorite!);
+      }
+      if (_pendingMediaItem != null) {
+        _typedHandler?.mediaItem.add(_pendingMediaItem!);
+      }
+      if (_lastPlayerStatus != null) {
+        _typedHandler?.updateFromPlayerStatus(
+          _lastPlayerStatus!,
+          telemetry: _latestTelemetry,
         );
       }
 
@@ -335,6 +350,8 @@ class MiniAudioSystemAudioController {
 
     final c = _config;
     _config = null;
+    _pendingMediaItem = null;
+    _pendingIsFavorite = null;
 
     if (_isDucked && c != null) {
       _onSetGain(c.normalGain);
@@ -349,7 +366,19 @@ class MiniAudioSystemAudioController {
   }
 
   void setFavorite(bool isFavorite) {
+    _pendingIsFavorite = isFavorite;
     _typedHandler?.setFavorite(isFavorite);
+  }
+
+  void refreshNotification() {
+    final h = _typedHandler;
+    if (h == null) return;
+    if (_pendingMediaItem != null) {
+      h.mediaItem.add(_pendingMediaItem!);
+    }
+    if (_lastPlayerStatus != null) {
+      h.updateFromPlayerStatus(_lastPlayerStatus!, telemetry: _latestTelemetry);
+    }
   }
 
   Future<void> updateNowPlaying({
@@ -361,6 +390,20 @@ class MiniAudioSystemAudioController {
     Uri? artUri,
     bool? isFavorite,
   }) async {
+    if (isFavorite != null) {
+      _pendingIsFavorite = isFavorite;
+    }
+
+    final item = MediaItem(
+      id: id ?? 'miniaudiodart-current',
+      title: title,
+      artist: artist,
+      album: album,
+      duration: duration,
+      artUri: artUri,
+    );
+    _pendingMediaItem = item;
+
     final h = _typedHandler;
     if (h == null) return;
 
@@ -368,16 +411,7 @@ class MiniAudioSystemAudioController {
       h.setFavorite(isFavorite);
     }
 
-    h.mediaItem.add(
-      MediaItem(
-        id: id ?? 'miniaudiodart-current',
-        title: title,
-        artist: artist,
-        album: album,
-        duration: duration,
-        artUri: artUri,
-      ),
-    );
+    h.mediaItem.add(item);
   }
 }
 

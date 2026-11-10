@@ -1774,6 +1774,10 @@ class IsolateAudioPlayer {
     _systemAudio?.setFavorite(isFavorite);
   }
 
+  void refreshSystemNotification() {
+    _systemAudio?.refreshNotification();
+  }
+
   void updateAudioFocusSettings(AudioFocusSettings settings) {
     _systemAudio?.updateConfig(
       MiniAudioSystemAudioConfig(
