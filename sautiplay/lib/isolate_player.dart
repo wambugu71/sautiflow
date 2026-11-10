@@ -1150,6 +1150,28 @@ class IsolateAudioPlayer {
         'strength': strength,
       });
 
+  void setDynamicSystemCustom({
+    required bool enabled,
+    required double xLow,
+    required double xHigh,
+    required double yLow,
+    required double yHigh,
+    required double sideGainLow,
+    required double sideGainHigh,
+    required double bassGain,
+  }) =>
+      _send({
+        'cmd': 'setDynamicSystemCustom',
+        'enabled': enabled,
+        'xLow': xLow,
+        'xHigh': xHigh,
+        'yLow': yLow,
+        'yHigh': yHigh,
+        'sideGainLow': sideGainLow,
+        'sideGainHigh': sideGainHigh,
+        'bassGain': bassGain,
+      });
+
   void setAnalogWarmth({
     required bool enabled,
     AnalogWarmthProfile profile = AnalogWarmthProfile.triode12AX7,
@@ -3136,6 +3158,18 @@ void _isolateEntry(_IsolateInitData initData) {
               orElse: () => TransducerProfile.earphone,
             ),
             strength: (message['strength'] as num?)?.toDouble() ?? 0.5,
+          );
+          break;
+        case 'setDynamicSystemCustom':
+          player.dsp.setDynamicSystemCustom(
+            enabled: message['enabled'] == true,
+            xLow: (message['xLow'] as num?)?.toDouble() ?? 180.0,
+            xHigh: (message['xHigh'] as num?)?.toDouble() ?? 5800.0,
+            yLow: (message['yLow'] as num?)?.toDouble() ?? 55.0,
+            yHigh: (message['yHigh'] as num?)?.toDouble() ?? 80.0,
+            sideGainLow: (message['sideGainLow'] as num?)?.toDouble() ?? 0.90,
+            sideGainHigh: (message['sideGainHigh'] as num?)?.toDouble() ?? 0.85,
+            bassGain: (message['bassGain'] as num?)?.toDouble() ?? 2.2,
           );
           break;
         case 'setAnalogWarmth':

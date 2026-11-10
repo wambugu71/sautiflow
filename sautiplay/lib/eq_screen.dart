@@ -215,6 +215,20 @@ class EqScreen extends StatefulWidget {
     );
     final dynamicSystemStrength =
         (state['dynamicSystemStrength'] as num?)?.toDouble() ?? 0.5;
+    final dynamicSystemXLow =
+        (state['dynamicSystemXLow'] as num?)?.toDouble() ?? 180.0;
+    final dynamicSystemXHigh =
+        (state['dynamicSystemXHigh'] as num?)?.toDouble() ?? 5800.0;
+    final dynamicSystemYLow =
+        (state['dynamicSystemYLow'] as num?)?.toDouble() ?? 55.0;
+    final dynamicSystemYHigh =
+        (state['dynamicSystemYHigh'] as num?)?.toDouble() ?? 80.0;
+    final dynamicSystemSideGainX =
+        (state['dynamicSystemSideGainX'] as num?)?.toDouble() ?? 0.10;
+    final dynamicSystemSideGainY =
+        (state['dynamicSystemSideGainY'] as num?)?.toDouble() ?? 0.70;
+    final dynamicSystemMaxDrive =
+        (state['dynamicSystemMaxDrive'] as num?)?.toDouble() ?? 3.4;
 
     final analogWarmthEnabled =
         masterEnabled && (state['analogWarmthEnabled'] ?? false);
@@ -265,6 +279,18 @@ class EqScreen extends StatefulWidget {
       profile: dynamicSystemProfile,
       strength: dynamicSystemStrength,
     );
+    if (dynamicSystemProfile == TransducerProfile.custom) {
+      player.setDynamicSystemCustom(
+        enabled: dynamicSystemEnabled,
+        xLow: dynamicSystemXLow,
+        xHigh: dynamicSystemXHigh,
+        yLow: dynamicSystemYLow,
+        yHigh: dynamicSystemYHigh,
+        sideGainLow: 1.0 + dynamicSystemStrength * (dynamicSystemSideGainX - 1.0),
+        sideGainHigh: 1.0 + dynamicSystemStrength * (dynamicSystemSideGainY - 1.0),
+        bassGain: 1.0 + dynamicSystemStrength * (dynamicSystemMaxDrive - 1.0),
+      );
+    }
 
     player.setAnalogWarmth(
       enabled: analogWarmthEnabled,
@@ -1677,6 +1703,13 @@ class _EqScreenState extends State<EqScreen>
   bool _dynamicSystemEnabled = false;
   TransducerProfile _dynamicSystemProfile = TransducerProfile.earphone;
   double _dynamicSystemStrength = 0.5;
+  double _dynamicSystemXLow = 180.0;
+  double _dynamicSystemXHigh = 5800.0;
+  double _dynamicSystemYLow = 55.0;
+  double _dynamicSystemYHigh = 80.0;
+  double _dynamicSystemSideGainX = 0.10;
+  double _dynamicSystemSideGainY = 0.70;
+  double _dynamicSystemMaxDrive = 3.4;
 
   // 4. Analog Warmth
   bool _analogWarmthEnabled = false;
@@ -2768,6 +2801,30 @@ class _EqScreenState extends State<EqScreen>
         );
         _dynamicSystemStrength =
             (dspMap['dynamicSystemStrength'] as num?)?.toDouble() ?? 0.5;
+        final dsPresetIdx = _dynamicSystemProfile.value
+            .clamp(0, kDynamicSystemPresets.length - 1);
+        final dsBasePreset = kDynamicSystemPresets[dsPresetIdx];
+        _dynamicSystemXLow =
+            (dspMap['dynamicSystemXLow'] as num?)?.toDouble() ??
+                dsBasePreset.xLow;
+        _dynamicSystemXHigh =
+            (dspMap['dynamicSystemXHigh'] as num?)?.toDouble() ??
+                dsBasePreset.xHigh;
+        _dynamicSystemYLow =
+            (dspMap['dynamicSystemYLow'] as num?)?.toDouble() ??
+                dsBasePreset.yLow;
+        _dynamicSystemYHigh =
+            (dspMap['dynamicSystemYHigh'] as num?)?.toDouble() ??
+                dsBasePreset.yHigh;
+        _dynamicSystemSideGainX =
+            (dspMap['dynamicSystemSideGainX'] as num?)?.toDouble() ??
+                dsBasePreset.sideGainX;
+        _dynamicSystemSideGainY =
+            (dspMap['dynamicSystemSideGainY'] as num?)?.toDouble() ??
+                dsBasePreset.sideGainY;
+        _dynamicSystemMaxDrive =
+            (dspMap['dynamicSystemMaxDrive'] as num?)?.toDouble() ??
+                dsBasePreset.maxDrive;
 
         _analogWarmthEnabled = dspMap['analogWarmthEnabled'] ?? false;
         _analogWarmthProfile = AnalogWarmthProfile.values.firstWhere(
@@ -3159,6 +3216,18 @@ class _EqScreenState extends State<EqScreen>
       profile: _dynamicSystemProfile,
       strength: _dynamicSystemStrength,
     );
+    if (_dynamicSystemProfile == TransducerProfile.custom) {
+      widget.player.setDynamicSystemCustom(
+        enabled: _dynamicSystemEnabled,
+        xLow: _dynamicSystemXLow,
+        xHigh: _dynamicSystemXHigh,
+        yLow: _dynamicSystemYLow,
+        yHigh: _dynamicSystemYHigh,
+        sideGainLow: 1.0 + _dynamicSystemStrength * (_dynamicSystemSideGainX - 1.0),
+        sideGainHigh: 1.0 + _dynamicSystemStrength * (_dynamicSystemSideGainY - 1.0),
+        bassGain: 1.0 + _dynamicSystemStrength * (_dynamicSystemMaxDrive - 1.0),
+      );
+    }
   }
 
   void _updateAnalogWarmth() {
@@ -3779,6 +3848,13 @@ class _EqScreenState extends State<EqScreen>
       'dynamicSystemEnabled': _dynamicSystemEnabled,
       'dynamicSystemProfile': _dynamicSystemProfile.value,
       'dynamicSystemStrength': _dynamicSystemStrength,
+      'dynamicSystemXLow': _dynamicSystemXLow,
+      'dynamicSystemXHigh': _dynamicSystemXHigh,
+      'dynamicSystemYLow': _dynamicSystemYLow,
+      'dynamicSystemYHigh': _dynamicSystemYHigh,
+      'dynamicSystemSideGainX': _dynamicSystemSideGainX,
+      'dynamicSystemSideGainY': _dynamicSystemSideGainY,
+      'dynamicSystemMaxDrive': _dynamicSystemMaxDrive,
       'analogWarmthEnabled': _analogWarmthEnabled,
       'analogWarmthProfile': _analogWarmthProfile.value,
       'analogWarmthDrive': _analogWarmthDrive,
@@ -4239,6 +4315,13 @@ class _EqScreenState extends State<EqScreen>
       _dynamicSystemEnabled = false;
       _dynamicSystemProfile = TransducerProfile.earphone;
       _dynamicSystemStrength = 0.5;
+      _dynamicSystemXLow = 180.0;
+      _dynamicSystemXHigh = 5800.0;
+      _dynamicSystemYLow = 55.0;
+      _dynamicSystemYHigh = 80.0;
+      _dynamicSystemSideGainX = 0.10;
+      _dynamicSystemSideGainY = 0.70;
+      _dynamicSystemMaxDrive = 3.4;
       widget.player.setDynamicSystem(enabled: false);
 
       _analogWarmthEnabled = false;
@@ -9245,7 +9328,21 @@ class _EqScreenState extends State<EqScreen>
                   );
                 }).toList(),
                 onChanged: (val) {
-                  setState(() => _dynamicSystemProfile = val);
+                  setState(() {
+                    _dynamicSystemProfile = val;
+                    if (val != TransducerProfile.custom &&
+                        val.value >= 0 &&
+                        val.value < kDynamicSystemPresets.length) {
+                      final p = kDynamicSystemPresets[val.value];
+                      _dynamicSystemXLow = p.xLow;
+                      _dynamicSystemXHigh = p.xHigh;
+                      _dynamicSystemYLow = p.yLow;
+                      _dynamicSystemYHigh = p.yHigh;
+                      _dynamicSystemSideGainX = p.sideGainX;
+                      _dynamicSystemSideGainY = p.sideGainY;
+                      _dynamicSystemMaxDrive = p.maxDrive;
+                    }
+                  });
                   if (_dynamicSystemEnabled) _updateDynamicSystem();
                   _saveEqState();
                 },
@@ -9261,6 +9358,13 @@ class _EqScreenState extends State<EqScreen>
             isEnabled: _dynamicSystemEnabled,
             height: 120.0,
             primaryColor: primaryColor,
+            customXLow: _dynamicSystemXLow,
+            customXHigh: _dynamicSystemXHigh,
+            customYLow: _dynamicSystemYLow,
+            customYHigh: _dynamicSystemYHigh,
+            customSideGainX: _dynamicSystemSideGainX,
+            customSideGainY: _dynamicSystemSideGainY,
+            customBassGain: _dynamicSystemMaxDrive,
           ),
         ),
         const SizedBox(height: 14),
@@ -9278,6 +9382,141 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _dynamicSystemStrength = v);
+                if (_dynamicSystemEnabled) _updateDynamicSystem();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'MAX DRIVE',
+              value: _dynamicSystemMaxDrive,
+              min: 1.0,
+              max: 6.0,
+              flatValue: 3.4,
+              activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
+              onChanged: (v) {
+                setState(() {
+                  _dynamicSystemMaxDrive = v;
+                  _dynamicSystemProfile = TransducerProfile.custom;
+                });
+                if (_dynamicSystemEnabled) _updateDynamicSystem();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'X-LOW FREQ',
+              value: _dynamicSystemXLow,
+              min: 60.0,
+              max: 1500.0,
+              flatValue: 180.0,
+              activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _dynamicSystemXLow = v;
+                  _dynamicSystemProfile = TransducerProfile.custom;
+                });
+                if (_dynamicSystemEnabled) _updateDynamicSystem();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'X-HIGH FREQ',
+              value: _dynamicSystemXHigh,
+              min: 2000.0,
+              max: 10000.0,
+              flatValue: 5800.0,
+              activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => v >= 1000.0
+                  ? '${(v / 1000.0).toStringAsFixed(1)} kHz'
+                  : '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _dynamicSystemXHigh = v;
+                  _dynamicSystemProfile = TransducerProfile.custom;
+                });
+                if (_dynamicSystemEnabled) _updateDynamicSystem();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'Y-LOW SUB',
+              value: _dynamicSystemYLow,
+              min: 20.0,
+              max: 120.0,
+              flatValue: 55.0,
+              activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _dynamicSystemYLow = v;
+                  _dynamicSystemProfile = TransducerProfile.custom;
+                });
+                if (_dynamicSystemEnabled) _updateDynamicSystem();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'Y-HIGH MID',
+              value: _dynamicSystemYHigh,
+              min: 50.0,
+              max: 250.0,
+              flatValue: 80.0,
+              activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toInt()} Hz',
+              onChanged: (v) {
+                setState(() {
+                  _dynamicSystemYHigh = v;
+                  _dynamicSystemProfile = TransducerProfile.custom;
+                });
+                if (_dynamicSystemEnabled) _updateDynamicSystem();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'SIDE GAIN X',
+              value: _dynamicSystemSideGainX,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.10,
+              activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() {
+                  _dynamicSystemSideGainX = v;
+                  _dynamicSystemProfile = TransducerProfile.custom;
+                });
+                if (_dynamicSystemEnabled) _updateDynamicSystem();
+                _saveEqState();
+              },
+            ),
+            ModernAudioKnob(
+              label: 'SIDE GAIN Y',
+              value: _dynamicSystemSideGainY,
+              min: 0.0,
+              max: 1.0,
+              flatValue: 0.70,
+              activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
+              isPercentage: true,
+              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              onChanged: (v) {
+                setState(() {
+                  _dynamicSystemSideGainY = v;
+                  _dynamicSystemProfile = TransducerProfile.custom;
+                });
                 if (_dynamicSystemEnabled) _updateDynamicSystem();
                 _saveEqState();
               },

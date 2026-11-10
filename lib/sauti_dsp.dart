@@ -81,7 +81,8 @@ enum TransducerProfile {
   richLowEnd(15, 'Rich'),
   clubPAPunch(16, 'Club'),
   deepSubExtension(17, 'Deep'),
-  ultimateSubwoofer(18, 'Ultimate');
+  ultimateSubwoofer(18, 'Ultimate'),
+  custom(19, 'Custom');
 
   final int value;
   final String label;

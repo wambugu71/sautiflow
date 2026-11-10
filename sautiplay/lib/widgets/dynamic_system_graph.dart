@@ -3,7 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:sautiflow/sautiflow.dart';
 import '../services/app_theme_service.dart';
 
-class _DynamicSystemPresetParams {
+class DynamicSystemPresetParams {
   final String name;
   final double xLow;
   final double xHigh;
@@ -13,7 +13,7 @@ class _DynamicSystemPresetParams {
   final double sideGainY;
   final double maxDrive;
 
-  const _DynamicSystemPresetParams(
+  const DynamicSystemPresetParams(
     this.name,
     this.xLow,
     this.xHigh,
@@ -25,26 +25,26 @@ class _DynamicSystemPresetParams {
   );
 }
 
-const List<_DynamicSystemPresetParams> _kDynamicSystemPresets = [
-  _DynamicSystemPresetParams('In-Ear Earbuds', 180.0, 5800.0, 55.0, 80.0, 0.10, 0.70, 3.4),
-  _DynamicSystemPresetParams('Over-Ear Headphones', 300.0, 5600.0, 60.0, 105.0, 0.10, 0.50, 3.0),
-  _DynamicSystemPresetParams('Studio Reference', 140.0, 6200.0, 40.0, 60.0, 0.10, 0.80, 2.2),
-  _DynamicSystemPresetParams('Desktop Speakers', 400.0, 6200.0, 40.0, 80.0, 0.10, 0.00, 3.6),
-  _DynamicSystemPresetParams('Club Subwoofer', 800.0, 6200.0, 80.0, 140.0, 0.00, 0.00, 4.6),
-  _DynamicSystemPresetParams('Pure Dynamic', 1000.0, 6200.0, 50.0, 90.0, 0.30, 0.10, 3.8),
-  _DynamicSystemPresetParams('Audiophile Open-Back', 1000.0, 6200.0, 60.0, 100.0, 0.00, 0.00, 2.5),
-  _DynamicSystemPresetParams('Studio Monitor Lows', 1000.0, 6200.0, 60.0, 120.0, 0.00, 0.00, 2.8),
-  _DynamicSystemPresetParams('Cinema Sub Slam', 1200.0, 6200.0, 60.0, 100.0, 0.00, 0.30, 4.2),
-  _DynamicSystemPresetParams('Car Audio Bass', 1200.0, 6200.0, 40.0, 80.0, 0.00, 0.30, 4.0),
-  _DynamicSystemPresetParams('Deep Acoustic Warmth', 600.0, 5400.0, 60.0, 105.0, 0.10, 0.20, 2.8),
-  _DynamicSystemPresetParams('Clean Kick Drum', 400.0, 6200.0, 40.0, 80.0, 0.10, 0.00, 3.2),
-  _DynamicSystemPresetParams('Resonant Rumble', 1200.0, 6200.0, 50.0, 100.0, 0.10, 0.50, 4.4),
-  _DynamicSystemPresetParams('Sub-Bass Boom', 1200.0, 6200.0, 40.0, 80.0, 0.00, 0.20, 4.8),
-  _DynamicSystemPresetParams('Solid Impact', 800.0, 6200.0, 40.0, 80.0, 0.10, 0.00, 3.5),
-  _DynamicSystemPresetParams('Rich Low-End', 1200.0, 6200.0, 50.0, 90.0, 0.15, 0.10, 3.6),
-  _DynamicSystemPresetParams('Club PA Punch', 1000.0, 6200.0, 50.0, 90.0, 0.30, 0.10, 4.0),
-  _DynamicSystemPresetParams('Deep Sub Extension', 1000.0, 6200.0, 80.0, 140.0, 0.00, 0.00, 4.5),
-  _DynamicSystemPresetParams('Ultimate Subwoofer', 800.0, 6200.0, 80.0, 140.0, 0.00, 0.00, 5.0),
+const List<DynamicSystemPresetParams> kDynamicSystemPresets = [
+  DynamicSystemPresetParams('In-Ear Earbuds', 180.0, 5800.0, 55.0, 80.0, 0.10, 0.70, 3.4),
+  DynamicSystemPresetParams('Over-Ear Headphones', 300.0, 5600.0, 60.0, 105.0, 0.10, 0.50, 3.0),
+  DynamicSystemPresetParams('Studio Reference', 140.0, 6200.0, 40.0, 60.0, 0.10, 0.80, 2.2),
+  DynamicSystemPresetParams('Desktop Speakers', 400.0, 6200.0, 40.0, 80.0, 0.10, 0.00, 3.6),
+  DynamicSystemPresetParams('Club Subwoofer', 800.0, 6200.0, 80.0, 140.0, 0.00, 0.00, 4.6),
+  DynamicSystemPresetParams('Pure Dynamic', 1000.0, 6200.0, 50.0, 90.0, 0.30, 0.10, 3.8),
+  DynamicSystemPresetParams('Audiophile Open-Back', 1000.0, 6200.0, 60.0, 100.0, 0.00, 0.00, 2.5),
+  DynamicSystemPresetParams('Studio Monitor Lows', 1000.0, 6200.0, 60.0, 120.0, 0.00, 0.00, 2.8),
+  DynamicSystemPresetParams('Cinema Sub Slam', 1200.0, 6200.0, 60.0, 100.0, 0.00, 0.30, 4.2),
+  DynamicSystemPresetParams('Car Audio Bass', 1200.0, 6200.0, 40.0, 80.0, 0.00, 0.30, 4.0),
+  DynamicSystemPresetParams('Deep Acoustic Warmth', 600.0, 5400.0, 60.0, 105.0, 0.10, 0.20, 2.8),
+  DynamicSystemPresetParams('Clean Kick Drum', 400.0, 6200.0, 40.0, 80.0, 0.10, 0.00, 3.2),
+  DynamicSystemPresetParams('Resonant Rumble', 1200.0, 6200.0, 50.0, 100.0, 0.10, 0.50, 4.4),
+  DynamicSystemPresetParams('Sub-Bass Boom', 1200.0, 6200.0, 40.0, 80.0, 0.00, 0.20, 4.8),
+  DynamicSystemPresetParams('Solid Impact', 800.0, 6200.0, 40.0, 80.0, 0.10, 0.00, 3.5),
+  DynamicSystemPresetParams('Rich Low-End', 1200.0, 6200.0, 50.0, 90.0, 0.15, 0.10, 3.6),
+  DynamicSystemPresetParams('Club PA Punch', 1000.0, 6200.0, 50.0, 90.0, 0.30, 0.10, 4.0),
+  DynamicSystemPresetParams('Deep Sub Extension', 1000.0, 6200.0, 80.0, 140.0, 0.00, 0.00, 4.5),
+  DynamicSystemPresetParams('Ultimate Subwoofer', 800.0, 6200.0, 80.0, 140.0, 0.00, 0.00, 5.0),
 ];
 
 /// A real-time acoustic transfer simulation graph for Dynamic System (Transducer Modeling).
@@ -58,6 +58,13 @@ class DynamicSystemGraph extends StatelessWidget {
   final bool isEnabled;
   final double height;
   final Color? primaryColor;
+  final double? customXLow;
+  final double? customXHigh;
+  final double? customYLow;
+  final double? customYHigh;
+  final double? customSideGainX;
+  final double? customSideGainY;
+  final double? customBassGain;
 
   const DynamicSystemGraph({
     super.key,
@@ -66,6 +73,13 @@ class DynamicSystemGraph extends StatelessWidget {
     this.isEnabled = true,
     this.height = 120.0,
     this.primaryColor,
+    this.customXLow,
+    this.customXHigh,
+    this.customYLow,
+    this.customYHigh,
+    this.customSideGainX,
+    this.customSideGainY,
+    this.customBassGain,
   });
 
   @override
@@ -99,6 +113,13 @@ class DynamicSystemGraph extends StatelessWidget {
             strength: strength,
             isEnabled: isEnabled,
             primaryColor: effectivePrimary,
+            customXLow: customXLow,
+            customXHigh: customXHigh,
+            customYLow: customYLow,
+            customYHigh: customYHigh,
+            customSideGainX: customSideGainX,
+            customSideGainY: customSideGainY,
+            customBassGain: customBassGain,
           ),
         ),
       ),
@@ -111,12 +132,26 @@ class _DynamicSystemPainter extends CustomPainter {
   final double strength;
   final bool isEnabled;
   final Color primaryColor;
+  final double? customXLow;
+  final double? customXHigh;
+  final double? customYLow;
+  final double? customYHigh;
+  final double? customSideGainX;
+  final double? customSideGainY;
+  final double? customBassGain;
 
   _DynamicSystemPainter({
     required this.profile,
     required this.strength,
     required this.isEnabled,
     required this.primaryColor,
+    this.customXLow,
+    this.customXHigh,
+    this.customYLow,
+    this.customYHigh,
+    this.customSideGainX,
+    this.customSideGainY,
+    this.customBassGain,
   });
 
   static const double minFreq = 20.0;
@@ -166,9 +201,29 @@ class _DynamicSystemPainter extends CustomPainter {
       return;
     }
 
-    // 2. Lookup Preset Parameters
-    final index = profile.value.clamp(0, _kDynamicSystemPresets.length - 1);
-    final p = _kDynamicSystemPresets[index];
+    // 2. Lookup Preset or Custom Parameters
+    final bool isCustom = profile.value >= kDynamicSystemPresets.length ||
+        (customXLow != null &&
+            customXHigh != null &&
+            customYLow != null &&
+            customYHigh != null &&
+            customSideGainX != null &&
+            customSideGainY != null &&
+            customBassGain != null);
+    final index = profile.value.clamp(0, kDynamicSystemPresets.length - 1);
+    final basePreset = kDynamicSystemPresets[index];
+    final p = isCustom
+        ? DynamicSystemPresetParams(
+            'Custom Tuning',
+            customXLow ?? basePreset.xLow,
+            customXHigh ?? basePreset.xHigh,
+            customYLow ?? basePreset.yLow,
+            customYHigh ?? basePreset.yHigh,
+            customSideGainX ?? basePreset.sideGainX,
+            customSideGainY ?? basePreset.sideGainY,
+            customBassGain ?? basePreset.maxDrive,
+          )
+        : basePreset;
 
     // 3. Compute Transducer Acoustic Transfer Contour across [20Hz, 20kHz]
     final freqs = List<double>.generate(numPoints, (i) {
@@ -386,6 +441,13 @@ class _DynamicSystemPainter extends CustomPainter {
     return oldDelegate.profile != profile ||
         oldDelegate.strength != strength ||
         oldDelegate.isEnabled != isEnabled ||
-        oldDelegate.primaryColor != primaryColor;
+        oldDelegate.primaryColor != primaryColor ||
+        oldDelegate.customXLow != customXLow ||
+        oldDelegate.customXHigh != customXHigh ||
+        oldDelegate.customYLow != customYLow ||
+        oldDelegate.customYHigh != customYHigh ||
+        oldDelegate.customSideGainX != customSideGainX ||
+        oldDelegate.customSideGainY != customSideGainY ||
+        oldDelegate.customBassGain != customBassGain;
   }
 }
