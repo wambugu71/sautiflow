@@ -56,15 +56,11 @@ import 'services/audio_hardware_inspector.dart';
 import 'services/app_update_service.dart';
 import 'services/projectm_preset_manager.dart';
 import 'streaming_service.dart';
-import 'services/youtube_auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabaseMigrationHelper.migrateIfNeeded();
   await LikedSongsService.instance.init();
-  await YouTubeAuthService.instance.init();
-  YTMusic.defaultCookieProvider = () => YouTubeAuthService.instance.currentCookie;
-  StreamingService.ensureInitialized();
   unawaited(ProjectMPresetManager.instance.initialize());
   // Metadata God removed in favor of audiotags
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -494,7 +490,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     ProximityGestureService.instance.init(
       onNext: () {
         if (_currentUiQueue.isNotEmpty) {
-          _player.next();
+          _handleNextTrack();
         }
       },
       onPrevious: () {
@@ -1604,9 +1600,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _logs.insert(0, '[stream] Fetching "Up Next" suggestions...');
     try {
       final yt = YTMusic();
-      await yt.initialize(
-        cookies: YouTubeAuthService.instance.currentCookie,
-      );
+      await yt.initialize();
       if (!mounted || _playbackSessionId != session) return;
       final upNexts = await yt.getUpNexts(videoId).timeout(const Duration(seconds: 8));
 
@@ -1809,18 +1803,26 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
           );
         }
       }
-    } else if (source.uri.scheme == 'http' || source.uri.scheme == 'https') {
-      _logs.insert(
-          0, '[cache] Completed song playback, caching to disk: ${track.title}');
-      CachedStreamService.instance.cacheStreamInBackground(
-        videoId: videoId,
-        streamUrl: source.uri.toString(),
-        title: track.title,
-        artist: track.artist,
-        thumbnailUrl: track.thumbnailUrl,
-        durationSeconds: track.durationSeconds,
-        isUserDownload: false, // Volatile stream cache in temp directory
-      );
+    } else if ((source.uri.scheme == 'http' || source.uri.scheme == 'https') &&
+        !source.uri.toString().contains('.m3u8') &&
+        !source.uri.path.contains('/manifest/')) {
+      // Delay so the background download never competes with the next track's
+      // startup buffering on slow connections.
+      final streamUrl = source.uri.toString();
+      final resolvedTrack = track;
+      Future<void>.delayed(const Duration(seconds: 20), () {
+        _logs.insert(
+            0, '[cache] Caching completed song to disk: ${resolvedTrack.title}');
+        CachedStreamService.instance.cacheStreamInBackground(
+          videoId: videoId,
+          streamUrl: streamUrl,
+          title: resolvedTrack.title,
+          artist: resolvedTrack.artist,
+          thumbnailUrl: resolvedTrack.thumbnailUrl,
+          durationSeconds: resolvedTrack.durationSeconds,
+          isUserDownload: false, // Volatile stream cache in temp directory
+        );
+      });
     }
 
     unawaited(
@@ -1976,7 +1978,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       if (!mounted || _playbackSessionId != session) return;
       if (detail == null) {
         _showOfflineSnackBar(
-          message: 'Unable to play "${track.title}". Try refreshing your YouTube session.',
+          message: 'Unable to play "${track.title}". Please check your connection.',
         );
         return;
       }
@@ -2194,6 +2196,15 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (initialIndex < 0 || initialIndex >= tracks.length) {
       initialIndex = 0;
     }
+    // Rotate so the tapped track sits at index 0 of both _currentUiQueue and
+    // _playlist; following tracks keep their order (initialIndex+1, +2, ...).
+    if (initialIndex > 0) {
+      tracks = [
+        ...tracks.sublist(initialIndex),
+        ...tracks.sublist(0, initialIndex),
+      ];
+      initialIndex = 0;
+    }
     final tappedTrack = tracks[initialIndex];
     final AudioSource firstSource;
 
@@ -2306,6 +2317,23 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
   bool _isSwitchingQueueTrack = false;
 
+  /// Skips to the next queue track. If background lookahead has not yet added
+  /// it to the engine playlist, resolves it with priority instead of letting
+  /// the engine report "no next track".
+  void _handleNextTrack() {
+    final idx = _status.value.currentIndex;
+    if (idx + 1 < _playlist.length) {
+      _player.next();
+      return;
+    }
+    final nextQueueIdx = idx + 1;
+    if (nextQueueIdx >= 0 && nextQueueIdx < _currentUiQueue.length) {
+      unawaited(_playQueueIndex(nextQueueIdx));
+    } else {
+      _player.next();
+    }
+  }
+
   /// Prioritizes resolving and playing a track from the _currentUiQueue.
   Future<void> _playQueueIndex(int queueIndex) async {
     _isFtpDownloading = false;
@@ -2331,13 +2359,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       });
 
       if (existingIndex != -1) {
-        // Track is already resolved and in the playlist. Just seek to it.
-        _player.setAudioSources(
-          _playlist,
-          initialIndex: existingIndex,
-          initialPosition: Duration.zero,
-          useLazyPreparation: true,
-        );
+        // Track is already resolved and in the playlist. Jump without rebuilding
+        // the engine playlist so a preloaded decoder can start instantly.
+        _player.seekTo(Duration.zero, index: existingIndex);
+        _player.play();
       } else {
         // It's unresolved in playlist. Check if it's local or cached offline on disk first.
         bool resolved = false;
@@ -3412,7 +3437,7 @@ void _showNowPlayingScreen() {
                                 _player.play();
                               }
                             },
-                            onNext: () => _player.next(),
+                            onNext: _handleNextTrack,
                             onPrevious: () => _player.previous(),
                             onTap: _showNowPlayingScreen,
                             onArtistTap: () {

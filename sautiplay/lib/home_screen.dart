@@ -11,8 +11,6 @@ import 'album_detail_screen.dart';
 import 'artist_profile_screen.dart';
 import 'search_screen.dart';
 import 'services/app_theme_service.dart';
-import 'services/youtube_auth_service.dart';
-import 'widgets/youtube_auth_dialog.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // REACTIVE HOME STATE MODEL
@@ -50,25 +48,8 @@ class HomeStateError extends HomeScreenState {
 class HomeReactiveController extends ValueNotifier<HomeScreenState> {
   final YTMusic _ytMusic = YTMusic();
   int _activeRequestId = 0;
-  VoidCallback? _authListener;
 
-  HomeReactiveController() : super(const HomeStateLoading()) {
-    _authListener = () {
-      // Whenever the user connects session cookies, signs in, or signs out,
-      // refresh the home feed immediately with the updated session state.
-      refresh(keepCurrentData: false);
-    };
-    YouTubeAuthService.instance.addAuthListener(_authListener!);
-  }
-
-  @override
-  void dispose() {
-    if (_authListener != null) {
-      YouTubeAuthService.instance.removeAuthListener(_authListener!);
-      _authListener = null;
-    }
-    super.dispose();
-  }
+  HomeReactiveController() : super(const HomeStateLoading());
 
   Future<void> init() async {
     await refresh(keepCurrentData: false);
@@ -81,11 +62,7 @@ class HomeReactiveController extends ValueNotifier<HomeScreenState> {
     }
 
     try {
-      final activeCookie = YouTubeAuthService.instance.currentCookie;
-      await _ytMusic.initialize(
-        cookies: activeCookie,
-        force: true,
-      );
+      await _ytMusic.initialize();
       final sections = await _ytMusic.getHomeSections();
       if (token != _activeRequestId) return;
 
@@ -501,21 +478,13 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
             const SizedBox(height: 2),
-            ValueListenableBuilder<bool>(
-              valueListenable:
-                  YouTubeAuthService.instance.isAuthenticatedNotifier,
-              builder: (context, isAuth, _) {
-                return Text(
-                  isAuth
-                      ? 'Personalized for your YouTube account'
-                      : 'Music curated for you',
-                  style: TextStyle(
-                    color: _textSecondary,
-                    fontSize: isDesktop ? 14 : 12,
-                    fontWeight: FontWeight.w400,
-                  ),
-                );
-              },
+            Text(
+              'Music curated for you',
+              style: TextStyle(
+                color: _textSecondary,
+                fontSize: isDesktop ? 14 : 12,
+                fontWeight: FontWeight.w400,
+              ),
             ),
           ],
         ),
@@ -538,34 +507,6 @@ class _HomeScreenState extends State<HomeScreen>
                           onPlayTracks: widget.onPlayTracks,
                         ),
                       ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              M3ETooltip(
-                message: 'YouTube Account',
-                child: ValueListenableBuilder<bool>(
-                  valueListenable:
-                      YouTubeAuthService.instance.isAuthenticatedNotifier,
-                  builder: (context, isAuth, _) {
-                    return M3EIconButton(
-                      icon: Icon(
-                        isAuth
-                            ? Icons.account_circle_rounded
-                            : Icons.account_circle_outlined,
-                        size: 20,
-                        color: isAuth ? Colors.redAccent : null,
-                      ),
-                      variant: isAuth
-                          ? M3EIconButtonVariant.filled
-                          : M3EIconButtonVariant.tonal,
-                      onPressed: () {
-                        showDialog<bool>(
-                          context: context,
-                          builder: (_) => const YouTubeAuthDialog(),
-                        );
-                      },
                     );
                   },
                 ),

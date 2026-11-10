@@ -10,7 +10,6 @@ import 'package:dart_ytmusic_api/parsers/search_parser.dart';
 import 'package:dart_ytmusic_api/parsers/song_parser.dart';
 import 'package:dart_ytmusic_api/parsers/video_parser.dart';
 import 'package:dart_ytmusic_api/types.dart';
-import 'package:dart_ytmusic_api/utils/sha1.dart';
 import 'package:dart_ytmusic_api/utils/traverse.dart';
 import 'package:http/http.dart' as http;
 
@@ -39,10 +38,7 @@ class YTMusic {
   late http.Client _client;
   late Map<String, String> _baseHeaders;
   bool hasInitialized = false;
-  String? _initializedCookies;
   String? ytMusicHomeRawHtml;
-
-  static String? Function()? defaultCookieProvider;
 
   /// Initializes the YTMusic instance with provided cookies, geolocation, and language.
   Future<YTMusic> initialize({
@@ -50,60 +46,31 @@ class YTMusic {
     String? gl,
     String? hl,
     String? ytMusicHomeRawHtml,
-    bool force = false,
   }) async {
-    cookies ??= defaultCookieProvider?.call();
+    // Start initialization
 
-    // If already initialized with identical cookies and not forced, return early
-    final cookiesChanged = cookies != _initializedCookies;
-    if (hasInitialized && !force && !cookiesChanged) {
+    if (hasInitialized) {
       return this;
     }
 
-    _initializedCookies = cookies;
+    // Accept optional pre-fetched HTML
     this.ytMusicHomeRawHtml = ytMusicHomeRawHtml;
-
-    // Reset cookie jar so stale cookies don't linger across logins or logouts
-    cookieJar = CookieJar();
+    if (ytMusicHomeRawHtml != null) {}
 
     // Process incoming cookies string if provided
-    if (cookies != null && cookies.trim().isNotEmpty) {
-      for (final cookieString in cookies.split(RegExp(r';\s*'))) {
-        if (cookieString.trim().isEmpty) continue;
+    if (cookies != null) {
+      for (final cookieString in cookies.split('; ')) {
         try {
-          final eq = cookieString.indexOf('=');
-          if (eq > 0) {
-            final name = cookieString.substring(0, eq).trim();
-            final val = cookieString.substring(eq + 1).trim();
-            final cookie = Cookie(name, val);
-            cookie.domain = '.youtube.com';
-            cookie.path = '/';
-            cookieJar.saveFromResponse(
-              Uri.parse('https://music.youtube.com/'),
-              [cookie],
-            );
-            cookieJar.saveFromResponse(
-              Uri.parse('https://www.youtube.com/'),
-              [cookie],
-            );
-          } else {
-            final cookie = Cookie.fromSetCookieValue(cookieString);
-            cookie.domain = '.youtube.com';
-            cookie.path = '/';
-            cookieJar.saveFromResponse(
-              Uri.parse('https://music.youtube.com/'),
-              [cookie],
-            );
-            cookieJar.saveFromResponse(
-              Uri.parse('https://www.youtube.com/'),
-              [cookie],
-            );
-          }
+          final cookie = Cookie.fromSetCookieValue(cookieString);
+          cookieJar.saveFromResponse(
+            Uri.parse('https://www.youtube.com/'),
+            [cookie],
+          );
         } catch (e) {
-          // Ignore individual malformed cookie
+          //
         }
       }
-    }
+    } else {}
 
     // Fetch configuration from YouTube Music homepage (or provided HTML)
     await fetchConfig();
@@ -209,23 +176,6 @@ class YTMusic {
 
     if (cookieString.isNotEmpty) {
       headers['cookie'] = cookieString;
-
-      // InnerTube SAPISID authentication calculation
-      String? sapisidVal;
-      for (final c in cookies) {
-        if (c.name == 'SAPISID' || c.name == '__Secure-3PAPISID') {
-          sapisidVal = c.value;
-          break;
-        }
-      }
-      if (sapisidVal != null && sapisidVal.isNotEmpty) {
-        final origin = 'https://music.youtube.com';
-        final timestamp =
-            (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
-        final hash = computeSha1('$timestamp $sapisidVal $origin');
-        headers['Authorization'] = 'SAPISIDHASH ${timestamp}_$hash';
-        headers['Origin'] = origin;
-      }
     }
 
     final requestBody = {
@@ -306,16 +256,7 @@ class YTMusic {
     if (setCookieHeader == null) return;
     try {
       final cookie = Cookie.fromSetCookieValue(setCookieHeader);
-      cookie.domain = '.youtube.com';
-      cookie.path = '/';
-      cookieJar.saveFromResponse(
-        Uri.parse('https://music.youtube.com/'),
-        [cookie],
-      );
-      cookieJar.saveFromResponse(
-        Uri.parse('https://www.youtube.com/'),
-        [cookie],
-      );
+      cookieJar.saveFromResponse(uri, [cookie]);
     } catch (e) {
       //
     }

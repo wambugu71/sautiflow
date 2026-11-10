@@ -30,8 +30,6 @@ import 'services/cached_stream_service.dart';
 import 'services/lastfm_service.dart';
 import 'services/proximity_gesture_service.dart';
 import 'streaming_service.dart';
-import 'services/youtube_auth_service.dart';
-import 'widgets/youtube_auth_dialog.dart';
 import 'services/app_update_service.dart';
 import 'widgets/app_update_dialog.dart';
 import 'faq_screen.dart';
@@ -4517,69 +4515,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() => _enableHostedFallback = val);
                     setSubState(() {});
                     AppStateService.instance.saveEnableHostedFallback(val);
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // ── CACHE & STORAGE ─────────────────────────────────────────────
-            // ── YOUTUBE ACCOUNT (OPTIONAL) ──────────────────────────────────
-            _buildSectionHeader('YOUTUBE ACCOUNT (OPTIONAL)'),
-            const SizedBox(height: 8),
-            _buildCardContainer(
-              children: [
-                ValueListenableBuilder<bool>(
-                  valueListenable:
-                      YouTubeAuthService.instance.isAuthenticatedNotifier,
-                  builder: (context, isAuthenticated, _) {
-                    return AppSettingsTile(
-                      title: isAuthenticated
-                          ? 'Connected YouTube Account'
-                          : 'Connect YouTube Account',
-                      subtitle: isAuthenticated
-                          ? 'Active session • Bot immunity active'
-                          : 'Connect account to stream directly & bypass bot verification',
-                      leading: _buildLeadingIcon(
-                        isAuthenticated
-                            ? Icons.verified_user_rounded
-                            : Icons.account_circle_outlined,
-                        isAuthenticated ? Colors.greenAccent : _primary,
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (isAuthenticated)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              margin: const EdgeInsets.only(right: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.greenAccent.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                    color: Colors.greenAccent.withValues(alpha: 0.4)),
-                              ),
-                              child: const Text(
-                                'Connected',
-                                style: TextStyle(
-                                  color: Colors.greenAccent,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          const Icon(Icons.chevron_right_rounded, size: 20),
-                        ],
-                      ),
-                      onTap: () async {
-                        await showDialog<bool>(
-                          context: context,
-                          builder: (context) => const YouTubeAuthDialog(),
-                        );
-                        setSubState(() {});
-                      },
-                    );
                   },
                 ),
               ],

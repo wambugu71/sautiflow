@@ -52,9 +52,7 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
 
   ///
   bool get isVideoAvailable =>
-      root.querySelector('meta[property="og:url"]') != null ||
-      root.querySelector('meta[name="title"]') != null ||
-      root.outerHtml.contains('ytInitialPlayerResponse');
+      root.querySelector('meta[property="og:url"]') != null;
 
   ///
   int get videoLikeCount =>
@@ -96,16 +94,12 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
 
   late final PlayerResponse? playerResponse = getInitialPlayerResponse();
 
-  late final Map<String, dynamic>? ytCfg = _getYtCfg();
+  late final Map<String, dynamic> ytCfg = _getYtCfg();
 
-  Map<String, dynamic>? _getYtCfg() {
-    try {
-      final match = RegExp(r'ytcfg\.set\s*\(\s*({.+?})\s*\)\s*;').firstMatch(root.outerHtml);
-      if (match != null && match.group(1) != null) {
-        return json.decode(match.group(1)!);
-      }
-    } catch (_) {}
-    return null;
+  Map<String, dynamic> _getYtCfg() {
+    return json.decode(RegExp(r'ytcfg\.set\s*\(\s*({.+?})\s*\)\s*;')
+        .firstMatch(root.outerHtml)!
+        .group(1)!);
   }
 
   ///
@@ -146,20 +140,14 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
       'https://www.youtube.com/watch?v=$videoId&bpctr=9999999999&has_verified=1&hl=en',
     );
     const defaultCookies = 'PREF=hl=en&tz=UTC; SOCS=CAI; GPS=1';
-    final customCookie =
-        httpClient.headers['cookie'] ?? httpClient.headers['Cookie'];
-    final cookieString = customCookie != null && customCookie.isNotEmpty
-        ? '$customCookie; $defaultCookies'
-        : defaultCookies;
-    final headers = {
-      ...httpClient.headers,
-      'User-Agent': httpClient.headers['user-agent'] ??
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    const headers = {
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.18 Safari/537.36',
       'Accept':
           'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-us,en;q=0.5',
       'Sec-Fetch-Mode': 'navigate',
-      'Cookie': cookieString,
+      'Cookie': defaultCookies,
     };
 
     final cookiesExp = RegExp(r'(?:^|,)(\w.+?)=(.*?);');
@@ -167,27 +155,11 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
     return retry(httpClient, () async {
       final req = await httpClient.get(url, headers: headers, validate: true);
 
-      final cookieHeader = req.headers['set-cookie'];
-      final matches = cookieHeader != null
-          ? cookiesExp.allMatches(cookieHeader)
-          : <RegExpMatch>[];
-      final cookies = <String, String>{};
-      if (customCookie != null && customCookie.isNotEmpty) {
-        for (final pair in customCookie.split(';')) {
-          final trimmed = pair.trim();
-          final eqIdx = trimmed.indexOf('=');
-          if (eqIdx > 0) {
-            cookies[trimmed.substring(0, eqIdx).trim()] =
-                trimmed.substring(eqIdx + 1).trim();
-          }
-        }
-      }
-      for (final m in matches) {
-        cookies[m.group(1)!] = m.group(2)!;
-      }
-      cookies.putIfAbsent('PREF', () => 'hl=en');
-      cookies.putIfAbsent('SOCS', () => 'CAI');
-      cookies.putIfAbsent('GPS', () => '1');
+      final cookieHeader = req.headers['set-cookie']!;
+      final matches = cookiesExp.allMatches(cookieHeader);
+      final cookies = Map.fromEntries(
+          matches.map((e) => MapEntry(e.group(1)!, e.group(2)!)))
+        ..addAll({'PREF': 'hl=en', 'SOCS': 'CAI', 'GPS': '1'});
 
       final result = WatchPage.parse(req.body, VideoId(videoId), cookies);
 
@@ -198,22 +170,6 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
       if (!result.isVideoAvailable) {
         throw VideoUnavailableException.unavailable(VideoId(videoId));
       }
-
-      // If bot verification or sign-in is flagged on the watch page initial HTML,
-      // do not throw immediately if player JS (sourceUrl) is available or fallback
-      // InnerTube clients (e.g. WEB_REMIX with session cookies) can resolve streams.
-      if (result.playerResponse?.videoPlayabilityError != null) {
-        final err = result.playerResponse!.videoPlayabilityError!;
-        if ((err.toLowerCase().contains('bot') ||
-                err.toLowerCase().contains('sign in')) &&
-            result.sourceUrl == null) {
-          throw VideoUnplayableException.unplayable(
-            VideoId(videoId),
-            reason: err,
-          );
-        }
-      }
-
       return result;
     });
   }

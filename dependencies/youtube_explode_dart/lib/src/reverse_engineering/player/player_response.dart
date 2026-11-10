@@ -188,19 +188,13 @@ class _StreamInfo extends StreamInfoProvider {
 
   @override
   late final String? signature =
-      Uri.splitQueryString(root.getT<String>('cipher') ?? '')['s'] ??
       Uri.splitQueryString(root.getT<String>('signatureCipher') ?? '')['s'];
 
   @override
-  late final String? signatureParameter = signature == null
-      ? null
-      : (Uri.splitQueryString(
-            root.getT<String>('cipher') ?? '',
-          )['sp'] ??
-          Uri.splitQueryString(
-            root.getT<String>('signatureCipher') ?? '',
-          )['sp'] ??
-          'sig');
+  late final String? signatureParameter = Uri.splitQueryString(
+        root.getT<String>('cipher') ?? '',
+      )['sp'] ??
+      Uri.splitQueryString(root.getT<String>('signatureCipher') ?? '')['sp'];
 
   @override
   late final int tag = root.getT<int>('itag') ?? 0;
@@ -230,12 +224,6 @@ class _StreamInfo extends StreamInfoProvider {
   late final int? videoWidth = root.getT<int>('width');
 
   late final bool isAudioOnly = codec.type == 'audio';
-
-  @override
-  bool get audioOnly => isAudioOnly;
-
-  @override
-  bool get videoOnly => codec.type == 'video' && audioCodec == null;
 
   @override
   late final MediaType codec =

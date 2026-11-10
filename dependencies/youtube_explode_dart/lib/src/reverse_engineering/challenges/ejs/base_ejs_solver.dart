@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import '../../../videos/video_controller.dart';
 import '../js_challenge.dart';
 import 'ejs.dart';
 
@@ -56,35 +55,20 @@ abstract class BaseEJSSolver extends BaseJSChallengeSolver {
       isPreprocessed = true;
     } else if (_playerCache.containsKey(playerUrl)) {
       playerScript = _playerCache[playerUrl]!;
-    } else if (VideoController.getCachedPlayerScript(playerUrl) != null) {
-      playerScript = _playerCache[playerUrl] =
-          VideoController.getCachedPlayerScript(playerUrl)!;
     } else {
       final resp = await http.get(Uri.parse(playerUrl));
       playerScript = _playerCache[playerUrl] = resp.body;
     }
 
-    Future<Map<String, dynamic>> runJsc({required bool preproc}) async {
-      final jsCall = EJSBuilder.buildJSCall(playerScript, uncachedRequests,
-          isPreprocessed: preproc);
-      final resultJson = await executeJavaScript(jsCall);
-      return json.decode(resultJson) as Map<String, dynamic>;
-    }
+    final jsCall = EJSBuilder.buildJSCall(playerScript, uncachedRequests,
+        isPreprocessed: isPreprocessed);
 
-    var data = await runJsc(preproc: isPreprocessed);
-    if (isPreprocessed && data['type'] != 'result') {
-      _preprocPlayer.remove(playerUrl);
-      if (_playerCache.containsKey(playerUrl)) {
-        playerScript = _playerCache[playerUrl]!;
-      } else {
-        final resp = await http.get(Uri.parse(playerUrl));
-        playerScript = _playerCache[playerUrl] = resp.body;
-      }
-      data = await runJsc(preproc: false);
-    }
+    final resultJson = await executeJavaScript(jsCall);
+
+    final data = json.decode(resultJson) as Map<String, dynamic>;
 
     if (data['type'] != 'result') {
-      throw Exception('Unexpected response type: ${data['type']} (${data['error']})');
+      throw Exception('Unexpected response type: ${data['type']}');
     }
 
     // Store preprocessed player if available
