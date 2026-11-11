@@ -137,9 +137,9 @@ public:
         }
         currentEnabled = true;
 
-        const float smoothCoeff = 0.002f;
+        const float smoothCoeff = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
         const float twoPi = 6.28318530717958647692f;
-        const float modDepthSamples = 2.5f;
+        const float modDepthSamples = 2.5f * (float)(sampleRate / 48000.0);
 
         float chDelayOut[NUM_CHANNELS];
         float fwhtStage1[NUM_CHANNELS];
@@ -256,13 +256,13 @@ private:
     void updateCoefficients() {
         if (sampleRate <= 0.0) return;
 
-        // Map roomSize (0..1) to RT60 decay time (0.3s to 12.0s exponentially)
-        float rt60 = 0.3f * std::pow(40.0f, targetRoomSize);
+        // Map roomSize (0..1) to RT60 decay time (0.35s to 14.0s exponentially, matching Dattorro)
+        float rt60 = 0.35f * std::pow(40.0f, targetRoomSize);
 
         // Map damping (0..1) to 1-pole lowpass filter coefficient
-        // At damping = 0, cutoff is high (minimal absorption).
+        // At damping = 0, cutoff is lossless (dampFactor = 1.0).
         // At damping = 1, cutoff is low (high frequency rapid absorption).
-        float dampFactor = 1.0f - (0.05f + targetDamping * 0.85f);
+        float dampFactor = 1.0f - (targetDamping * 0.85f);
 
         for (int i = 0; i < NUM_CHANNELS; ++i) {
             float delaySeconds = (float)delayLengths[i] / (float)sampleRate;

@@ -314,7 +314,7 @@ struct SurroundAllpass1 {
     void reset() { x1 = y1 = 0.0f; }
     inline float process(float x)
     {
-        const float y = c * x + x1 - c * y1;
+        const float y = -c * x + x1 + c * y1;
         x1 = x;
         y1 = surround_sanitize(y);
         return y1;
@@ -545,8 +545,10 @@ public:
 
         // 3D Acoustic Stage
         stage_air_.reset();
-        stage_bass_lp_.reset();
-        stage_bass_hp_.reset();
+        stage_bass_lp1_.reset();
+        stage_bass_lp2_.reset();
+        stage_bass_hp1_.reset();
+        stage_bass_hp2_.reset();
 
         // Parameter smoothing state
         smooth_center_focus_   = center_focus_;
@@ -624,11 +626,12 @@ private:
                 qr_r = quad_chain_ra_[k].process(qr_r);
             }
 
-            // Passive-matrix surrounds: difference signal, opposite polarity Ls/Rs
-            const float q = (ql_l - qr_r);
+            // Passive-matrix surrounds: quadrature difference signal combining both A and B chains
+            const float q_a = (ql_l - qr_r);
+            const float q_b = (qr_l - ql_r);
             const float rear_delay_samples = surround_delay_ms_ * 0.001f * sample_rate_;
-            const float ls = rear_line_l_.pushAndRead(rear_delay_samples, +q);
-            const float rs = rear_line_r_.pushAndRead(rear_delay_samples, -q);
+            const float ls = rear_line_l_.pushAndRead(rear_delay_samples,  0.70710678f * (q_a + q_b));
+            const float rs = rear_line_r_.pushAndRead(rear_delay_samples, -0.70710678f * (q_a - q_b));
 
             // Center dialogue & LFE isolation
             const float mono = (l_in + r_in) * 0.5f;
@@ -687,16 +690,18 @@ private:
                 float shadow_r, shadow_l;
                 binaural_shadow_.process(del_r, del_l, shadow_r, shadow_l);
 
-                // Binaural crossfeed injection
+                // Binaural crossfeed injection (head-shadowed contralateral ITD + ILD)
                 const float b = smooth_binaural_boost_;
-                const float l_binaural = l_in * (1.0f - 0.20f * b) + shadow_r * (0.38f * b);
-                const float r_binaural = r_in * (1.0f - 0.20f * b) + shadow_l * (0.38f * b);
+                const float boost_gain = 1.0f + b * 0.15f;
+                const float l_binaural = l_in * (1.0f - 0.15f * b) + shadow_r * (0.38f * b);
+                const float r_binaural = r_in * (1.0f - 0.15f * b) + shadow_l * (0.38f * b);
 
-                // Interaural phase cancellation (dlb_virtualizer.c)
-                const float cross_gain = b * 0.35f;
-                const float boost_gain = 1.0f + b * 0.25f;
-                out_l = boost_gain * l_binaural - cross_gain * shadow_r;
-                out_r = boost_gain * r_binaural - cross_gain * shadow_l;
+                // High-frequency interaural decorrelation on un-shadowed HF band (preserves lowpass shadow_r/l crossfeed)
+                const float hf_r = del_r - shadow_r;
+                const float hf_l = del_l - shadow_l;
+                const float cross_gain = b * 0.18f;
+                out_l = boost_gain * l_binaural - cross_gain * hf_r;
+                out_r = boost_gain * r_binaural - cross_gain * hf_l;
 
                 // 4-tap Room Acoustics Reverb (vectorized 4-wide early reflection diffusion)
                 if (smooth_binaural_room_ > 0.001f) {
@@ -788,10 +793,11 @@ private:
             float out_r = mid - side - depth_cross * l_stage;
 
             // 3. Sub-bass Fundamental Anchor (Category 13)
-            // Low-pass mono anchor guarantees center punch and zero bass cancellation
-            const float mono_raw = 0.5f * (l_in + r_in);
-            const float anchor_bass = stage_bass_lp_.process(mono_raw);
-            stage_bass_hp_.process(out_l, out_r, out_l, out_r);
+            // 4th-order Linkwitz-Riley (LR4) low-pass mono anchor + high-pass crossover sums flat across crossover
+            const float mono_raw = 0.5f * (out_l + out_r);
+            const float anchor_bass = stage_bass_lp2_.process(stage_bass_lp1_.process(mono_raw));
+            stage_bass_hp1_.process(out_l, out_r, out_l, out_r);
+            stage_bass_hp2_.process(out_l, out_r, out_l, out_r);
             out_l += anchor_bass;
             out_r += anchor_bass;
 
@@ -859,9 +865,11 @@ private:
         // Binaural Virtualizer head-shadow lowpass filter (3500 Hz default)
         surround_set_lowpass(binaural_shadow_, fs, binaural_shadow_cutoff_, 0.7071);
 
-        // 3D Acoustic Stage: Sub-bass Anchor (lowpass + highpass crossover)
-        surround_set_lowpass(stage_bass_lp_, fs, stage_bass_anchor_hz_, 0.7071);
-        surround_set_highpass(stage_bass_hp_, fs, stage_bass_anchor_hz_, 0.7071);
+        // 3D Acoustic Stage: Sub-bass Anchor (4th-order Linkwitz-Riley LR4 lowpass + highpass crossover)
+        surround_set_lowpass(stage_bass_lp1_, fs, stage_bass_anchor_hz_, 0.7071067811865475);
+        surround_set_lowpass(stage_bass_lp2_, fs, stage_bass_anchor_hz_, 0.7071067811865475);
+        surround_set_highpass(stage_bass_hp1_, fs, stage_bass_anchor_hz_, 0.7071067811865475);
+        surround_set_highpass(stage_bass_hp2_, fs, stage_bass_anchor_hz_, 0.7071067811865475);
 
         // 3D Acoustic Stage: High-shelf Air Presence Contour (10 kHz, gain up to +4.5 dB)
         const double air_gain_db = stage_air_presence_ * 4.5;
@@ -949,8 +957,8 @@ private:
 
     // Mode 3: 3D Acoustic Stage DSP Nodes
     SurroundBiquadStereo stage_air_;
-    SurroundBiquad stage_bass_lp_;
-    SurroundBiquadStereoDouble stage_bass_hp_;
+    SurroundBiquad stage_bass_lp1_, stage_bass_lp2_;
+    SurroundBiquadStereoDouble stage_bass_hp1_, stage_bass_hp2_;
 };
 
 } // namespace sauti::dsp

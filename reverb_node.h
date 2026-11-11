@@ -310,33 +310,80 @@ public:
         }
         currentEnabled = true;
 
-        if (targetEngine == ReverbEngine::Lattice)
+        if (targetEngine != ReverbEngine::Dattorro)
         {
-            latticeDsp.process(interleaved, frames, channels);
-            return;
-        }
+            const float alphaSmooth =
+                1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
+            const size_t preDelayLen = preDelayBuf[0].size();
+            const bool hasPreDelay = (preDelayLen > 0) &&
+                (targetPreDelayMs > 0.001f || currentPreDelayMs > 0.001f);
 
-        if (targetEngine == ReverbEngine::Diffusion)
-        {
-            diffusionDsp.process(interleaved, frames, channels);
-            return;
-        }
+            if (!hasPreDelay)
+            {
+                currentPreDelayMs = targetPreDelayMs;
+                if (targetEngine == ReverbEngine::Lattice)
+                    latticeDsp.process(interleaved, frames, channels);
+                else if (targetEngine == ReverbEngine::Diffusion)
+                    diffusionDsp.process(interleaved, frames, channels);
+                else if (targetEngine == ReverbEngine::HadamardFdn)
+                    hadamardDsp.process(interleaved, frames, channels);
+                else if (targetEngine == ReverbEngine::BarrRing)
+                    barrDsp.process(interleaved, frames, channels);
+                else if (targetEngine == ReverbEngine::Griesinger)
+                    griesingerDsp.process(interleaved, frames, channels);
+                return;
+            }
 
-        if (targetEngine == ReverbEngine::HadamardFdn)
-        {
-            hadamardDsp.process(interleaved, frames, channels);
-            return;
-        }
+            if (scratchPreDelay.size() < (size_t)frames * (size_t)channels)
+                scratchPreDelay.resize((size_t)frames * (size_t)channels, 0.0f);
 
-        if (targetEngine == ReverbEngine::BarrRing)
-        {
-            barrDsp.process(interleaved, frames, channels);
-            return;
-        }
+            for (uint32_t i = 0; i < frames; ++i)
+            {
+                currentPreDelayMs += alphaSmooth * (targetPreDelayMs - currentPreDelayMs);
+                const size_t delaySamples = std::min(
+                    preDelayLen - 1,
+                    (size_t)((currentPreDelayMs * 0.001f) * (float)sampleRate));
 
-        if (targetEngine == ReverbEngine::Griesinger)
-        {
-            griesingerDsp.process(interleaved, frames, channels);
+                const size_t base = (size_t)i * (size_t)channels;
+                const float inL = interleaved[base];
+                const float inR = interleaved[base + 1];
+
+                preDelayBuf[0][preDelayWriteIdx[0]] = inL;
+                preDelayBuf[1][preDelayWriteIdx[1]] = inR;
+
+                scratchPreDelay[base] = preDelayBuf[0]
+                    [(preDelayWriteIdx[0] + preDelayLen - delaySamples) % preDelayLen];
+                scratchPreDelay[base + 1] = preDelayBuf[1]
+                    [(preDelayWriteIdx[1] + preDelayLen - delaySamples) % preDelayLen];
+
+                preDelayWriteIdx[0] = (preDelayWriteIdx[0] + 1) % preDelayLen;
+                preDelayWriteIdx[1] = (preDelayWriteIdx[1] + 1) % preDelayLen;
+            }
+
+            auto processWithPreDelay = [&](auto& dsp) {
+                const float savedDry = dsp.getDry();
+                dsp.setDry(0.0f);
+                dsp.process(scratchPreDelay.data(), frames, channels);
+                dsp.setDry(savedDry);
+                for (uint32_t i = 0; i < frames; ++i)
+                {
+                    currentDry += alphaSmooth * (savedDry - currentDry);
+                    const size_t base = (size_t)i * (size_t)channels;
+                    interleaved[base]     = interleaved[base]     * currentDry + scratchPreDelay[base];
+                    interleaved[base + 1] = interleaved[base + 1] * currentDry + scratchPreDelay[base + 1];
+                }
+            };
+
+            if (targetEngine == ReverbEngine::Lattice)
+                processWithPreDelay(latticeDsp);
+            else if (targetEngine == ReverbEngine::Diffusion)
+                processWithPreDelay(diffusionDsp);
+            else if (targetEngine == ReverbEngine::HadamardFdn)
+                processWithPreDelay(hadamardDsp);
+            else if (targetEngine == ReverbEngine::BarrRing)
+                processWithPreDelay(barrDsp);
+            else if (targetEngine == ReverbEngine::Griesinger)
+                processWithPreDelay(griesingerDsp);
             return;
         }
 
@@ -725,6 +772,7 @@ private:
     // Pre-delay
     std::vector<float> preDelayBuf[2];
     size_t preDelayWriteIdx[2] = {0, 0};
+    std::vector<float> scratchPreDelay;
 
     // Abbey Road input filter states
     float hpPrevIn[2] = {0.0f, 0.0f};

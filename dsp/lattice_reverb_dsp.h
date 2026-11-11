@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 /**
  * @file lattice_reverb_dsp.h
@@ -143,8 +143,8 @@ public:
             currentDamping += alpha * (targetDamping - currentDamping);
             currentWidth += alpha * (targetWidth - currentWidth);
 
-            const float feedback = 0.50f + 0.35f * currentRoomSize;
-            const float damp = currentDamping;
+            const float targetRT60 = 0.35f * std::pow(40.0f, currentRoomSize);
+            const float damp = currentDamping * 0.7f;
 
             float inL = interleaved[f * channels + 0];
             float inR = interleaved[f * channels + 1];
@@ -156,19 +156,21 @@ public:
             for (int i = 0; i < NUM_COMBS; ++i) {
                 // Left channel comb
                 const int szL = (int)combBufL[i].size();
+                const float fbL = std::min(0.985f, std::pow(10.0f, -3.0f * (float)szL / ((float)sampleRate * targetRT60)));
                 int idxL = combIdxL[i];
                 float outL = combBufL[i][idxL];
                 combFilterL[i] = outL * (1.0f - damp) + combFilterL[i] * damp;
-                combBufL[i][idxL] = inL + combFilterL[i] * feedback;
+                combBufL[i][idxL] = inL + combFilterL[i] * fbL;
                 combIdxL[i] = (idxL + 1 < szL) ? idxL + 1 : 0;
                 combOutL += outL;
 
                 // Right channel comb
                 const int szR = (int)combBufR[i].size();
+                const float fbR = std::min(0.985f, std::pow(10.0f, -3.0f * (float)szR / ((float)sampleRate * targetRT60)));
                 int idxR = combIdxR[i];
                 float outR = combBufR[i][idxR];
                 combFilterR[i] = outR * (1.0f - damp) + combFilterR[i] * damp;
-                combBufR[i][idxR] = inR + combFilterR[i] * feedback;
+                combBufR[i][idxR] = inR + combFilterR[i] * fbR;
                 combIdxR[i] = (idxR + 1 < szR) ? idxR + 1 : 0;
                 combOutR += outR;
             }
@@ -177,23 +179,23 @@ public:
             float apInL = combOutL * 0.25f;
             float apInR = combOutR * 0.25f;
 
-            // 2. Cascaded Allpass Diffusers
+            // 2. Cascaded Canonical Schroeder Allpass Diffusers: H(z) = (-g + z^-D) / (1 - g * z^-D)
             for (int i = 0; i < NUM_ALLPASS; ++i) {
-                // Left allpass (feedback = 0.5f)
+                // Left allpass (feedback g = 0.5f)
                 const int szL = (int)allpassBufL[i].size();
                 int idxL = allpassIdxL[i];
                 float bufOutL = allpassBufL[i][idxL];
-                float apOutL = -apInL + bufOutL;
-                allpassBufL[i][idxL] = apInL + (bufOutL * 0.5f);
+                float apOutL = -0.5f * apInL + bufOutL;
+                allpassBufL[i][idxL] = apInL + (apOutL * 0.5f);
                 allpassIdxL[i] = (idxL + 1 < szL) ? idxL + 1 : 0;
                 apInL = apOutL;
 
-                // Right allpass (feedback = 0.5f)
+                // Right allpass (feedback g = 0.5f)
                 const int szR = (int)allpassBufR[i].size();
                 int idxR = allpassIdxR[i];
                 float bufOutR = allpassBufR[i][idxR];
-                float apOutR = -apInR + bufOutR;
-                allpassBufR[i][idxR] = apInR + (bufOutR * 0.5f);
+                float apOutR = -0.5f * apInR + bufOutR;
+                allpassBufR[i][idxR] = apInR + (apOutR * 0.5f);
                 allpassIdxR[i] = (idxR + 1 < szR) ? idxR + 1 : 0;
                 apInR = apOutR;
             }

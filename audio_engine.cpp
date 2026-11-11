@@ -2705,11 +2705,10 @@ namespace
         int cachedSampleRate = 44100;
         bool initialized = false;
 
-        double getLatencySamples(int sampleRate) const
+        double getLatencySamples(int /*sampleRate*/) const
         {
-            if (!initialized) return 0.0;
-            int sr = (sampleRate > 0) ? sampleRate : (cachedSampleRate > 0 ? cachedSampleRate : 44100);
-            return 0.0012 * (double)sr;
+            // The non-decimated warped filterbank sums subbands directly with 0 samples of delay
+            return 0.0;
         }
 
         void refresh(int sampleRate)
@@ -2816,8 +2815,12 @@ namespace
         float highShelfGainDb = 2.0f; // [0.0, 6.0] shelf boost in dB
         int cachedSampleRate = 0;
 
-        // Per-channel previous sample for derivative calculation (up to 8 ch)
+        // Per-channel previous sample and fast/slow transient envelopes (up to 8 ch)
         float prevSample[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+        float envFast[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+        float envSlow[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+        float alphaFast = 0.02f;
+        float alphaSlow = 0.0005f;
 
         // 2nd-order high-shelf biquad coefficients (computed once on init/param change)
         // Using the Audio EQ Cookbook high-shelf formula
@@ -2827,6 +2830,14 @@ namespace
             double a1 = 0.0, a2 = 0.0;
             // Per-channel delay registers (up to 8 ch)
             double x1[8] = {}, x2[8] = {}, y1[8] = {}, y2[8] = {};
+
+            void reset()
+            {
+                std::fill(x1, x1 + 8, 0.0);
+                std::fill(x2, x2 + 8, 0.0);
+                std::fill(y1, y1 + 8, 0.0);
+                std::fill(y2, y2 + 8, 0.0);
+            }
 
             void compute(double gainDb, double freqHz, double sampleRate)
             {
@@ -2845,11 +2856,6 @@ namespace
                 const double a2c = ((A + 1.0) - (A - 1.0) * cw - 2.0 * std::sqrt(A) * alpha) * a0inv;
                 a1 = a1c;
                 a2 = a2c;
-                // clear delay registers
-                std::fill(x1, x1 + 8, 0.0);
-                std::fill(x2, x2 + 8, 0.0);
-                std::fill(y1, y1 + 8, 0.0);
-                std::fill(y2, y2 + 8, 0.0);
             }
 
             float process(float sample, int ch)
@@ -2866,21 +2872,33 @@ namespace
 
         void init(int sampleRate)
         {
+            if (sampleRate <= 0) sampleRate = 48000;
             cachedSampleRate = sampleRate;
             std::fill(prevSample, prevSample + 8, 0.f);
+            std::fill(envFast, envFast + 8, 0.f);
+            std::fill(envSlow, envSlow + 8, 0.f);
+            alphaFast = 1.0f - std::exp(-1.0f / (0.001f * (float)sampleRate));
+            alphaSlow = 1.0f - std::exp(-1.0f / (0.040f * (float)sampleRate));
+            shelf.reset();
             shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
         }
 
         void updateParams(int sampleRate, float newIntensity, bool newShelfEnabled, float newShelfGainDb)
         {
+            if (sampleRate <= 0) sampleRate = 48000;
             intensity = clampf(newIntensity, 0.0f, 0.4f); // Capped to 0.4 max to prevent extreme overs & harshness
             highShelfEnabled = newShelfEnabled;
             const float clampedGain = clampf(newShelfGainDb, 0.0f, 6.0f);
 
-            if (cachedSampleRate != sampleRate || clampedGain != highShelfGainDb)
+            if (cachedSampleRate != sampleRate)
             {
                 highShelfGainDb = clampedGain;
-                cachedSampleRate = sampleRate;
+                init(sampleRate);
+            }
+            else if (clampedGain != highShelfGainDb)
+            {
+                highShelfGainDb = clampedGain;
+                // Recompute coefficients without zeroing delay registers to avoid mid-stream clicks
                 shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
             }
         }
@@ -2905,10 +2923,16 @@ namespace
                     const size_t idx = (size_t)i * (size_t)channels + (size_t)c;
                     float x = interleaved[idx];
 
-                    // Stage 1 — High-Frequency Tone Brightener (First-Difference)
+                    // Stage 1 — Dynamic Transient & Level-Adaptive High-Frequency Edge Emphasis
                     const float diff = x - prevSample[c];
                     prevSample[c] = x;
-                    x = x + diff * intensity;
+                    const float absDiff = std::fabs(diff);
+                    envFast[c] += alphaFast * (absDiff - envFast[c]);
+                    envSlow[c] += alphaSlow * (absDiff - envSlow[c]);
+                    const float crest = clampf(envFast[c] / (envSlow[c] + 1.0e-5f) - 1.0f, 0.0f, 2.0f);
+                    const float levelScale = envSlow[c] / (envSlow[c] + 0.02f);
+                    const float dynGain = intensity * (0.35f + 0.65f * levelScale + 0.50f * crest);
+                    x = x + diff * dynGain;
 
                     // Stage 2 — High-shelf "air" enhancement (optional)
                     if (highShelfEnabled && intensity > 0.0f)
@@ -3438,29 +3462,29 @@ static inline AEAudioFormat ma_format_to_ae_format(ma_format fmt)
 using Biquad64 = sauti::dsp::CytomicSVF;
 
 
-// Fast 32-bit float Transposed Direct Form II biquad for engine FX filters
+// High-precision 64-bit state Transposed Direct Form II biquad for engine FX filters
 struct FxBiquad
 {
-    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
-    float a1 = 0.0f, a2 = 0.0f;
-    float s1[8] = {};
-    float s2[8] = {};
+    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+    double a1 = 0.0, a2 = 0.0;
+    double s1[8] = {};
+    double s2[8] = {};
 
     void reset()
     {
-        std::fill(s1, s1 + 8, 0.0f);
-        std::fill(s2, s2 + 8, 0.0f);
+        std::fill(s1, s1 + 8, 0.0);
+        std::fill(s2, s2 + 8, 0.0);
     }
 
     void setCoefficients(double b0_, double b1_, double b2_, double a0_, double a1_, double a2_)
     {
         if (std::abs(a0_) < 1.0e-15) return;
         const double invA0 = 1.0 / a0_;
-        b0 = static_cast<float>(b0_ * invA0);
-        b1 = static_cast<float>(b1_ * invA0);
-        b2 = static_cast<float>(b2_ * invA0);
-        a1 = static_cast<float>(a1_ * invA0);
-        a2 = static_cast<float>(a2_ * invA0);
+        b0 = b0_ * invA0;
+        b1 = b1_ * invA0;
+        b2 = b2_ * invA0;
+        a1 = a1_ * invA0;
+        a2 = a2_ * invA0;
     }
 
     inline void process(float *interleaved, ma_uint32 frames, int channels)
@@ -3471,12 +3495,12 @@ struct FxBiquad
             float *frame = interleaved + (size_t)i * (size_t)channels;
             for (int c = 0; c < ch; ++c)
             {
-                float in = frame[c];
-                float out = in * b0 + s1[c];
-                if (std::fabs(out) < 1.0e-20f) out = 0.0f;
+                const double in = static_cast<double>(frame[c]);
+                double out = in * b0 + s1[c];
+                if (std::abs(out) < 1.0e-20) out = 0.0;
                 s1[c] = in * b1 - out * a1 + s2[c];
                 s2[c] = in * b2 - out * a2;
-                frame[c] = out;
+                frame[c] = static_cast<float>(out);
             }
         }
     }
@@ -3490,10 +3514,10 @@ struct FxBiquad
             for (int c = 0; c < ch; ++c)
             {
                 const double in = frame[c];
-                double out = in * (double)b0 + (double)s1[c];
+                double out = in * b0 + s1[c];
                 if (std::abs(out) < 1.0e-20) out = 0.0;
-                s1[c] = static_cast<float>(in * (double)b1 - out * (double)a1 + (double)s2[c]);
-                s2[c] = static_cast<float>(in * (double)b2 - out * (double)a2);
+                s1[c] = in * b1 - out * a1 + s2[c];
+                s2[c] = in * b2 - out * a2;
                 frame[c] = out;
             }
         }
@@ -3738,6 +3762,17 @@ struct AudioEngineHandle
     std::atomic<uint64_t> clippedSamplesCount{0};
     // Realtime callback starvation counter (previously hardcoded to 0).
     std::atomic<uint64_t> underrunCount{0};
+    // Total frames needed to satisfy backend startup DMA burst at current engine rate.
+    std::atomic<size_t> deviceBurstFrames{0};
+    // Maximum expected OS hardware DMA queue frames at current engine sample rate.
+    std::atomic<size_t> deviceMaxQueueFrames{0};
+    // True once the active decoder hits EOF and the ring buffer is draining the tail.
+    std::atomic<bool> decoderEofReached{false};
+    // Lock-free audible DAC clock state (separates buffered DMA prefill from rendered audio).
+    std::atomic<uint64_t> audibleMilliFrames{0};
+    std::atomic<int64_t> audibleWindowStartNs{-1};
+    std::atomic<uint32_t> audibleClockSeq{0};
+    std::mutex audibleClockWriterMutex;
 
     // Release 1 Quality Foundation Subsystems.
     // Metering is opt-in: both meters are heavy (true-peak polyphase interpolation,
@@ -4416,6 +4451,183 @@ static void apply_buffer_policy(AudioEngineHandle *e, ma_device_config &cfg)
 #endif
 }
 
+static inline int64_t steady_now_ns()
+{
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+static ma_uint64 clamp_audible_frames(AudioEngineHandle *e, double rawAudibleFrames, ma_uint64 playedFrames, float rate, bool applyQueueFloor)
+{
+    double clamped = (rawAudibleFrames > 0.0) ? rawAudibleFrames : 0.0;
+    if (clamped > (double)playedFrames)
+    {
+        clamped = (double)playedFrames;
+    }
+    if (applyQueueFloor)
+    {
+        const size_t qMaxBase = e->deviceMaxQueueFrames.load(std::memory_order_acquire);
+        const double effRate = (rate > 0.0f) ? (double)rate : 1.0;
+        const ma_uint64 qMax = (qMaxBase > 0) ? (ma_uint64)std::ceil((double)qMaxBase * effRate) : 0;
+        const ma_uint64 floorFrames = (qMax > 0 && playedFrames > qMax) ? (playedFrames - qMax) : 0;
+        if (clamped < (double)floorFrames)
+        {
+            clamped = (double)floorFrames;
+        }
+    }
+    return (ma_uint64)std::llround(clamped);
+}
+
+static double estimate_audible_double_from_snapshot(AudioEngineHandle *e, uint64_t accumMilli, int64_t startNs, float rate, int sr, int64_t nowNs, bool isPlayingNow)
+{
+    double audible = (double)accumMilli * 0.001;
+    if (startNs > 0 && isPlayingNow && nowNs > startNs)
+    {
+        const int effSr = (sr > 0) ? sr : 48000;
+        const float effRate = (rate > 0.0f) ? rate : 1.0f;
+        const double dtSec = (double)(nowNs - startNs) * 1e-9;
+        audible += dtSec * (double)effSr * (double)effRate;
+    }
+    return audible;
+}
+
+static ma_uint64 get_audible_played_frames(AudioEngineHandle *e)
+{
+    if (e == nullptr)
+        return 0;
+
+    uint64_t accumMilli = 0;
+    int64_t startNs = -1;
+    float rate = 1.0f;
+    int sr = 48000;
+    bool playing = false;
+    for (;;)
+    {
+        const uint32_t s1 = e->audibleClockSeq.load(std::memory_order_acquire);
+        if ((s1 & 1u) != 0)
+            continue;
+        accumMilli = e->audibleMilliFrames.load(std::memory_order_acquire);
+        startNs = e->audibleWindowStartNs.load(std::memory_order_acquire);
+        rate = e->rateMultiplier.load(std::memory_order_acquire);
+        sr = e->sampleRate;
+        playing = e->isPlaying.load(std::memory_order_acquire);
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (e->audibleClockSeq.load(std::memory_order_relaxed) == s1)
+            break;
+    }
+
+    const ma_uint64 played = e->playedPcmFrames.load(std::memory_order_acquire);
+    const bool applyFloor = (startNs >= 0 && playing);
+    const double raw = estimate_audible_double_from_snapshot(e, accumMilli, startNs, rate, sr, steady_now_ns(), playing);
+    return clamp_audible_frames(e, raw, played, rate, applyFloor);
+}
+
+static inline ma_uint64 record_played_frames_realtime(AudioEngineHandle *e, ma_uint64 advanceFrames)
+{
+    const ma_uint64 prevPlayed = e->playedPcmFrames.fetch_add(advanceFrames, std::memory_order_release);
+    if (advanceFrames > 0 &&
+        e->audibleWindowStartNs.load(std::memory_order_acquire) == 0 &&
+        e->isPlaying.load(std::memory_order_acquire))
+    {
+        const int64_t nowNs = steady_now_ns();
+        int64_t expected = 0;
+        (void)e->audibleWindowStartNs.compare_exchange_strong(expected, nowNs, std::memory_order_acq_rel);
+    }
+    return prevPlayed;
+}
+
+static ma_uint64 freeze_audible_clock_locked_impl(AudioEngineHandle *e, bool keepPlayingFlag, bool newPlayingValue)
+{
+    const uint64_t accumMilli = e->audibleMilliFrames.load(std::memory_order_relaxed);
+    const int64_t startNs = e->audibleWindowStartNs.load(std::memory_order_relaxed);
+    const float rate = e->rateMultiplier.load(std::memory_order_relaxed);
+    const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+    const ma_uint64 played = e->playedPcmFrames.load(std::memory_order_acquire);
+    const bool wasActive = (startNs > 0 && e->isPlaying.load(std::memory_order_relaxed));
+    const double raw = estimate_audible_double_from_snapshot(e, accumMilli, startNs, rate, sr, steady_now_ns(), e->isPlaying.load(std::memory_order_relaxed));
+    const ma_uint64 clamped = clamp_audible_frames(e, raw, played, rate, wasActive);
+    const uint64_t clampedMilli = (uint64_t)std::llround((double)clamped * 1000.0);
+
+    e->audibleClockSeq.fetch_add(1, std::memory_order_acq_rel);
+    if (!keepPlayingFlag)
+    {
+        e->isPlaying.store(newPlayingValue, std::memory_order_release);
+    }
+    e->audibleMilliFrames.store(clampedMilli, std::memory_order_release);
+    e->audibleWindowStartNs.store(-1, std::memory_order_release);
+    e->audibleClockSeq.fetch_add(1, std::memory_order_release);
+    return clamped;
+}
+
+static ma_uint64 freeze_audible_clock(AudioEngineHandle *e)
+{
+    if (e == nullptr)
+        return 0;
+    std::lock_guard<std::mutex> lk(e->audibleClockWriterMutex);
+    return freeze_audible_clock_locked_impl(e, true, false);
+}
+
+static void reset_playback_position(AudioEngineHandle *e, ma_uint64 baseFrame)
+{
+    if (e == nullptr)
+        return;
+    std::lock_guard<std::mutex> lk(e->audibleClockWriterMutex);
+    e->audibleClockSeq.fetch_add(1, std::memory_order_acq_rel);
+    e->seekBasePcmFrame.store(baseFrame, std::memory_order_release);
+    e->playedPcmFrames.store(0, std::memory_order_release);
+    e->audibleMilliFrames.store(0, std::memory_order_release);
+    e->audibleWindowStartNs.store(e->isPlaying.load(std::memory_order_acquire) ? 0 : -1, std::memory_order_release);
+    e->audibleClockSeq.fetch_add(1, std::memory_order_release);
+}
+
+static void set_playing_state(AudioEngineHandle *e, bool playing)
+{
+    if (e == nullptr)
+        return;
+    std::lock_guard<std::mutex> lk(e->audibleClockWriterMutex);
+    if (playing)
+    {
+        e->audibleClockSeq.fetch_add(1, std::memory_order_acq_rel);
+        if (e->audibleWindowStartNs.load(std::memory_order_relaxed) < 0)
+        {
+            e->audibleWindowStartNs.store(0, std::memory_order_release);
+        }
+        e->isPlaying.store(true, std::memory_order_release);
+        e->audibleClockSeq.fetch_add(1, std::memory_order_release);
+    }
+    else
+    {
+        (void)freeze_audible_clock_locked_impl(e, false, false);
+    }
+}
+
+static void set_rate_with_clock(AudioEngineHandle *e, float newRate)
+{
+    if (e == nullptr)
+        return;
+    std::lock_guard<std::mutex> lk(e->audibleClockWriterMutex);
+    const uint64_t accumMilli = e->audibleMilliFrames.load(std::memory_order_relaxed);
+    const int64_t startNs = e->audibleWindowStartNs.load(std::memory_order_relaxed);
+    const float oldRate = e->rateMultiplier.load(std::memory_order_relaxed);
+    const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+    const ma_uint64 played = e->playedPcmFrames.load(std::memory_order_acquire);
+    const bool playing = e->isPlaying.load(std::memory_order_acquire);
+    const int64_t nowNs = steady_now_ns();
+    const double raw = estimate_audible_double_from_snapshot(e, accumMilli, startNs, oldRate, sr, nowNs, playing);
+    const ma_uint64 clamped = clamp_audible_frames(e, raw, played, oldRate, startNs >= 0 && playing);
+    const uint64_t clampedMilli = (uint64_t)std::llround((double)clamped * 1000.0);
+
+    e->audibleClockSeq.fetch_add(1, std::memory_order_acq_rel);
+    e->audibleMilliFrames.store(clampedMilli, std::memory_order_release);
+    if (startNs > 0 && playing)
+    {
+        e->audibleWindowStartNs.store(nowNs, std::memory_order_release);
+    }
+    e->rateMultiplier.store(newRate, std::memory_order_release);
+    e->audibleClockSeq.fetch_add(1, std::memory_order_release);
+}
+
 static void reset_automix_dsp(AudioEngineHandle *e)
 {
     if (e == nullptr)
@@ -4540,6 +4752,22 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
     e->deviceSampleRate = (int)plan.deviceRate;
     e->sampleRate       = (int)plan.engineRate;
     e->ratePlan         = plan;
+
+    {
+        const size_t pSize = (size_t)e->device.playback.internalPeriodSizeInFrames;
+        const size_t periods = (size_t)e->device.playback.internalPeriods;
+        if (pSize > 0 && periods > 0)
+        {
+            const double devRate = (e->device.sampleRate > 0) ? (double)e->device.sampleRate : (double)plan.deviceRate;
+            const double ratio = (devRate > 0.0 && plan.engineRate > 0) ? ((double)plan.engineRate / devRate) : 1.0;
+            // Account for backend buffer periods plus one in-flight conversion period on start.
+            const size_t burstAtEngineSr = (size_t)std::ceil((double)(pSize * (periods + 1)) * ratio);
+            // Allow +1 extra period of OS wakeup jitter when computing audible DMA floor.
+            const size_t maxQueueAtEngineSr = (size_t)std::ceil((double)(pSize * (periods + 2)) * ratio);
+            e->deviceBurstFrames.store(burstAtEngineSr, std::memory_order_release);
+            e->deviceMaxQueueFrames.store(maxQueueAtEngineSr, std::memory_order_release);
+        }
+    }
 
     const int sr = e->engineSampleRate;
     const int ch = (e->channels > 0) ? e->channels : 2;
@@ -5579,8 +5807,7 @@ static void worker_loop(AudioEngineHandle *e)
                     e->pendingSeekValid.store(false, std::memory_order_release);
                     e->pendingSeekIndex.store(-1, std::memory_order_release);
                 }
-                e->seekBasePcmFrame.store(startFrame, std::memory_order_release);
-                e->playedPcmFrames.store(0, std::memory_order_release);
+                reset_playback_position(e, startFrame);
 
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                 e->nextStream = nullptr;
@@ -5599,7 +5826,7 @@ static void worker_loop(AudioEngineHandle *e)
             if (e->pendingAutoPlay.exchange(false, std::memory_order_acq_rel) ||
                 e->isPlaying.load(std::memory_order_relaxed))
             {
-                e->isPlaying.store(true, std::memory_order_relaxed);
+                set_playing_state(e, true);
                 e->pcmRingBuffer.reset();
                 e->pcmDirectRingBuffer.reset();
                 e->decodeProducerCv.notify_one();
@@ -5637,6 +5864,50 @@ static void worker_loop(AudioEngineHandle *e)
                     continue;
                 }
                 nextPath = e->playlist[(size_t)nextIdx];
+            }
+
+            // Bandwidth arbitration: never start downloading the next network track while
+            // the current one is still in its initial connect/buffer phase. Competing for
+            // bandwidth on a slow link is what made track 1 stutter and track 2 stall.
+            if (sautiflow::FFmpegStreamSource::is_network_url(nextPath.c_str()))
+            {
+                bool abortPreload = false;
+                for (int waitedMs = 0; waitedMs < 20000; waitedMs += 200)
+                {
+                    sautiflow::StreamState st = sautiflow::StreamState::Playing;
+                    {
+                        std::lock_guard<std::mutex> d(e->decoderMutex);
+                        if (!e->hasCurrent || e->hasNext || e->currentDecoder == nullptr)
+                        {
+                            abortPreload = !e->hasCurrent || e->hasNext;
+                            break;
+                        }
+                        st = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder).state;
+                    }
+                    if (st != sautiflow::StreamState::Connecting && st != sautiflow::StreamState::Buffering)
+                    {
+                        break;
+                    }
+                    {
+                        std::lock_guard<std::mutex> lk(e->workerMutex);
+                        if (e->workerExit || e->requestedIndex >= 0)
+                        {
+                            abortPreload = true;
+                        }
+                    }
+                    if (abortPreload ||
+                        e->preloadGeneration.load(std::memory_order_relaxed) != startGen)
+                    {
+                        abortPreload = true;
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+                if (abortPreload)
+                {
+                    // Re-arm so the preload still happens after a pending jump completes.
+                    continue;
+                }
             }
 
             ma_decoder *decoded = nullptr;
@@ -6183,6 +6454,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         &framesRead);
 
                     produced = (ma_uint32)framesRead;
+                    if (produced > 0)
+                    {
+                        e->decoderEofReached.store(false, std::memory_order_release);
+                    }
                     e->engineAbsoluteTime.fetch_add(produced, std::memory_order_relaxed);
 
                     // A-B Repeat automatic loop check
@@ -6206,8 +6481,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                     {
                                         e->pcmDirectRingBuffer.reset();
                                         e->pcmRingBuffer.reset();
-                                        e->seekBasePcmFrame.store(targetFrameDec, std::memory_order_release);
-                                        e->playedPcmFrames.store(0, std::memory_order_release);
+                                        reset_playback_position(e, targetFrameDec);
                                     }
                                     e->ringBufferFlushing.store(false, std::memory_order_release);
                                 }
@@ -6234,13 +6508,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                     if (isRealEof)
                     {
-                        if (e->endCallback != nullptr)
-                        {
-                            deferredEnd.arm();
-                        }
-
                         if (e->hasNext)
                         {
+                            if (e->endCallback != nullptr)
+                            {
+                                deferredEnd.arm();
+                            }
+                            e->decoderEofReached.store(false, std::memory_order_release);
                             uninit_decoder_slot(
                                 e,
                                 e->currentDecoder
@@ -6259,8 +6533,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
-                            e->seekBasePcmFrame.store(0, std::memory_order_release);
-                            e->playedPcmFrames.store(0, std::memory_order_release);
+                            reset_playback_position(e, 0);
 
                             e->hasNext = false;
                             e->nextDecoder = nullptr;
@@ -6276,9 +6549,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                         if (e->loopMode == AE_LOOP_ONE && e->hasCurrent)
                         {
+                            if (e->endCallback != nullptr)
+                            {
+                                deferredEnd.arm();
+                            }
+                            e->decoderEofReached.store(false, std::memory_order_release);
                             (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
-                            e->seekBasePcmFrame.store(0, std::memory_order_release);
-                            e->playedPcmFrames.store(0, std::memory_order_release);
+                            reset_playback_position(e, 0);
                             continue;
                         }
 
@@ -6294,6 +6571,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                         if (autoNextIndex >= 0 && autoNextIndex != e->currentIndex)
                         {
+                            if (e->endCallback != nullptr)
+                            {
+                                deferredEnd.arm();
+                            }
+                            e->decoderEofReached.store(false, std::memory_order_release);
                             uninit_decoder_slot(
                                 e,
                                 e->currentDecoder
@@ -6308,8 +6590,21 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             continue;
                         }
 
-                        // End of playlist
-                        e->isPlaying.store(false, std::memory_order_relaxed);
+                        // End of playlist: allow the direct ring buffer to drain cleanly
+                        // before halting playback or firing endCallback.
+                        if (e->pcmDirectRingBuffer.available_read() > 0)
+                        {
+                            e->decoderEofReached.store(true, std::memory_order_release);
+                            d.unlock();
+                            std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
+                            e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
+                            continue;
+                        }
+                        if (e->endCallback != nullptr)
+                        {
+                            deferredEnd.arm();
+                        }
+                        set_playing_state(e, false);
                         continue;
                     }
                 }
@@ -6324,16 +6619,20 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // Maintain pre-buffered audio in pcmRingBuffer.
         // In low-latency mode (Exclusive / Auto Sample-Rate Match), maintain ~50 ms of headroom
         // so that real-time DSP (Parametric EQ, Cytomic SVF, limiter) and UI knob changes respond instantly.
-        // In standard mode, keep ~350 ms for maximum resilience against underruns.
+        // In standard mode, keep ~600 ms (and always > device startup burst) to survive multi-period
+        // WASAPI conservative DMA fills (~400 ms on start) without underruns.
         const bool lowLatency = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
                                 e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
-        const double headroomSeconds = lowLatency ? 0.05 : 0.35;
+        const double headroomSeconds = lowLatency ? 0.05 : 0.60;
+        const size_t burstFrames = e->deviceBurstFrames.load(std::memory_order_acquire);
+        const size_t burstHeadroomFrames = (burstFrames > 0) ? (burstFrames + targetChunkFrames * 2) : 0;
+        const size_t desiredHeadroomFrames = std::max<size_t>((size_t)((double)sr * headroomSeconds), burstHeadroomFrames);
         const size_t maxRingHeadroom = (e->pcmRingBuffer.capacity() > targetChunkSamples * 2)
                                            ? (e->pcmRingBuffer.capacity() - targetChunkSamples * 2)
                                            : targetChunkSamples * 2;
         const size_t targetHeadroomSamples = std::min<size_t>(
             maxRingHeadroom,
-            std::max<size_t>(targetChunkSamples * 2, (size_t)((double)sr * headroomSeconds) * ch));
+            std::max<size_t>(targetChunkSamples * 2, desiredHeadroomFrames * ch));
 
         if (e->pcmRingBuffer.available_write() < targetChunkSamples ||
             e->pcmRingBuffer.available_read() >= targetHeadroomSamples)
@@ -6424,7 +6723,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     // the old track audibly ended, so the next track appeared to
                     // start instantly with no fade-in.
                     const ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
-                    const ma_uint64 played = e->playedPcmFrames.load(std::memory_order_relaxed);
+                    const ma_uint64 played = get_audible_played_frames(e);
                     const double latencySamples = calculate_total_pipeline_latency_samples(e);
                     const double effectivePosF = (double)(baseFrame + played);
                     const double audiblePosF = (effectivePosF > latencySamples) ? (effectivePosF - latencySamples) : 0.0;
@@ -6675,8 +6974,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 #endif
                             e->currentLengthFrames = e->nextLengthFrames;
                             e->currentIndex = e->nextIndex;
-                            e->seekBasePcmFrame.store(0, std::memory_order_release);
-                            e->playedPcmFrames.store(0, std::memory_order_release);
+                            reset_playback_position(e, 0);
 
                             if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
                             {
@@ -6971,6 +7269,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
             }
 
             produced = (ma_uint32)framesRead;
+            if (produced > 0)
+            {
+                e->decoderEofReached.store(false, std::memory_order_release);
+            }
             e->engineAbsoluteTime.fetch_add(produced, std::memory_order_relaxed);
 
             // A-B Repeat automatic loop check
@@ -6997,8 +7299,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             {
                                 e->pcmRingBuffer.reset();
                                 e->pcmDirectRingBuffer.reset();
-                                e->seekBasePcmFrame.store(targetFrameEngine, std::memory_order_release);
-                                e->playedPcmFrames.store(0, std::memory_order_release);
+                                reset_playback_position(e, targetFrameEngine);
                                 if (e->pitchResamplerInit)
                                 {
                                     ma_resampler_reset(&e->pitchResampler);
@@ -7032,13 +7333,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
             if (isRealEof)
             {
-                if (e->endCallback != nullptr)
-                {
-                    deferredEnd.arm();
-                }
-
                 if (e->hasNext)
                 {
+                    if (e->endCallback != nullptr)
+                    {
+                        deferredEnd.arm();
+                    }
+                    e->decoderEofReached.store(false, std::memory_order_release);
                     uninit_decoder_slot(
                         e,
                         e->currentDecoder
@@ -7088,8 +7389,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->currentLengthFrames = e->nextLengthFrames;
                     e->currentIndex = e->nextIndex;
                     e->hasCurrent = true;
-                    e->seekBasePcmFrame.store(0, std::memory_order_release);
-                    e->playedPcmFrames.store(0, std::memory_order_release);
+                    reset_playback_position(e, 0);
                     e->abRepeatEnabled.store(false, std::memory_order_release);
 
                     if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
@@ -7115,9 +7415,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 if (e->loopMode == AE_LOOP_ONE && e->hasCurrent)
                 {
+                    if (e->endCallback != nullptr)
+                    {
+                        deferredEnd.arm();
+                    }
+                    e->decoderEofReached.store(false, std::memory_order_release);
                     (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
-                    e->seekBasePcmFrame.store(0, std::memory_order_release);
-                    e->playedPcmFrames.store(0, std::memory_order_release);
+                    reset_playback_position(e, 0);
                     continue;
                 }
 
@@ -7134,6 +7438,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 if (autoNextIndex >= 0 && autoNextIndex != e->currentIndex)
                 {
+                    if (e->endCallback != nullptr)
+                    {
+                        deferredEnd.arm();
+                    }
+                    e->decoderEofReached.store(false, std::memory_order_release);
                     uninit_decoder_slot(
                         e,
                         e->currentDecoder
@@ -7148,8 +7457,21 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     continue;
                 }
 
-                // End of playlist
-                e->isPlaying.store(false, std::memory_order_relaxed);
+                // End of playlist: allow already-decoded audio in pcmRingBuffer to drain
+                // completely before ending playback or firing endCallback.
+                if (e->pcmRingBuffer.available_read() > 0)
+                {
+                    e->decoderEofReached.store(true, std::memory_order_release);
+                    d.unlock();
+                    std::unique_lock<std::mutex> lk(e->decodeProducerMutex);
+                    e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
+                    continue;
+                }
+                if (e->endCallback != nullptr)
+                {
+                    deferredEnd.arm();
+                }
+                set_playing_state(e, false);
                 continue;
             }
         }
@@ -7366,7 +7688,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
         if (bpf > 0)
         {
-            e->playedPcmFrames.fetch_add(bytesRead / bpf, std::memory_order_relaxed);
+            (void)record_played_frames_realtime(e, bytesRead / bpf);
         }
         e->engineAbsoluteTime.fetch_add(frameCount, std::memory_order_relaxed);
         e->decodeProducerCv.notify_one();
@@ -7457,11 +7779,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
         const ma_uint64 sourceAdvance = (std::abs(curRate - 1.0f) < 0.001f)
                                         ? (ma_uint64)produced
                                         : (ma_uint64)std::round((double)produced * (double)curRate);
-        const ma_uint64 prevPlayed = e->playedPcmFrames.fetch_add(sourceAdvance, std::memory_order_relaxed);
+        const ma_uint64 prevPlayed = record_played_frames_realtime(e, sourceAdvance);
         // Telemetry: count realtime starvation honestly during active playback (ignore initial startup pre-roll).
         const ma_uint64 expectedFrames = needsDeviceSRC ? inNeeded : (ma_uint64)frameCount;
         const ma_uint64 preRollThreshold = (e->sampleRate > 0) ? (ma_uint64)e->sampleRate / 10 : 4800;
-        if ((ma_uint64)produced < expectedFrames && prevPlayed >= preRollThreshold)
+        if ((ma_uint64)produced < expectedFrames &&
+            prevPlayed >= preRollThreshold &&
+            !e->decoderEofReached.load(std::memory_order_acquire))
         {
             e->underrunCount.fetch_add(expectedFrames - (ma_uint64)produced, std::memory_order_relaxed);
             std::printf(">>> UNDERRUN INC: produced=%u expected=%llu prevPlayed=%llu preRoll=%llu\n",
@@ -10207,7 +10531,7 @@ extern "C"
             e->hasNext = false;
         }
         uninit_fading_out_slot_locked(e);
-        e->isPlaying.store(false, std::memory_order_relaxed);
+        set_playing_state(e, false);
         engine_log("clear_playlist completed");
     }
 
@@ -10245,7 +10569,7 @@ extern "C"
             {
                 // Push-stream mode may not have an initialized decoder yet.
                 // The audio callback will lazy-init it once enough bytes arrive.
-                e->isPlaying.store(true, std::memory_order_relaxed);
+                set_playing_state(e, true);
                 engine_log("play requested in push-stream mode (decoder pending)");
                 clear_last_error(e);
                 return true;
@@ -10285,7 +10609,7 @@ extern "C"
             }
         }
 
-        e->isPlaying.store(true, std::memory_order_relaxed);
+        set_playing_state(e, true);
         e->pendingAutoPlay.store(true, std::memory_order_relaxed);
         e->decodeProducerCv.notify_one();
         engine_log("play requested (currentIndex=%d)", e->currentIndex);
@@ -10300,7 +10624,7 @@ extern "C"
             set_last_error(e, "Engine is null in seek.");
             return false;
         }
-        e->isPlaying.store(false, std::memory_order_relaxed);
+        set_playing_state(e, false);
         e->pendingAutoPlay.store(false, std::memory_order_relaxed);
         return true;
     }
@@ -10309,7 +10633,7 @@ extern "C"
     {
         if (e == nullptr)
             return false;
-        e->isPlaying.store(false, std::memory_order_relaxed);
+        set_playing_state(e, false);
         e->pendingAutoPlay.store(false, std::memory_order_relaxed);
         // Unblock any ae_push_stream_chunk() caller spinning on a full ring
         // buffer (previously the Dart isolate could block indefinitely).
@@ -10368,8 +10692,7 @@ extern "C"
         {
             e->pcmRingBuffer.reset();
             e->pcmDirectRingBuffer.reset();
-            e->seekBasePcmFrame.store(target, std::memory_order_release);
-            e->playedPcmFrames.store(0, std::memory_order_release);
+            reset_playback_position(e, target);
             if (e->pitchResamplerInit)
             {
                 ma_resampler_reset(&e->pitchResampler);
@@ -10543,8 +10866,7 @@ extern "C"
                 e->pendingSeekValid.store(false, std::memory_order_release);
                 e->pendingSeekIndex.store(-1, std::memory_order_release);
             }
-            e->seekBasePcmFrame.store(startFrame, std::memory_order_release);
-            e->playedPcmFrames.store(0, std::memory_order_release);
+            reset_playback_position(e, startFrame);
 
             e->nextDecoder = nullptr;
             e->nextIndex = -1;
@@ -10557,7 +10879,7 @@ extern "C"
         if (e->pendingAutoPlay.exchange(false, std::memory_order_acq_rel) ||
             e->isPlaying.load(std::memory_order_relaxed))
         {
-            e->isPlaying.store(true, std::memory_order_relaxed);
+            set_playing_state(e, true);
             e->pcmRingBuffer.reset();
             e->pcmDirectRingBuffer.reset();
             e->decodeProducerCv.notify_one();
@@ -10570,6 +10892,60 @@ extern "C"
         }
 
         request_preload(e);
+        return true;
+    }
+
+    // Instant skip: if the requested index is already preloaded in nextDecoder, promote it
+    // directly instead of tearing it down and re-opening the URL from scratch.
+    static bool try_promote_preloaded_next(AudioEngineHandle *e, int idx)
+    {
+        {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (!e->hasNext || e->nextDecoder == nullptr || e->nextIndex != idx)
+            {
+                return false;
+            }
+            if (e->hasCurrent && e->currentDecoder != nullptr)
+            {
+                uninit_decoder_slot(
+                    e,
+                    e->currentDecoder
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                    , e->currentStream
+#endif
+                );
+            }
+            request_crossfade_abort(e);
+            e->currentDecoder = e->nextDecoder;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+            e->currentStream = e->nextStream;
+            e->nextStream = nullptr;
+#endif
+            e->currentLengthFrames = e->nextLengthFrames;
+            e->currentIndex = idx;
+            e->hasCurrent = true;
+            e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
+            reset_playback_position(e, 0);
+            e->hasNext = false;
+            e->nextDecoder = nullptr;
+            e->nextIndex = -1;
+            e->nextLengthFrames = 0;
+            e->pcmRingBuffer.reset();
+            e->pcmDirectRingBuffer.reset();
+            arm_transition_fade_in(e);
+        }
+        {
+            std::lock_guard<std::mutex> pl(e->playlistMutex);
+            set_order_cursor_for_index_locked(e, idx);
+        }
+        e->pendingSeekValid.store(false, std::memory_order_release);
+        e->pendingSeekIndex.store(-1, std::memory_order_release);
+        set_playing_state(e, true);
+        e->decodeProducerCv.notify_one();
+        request_preload(e);
+        engine_log("instant skip: promoted preloaded next -> index=%d", idx);
         return true;
     }
 
@@ -10600,7 +10976,10 @@ extern "C"
 
         e->pendingAutoPlay.store(true, std::memory_order_relaxed);
 
-        if (!is_network_url(path))
+        if (try_promote_preloaded_next(e, idx))
+        {
+        }
+        else if (!is_network_url(path))
         {
             execute_jump_direct(e, idx);
         }
@@ -10698,7 +11077,10 @@ extern "C"
         e->pendingSeekIndex.store(-1, std::memory_order_release);
         e->pendingAutoPlay.store(true, std::memory_order_relaxed);
 
-        if (!is_network_url(path))
+        if (try_promote_preloaded_next(e, index))
+        {
+        }
+        else if (!is_network_url(path))
         {
             execute_jump_direct(e, index);
         }
@@ -10743,6 +11125,15 @@ extern "C"
         }
 
         const double pos = std::max(0.0, position_seconds);
+        if (pos <= 0.01)
+        {
+            e->pendingAutoPlay.store(true, std::memory_order_relaxed);
+            if (try_promote_preloaded_next(e, index))
+            {
+                clear_last_error(e);
+                return true;
+            }
+        }
         const ma_uint64 frame = (ma_uint64)(pos * (double)e->sampleRate);
 
         e->pendingSeekFrame.store(frame, std::memory_order_release);
@@ -11219,7 +11610,7 @@ extern "C"
                     }
                 }
                 ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
-                ma_uint64 played = e->playedPcmFrames.load(std::memory_order_relaxed);
+                ma_uint64 played = get_audible_played_frames(e);
                 ma_uint64 currentFrame = baseFrame + played;
                 if (currentFrame > len && len > 0)
                     currentFrame = len;
@@ -11701,7 +12092,7 @@ extern "C"
         const float oldRate = e->rateMultiplier.load(std::memory_order_relaxed);
         if (std::abs(clamped - oldRate) > 0.0005f)
         {
-            e->rateMultiplier.store(clamped, std::memory_order_relaxed);
+            set_rate_with_clock(e, clamped);
             e->decodeProducerCv.notify_all();
         }
     }
@@ -12148,6 +12539,7 @@ extern "C"
                        e->isCrossfading.load(std::memory_order_relaxed) ? "true" : "false");
 
             engine_log("DEVICE STOP BEGIN");
+            (void)freeze_audible_clock(e);
 #if defined(__ANDROID__)
             if (e->pAudioTrackSink != nullptr)
             {
@@ -12454,7 +12846,7 @@ extern "C"
                     // an audible ~350 ms forward jump.
                     // Instead, calculate the exact audible position played by the DAC:
                     const ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
-                    const ma_uint64 played = e->playedPcmFrames.load(std::memory_order_relaxed);
+                    const ma_uint64 played = get_audible_played_frames(e);
                     ma_uint64 audiblePos = baseFrame + played;
                     if (e->currentLengthFrames > 0 && audiblePos > e->currentLengthFrames)
                     {
@@ -12530,13 +12922,12 @@ extern "C"
                             const ma_uint64 decRate = (newDec->outputSampleRate > 0) ? (ma_uint64)newDec->outputSampleRate : (ma_uint64)e->sampleRate;
                             const ma_uint64 targetFrame = (ma_uint64)(posSec * (double)decRate);
                             (void)ma_decoder_seek_to_pcm_frame(newDec, targetFrame);
-                            e->seekBasePcmFrame.store(targetFrame, std::memory_order_release);
+                            reset_playback_position(e, targetFrame);
                         }
                         else
                         {
-                            e->seekBasePcmFrame.store(0, std::memory_order_release);
+                            reset_playback_position(e, 0);
                         }
-                        e->playedPcmFrames.store(0, std::memory_order_release);
 
                         std::lock_guard<std::mutex> d(e->decoderMutex);
                         e->currentDecoder = newDec;
@@ -12557,14 +12948,31 @@ extern "C"
             e->ringBufferFlushing.store(false, std::memory_order_release);
             engine_log("RING BUFFER RESET");
             e->underrunCount.store(0, std::memory_order_relaxed);
+            e->decoderEofReached.store(false, std::memory_order_release);
             e->rateTransitionInProgress.store(false, std::memory_order_release);
             e->decodeProducerCv.notify_one();
 
             if (wasPlaying)
             {
-                // Pre-buffer so the initial audio device callback doesn't immediately starve
-                const size_t targetPreload = (newRate > 0) ? (size_t)newRate / 10 * (size_t)newCh : 4800 * 2;
-                for (int spin = 0; spin < 200 && e->pcmRingBuffer.available_read() < targetPreload && e->hasCurrent; ++spin)
+                // Pre-buffer enough frames to absorb the backend's initial DMA fill burst
+                // (e.g. WASAPI shared conservative pulls ~4 periods back-to-back on start).
+                const size_t activeSr = (e->sampleRate > 0) ? (size_t)e->sampleRate : (size_t)((newRate > 0) ? newRate : 48000);
+                const size_t chActive = (e->channels > 0) ? (size_t)e->channels : (size_t)((newCh > 0) ? newCh : 2);
+                const bool isLowLat = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                      e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
+                const size_t burstFrames = e->deviceBurstFrames.load(std::memory_order_acquire);
+                const size_t basePreloadFrames = isLowLat ? (activeSr / 25) : (activeSr * 9 / 20);
+                const size_t targetPreloadFrames = std::max<size_t>(basePreloadFrames, burstFrames);
+                const size_t maxPreloadSamples = (e->pcmRingBuffer.capacity() > chActive * 4096)
+                                                     ? (e->pcmRingBuffer.capacity() - chActive * 4096)
+                                                     : e->pcmRingBuffer.capacity();
+                const size_t targetPreload = std::min<size_t>(maxPreloadSamples, targetPreloadFrames * chActive);
+                for (int spin = 0;
+                     spin < 200 &&
+                     !e->isDirectPcmActive.load(std::memory_order_acquire) &&
+                     e->pcmRingBuffer.available_read() < targetPreload &&
+                     e->hasCurrent;
+                     ++spin)
                 {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }

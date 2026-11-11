@@ -74,7 +74,6 @@ public:
         optimized_gains_db_.assign(band_count_, 0.0);
         parallel_scales_.assign(band_count_, 0.0);
         filters_.resize(band_count_);
-        filters64_.resize(band_count_);
 
         for (int i = 0; i < band_count_; ++i) {
             frequencies_[i] = (frequencies && frequencies[i] > 10.0f)
@@ -164,7 +163,6 @@ public:
 
     void reset() {
         for (auto& f : filters_) f.reset();
-        for (auto& f : filters64_) f.reset();
         for (int c = 0; c < kMaxChannels; ++c) {
             parallel_scratch_[c] = 0.0;
         }
@@ -229,6 +227,23 @@ public:
         if (band_count_ <= 0) return 0.0;
         if (isFlat_) return 0.0;
 
+        if (topology_ == EqTopology::SymmetricParallel) {
+            double sum_re = 1.0;
+            double sum_im = 0.0;
+            for (int j = 0; j < band_count_; ++j) {
+                const double scale = parallel_scales_[j];
+                if (std::abs(scale) < 1e-12) continue;
+                double bp_re = 0.0, bp_im = 0.0;
+                evaluateBandPassComplex(frequencies_[j], q_factors_[j], eval_freq_hz, sample_rate_, bp_re, bp_im);
+                // parallel_scales_[j] multiplies the unnormalized SVF BandPass (which has peak Q_j)
+                const double w_norm = scale * q_factors_[j];
+                sum_re += w_norm * bp_re;
+                sum_im += w_norm * bp_im;
+            }
+            const double mag_sq = std::max(sum_re * sum_re + sum_im * sum_im, 1e-15);
+            return 10.0 * std::log10(mag_sq);
+        }
+
         double total_db = 0.0;
         for (int j = 0; j < band_count_; ++j) {
             const double gain = (topology_ == EqTopology::LegacyCascade)
@@ -255,9 +270,13 @@ private:
     double B_[kMaxBands][kMaxBands]{};
     double invB_[kMaxBands][kMaxBands]{};
 
-    // Cytomic SVF filter stages
+    // Parallel BandPass complex interaction matrix H_BP and real-part inverse
+    double parRe_[kMaxBands][kMaxBands]{};
+    double parIm_[kMaxBands][kMaxBands]{};
+    double invParRe_[kMaxBands][kMaxBands]{};
+
+    // Cytomic SVF filter stages (processes both float32 and float64 in 64-bit internal state)
     std::vector<CytomicSVF> filters_;
-    std::vector<CytomicSVF> filters64_;
 
     // Parallel processing scratch buffers
     double parallel_scratch_[kMaxChannels]{};
@@ -327,6 +346,29 @@ private:
         return 10.0 * std::log10(std::max(num_sq / den_sq, 1e-15));
     }
 
+    // Unity-peak CytomicSVF BandPass complex transfer function (k * v1 / in) at eval_freq_hz
+    static void evaluateBandPassComplex(double f0, double q, double f_eval, double fs, double& out_re, double& out_im) {
+        if (fs <= 0.0) fs = 48000.0;
+        constexpr double kPi = 3.14159265358979323846;
+        const double g = std::tan(kPi * std::clamp(f0, 10.0, fs * 0.499) / fs);
+        const double k = 1.0 / std::max(q, 0.05);
+        const double w = 2.0 * kPi * std::clamp(f_eval, 1.0, fs * 0.4999) / fs;
+
+        // Bilinear s_bar = (1 - z^-1) / (1 + z^-1) = j * tan(w / 2)
+        const double t = std::tan(w * 0.5);
+        // H_BP_norm(e^jw) = (j * g * k * t) / ((g^2 - t^2) + j * (g * k * t))
+        const double a = g * g - t * t;
+        const double b = g * k * t;
+        const double den = a * a + b * b;
+        if (den <= 1e-30) {
+            out_re = 1.0;
+            out_im = 0.0;
+            return;
+        }
+        out_re = (b * b) / den;
+        out_im = (a * b) / den;
+    }
+
     // Computes M x M leakage matrix B and its analytical inverse B^-1
     void computeInteractionMatrix() {
         if (band_count_ <= 0) return;
@@ -340,11 +382,13 @@ private:
                     const double leak_db = evaluateSingleFilterDb(frequencies_[j], q_factors_[j], g_ref, frequencies_[i], sample_rate_);
                     B_[i][j] = leak_db / g_ref;
                 }
+                evaluateBandPassComplex(frequencies_[j], q_factors_[j], frequencies_[i], sample_rate_, parRe_[i][j], parIm_[i][j]);
             }
         }
 
-        // Invert B using Gaussian elimination with partial pivoting
+        // Invert B and parRe using Gaussian elimination with partial pivoting
         invertMatrix(band_count_, B_, invB_);
+        invertMatrix(band_count_, parRe_, invParRe_);
     }
 
     // High-precision zero-allocation Gauss-Jordan inversion with partial pivoting
@@ -423,7 +467,6 @@ private:
             parallel_scales_.assign(band_count_, 0.0);
             for (int i = 0; i < band_count_; ++i) {
                 filters_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], 0.0, q_factors_[i]);
-                filters64_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], 0.0, q_factors_[i]);
             }
             isFlat_ = true;
             return;
@@ -437,10 +480,59 @@ private:
                 optimized_gains_db_[i] = target_gains_db_[i];
                 parallel_scales_[i] = 0.0;
                 filters_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], target_gains_db_[i], q_factors_[i]);
-                filters64_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], target_gains_db_[i], q_factors_[i]);
+            }
+        } else if (topology_ == EqTopology::SymmetricParallel) {
+            // Solve complex parallel bandpass interaction: |1 + H_BP * w| = 10^(g_target / 20)
+            double target_mag[kMaxBands]{};
+            double weights[kMaxBands]{};
+            for (int i = 0; i < band_count_; ++i) {
+                target_gains_db_[i] = std::clamp(target_gains_db_[i], -24.0, 24.0);
+                target_mag[i] = std::pow(10.0, target_gains_db_[i] / 20.0);
+            }
+
+            // Initial linear solution using real part of H_BP: parRe * w = target_mag - 1
+            for (int i = 0; i < band_count_; ++i) {
+                double sum = 0.0;
+                for (int j = 0; j < band_count_; ++j) {
+                    sum += invParRe_[i][j] * (target_mag[j] - 1.0);
+                }
+                weights[i] = sum;
+            }
+
+            // Fixed-point complex magnitude refinement (accounts for quadrature skirt phase)
+            for (int iter = 0; iter < 12; ++iter) {
+                double err[kMaxBands]{};
+                for (int i = 0; i < band_count_; ++i) {
+                    double re = 1.0;
+                    double im = 0.0;
+                    for (int j = 0; j < band_count_; ++j) {
+                        re += parRe_[i][j] * weights[j];
+                        im += parIm_[i][j] * weights[j];
+                    }
+                    const double mag = std::sqrt(re * re + im * im);
+                    const double sign_re = (re >= 0.0) ? 1.0 : -1.0;
+                    err[i] = (target_mag[i] - mag) * sign_re;
+                }
+                for (int i = 0; i < band_count_; ++i) {
+                    double dw = 0.0;
+                    for (int j = 0; j < band_count_; ++j) {
+                        dw += invParRe_[i][j] * err[j];
+                    }
+                    weights[i] += dw;
+                }
+            }
+
+            for (int i = 0; i < band_count_; ++i) {
+                const double lin_gain = std::max(0.015, 1.0 + weights[i]);
+                optimized_gains_db_[i] = std::clamp(20.0 * std::log10(lin_gain), -36.0, 36.0);
+                // SVF BandPass (m1=1) has peak gain Q; scale by 1/Q for unity-peak basis
+                parallel_scales_[i] = (std::abs(weights[i]) >= 1e-6)
+                                          ? (weights[i] / q_factors_[i])
+                                          : 0.0;
+                filters_[i].setParameters(CytomicSVF::FilterType::BandPass, sample_rate_, frequencies_[i], optimized_gains_db_[i], q_factors_[i]);
             }
         } else {
-            // Matrix-Compensated decoupling: g_opt = invB * g_target
+            // Matrix-Compensated Cascade decoupling: g_opt = invB * g_target
             for (int i = 0; i < band_count_; ++i) {
                 double sum = 0.0;
                 for (int j = 0; j < band_count_; ++j) {
@@ -448,19 +540,8 @@ private:
                 }
                 // Clamp within safe physical filter bounds [-36, +36] dB
                 optimized_gains_db_[i] = std::clamp(sum, -36.0, 36.0);
-                // SVF BandPass (m1=1) has peak gain Q; scale by k=1/Q for a unity-peak
-                // bandpass so the parallel band peaks at exactly 10^(g/20).
-                parallel_scales_[i] = (std::abs(optimized_gains_db_[i]) >= 0.005)
-                                          ? ((std::pow(10.0, optimized_gains_db_[i] / 20.0) - 1.0) / q_factors_[i])
-                                          : 0.0;
-            }
-
-            for (int i = 0; i < band_count_; ++i) {
-                const auto ftype = (topology_ == EqTopology::SymmetricParallel)
-                                       ? CytomicSVF::FilterType::BandPass
-                                       : CytomicSVF::FilterType::Bell;
-                filters_[i].setParameters(ftype, sample_rate_, frequencies_[i], optimized_gains_db_[i], q_factors_[i]);
-                filters64_[i].setParameters(ftype, sample_rate_, frequencies_[i], optimized_gains_db_[i], q_factors_[i]);
+                parallel_scales_[i] = 0.0;
+                filters_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], optimized_gains_db_[i], q_factors_[i]);
             }
         }
     }

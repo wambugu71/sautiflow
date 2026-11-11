@@ -180,10 +180,10 @@ public:
         }
         currentEnabled = true;
 
-        const float smoothCoeff = 0.002f;
+        const float smoothCoeff = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
         const float twoPi = 6.28318530717958647692f;
         const float lfoInc = (twoPi * 0.5f) / (float)sampleRate; // 0.5 Hz LFO
-        const float modDepth = 8.0f; // +/- 8 samples modulation
+        const float modDepth = 8.0f * (float)(sampleRate / 32768.0); // +/- 8 samples @ 32.768 kHz scaled by sample rate
 
         for (uint32_t f = 0; f < frames; ++f) {
             currentWet += (targetWet - currentWet) * smoothCoeff;
@@ -251,8 +251,16 @@ public:
 
                 int i0 = (int)readPos;
                 int i1 = (i0 + 1 >= apASize) ? 0 : i0 + 1;
+                int im1 = (i0 - 1 < 0) ? apASize - 1 : i0 - 1;
+                int i2 = (i1 + 1 >= apASize) ? 0 : i1 + 1;
                 float frac = readPos - (float)i0;
-                float apAOutVal = apBufA[s][i0] + frac * (apBufA[s][i1] - apBufA[s][i0]);
+                // 4-point Catmull-Rom cubic interpolation reduces HF modulation loss vs linear
+                float y0 = apBufA[s][im1], y1 = apBufA[s][i0], y2 = apBufA[s][i1], y3 = apBufA[s][i2];
+                float c0 = y1;
+                float c1 = 0.5f * (y2 - y0);
+                float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+                float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+                float apAOutVal = ((c3 * frac + c2) * frac + c1) * frac + c0;
 
                 float yA = -0.6f * sig + apAOutVal;
                 flush_denormal(yA);
@@ -305,11 +313,13 @@ public:
 
 private:
     void updateCoefficients() {
-        // Keith Barr krt spans 0.2 to 0.94
-        krt_ = 0.20f + targetRoomSize * 0.74f;
+        // Unify RoomSize -> RT60 mapping (0.35s .. 14.0s) across all reverb engines.
+        // Total ring loop delay at 32.768 kHz is ~22315 samples (~0.6809s), or ~0.1702s per stage.
+        const float targetRT60 = 0.35f * std::pow(40.0f, targetRoomSize);
+        krt_ = std::min(0.985f, std::pow(10.0f, -3.0f * 0.1702f / targetRT60));
 
-        // Damping lowpass filter coefficient (0.05 to 0.75)
-        lpfCoeff_ = 1.0f - (0.05f + targetDamping * 0.70f);
+        // Damping lowpass filter coefficient (1.0 at damping=0 for zero insertion loss)
+        lpfCoeff_ = 1.0f - (targetDamping * 0.75f);
     }
 
     double sampleRate = 48000.0;

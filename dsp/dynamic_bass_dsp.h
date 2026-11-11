@@ -965,7 +965,8 @@ private:
         constexpr int N = 63;
         constexpr int M = N / 2; // center tap -> 31-sample group delay
         constexpr double kPi = 3.14159265358979323846;
-        const double fc = std::min(20000.0, 0.475 * (double)sample_rate_) / (double)sample_rate_; // normalized cutoff (< Nyquist)
+        // Normalized cutoff scaled to Nyquist (0.492 * fs) so 20 kHz @ 48 kHz and 30 kHz @ 96 kHz pass flat
+        const double fc = 0.492;
 
         double sum = 0.0;
         for (int n = 0; n < N; ++n) {

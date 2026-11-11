@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 /**
  * @file diffusion_reverb_dsp.h
@@ -66,6 +66,7 @@ public:
         }
 
         buffersAllocated = true;
+        updateCombFeedback();
         reset();
     }
 
@@ -78,10 +79,17 @@ public:
     void setDry(float d) { targetDry = std::max(0.0f, std::min(d, 2.0f)); }
     float getDry() const { return targetDry; }
 
-    void setRoomSize(float r) { targetRoomSize = std::max(0.0f, std::min(r, 1.0f)); }
+    void setRoomSize(float r) {
+        targetRoomSize = std::max(0.0f, std::min(r, 1.0f));
+        targetDecayTimeMs = 350.0f * std::pow(40.0f, targetRoomSize);
+        updateCombFeedback();
+    }
     float getRoomSize() const { return targetRoomSize; }
 
-    void setDecayTimeMs(float ms) { targetDecayTimeMs = std::max(100.0f, std::min(ms, 10000.0f)); }
+    void setDecayTimeMs(float ms) {
+        targetDecayTimeMs = std::max(100.0f, std::min(ms, 15000.0f));
+        updateCombFeedback();
+    }
     float getDecayTimeMs() const { return targetDecayTimeMs; }
 
     void setDiffusion(float diff) { targetDiffusion = std::max(0.0f, std::min(diff, 1.0f)); }
@@ -127,6 +135,7 @@ public:
         currentDamping = targetDamping;
         currentWidth = targetWidth;
         currentEnabled = targetEnabled;
+        updateCombFeedback();
     }
 
     void process(float* interleaved, uint32_t frames, int channels) {
@@ -142,23 +151,22 @@ public:
 
         const float alpha = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
 
+        if (std::abs(targetDecayTimeMs - currentDecayTimeMs) > 0.01f ||
+            std::abs(targetRoomSize - currentRoomSize) > 0.0001f) {
+            const float stepAlpha = 1.0f - std::pow(1.0f - alpha, (float)frames);
+            currentRoomSize += stepAlpha * (targetRoomSize - currentRoomSize);
+            currentDecayTimeMs += stepAlpha * (targetDecayTimeMs - currentDecayTimeMs);
+            updateCombFeedback();
+        }
+
         for (uint32_t f = 0; f < frames; ++f) {
             currentWet += alpha * (targetWet - currentWet);
             currentDry += alpha * (targetDry - currentDry);
-            currentRoomSize += alpha * (targetRoomSize - currentRoomSize);
-            currentDecayTimeMs += alpha * (targetDecayTimeMs - currentDecayTimeMs);
             currentDiffusion += alpha * (targetDiffusion - currentDiffusion);
             currentDamping += alpha * (targetDamping - currentDamping);
             currentWidth += alpha * (targetWidth - currentWidth);
 
-            // Calculate feedback multiplier from decay time & room size
-            // T60 = decay time in seconds
-            const float t60Sec = std::max(0.1f, currentDecayTimeMs * 0.001f);
-            const float decayFactor = std::pow(0.001f, (float)(1200.0 / (t60Sec * sampleRate)));
-            const float baseFb = 0.45f + 0.40f * currentRoomSize;
-            const float feedback = std::min(0.96f, baseFb * decayFactor);
-
-            const float damp = currentDamping;
+            const float damp = currentDamping * 0.7f;
             const float apFb = 0.35f + 0.35f * currentDiffusion;
 
             float inL = interleaved[f * channels + 0];
@@ -174,7 +182,7 @@ public:
                 int idxL = combIdxL[i];
                 float outL = combBufL[i][idxL];
                 combFilterL[i] = outL * (1.0f - damp) + combFilterL[i] * damp;
-                combBufL[i][idxL] = inL + combFilterL[i] * feedback;
+                combBufL[i][idxL] = inL + combFilterL[i] * combFeedbackL[i];
                 combIdxL[i] = (idxL + 1 < szL) ? idxL + 1 : 0;
                 combOutL += outL;
 
@@ -183,7 +191,7 @@ public:
                 int idxR = combIdxR[i];
                 float outR = combBufR[i][idxR];
                 combFilterR[i] = outR * (1.0f - damp) + combFilterR[i] * damp;
-                combBufR[i][idxR] = inR + combFilterR[i] * feedback;
+                combBufR[i][idxR] = inR + combFilterR[i] * combFeedbackR[i];
                 combIdxR[i] = (idxR + 1 < szR) ? idxR + 1 : 0;
                 combOutR += outR;
             }
@@ -191,14 +199,14 @@ public:
             float apInL = combOutL * 0.25f;
             float apInR = combOutR * 0.25f;
 
-            // 2. Cascaded 4-Stage Multi-Tap Allpass Diffuser Network
+            // 2. Cascaded 4-Stage Canonical Schroeder Allpass Diffuser Network: H(z) = (-g + z^-D) / (1 - g * z^-D)
             for (int i = 0; i < NUM_ALLPASS; ++i) {
                 // Left allpass
                 const int szL = (int)allpassBufL[i].size();
                 int idxL = allpassIdxL[i];
                 float bufOutL = allpassBufL[i][idxL];
-                float apOutL = -apInL + bufOutL;
-                allpassBufL[i][idxL] = apInL + (bufOutL * apFb);
+                float apOutL = -apFb * apInL + bufOutL;
+                allpassBufL[i][idxL] = apInL + (apOutL * apFb);
                 allpassIdxL[i] = (idxL + 1 < szL) ? idxL + 1 : 0;
                 apInL = apOutL;
 
@@ -206,8 +214,8 @@ public:
                 const int szR = (int)allpassBufR[i].size();
                 int idxR = allpassIdxR[i];
                 float bufOutR = allpassBufR[i][idxR];
-                float apOutR = -apInR + bufOutR;
-                allpassBufR[i][idxR] = apInR + (bufOutR * apFb);
+                float apOutR = -apFb * apInR + bufOutR;
+                allpassBufR[i][idxR] = apInR + (apOutR * apFb);
                 allpassIdxR[i] = (idxR + 1 < szR) ? idxR + 1 : 0;
                 apInR = apOutR;
             }
@@ -244,6 +252,17 @@ public:
     }
 
 private:
+    void updateCombFeedback() {
+        if (!buffersAllocated || sampleRate <= 0.0) return;
+        const float t60Sec = std::max(0.1f, currentDecayTimeMs * 0.001f);
+        for (int i = 0; i < NUM_COMBS; ++i) {
+            const float szL = (float)combBufL[i].size();
+            const float szR = (float)combBufR[i].size();
+            combFeedbackL[i] = std::min(0.985f, std::pow(10.0f, -3.0f * szL / ((float)sampleRate * t60Sec)));
+            combFeedbackR[i] = std::min(0.985f, std::pow(10.0f, -3.0f * szR / ((float)sampleRate * t60Sec)));
+        }
+    }
+
     double sampleRate = 48000.0;
     bool buffersAllocated = false;
 
@@ -278,6 +297,8 @@ private:
     int combIdxR[NUM_COMBS] = {0};
     float combFilterL[NUM_COMBS] = {0.0f};
     float combFilterR[NUM_COMBS] = {0.0f};
+    float combFeedbackL[NUM_COMBS] = {0.85f, 0.85f, 0.85f, 0.85f};
+    float combFeedbackR[NUM_COMBS] = {0.85f, 0.85f, 0.85f, 0.85f};
 
     // Allpass lines
     std::vector<float> allpassBufL[NUM_ALLPASS];

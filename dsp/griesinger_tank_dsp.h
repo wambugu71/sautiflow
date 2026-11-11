@@ -198,12 +198,15 @@ public:
         }
         currentEnabled = true;
 
-        const float smoothCoeff = 0.002f;
+        const float smoothCoeff = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
         const float twoPi = 6.28318530717958647692f;
         const float spinInc1 = (twoPi * 0.75f) / (float)sampleRate;  // 0.75 Hz Spin LFO 1
         const float spinInc2 = (twoPi * 1.10f) / (float)sampleRate;  // 1.10 Hz Spin LFO 2
-        const float spinDepth = 8.0f;   // +/- 8 samples Spin
-        const float wanderDepth = 12.0f; // +/- 12 samples Wander random-walk
+        const float rateScale = (float)(sampleRate / 29761.0);
+        const float spinDepth = 8.0f * rateScale;    // +/- 8 samples Spin @ 29.761 kHz
+        const float wanderDepth = 12.0f * rateScale; // +/- 12 samples Wander random-walk @ 29.761 kHz
+        const int wanderPeriod = std::max(16, (int)std::round(128.0 * rateScale));
+        const float wanderSmooth = 1.0f - std::exp(-1.0f / (0.0067f * (float)sampleRate));
 
         for (uint32_t f = 0; f < frames; ++f) {
             currentWet += (targetWet - currentWet) * smoothCoeff;
@@ -244,9 +247,9 @@ public:
             spinPhase2 += spinInc2;
             if (spinPhase2 >= twoPi) spinPhase2 -= twoPi;
 
-            // Update Wander random-walk target every ~128 samples with smooth lowpass tracking
+            // Update Wander random-walk target every ~4.3 ms with smooth lowpass tracking
             wanderCounter++;
-            if (wanderCounter >= 128) {
+            if (wanderCounter >= wanderPeriod) {
                 wanderCounter = 0;
                 // Simple fast PRNG in [-1, +1]
                 prngSeed = prngSeed * 1664525u + 1013904223u;
@@ -254,8 +257,8 @@ public:
                 prngSeed = prngSeed * 1664525u + 1013904223u;
                 wanderTarget2 = ((float)(prngSeed & 0xFFFF) / 32768.0f) - 1.0f;
             }
-            wanderVal1 += (wanderTarget1 - wanderVal1) * 0.005f;
-            wanderVal2 += (wanderTarget2 - wanderVal2) * 0.005f;
+            wanderVal1 += (wanderTarget1 - wanderVal1) * wanderSmooth;
+            wanderVal2 += (wanderTarget2 - wanderVal2) * wanderSmooth;
 
             float totalMod1 = spinVal1 * spinDepth + wanderVal1 * wanderDepth;
             float totalMod2 = spinVal2 * spinDepth + wanderVal2 * wanderDepth;
@@ -376,11 +379,13 @@ public:
 
 private:
     void updateCoefficients() {
-        // Map roomSize (0..1) to loop decay gain (0.35 to 0.96)
-        decayGain_ = 0.35f + targetRoomSize * 0.61f;
+        // Map roomSize (0..1) to RT60 (0.35s .. 14.0s) matching Dattorro.
+        // Figure-8 tank round-trip delay at 29.761 kHz is ~21589 samples (~0.7254s, ~0.3627s per half-tank).
+        const float targetRT60 = 0.35f * std::pow(40.0f, targetRoomSize);
+        decayGain_ = std::min(0.985f, std::pow(10.0f, -3.0f * 0.3627f / targetRT60));
 
-        // Damping lowpass filter coefficient (0.1 to 0.8)
-        dampCoeff_ = 1.0f - (0.05f + targetDamping * 0.75f);
+        // Damping lowpass filter coefficient (1.0 at damping=0 for zero insertion loss)
+        dampCoeff_ = 1.0f - (targetDamping * 0.80f);
     }
 
     double sampleRate = 48000.0;

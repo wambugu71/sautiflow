@@ -137,9 +137,10 @@ public:
         e_mud_l_  = e_mud_r_  = 0.0f;
         e_pres_l_ = e_pres_r_ = 0.0f;
 
-        // Reset DC blocker states
+        // Reset DC blocker and Chebyshev envelope states
         dc_x_l_ = dc_x_r_ = 0.0f;
         dc_y_l_ = dc_y_r_ = 0.0f;
+        cheb_env_sq_l_ = cheb_env_sq_r_ = 0.0f;
 
         // Reset Air Shelf biquad states
         air_x1_l_ = air_x2_l_ = air_y1_l_ = air_y2_l_ = 0.0f;
@@ -160,6 +161,8 @@ public:
             transient_shelf_[c].reset();
             lr4_hp1_[c].reset();
             lr4_hp2_[c].reset();
+            cheb_post_hp1_[c].reset();
+            cheb_post_hp2_[c].reset();
             demask_mud_bpf_[c].reset();
             demask_pres_bpf_[c].reset();
             demask_peaking_[c].reset();
@@ -381,19 +384,27 @@ private:
             sidechain_buf_[2 * i + 1] = static_cast<float>(hp_r);
         }
 
-        // 2. Chebyshev Polynomial Waveshaping with DC Blocking in Oversampled Domain
+        // 2. Chebyshev Polynomial Waveshaping with DC Blocking & Fundamental Cancellation in Oversampled Domain
         const float g2 = g2_warmth_ * 0.40f;
         const float g3 = g3_presence_ * 0.30f;
         const float dc_r = dc_block_r_;
+        const float env_alpha = 1.0f - dc_r;
 
-        auto apply_chebyshev = [this, g2, g3, dc_r](float* buf, uint32_t num_frames) {
+        auto apply_chebyshev = [this, g2, g3, dc_r, env_alpha](float* buf, uint32_t num_frames) {
             for (uint32_t i = 0; i < num_frames; ++i) {
                 float xl = std::clamp(buf[2 * i], -1.0f, 1.0f);
                 float xr = std::clamp(buf[2 * i + 1], -1.0f, 1.0f);
 
+                const float xl2 = xl * xl;
+                const float xr2 = xr * xr;
+
+                // Track mean-square amplitude (A^2 / 2 for sine of amplitude A -> 2*mean(x^2) = A^2)
+                cheb_env_sq_l_ += env_alpha * (2.0f * xl2 - cheb_env_sq_l_);
+                cheb_env_sq_r_ += env_alpha * (2.0f * xr2 - cheb_env_sq_r_);
+
                 // Chebyshev 2nd Harmonic: 2x^2 with DC blocker removes offset (0 at silence)
-                float t2_raw_l = 2.0f * (xl * xl);
-                float t2_raw_r = 2.0f * (xr * xr);
+                float t2_raw_l = 2.0f * xl2;
+                float t2_raw_r = 2.0f * xr2;
 
                 float dc_out_l = t2_raw_l - dc_x_l_ + dc_r * dc_y_l_;
                 dc_x_l_ = t2_raw_l; dc_y_l_ = dc_out_l;
@@ -401,9 +412,9 @@ private:
                 float dc_out_r = t2_raw_r - dc_x_r_ + dc_r * dc_y_r_;
                 dc_x_r_ = t2_raw_r; dc_y_r_ = dc_out_r;
 
-                // 3rd Harmonic Generation: 4x^3 (cubic odd harmonic synthesis without fundamental phase cancellation)
-                float t3_l = 4.0f * (xl * xl * xl);
-                float t3_r = 4.0f * (xr * xr * xr);
+                // Envelope-normalized Chebyshev T3(x): 4x^3 - 3*A^2*x cancels fundamental cos(wt) leaving pure cos(3wt)
+                float t3_l = 4.0f * ((xl2 * xl) - 0.75f * cheb_env_sq_l_ * xl);
+                float t3_r = 4.0f * ((xr2 * xr) - 0.75f * cheb_env_sq_r_ * xr);
 
                 buf[2 * i]     = (g2 * dc_out_l) + (g3 * t3_l);
                 buf[2 * i + 1] = (g2 * dc_out_r) + (g3 * t3_r);
@@ -422,8 +433,16 @@ private:
             }
         }
 
-        // 3. Mix back into dry signal at -20 dB nominal blend with group delay compensation
-        const int delay_frames = (oversampling_factor_ == 4) ? 39 : ((oversampling_factor_ == 2) ? 26 : 0);
+        // Post-waveshaper LR4 high-pass filter at 3.2 kHz strips demodulated AM baseband envelopes
+        for (uint32_t i = 0; i < frame_count; ++i) {
+            double h_l = cheb_post_hp2_[0].processSample(cheb_post_hp1_[0].processSample(static_cast<double>(sidechain_buf_[2 * i])));
+            double h_r = cheb_post_hp2_[1].processSample(cheb_post_hp1_[1].processSample(static_cast<double>(sidechain_buf_[2 * i + 1])));
+            sidechain_buf_[2 * i]     = static_cast<float>(h_l);
+            sidechain_buf_[2 * i + 1] = static_cast<float>(h_r);
+        }
+
+        // 3. Mix back into dry signal at -20 dB nominal blend with group delay compensation (39.9 -> 40 for 4x)
+        const int delay_frames = (oversampling_factor_ == 4) ? 40 : ((oversampling_factor_ == 2) ? 26 : 0);
         constexpr int kRingFrames = 256;
         for (uint32_t i = 0; i < frame_count; ++i) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
@@ -536,10 +555,12 @@ private:
         calcBandpass(400.0f, 0.6f, x_mid_b0_, x_mid_b1_, x_mid_b2_, x_mid_a1_, x_mid_a2_);
         calcHighpass(1200.0f, 0.7071f, x_high_b0_, x_high_b1_, x_high_b2_, x_high_a1_, x_high_a2_);
 
-        // 4. 4th-Order Linkwitz-Riley Crossover at 3.2 kHz (High-Pass Crossover)
+        // 4. 4th-Order Linkwitz-Riley Crossover at 3.2 kHz (Pre- and Post-Shaper High-Pass)
         for (int c = 0; c < 2; ++c) {
             lr4_hp1_[c].setParameters(CytomicSVF::FilterType::HighPass, sample_rate_, 3200.0, 0.0, 0.70710678);
             lr4_hp2_[c].setParameters(CytomicSVF::FilterType::HighPass, sample_rate_, 3200.0, 0.0, 0.70710678);
+            cheb_post_hp1_[c].setParameters(CytomicSVF::FilterType::HighPass, sample_rate_, 3200.0, 0.0, 0.70710678);
+            cheb_post_hp2_[c].setParameters(CytomicSVF::FilterType::HighPass, sample_rate_, 3200.0, 0.0, 0.70710678);
         }
 
         // 5. Dynamic Low-Mid De-Masking BPFs
@@ -651,10 +672,11 @@ private:
     float e_mud_l_  = 0.0f, e_mud_r_  = 0.0f;
     float e_pres_l_ = 0.0f, e_pres_r_ = 0.0f;
 
-    // Chebyshev DC blocker
+    // Chebyshev DC blocker & envelope tracker
     float dc_block_r_ = 0.999f;
     float dc_x_l_ = 0.0f, dc_x_r_ = 0.0f;
     float dc_y_l_ = 0.0f, dc_y_r_ = 0.0f;
+    float cheb_env_sq_l_ = 0.0f, cheb_env_sq_r_ = 0.0f;
 
     // 2x and 4x Polyphase Half-Band Oversamplers
     PolyphaseOversampler2x oversampler_;
@@ -671,6 +693,8 @@ private:
     CytomicSVF transient_shelf_[2];
     CytomicSVF lr4_hp1_[2];
     CytomicSVF lr4_hp2_[2];
+    CytomicSVF cheb_post_hp1_[2];
+    CytomicSVF cheb_post_hp2_[2];
     CytomicSVF demask_mud_bpf_[2];
     CytomicSVF demask_pres_bpf_[2];
     CytomicSVF demask_peaking_[2];

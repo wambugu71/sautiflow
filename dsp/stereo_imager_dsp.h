@@ -59,6 +59,30 @@ struct StereoImagerBiquadDouble {
         a1 = (-2.0 * cos_w) / a0;
         a2 = (1.0 - alpha) / a0;
     }
+
+    // 2nd-Order Butterworth Allpass (Q = 0.7071): exact phase match for LR4 LP + HP sum
+    void setAllpass2ndOrder(double fs, double fc) {
+        if (fc <= 20.0 || fs <= 0.0) {
+            b0 = 1.0; b1 = 0.0; b2 = 0.0;
+            a1 = 0.0; a2 = 0.0;
+            return;
+        }
+        constexpr double PI = 3.14159265358979323846;
+        double w0 = 2.0 * PI * fc / fs;
+        if (w0 > PI * 0.95) w0 = PI * 0.95;
+        if (w0 < 1.0e-4) w0 = 1.0e-4;
+
+        const double cos_w = std::cos(w0);
+        const double sin_w = std::sin(w0);
+        const double alpha = sin_w / (2.0 * 0.7071067811865475);
+
+        const double a0 = 1.0 + alpha;
+        b0 = (1.0 - alpha) / a0;
+        b1 = (-2.0 * cos_w) / a0;
+        b2 = 1.0;
+        a1 = (-2.0 * cos_w) / a0;
+        a2 = (1.0 - alpha) / a0;
+    }
 };
 
 // Direct Form I Biquad for filtering Side channel
@@ -217,6 +241,7 @@ public:
     float getWidth() const { return target_width_; }
 
     void setMonoBelowHz(float hz) {
+        mono_below_user_set_ = true;
         float clamped = (hz <= 20.0f) ? 0.0f : std::clamp(hz, 40.0f, 400.0f);
         if (std::abs(mono_below_hz_ - clamped) > 1.0f) {
             mono_below_hz_ = clamped;
@@ -243,6 +268,8 @@ public:
         velvet_write_ = 0;
         std::fill(velvet_buffer_.begin(), velvet_buffer_.end(), 0.0f);
         elliptical_filter_.reset();
+        elliptical_filter2_.reset();
+        mid_allpass_filter_.reset();
         air_shelf_filter_.reset();
         shuffler_shelf_filter_.reset();
     }
@@ -267,8 +294,21 @@ public:
         const size_t bufSize = velvet_buffer_.size();
         const bool hasVelvet = (mode_ == StereoImagerMode::Spatial3D) && (bufSize > 0);
         const bool hasShuffler = (mode_ == StereoImagerMode::BlumleinShuffler);
-        const bool hasMonoAnchor = (mono_below_hz_ > 25.0f);
+        const bool hasMonoAnchor = (effective_mono_hz_ > 25.0f);
         const bool hasAirShelf = (air_boost_db_ > 0.1f);
+
+        // Check if block has any stereo difference so pure mono (L == R) remains bit-exact
+        bool blockHasSide = false;
+        for (uint32_t i = 0; i < frameCount; ++i) {
+            const size_t idx = (size_t)i * (size_t)channels;
+            if (std::fabs(samples[idx] - samples[idx + 1]) > 1.0e-7f) {
+                blockHasSide = true;
+                break;
+            }
+        }
+        if (std::fabs(elliptical_filter_.y1) > 1.0e-9 || std::fabs(elliptical_filter2_.y1) > 1.0e-9) {
+            blockHasSide = true;
+        }
 
         // Telemetry energy accumulators for this processing block
         double sum_lr = 0.0;
@@ -286,12 +326,18 @@ public:
             current_width_ += (target_width_ - current_width_) * smooth_coeff_;
 
             // 2. Symmetric Mid/Side decomposition
-            const float mid  = 0.5f * (in_l + in_r);
+            float mid  = 0.5f * (in_l + in_r);
             float side = 0.5f * (in_l - in_r);
 
-            // 3. Sub-Bass Mono Anchor (64-Bit Elliptical High-Pass Filter on Side channel)
+            // 3. Sub-Bass Mono Anchor (64-Bit Linkwitz-Riley 4th-Order Crossover on Side + Phase-Matched Allpass on Mid)
             if (hasMonoAnchor) {
-                side = static_cast<float>(elliptical_filter_.process(static_cast<double>(side)));
+                const double s_hp1 = elliptical_filter_.process(static_cast<double>(side));
+                const double s_hp2 = elliptical_filter2_.process(s_hp1);
+                side = static_cast<float>(s_hp2);
+                const double m_ap = mid_allpass_filter_.process(static_cast<double>(mid));
+                if (blockHasSide && !hasVelvet) {
+                    mid = static_cast<float>(m_ap);
+                }
             }
 
             // 4. Mode-Specific Spatialization
@@ -335,12 +381,12 @@ public:
                 }
                 float decorr = v_decorr.reduce_sum();
 
-                // Normalize and scale by transient gate
-                decorr *= (0.288f * transient_gate_); // 1/sqrt(12)
+                // Normalize and scale by transient gate (low comb-ripple level, only active when widening > 1.0)
+                decorr *= (0.045f * transient_gate_);
 
-                // Inject decorrelation symmetrically into the side channel
+                // Inject decorrelation symmetrically into the side channel when widening > 1.0
                 // Side energy spreads outward; cancels 100% when mono summed (L+R = 2M)
-                side = (side * current_width_) + (decorr * std::clamp(current_width_ - 0.5f, 0.0f, 1.5f));
+                side = (side * current_width_) + (decorr * std::clamp(current_width_ - 1.0f, 0.0f, 1.5f));
 
                 velvet_write_++;
                 if (velvet_write_ >= bufSize) velvet_write_ = 0;
@@ -401,6 +447,8 @@ private:
     float target_width_ = 1.2f;
     float current_width_ = 1.2f;
     float mono_below_hz_ = 150.0f;
+    float effective_mono_hz_ = 150.0f;
+    bool mono_below_user_set_ = false;
     float air_boost_db_ = 1.5f;
 
     float smooth_coeff_ = 0.001f;
@@ -409,8 +457,10 @@ private:
     float transient_env_ = 0.0f;
     float transient_gate_ = 1.0f;
 
-    // Side-channel filters
+    // Side-channel and Mid phase-compensation filters
     StereoImagerBiquadDouble elliptical_filter_;
+    StereoImagerBiquadDouble elliptical_filter2_;
+    StereoImagerBiquadDouble mid_allpass_filter_;
     StereoImagerBiquad air_shelf_filter_;
     StereoImagerBiquad shuffler_shelf_filter_;
 
@@ -443,8 +493,15 @@ private:
     }
 
     void updateFilters() {
-        // 1. Mono Bass Anchor (Elliptical Highpass on Side)
-        elliptical_filter_.setHighpass(sample_rate_, mono_below_hz_);
+        // 1. Mono Bass Anchor (4th-order Linkwitz-Riley HPF on Side + Phase-Matched Allpass on Mid)
+        // In BlumleinShuffler mode, bypass the default 150 Hz anchor unless explicitly requested by user,
+        // so the +4 dB low-frequency shuffler boost (<650 Hz) is not canceled by the 150 Hz cut.
+        effective_mono_hz_ = (mode_ == StereoImagerMode::BlumleinShuffler && !mono_below_user_set_)
+                                 ? 0.0f
+                                 : mono_below_hz_;
+        elliptical_filter_.setHighpass(sample_rate_, effective_mono_hz_);
+        elliptical_filter2_.setHighpass(sample_rate_, effective_mono_hz_);
+        mid_allpass_filter_.setAllpass2ndOrder(sample_rate_, effective_mono_hz_);
 
         // 2. High-Frequency Air Shelf (>8.5 kHz on Side)
         air_shelf_filter_.setHighShelf(sample_rate_, 8500.0, air_boost_db_);
