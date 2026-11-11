@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <iostream>
 #include <mutex>
+#include <future>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -20,6 +21,7 @@
 extern "C" {
 #endif
 #include <libavformat/avformat.h>
+#include <libavformat/avio.h>
 #include <libavcodec/avcodec.h>
 #include <libswresample/swresample.h>
 #include <libavutil/opt.h>
@@ -28,11 +30,16 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/time.h>
 #include <libavutil/replaygain.h>
+#include <libavutil/mem.h>
 #ifdef __cplusplus
 }
 #endif
 
 #include "dsp/denormals.h"
+
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+#include <curl/curl.h>
+#endif
 
 namespace sautiflow {
 
@@ -98,6 +105,584 @@ static int ffmpeg_interrupt_callback(void* ctx) {
     if (!self) return 0;
     return self->is_stop_requested() ? 1 : 0;
 }
+
+struct CustomHttpReaderBase {
+    virtual ~CustomHttpReaderBase() = default;
+    virtual bool seek_to_ms(int64_t /*timestampMs*/) { return false; }
+    virtual double get_duration_sec() const { return 0.0; }
+};
+
+// Bounded HTTP byte-range reader for YouTube / googlevideo.com streams.
+// googlevideo.com rejects open-ended Range: bytes=0- requests (and ranges >= 1 MB)
+// on adaptive streams (c=WEB_REMIX, c=WEB, etc.) with HTTP 403 Forbidden,
+// whereas bounded 512 KB byte-range chunks (Range: bytes=start-end) return HTTP 206.
+struct YouTubeChunkedHttpReader : public CustomHttpReaderBase {
+    std::string url;
+    std::string userAgent;
+    std::string baseHeaders;
+    FFmpegStreamSource* owner{nullptr};
+    int64_t totalSize{-1};
+    int64_t pos{0};
+    int64_t chunkSize{524288}; // 512 KB bounded chunks
+    std::vector<uint8_t> chunkBuf;
+    int64_t chunkStart{-1};
+    int64_t chunkEnd{-1}; // exclusive
+
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+    CURL* curlHandle{nullptr};
+
+    static size_t curl_write_vec(char* ptr, size_t size, size_t nmemb, void* userdata) {
+        auto* vec = static_cast<std::vector<uint8_t>*>(userdata);
+        size_t total = size * nmemb;
+        if (vec && total > 0) {
+            vec->insert(vec->end(), reinterpret_cast<uint8_t*>(ptr), reinterpret_cast<uint8_t*>(ptr) + total);
+        }
+        return total;
+    }
+
+    static int curl_progress_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+        auto* self = static_cast<YouTubeChunkedHttpReader*>(clientp);
+        return (self && self->owner && self->owner->is_stop_requested()) ? 1 : 0;
+    }
+#endif
+
+    ~YouTubeChunkedHttpReader() override {
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        if (curlHandle) {
+            curl_easy_cleanup(curlHandle);
+            curlHandle = nullptr;
+        }
+#endif
+    }
+
+    static int64_t parse_clen(const std::string& u) {
+        size_t idx = u.find("clen=");
+        if (idx == std::string::npos) return -1;
+        idx += 5;
+        size_t end = u.find('&', idx);
+        std::string sub = (end == std::string::npos) ? u.substr(idx) : u.substr(idx, end - idx);
+        try {
+            return std::stoll(sub);
+        } catch (...) {
+            return -1;
+        }
+    }
+
+    bool fetch_chunk(int64_t startOffset) {
+        if (owner && owner->is_stop_requested()) return false;
+        if (totalSize > 0 && startOffset >= totalSize) return false;
+
+        // Use a smaller 128 KB initial chunk at byte 0 for ultra-fast startup on slow connections,
+        // then 512 KB chunks for sustained streaming.
+        int64_t activeChunkSize = (startOffset == 0) ? 131072 : chunkSize;
+        int64_t reqEnd = startOffset + activeChunkSize - 1;
+        if (totalSize > 0 && reqEnd >= totalSize) {
+            reqEnd = totalSize - 1;
+        }
+        int64_t expectedLen = reqEnd - startOffset + 1;
+        if (expectedLen <= 0) return false;
+
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        if (!curlHandle) {
+            curlHandle = curl_easy_init();
+        }
+        if (curlHandle) {
+            std::string rangeStr = std::to_string(startOffset) + "-" + std::to_string(reqEnd);
+            for (int attempt = 0; attempt < 6; ++attempt) {
+                if (owner && owner->is_stop_requested()) return false;
+                if (attempt > 0) {
+                    int delayMs = std::min(1000, 120 * attempt);
+                    for (int waited = 0; waited < delayMs; waited += 40) {
+                        if (owner && owner->is_stop_requested()) return false;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                    }
+                }
+                struct curl_slist* hdrs = nullptr;
+                hdrs = curl_slist_append(hdrs, "Referer: https://www.youtube.com/");
+                hdrs = curl_slist_append(hdrs, "Origin: https://www.youtube.com");
+                hdrs = curl_slist_append(hdrs, "Connection: keep-alive");
+
+                std::vector<uint8_t> temp;
+                temp.reserve(static_cast<size_t>(expectedLen));
+                curl_easy_setopt(curlHandle, CURLOPT_URL, url.c_str());
+                curl_easy_setopt(curlHandle, CURLOPT_RANGE, rangeStr.c_str());
+                curl_easy_setopt(curlHandle, CURLOPT_FOLLOWLOCATION, 1L);
+                curl_easy_setopt(curlHandle, CURLOPT_CONNECTTIMEOUT, 10L);
+                curl_easy_setopt(curlHandle, CURLOPT_TIMEOUT, 20L);
+                curl_easy_setopt(curlHandle, CURLOPT_SSL_VERIFYPEER, 0L);
+                curl_easy_setopt(curlHandle, CURLOPT_SSL_VERIFYHOST, 0L);
+                curl_easy_setopt(curlHandle, CURLOPT_TCP_KEEPALIVE, 1L);
+                curl_easy_setopt(curlHandle, CURLOPT_FRESH_CONNECT, (attempt > 0) ? 1L : 0L);
+                if (!userAgent.empty()) {
+                    curl_easy_setopt(curlHandle, CURLOPT_USERAGENT, userAgent.c_str());
+                }
+                curl_easy_setopt(curlHandle, CURLOPT_HTTPHEADER, hdrs);
+                curl_easy_setopt(curlHandle, CURLOPT_WRITEFUNCTION, &YouTubeChunkedHttpReader::curl_write_vec);
+                curl_easy_setopt(curlHandle, CURLOPT_WRITEDATA, &temp);
+                curl_easy_setopt(curlHandle, CURLOPT_NOPROGRESS, 0L);
+                curl_easy_setopt(curlHandle, CURLOPT_XFERINFOFUNCTION, &YouTubeChunkedHttpReader::curl_progress_cb);
+                curl_easy_setopt(curlHandle, CURLOPT_XFERINFODATA, this);
+
+                CURLcode res = curl_easy_perform(curlHandle);
+                curl_slist_free_all(hdrs);
+                long httpCode = 0;
+                curl_easy_getinfo(curlHandle, CURLINFO_RESPONSE_CODE, &httpCode);
+                if (res == CURLE_OK && (httpCode == 200 || httpCode == 206) && !temp.empty()) {
+                    chunkBuf = std::move(temp);
+                    chunkStart = startOffset;
+                    chunkEnd = startOffset + static_cast<int64_t>(chunkBuf.size());
+                    return true;
+                }
+            }
+        }
+#endif
+
+        AVIOInterruptCB intCb{ffmpeg_interrupt_callback, owner};
+
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            if (owner && owner->is_stop_requested()) return false;
+
+            AVDictionary* opts = nullptr;
+            if (!userAgent.empty()) {
+                av_dict_set(&opts, "user_agent", userAgent.c_str(), 0);
+            }
+            if (!baseHeaders.empty()) {
+                av_dict_set(&opts, "headers", baseHeaders.c_str(), 0);
+            }
+            av_dict_set(&opts, "seekable", "0", 0);
+            av_dict_set(&opts, "http_persistent", "0", 0);
+            av_dict_set(&opts, "timeout", "10000000", 0);
+            av_dict_set(&opts, "rw_timeout", "10000000", 0);
+            av_dict_set(&opts, "tls_verify", "0", 0);
+
+            std::string rangedUrl = url + (url.find('?') == std::string::npos ? "?range=" : "&range=") +
+                std::to_string(startOffset) + "-" + std::to_string(reqEnd);
+
+            AVIOContext* io = nullptr;
+            int ret = avio_open2(&io, rangedUrl.c_str(), AVIO_FLAG_READ, &intCb, &opts);
+            if (opts) av_dict_free(&opts);
+
+            if (ret < 0 || !io) {
+                if (io) avio_closep(&io);
+                continue;
+            }
+
+            chunkBuf.resize(static_cast<size_t>(expectedLen));
+            int64_t totalRead = 0;
+            while (totalRead < expectedLen) {
+                if (owner && owner->is_stop_requested()) break;
+                int toRead = static_cast<int>(std::min<int64_t>(32768, expectedLen - totalRead));
+                int r = avio_read(io, chunkBuf.data() + totalRead, toRead);
+                if (r <= 0) break;
+                totalRead += r;
+            }
+            avio_closep(&io);
+
+            if (totalRead > 0) {
+                chunkBuf.resize(static_cast<size_t>(totalRead));
+                chunkStart = startOffset;
+                chunkEnd = startOffset + totalRead;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static int read_packet(void* opaque, uint8_t* buf, int buf_size) {
+        auto* self = static_cast<YouTubeChunkedHttpReader*>(opaque);
+        if (!self || buf_size <= 0) return AVERROR_EOF;
+        if (self->owner && self->owner->is_stop_requested()) return AVERROR_EXIT;
+        if (self->totalSize > 0 && self->pos >= self->totalSize) return AVERROR_EOF;
+
+        if (self->pos < self->chunkStart || self->pos >= self->chunkEnd) {
+            if (!self->fetch_chunk(self->pos)) {
+                return AVERROR_EOF;
+            }
+        }
+
+        int64_t avail = self->chunkEnd - self->pos;
+        if (avail <= 0) return AVERROR_EOF;
+
+        int toCopy = static_cast<int>(std::min<int64_t>(buf_size, avail));
+        std::memcpy(buf, self->chunkBuf.data() + (self->pos - self->chunkStart), static_cast<size_t>(toCopy));
+        self->pos += toCopy;
+        return toCopy;
+    }
+
+    static int64_t seek(void* opaque, int64_t offset, int whence) {
+        auto* self = static_cast<YouTubeChunkedHttpReader*>(opaque);
+        if (!self) return -1;
+
+        if (whence & AVSEEK_SIZE) {
+            return self->totalSize > 0 ? self->totalSize : -1;
+        }
+
+        int baseWhence = whence & ~(AVSEEK_FORCE | AVSEEK_SIZE);
+        int64_t target = -1;
+        if (baseWhence == SEEK_SET) {
+            target = offset;
+        } else if (baseWhence == SEEK_CUR) {
+            target = self->pos + offset;
+        } else if (baseWhence == SEEK_END && self->totalSize > 0) {
+            target = self->totalSize + offset;
+        } else {
+            return -1;
+        }
+
+        if (target < 0) target = 0;
+        if (self->totalSize > 0 && target > self->totalSize) target = self->totalSize;
+        self->pos = target;
+        return self->pos;
+    }
+};
+
+// Resilient MPEG-TS HLS segment reader for YouTube / googlevideo.com HLS streams.
+// Fetches the variant .m3u8 playlist once, parses all #EXTINF segment URLs + durations,
+// and streams the concatenated .ts segments into FFmpeg's mpegts demuxer with automatic
+// multi-attempt retry and exponential backoff on transient TLS handshake drops.
+struct YouTubeHlsHttpReader : public CustomHttpReaderBase {
+    struct Segment {
+        std::string url;
+        double durationSec{0.0};
+        double startSec{0.0};
+    };
+
+    std::string playlistUrl;
+    std::string userAgent;
+    std::string baseHeaders;
+    FFmpegStreamSource* owner{nullptr};
+    std::vector<Segment> segments;
+    double totalDurationSec{0.0};
+    bool playlistLoaded{false};
+    bool isFmp4{false};
+    std::string initMapUrl;
+    std::vector<uint8_t> initMapBytes;
+
+    size_t currentSegIdx{0};
+    std::vector<uint8_t> segBuf;
+    size_t segOffset{0};
+
+    // Background prefetch of the next .ts segment so decode never waits on network.
+    size_t prefetchIdx{static_cast<size_t>(-1)};
+    std::vector<uint8_t> prefetchBuf;
+    std::future<bool> prefetchFuture;
+
+    void wait_prefetch() {
+        if (prefetchFuture.valid()) {
+            try { prefetchFuture.get(); } catch (...) {}
+        }
+    }
+
+    void start_prefetch(size_t idx) {
+        if (idx >= segments.size() || prefetchFuture.valid()) return;
+        prefetchIdx = idx;
+        prefetchBuf.clear();
+        std::string u = segments[idx].url;
+        prefetchFuture = std::async(std::launch::async, [this, u]() {
+            return fetch_url_bytes(u, prefetchBuf, 8, true);
+        });
+    }
+
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+    CURL* curlHandle{nullptr};
+    struct curl_slist* curlHeaderList{nullptr};
+    CURL* prefetchCurlHandle{nullptr};
+    struct curl_slist* prefetchHeaderList{nullptr};
+
+    static size_t curl_write_vec(char* ptr, size_t size, size_t nmemb, void* userdata) {
+        auto* vec = static_cast<std::vector<uint8_t>*>(userdata);
+        size_t total = size * nmemb;
+        if (vec && total > 0) {
+            vec->insert(vec->end(), reinterpret_cast<uint8_t*>(ptr), reinterpret_cast<uint8_t*>(ptr) + total);
+        }
+        return total;
+    }
+
+    static int curl_progress_cb(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+        auto* self = static_cast<YouTubeHlsHttpReader*>(clientp);
+        return (self && self->owner && self->owner->is_stop_requested()) ? 1 : 0;
+    }
+#endif
+
+    ~YouTubeHlsHttpReader() override {
+        wait_prefetch();
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        if (prefetchHeaderList) { curl_slist_free_all(prefetchHeaderList); prefetchHeaderList = nullptr; }
+        if (prefetchCurlHandle) { curl_easy_cleanup(prefetchCurlHandle); prefetchCurlHandle = nullptr; }
+        if (curlHeaderList) {
+            curl_slist_free_all(curlHeaderList);
+            curlHeaderList = nullptr;
+        }
+        if (curlHandle) {
+            curl_easy_cleanup(curlHandle);
+            curlHandle = nullptr;
+        }
+#endif
+    }
+
+    double get_duration_sec() const override {
+        return totalDurationSec;
+    }
+
+    bool fetch_url_bytes(const std::string& targetUrl, std::vector<uint8_t>& outBuf, int maxAttempts = 12, bool usePrefetchHandle = false) {
+        outBuf.clear();
+
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        CURL*& hRef = usePrefetchHandle ? prefetchCurlHandle : curlHandle;
+        struct curl_slist*& hlRef = usePrefetchHandle ? prefetchHeaderList : curlHeaderList;
+        if (!hRef) {
+            hRef = curl_easy_init();
+            if (hRef) {
+                hlRef = curl_slist_append(hlRef, "Referer: https://www.youtube.com/");
+                hlRef = curl_slist_append(hlRef, "Origin: https://www.youtube.com");
+                hlRef = curl_slist_append(hlRef, "Connection: keep-alive");
+            }
+        }
+        if (hRef) {
+            for (int attempt = 0; attempt < maxAttempts; ++attempt) {
+                if (owner && owner->is_stop_requested()) return false;
+                if (attempt > 0) {
+                    int delayMs = std::min(1500, 150 * attempt);
+                    for (int waited = 0; waited < delayMs; waited += 50) {
+                        if (owner && owner->is_stop_requested()) return false;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    }
+                }
+                std::vector<uint8_t> temp;
+                temp.reserve(262144);
+                curl_easy_setopt(hRef, CURLOPT_URL, targetUrl.c_str());
+                curl_easy_setopt(hRef, CURLOPT_FOLLOWLOCATION, 1L);
+                curl_easy_setopt(hRef, CURLOPT_CONNECTTIMEOUT, 10L);
+                curl_easy_setopt(hRef, CURLOPT_TIMEOUT, 20L);
+                curl_easy_setopt(hRef, CURLOPT_SSL_VERIFYPEER, 0L);
+                curl_easy_setopt(hRef, CURLOPT_SSL_VERIFYHOST, 0L);
+                curl_easy_setopt(hRef, CURLOPT_TCP_KEEPALIVE, 1L);
+        curl_easy_setopt(hRef, CURLOPT_FRESH_CONNECT, (attempt > 0) ? 1L : 0L);
+                if (!userAgent.empty()) {
+                    curl_easy_setopt(hRef, CURLOPT_USERAGENT, userAgent.c_str());
+                }
+                if (hlRef) {
+                    curl_easy_setopt(hRef, CURLOPT_HTTPHEADER, hlRef);
+                }
+                curl_easy_setopt(hRef, CURLOPT_WRITEFUNCTION, &YouTubeHlsHttpReader::curl_write_vec);
+                curl_easy_setopt(hRef, CURLOPT_WRITEDATA, &temp);
+                curl_easy_setopt(hRef, CURLOPT_NOPROGRESS, 0L);
+                curl_easy_setopt(hRef, CURLOPT_XFERINFOFUNCTION, &YouTubeHlsHttpReader::curl_progress_cb);
+                curl_easy_setopt(hRef, CURLOPT_XFERINFODATA, this);
+
+                CURLcode res = curl_easy_perform(hRef);
+                long httpCode = 0;
+                curl_easy_getinfo(hRef, CURLINFO_RESPONSE_CODE, &httpCode);
+                if (res == CURLE_OK && httpCode >= 200 && httpCode < 300 && !temp.empty()) {
+                    outBuf = std::move(temp);
+                    return true;
+                }
+            }
+        }
+#endif
+
+        AVIOInterruptCB intCb{ffmpeg_interrupt_callback, owner};
+
+        for (int attempt = 0; attempt < maxAttempts; ++attempt) {
+            if (owner && owner->is_stop_requested()) return false;
+            if (attempt > 0) {
+                int delayMs = std::min(1500, 150 * attempt);
+                for (int waited = 0; waited < delayMs; waited += 50) {
+                    if (owner && owner->is_stop_requested()) return false;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+            }
+
+            AVDictionary* opts = nullptr;
+            if (!userAgent.empty()) {
+                av_dict_set(&opts, "user_agent", userAgent.c_str(), 0);
+            }
+            if (!baseHeaders.empty()) {
+                av_dict_set(&opts, "headers", baseHeaders.c_str(), 0);
+            }
+            av_dict_set(&opts, "seekable", "0", 0);
+            av_dict_set(&opts, "http_persistent", "0", 0);
+            av_dict_set(&opts, "timeout", "10000000", 0);
+            av_dict_set(&opts, "rw_timeout", "10000000", 0);
+            av_dict_set(&opts, "tls_verify", "0", 0);
+
+            AVIOContext* io = nullptr;
+            int ret = avio_open2(&io, targetUrl.c_str(), AVIO_FLAG_READ, &intCb, &opts);
+            if (opts) av_dict_free(&opts);
+
+            if (ret < 0 || !io) {
+                if (io) avio_closep(&io);
+                continue;
+            }
+
+            std::vector<uint8_t> temp;
+            temp.reserve(262144);
+            uint8_t readChunk[32768];
+            bool readError = false;
+            while (true) {
+                if (owner && owner->is_stop_requested()) {
+                    readError = true;
+                    break;
+                }
+                int r = avio_read(io, readChunk, sizeof(readChunk));
+                if (r > 0) {
+                    temp.insert(temp.end(), readChunk, readChunk + r);
+                } else if (r == AVERROR_EOF || r == 0) {
+                    break;
+                } else {
+                    readError = true;
+                    break;
+                }
+            }
+            avio_closep(&io);
+
+            if (!readError && !temp.empty()) {
+                outBuf = std::move(temp);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool load_playlist() {
+        if (playlistLoaded) return !segments.empty();
+        playlistLoaded = true;
+
+        std::vector<uint8_t> raw;
+        if (!fetch_url_bytes(playlistUrl, raw, 8) || raw.empty()) {
+            return false;
+        }
+
+        std::string content(reinterpret_cast<const char*>(raw.data()), raw.size());
+        segments.clear();
+        totalDurationSec = 0.0;
+
+        double pendingDur = 0.0;
+        size_t pos = 0;
+        while (pos < content.size()) {
+            size_t lineEnd = content.find('\n', pos);
+            std::string line = (lineEnd == std::string::npos)
+                ? content.substr(pos)
+                : content.substr(pos, lineEnd - pos);
+            pos = (lineEnd == std::string::npos) ? content.size() : lineEnd + 1;
+
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            if (line.empty()) continue;
+
+            if (line.rfind("#EXT-X-MAP:", 0) == 0) {
+                size_t uriPos = line.find("URI=\"");
+                if (uriPos != std::string::npos) {
+                    uriPos += 5;
+                    size_t uriEnd = line.find('"', uriPos);
+                    if (uriEnd != std::string::npos) {
+                        initMapUrl = line.substr(uriPos, uriEnd - uriPos);
+                        isFmp4 = true;
+                    }
+                }
+            } else if (line.rfind("#EXTINF:", 0) == 0) {
+                std::string durPart = line.substr(8);
+                size_t comma = durPart.find(',');
+                if (comma != std::string::npos) {
+                    durPart = durPart.substr(0, comma);
+                }
+                try {
+                    pendingDur = std::stod(durPart);
+                } catch (...) {
+                    pendingDur = 5.0;
+                }
+            } else if (line[0] != '#') {
+                Segment seg;
+                seg.url = line;
+                seg.durationSec = pendingDur > 0.0 ? pendingDur : 5.0;
+                seg.startSec = totalDurationSec;
+                totalDurationSec += seg.durationSec;
+                segments.push_back(std::move(seg));
+                pendingDur = 0.0;
+            }
+        }
+
+        if (segments.empty()) return false;
+        if (isFmp4 && !initMapUrl.empty()) {
+            if (!fetch_url_bytes(initMapUrl, initMapBytes, 8) || initMapBytes.empty()) {
+                return false;
+            }
+            segBuf = initMapBytes;
+            segOffset = 0;
+            start_prefetch(0);
+        }
+        return true;
+    }
+
+    bool seek_to_ms(int64_t timestampMs) override {
+        if (!load_playlist() || segments.empty()) return false;
+        double targetSec = std::max(0.0, (double)timestampMs / 1000.0);
+        size_t chosen = 0;
+        for (size_t i = 0; i < segments.size(); ++i) {
+            if (segments[i].startSec <= targetSec) {
+                chosen = i;
+            } else {
+                break;
+            }
+        }
+        wait_prefetch();
+        prefetchIdx = static_cast<size_t>(-1);
+        prefetchBuf.clear();
+        currentSegIdx = chosen;
+        segBuf.clear();
+        segOffset = 0;
+        return true;
+    }
+
+    static int read_packet(void* opaque, uint8_t* buf, int buf_size) {
+        auto* self = static_cast<YouTubeHlsHttpReader*>(opaque);
+        if (!self || buf_size <= 0) return AVERROR_EOF;
+        if (self->owner && self->owner->is_stop_requested()) return AVERROR_EXIT;
+
+        if (!self->playlistLoaded) {
+            if (!self->load_playlist()) {
+                return AVERROR_EOF;
+            }
+        }
+
+        while (self->segOffset >= self->segBuf.size()) {
+            if (self->owner && self->owner->is_stop_requested()) return AVERROR_EXIT;
+            if (self->currentSegIdx >= self->segments.size()) {
+                return AVERROR_EOF;
+            }
+            const std::string& segUrl = self->segments[self->currentSegIdx].url;
+            self->segBuf.clear();
+            self->segOffset = 0;
+            bool got = false;
+            if (self->prefetchIdx == self->currentSegIdx && self->prefetchFuture.valid()) {
+                bool ok = false;
+                try { ok = self->prefetchFuture.get(); } catch (...) { ok = false; }
+                if (ok && !self->prefetchBuf.empty()) {
+                    self->segBuf = std::move(self->prefetchBuf);
+                    got = true;
+                }
+                self->prefetchBuf.clear();
+                self->prefetchIdx = static_cast<size_t>(-1);
+            } else {
+                self->wait_prefetch();
+                self->prefetchIdx = static_cast<size_t>(-1);
+            }
+            if (!got && !self->fetch_url_bytes(segUrl, self->segBuf, 12)) {
+                if (self->owner && self->owner->is_stop_requested()) return AVERROR_EXIT;
+                return AVERROR_EOF;
+            }
+            self->currentSegIdx++;
+            self->start_prefetch(self->currentSegIdx);
+        }
+
+        size_t avail = self->segBuf.size() - self->segOffset;
+        int toCopy = static_cast<int>(std::min<size_t>(static_cast<size_t>(buf_size), avail));
+        std::memcpy(buf, self->segBuf.data() + self->segOffset, static_cast<size_t>(toCopy));
+        self->segOffset += static_cast<size_t>(toCopy);
+        return toCopy;
+    }
+};
 
 StreamTelemetry get_active_stream_telemetry() {
     FFmpegStreamSource* src = g_activeStreamSource.load(std::memory_order_acquire);
@@ -193,12 +778,12 @@ bool FFmpegStreamSource::open(const std::string& url, int targetSampleRate, int 
 
     if (isNetwork) {
         // Initial prebuffer threshold (e.g. 1.5 seconds)
-        size_t prebufferFrames = (m_targetSampleRate * (prebufferMs > 0 ? prebufferMs : 1500)) / 1000;
+        size_t prebufferFrames = (m_targetSampleRate * (prebufferMs > 0 ? prebufferMs : 500)) / 1000;
         if (prebufferFrames == 0) prebufferFrames = m_targetSampleRate / 2; // minimum 500ms
         m_prebufferBytes = prebufferFrames;
 
         // Rebuffer threshold (e.g. 3.0 seconds for jitter recovery)
-        size_t rebufferFrames = (m_targetSampleRate * (prebufferMs > 0 ? prebufferMs * 2 : 3000)) / 1000;
+        size_t rebufferFrames = (m_targetSampleRate * 1500) / 1000; // 1.5s jitter recovery after an underrun
         if (rebufferFrames > m_rbCapacityFrames / 2) rebufferFrames = m_rbCapacityFrames / 2;
         m_rebufferBytes = rebufferFrames;
 
@@ -210,6 +795,7 @@ bool FFmpegStreamSource::open(const std::string& url, int targetSampleRate, int 
         m_isBuffering.store(false, std::memory_order_release);
     }
 
+    m_hasStartedPlayback.store(false, std::memory_order_relaxed);
     m_stopRequested.store(false, std::memory_order_release);
     m_isPaused.store(false, std::memory_order_relaxed);
     m_isEnded.store(false, std::memory_order_relaxed);
@@ -225,7 +811,10 @@ bool FFmpegStreamSource::open(const std::string& url, int targetSampleRate, int 
     notify_telemetry();
 
     m_isOpen.store(true, std::memory_order_release);
-    g_activeStreamSource.store(this, std::memory_order_release);
+    {
+        FFmpegStreamSource* expected = nullptr;
+        g_activeStreamSource.compare_exchange_strong(expected, this, std::memory_order_acq_rel);
+    }
     m_workerThread = std::thread(&FFmpegStreamSource::demux_and_decode_thread_func, this);
     return true;
 }
@@ -260,8 +849,22 @@ void FFmpegStreamSource::close() {
             m_codecCtx = nullptr;
         }
         if (m_fmtCtx) {
+            if (m_customAvioCtx) {
+                m_fmtCtx->pb = nullptr;
+            }
             avformat_close_input(&m_fmtCtx);
             m_fmtCtx = nullptr;
+        }
+        if (m_customAvioCtx) {
+            if (m_customAvioCtx->buffer) {
+                av_freep(&m_customAvioCtx->buffer);
+            }
+            avio_context_free(&m_customAvioCtx);
+            m_customAvioCtx = nullptr;
+        }
+        if (m_customHttpReader) {
+            delete static_cast<CustomHttpReaderBase*>(m_customHttpReader);
+            m_customHttpReader = nullptr;
         }
         m_audioStreamIndex = -1;
         m_telemetry.state = StreamState::Idle;
@@ -311,11 +914,16 @@ size_t FFmpegStreamSource::read_pcm(float* pOut, size_t frameCount) {
     size_t available = m_rbAvailableFrames.load(std::memory_order_acquire);
     if (m_isBuffering.load(std::memory_order_relaxed)) {
         // Exit buffering once we have enough frames or reached stream end
-        if (available >= m_rebufferBytes || m_isEnded.load(std::memory_order_relaxed)) {
+        const size_t requiredFrames = m_hasStartedPlayback.load(std::memory_order_relaxed) ? m_rebufferBytes : m_prebufferBytes;
+        if (available >= requiredFrames || m_isEnded.load(std::memory_order_relaxed)) {
             m_isBuffering.store(false, std::memory_order_release);
+            m_hasStartedPlayback.store(true, std::memory_order_relaxed);
+            g_activeStreamSource.store(this, std::memory_order_release);
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
-                m_telemetry.state = StreamState::Playing;
+                if (m_telemetry.state != StreamState::Error && m_telemetry.errorCode == StreamErrorCode::None) {
+                    m_telemetry.state = StreamState::Playing;
+                }
             }
             notify_telemetry();
         } else {
@@ -329,7 +937,9 @@ size_t FFmpegStreamSource::read_pcm(float* pOut, size_t frameCount) {
         if (m_isEnded.load(std::memory_order_relaxed)) {
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
-                m_telemetry.state = StreamState::Ended;
+                if (m_telemetry.state != StreamState::Error && m_telemetry.errorCode == StreamErrorCode::None) {
+                    m_telemetry.state = StreamState::Ended;
+                }
             }
             notify_telemetry();
             return 0;
@@ -425,37 +1035,55 @@ void FFmpegStreamSource::update_icy_metadata() {
 void FFmpegStreamSource::demux_and_decode_thread_func() {
     sauti::dsp::ScopedDenormalsDisable denormalsScope;
     bool isNetwork = is_network_url(m_url.c_str());
+    bool isHlsOrDash = isNetwork &&
+                       (m_url.find(".m3u8") != std::string::npos ||
+                        m_url.find(".mpd") != std::string::npos ||
+                        m_url.find("/hls_variant/") != std::string::npos ||
+                        m_url.find("/hls_playlist/") != std::string::npos);
+    bool isYouTube = isNetwork &&
+                     (m_url.find("googlevideo.com") != std::string::npos ||
+                      m_url.find("youtube.com") != std::string::npos);
     AVDictionary* opts = nullptr;
+    std::string ytUserAgent;
+    std::string ytHeaders;
 
     if (isNetwork) {
-        bool isYouTube = (m_url.find("googlevideo.com") != std::string::npos ||
-                          m_url.find("youtube.com") != std::string::npos);
         if (isYouTube) {
-            if (m_url.find("c=VISIONOS") != std::string::npos) {
-                av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15", 0);
-            } else if (m_url.find("c=ANDROID_VR") != std::string::npos || m_url.find("c=ANDROID") != std::string::npos) {
-                av_dict_set(&opts, "user_agent", "com.google.android.youtube/1.56.21 (Linux; U; Android 12; Quest 3) gzip", 0);
-            } else if (m_url.find("c=IOS") != std::string::npos) {
-                av_dict_set(&opts, "user_agent", "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_1 like Mac OS X; en_US)", 0);
+            if (m_url.find("c=VISIONOS") != std::string::npos || m_url.find("/c/VISIONOS/") != std::string::npos) {
+                ytUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
+            } else if (m_url.find("c=ANDROID_VR") != std::string::npos || m_url.find("c=ANDROID") != std::string::npos || m_url.find("/c/ANDROID") != std::string::npos) {
+                ytUserAgent = "com.google.android.youtube/1.56.21 (Linux; U; Android 12; Quest 3) gzip";
+            } else if (m_url.find("c=IOS") != std::string::npos || m_url.find("/c/IOS/") != std::string::npos) {
+                ytUserAgent = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_1 like Mac OS X; en_US)";
             } else if (m_url.find("c=TVHTML5") != std::string::npos) {
-                av_dict_set(&opts, "user_agent", "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version,gzip(gfe)", 0);
-                av_dict_set(&opts, "headers", "Origin: https://www.youtube.com\r\n", 0);
+                ytUserAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version,gzip(gfe)";
+                ytHeaders = "Origin: https://www.youtube.com\r\n";
+            } else if (isHlsOrDash) {
+                ytUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)";
+                ytHeaders = "Referer: https://www.youtube.com/\r\nOrigin: https://www.youtube.com\r\n";
             } else {
-                av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0", 0);
-                av_dict_set(&opts, "headers", "Referer: https://music.youtube.com/\r\nOrigin: https://music.youtube.com\r\n", 0);
+                ytUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0";
+                ytHeaders = "Referer: https://music.youtube.com/\r\nOrigin: https://music.youtube.com\r\n";
+            }
+            av_dict_set(&opts, "user_agent", ytUserAgent.c_str(), 0);
+            if (!ytHeaders.empty()) {
+                av_dict_set(&opts, "headers", ytHeaders.c_str(), 0);
             }
         } else {
             av_dict_set(&opts, "user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MiniAudioDart/1.0 SautiFlow/1.0", 0);
+            av_dict_set(&opts, "icy", "1", 0); // Enable Shoutcast/Icecast in-band metadata for non-YouTube radio streams
         }
         av_dict_set(&opts, "reconnect", "1", 0);
         av_dict_set(&opts, "reconnect_streamed", "1", 0);
         av_dict_set(&opts, "reconnect_delay_max", "5", 0);
         av_dict_set(&opts, "timeout", "10000000", 0);      // 10s socket timeout
         av_dict_set(&opts, "rw_timeout", "10000000", 0);   // 10s read/write timeout
-        av_dict_set(&opts, "probesize", "32768", 0);       // 32 KB probe for fast startup
-        av_dict_set(&opts, "max_analyze_duration", "500000", 0); // 500ms max analyze duration
-        av_dict_set(&opts, "icy", "1", 0);                 // Enable Shoutcast/Icecast in-band metadata
+        av_dict_set(&opts, "probesize", isHlsOrDash ? "262144" : "32768", 0);
+        av_dict_set(&opts, "max_analyze_duration", isHlsOrDash ? "2000000" : "500000", 0);
         av_dict_set(&opts, "tls_verify", "0", 0);          // Disable TLS verify for Android where CA bundles are not in /etc/ssl
+        if (isHlsOrDash) {
+            av_dict_set(&opts, "allowed_extensions", "ALL", 0);
+        }
     }
 
     m_fmtCtx = avformat_alloc_context();
@@ -474,13 +1102,91 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         m_fmtCtx->interrupt_callback.opaque = this;
     }
 
+    const AVInputFormat* customInputFmt = nullptr;
+    bool isYouTubeHls = isYouTube && isHlsOrDash && m_url.find(".mpd") == std::string::npos;
+
+    if (isYouTubeHls) {
+        auto* hlsReader = new YouTubeHlsHttpReader();
+        hlsReader->playlistUrl = m_url;
+        hlsReader->userAgent = ytUserAgent;
+        hlsReader->baseHeaders = ytHeaders;
+        hlsReader->owner = this;
+
+        if (hlsReader->load_playlist()) {
+            const int avioBufSize = 32768;
+            auto* avioBuf = static_cast<uint8_t*>(av_malloc(avioBufSize));
+            if (avioBuf) {
+                m_customAvioCtx = avio_alloc_context(
+                    avioBuf,
+                    avioBufSize,
+                    0,
+                    hlsReader,
+                    &YouTubeHlsHttpReader::read_packet,
+                    nullptr,
+                    nullptr
+                );
+                if (m_customAvioCtx) {
+                    m_customAvioCtx->seekable = 0;
+                    m_fmtCtx->pb = m_customAvioCtx;
+                    m_fmtCtx->flags |= AVFMT_FLAG_CUSTOM_IO;
+                    m_customHttpReader = hlsReader;
+                    customInputFmt = av_find_input_format(
+                        hlsReader->isFmp4 ? "mov,mp4,m4a,3gp,3g2,mj2" : "mpegts"
+                    );
+                } else {
+                    av_free(avioBuf);
+                    delete hlsReader;
+                }
+            } else {
+                delete hlsReader;
+            }
+        } else {
+            delete hlsReader;
+        }
+    } else if (isYouTube && !isHlsOrDash) {
+        auto* reader = new YouTubeChunkedHttpReader();
+        reader->url = m_url;
+        reader->userAgent = ytUserAgent;
+        reader->baseHeaders = ytHeaders;
+        reader->owner = this;
+        reader->totalSize = YouTubeChunkedHttpReader::parse_clen(m_url);
+
+        const int avioBufSize = 32768;
+        auto* avioBuf = static_cast<uint8_t*>(av_malloc(avioBufSize));
+        if (avioBuf) {
+            m_customAvioCtx = avio_alloc_context(
+                avioBuf,
+                avioBufSize,
+                0,
+                reader,
+                &YouTubeChunkedHttpReader::read_packet,
+                nullptr,
+                reader->totalSize > 0 ? &YouTubeChunkedHttpReader::seek : nullptr
+            );
+            if (m_customAvioCtx) {
+                m_customAvioCtx->seekable = (reader->totalSize > 0) ? AVIO_SEEKABLE_NORMAL : 0;
+                m_fmtCtx->pb = m_customAvioCtx;
+                m_fmtCtx->flags |= AVFMT_FLAG_CUSTOM_IO;
+                m_customHttpReader = reader;
+            } else {
+                av_free(avioBuf);
+                delete reader;
+            }
+        } else {
+            delete reader;
+        }
+    }
+
     if (isNetwork) {
-        SF_LOG("[ffmpeg] Step 1/5: Opening format context for online stream\n");
+        SF_LOG("[ffmpeg] Step 1/5: Opening format context for online stream%s\n",
+               m_customAvioCtx
+                   ? (isYouTubeHls ? " (YouTube HLS resilient segment reader)" : " (YouTube 512KB chunked range reader)")
+                   : "");
     } else {
         SF_LOG("[ffmpeg] Step 1/5: Opening format context for local file: %s\n", m_url.c_str());
     }
 
-    int ret = avformat_open_input(&m_fmtCtx, m_url.c_str(), nullptr, opts ? &opts : nullptr);
+    int ret = avformat_open_input(&m_fmtCtx, m_customAvioCtx ? nullptr : m_url.c_str(), customInputFmt, opts ? &opts : nullptr);
     if (opts) av_dict_free(&opts);
 
     if (ret < 0) {
@@ -501,6 +1207,11 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     }
 
     SF_LOG("[ffmpeg] Step 2/5: Probing stream information...\n");
+    if (m_customAvioCtx) {
+        // Custom readers feed a single known audio stream: keep probing minimal for instant start.
+        m_fmtCtx->probesize = 32768;
+        m_fmtCtx->max_analyze_duration = 500000;
+    }
 
     if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
         if (isNetwork) {
@@ -532,6 +1243,13 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         m_isEnded.store(true, std::memory_order_release);
         m_cv.notify_all();
         return;
+    }
+
+    // Discard non-audio streams (e.g. video in HLS muxed streams) so the demuxer skips them
+    for (unsigned int i = 0; i < m_fmtCtx->nb_streams; ++i) {
+        if (static_cast<int>(i) != m_audioStreamIndex && m_fmtCtx->streams[i]) {
+            m_fmtCtx->streams[i]->discard = AVDISCARD_ALL;
+        }
     }
 
     AVStream* audioStream = m_fmtCtx->streams[m_audioStreamIndex];
@@ -610,8 +1328,16 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         m_telemetry.state = isNetwork ? StreamState::Buffering : StreamState::Playing;
         m_telemetry.bitrate = m_fmtCtx->bit_rate > 0 ? m_fmtCtx->bit_rate : audioStream->codecpar->bit_rate;
-        m_telemetry.isLiveStream = (m_fmtCtx->duration <= 0 || m_fmtCtx->duration == AV_NOPTS_VALUE);
-        m_telemetry.totalDurationSec = m_telemetry.isLiveStream ? 0.0 : (double)m_fmtCtx->duration / AV_TIME_BASE;
+        double customDurSec = 0.0;
+        if (m_customHttpReader) {
+            customDurSec = static_cast<CustomHttpReaderBase*>(m_customHttpReader)->get_duration_sec();
+        }
+        double fmtDurSec = (m_fmtCtx->duration > 0 && m_fmtCtx->duration != AV_NOPTS_VALUE)
+            ? (double)m_fmtCtx->duration / AV_TIME_BASE
+            : 0.0;
+        double resolvedDurSec = fmtDurSec > 0.0 ? fmtDurSec : customDurSec;
+        m_telemetry.isLiveStream = (resolvedDurSec <= 0.0);
+        m_telemetry.totalDurationSec = m_telemetry.isLiveStream ? 0.0 : resolvedDurSec;
         m_telemetry.isSeekable = !m_telemetry.isLiveStream;
         std::strncpy(m_telemetry.codecName, decoder->name, sizeof(m_telemetry.codecName) - 1);
     }
@@ -765,12 +1491,22 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
 
             if (m_fmtCtx != nullptr && m_audioStreamIndex >= 0) {
                 AVStream* audioStream = m_fmtCtx->streams[m_audioStreamIndex];
-                int64_t targetTs = av_rescale_q(targetMs, AVRational{1, 1000}, audioStream->time_base);
-                
-                int seekRes = avformat_seek_file(m_fmtCtx, m_audioStreamIndex, INT64_MIN, targetTs, targetTs, 0);
-                if (seekRes < 0) {
-                    // Fallback to av_seek_frame with AVSEEK_FLAG_BACKWARD
-                    seekRes = av_seek_frame(m_fmtCtx, m_audioStreamIndex, targetTs, AVSEEK_FLAG_BACKWARD);
+                int seekRes = -1;
+                if (m_customHttpReader && static_cast<CustomHttpReaderBase*>(m_customHttpReader)->seek_to_ms(targetMs)) {
+                    if (m_customAvioCtx) {
+                        avio_flush(m_customAvioCtx);
+                        m_customAvioCtx->eof_reached = 0;
+                        m_customAvioCtx->error = 0;
+                    }
+                    avformat_flush(m_fmtCtx);
+                    seekRes = 0;
+                } else {
+                    int64_t targetTs = av_rescale_q(targetMs, AVRational{1, 1000}, audioStream->time_base);
+                    seekRes = avformat_seek_file(m_fmtCtx, m_audioStreamIndex, INT64_MIN, targetTs, targetTs, 0);
+                    if (seekRes < 0) {
+                        // Fallback to av_seek_frame with AVSEEK_FLAG_BACKWARD
+                        seekRes = av_seek_frame(m_fmtCtx, m_audioStreamIndex, targetTs, AVSEEK_FLAG_BACKWARD);
+                    }
                 }
 
                 if (seekRes >= 0) {
@@ -1820,7 +2556,7 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
             if (initCfg->targetChannels > 0) outChannels = (ma_uint32)initCfg->targetChannels;
             if (initCfg->targetSampleRate > 0) outSampleRate = (ma_uint32)initCfg->targetSampleRate;
         }
-        int prebufferMs = 1500;
+        int prebufferMs = 500;
 
         std::printf("[ffmpeg_backend] Requesting online stream decoder\n");
         std::fflush(stdout);

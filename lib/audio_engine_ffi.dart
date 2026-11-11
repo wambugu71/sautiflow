@@ -3303,6 +3303,18 @@ class AudioEngineFFI {
         _GetEngineDitherModeDart>('ae_get_engine_dither_mode');
 
     try {
+      _setDacValidBitDepth =
+          _lib.lookupFunction<_SetIntNative, _SetIntDart>(
+              'ae_set_dac_valid_bit_depth');
+      _getDacValidBitDepth =
+          _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+              'ae_get_dac_valid_bit_depth');
+    } catch (_) {
+      _setDacValidBitDepth = null;
+      _getDacValidBitDepth = null;
+    }
+
+    try {
       _set64BitProcessingEnabled =
           _lib.lookupFunction<_SetFxEnabledNative, _SetFxEnabledDart>(
               'ae_set_64bit_processing_enabled');
@@ -3851,6 +3863,8 @@ class AudioEngineFFI {
   late final _GetEngineResampleAlgorithmDart _getEngineResampleAlgorithm;
   late final _SetEngineDitherModeDart _setEngineDitherMode;
   late final _GetEngineDitherModeDart _getEngineDitherMode;
+  late final _SetIntDart? _setDacValidBitDepth;
+  late final _GetIntDart? _getDacValidBitDepth;
   late final _SetFxEnabledDart? _set64BitProcessingEnabled;
   late final _GetIntDart? _get64BitProcessingEnabled;
   late final _SetIntDart? _setDspOversampling;
@@ -5760,6 +5774,19 @@ class AudioEngineFFI {
   int getEngineDitherMode() {
     if (_engine == ffi.nullptr) return 0;
     return _getEngineDitherMode(_engine);
+  }
+
+  /// Set the target DAC's real valid bit depth (0 = auto-infer from container
+  /// format; 8, 16, 20, 24, or 32 = explicit valid bit depth).
+  void setDacValidBitDepth(int bitDepth) {
+    if (_engine == ffi.nullptr || _setDacValidBitDepth == null) return;
+    _setDacValidBitDepth(_engine, bitDepth);
+  }
+
+  /// Get the target DAC's configured valid bit depth.
+  int getDacValidBitDepth() {
+    if (_engine == ffi.nullptr || _getDacValidBitDepth == null) return 0;
+    return _getDacValidBitDepth(_engine);
   }
 
   /// Enable or disable 64-bit float DSP processing mode (-320dB mathematical headroom).

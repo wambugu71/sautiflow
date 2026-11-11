@@ -1126,6 +1126,14 @@ class MiniAudioPlayer {
 
   int getEngineDitherMode() => _engine.getEngineDitherMode();
 
+  /// Set the target DAC's real valid bit depth (0 = auto-infer from container
+  /// format; 8, 16, 20, 24, or 32 = explicit valid bit depth).
+  void setDacValidBitDepth(int bitDepth) =>
+      _engine.setDacValidBitDepth(bitDepth);
+
+  /// Get the target DAC's configured valid bit depth.
+  int getDacValidBitDepth() => _engine.getDacValidBitDepth();
+
   // --- Limiter & Clipping Detection ---
 
   /// Enable or disable the soft limiter.

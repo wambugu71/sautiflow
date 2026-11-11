@@ -21,6 +21,7 @@ struct SwrContext;
 struct AVPacket;
 struct AVFrame;
 struct AVChannelLayout;
+struct AVIOContext;
 
 extern ma_decoding_backend_vtable g_ma_decoding_backend_vtable_ffmpeg;
 
@@ -87,7 +88,7 @@ public:
     FFmpegStreamSource(const FFmpegStreamSource&) = delete;
     FFmpegStreamSource& operator=(const FFmpegStreamSource&) = delete;
 
-    bool open(const std::string& url, int targetSampleRate = 48000, int targetChannels = 2, int prebufferMs = 1500);
+    bool open(const std::string& url, int targetSampleRate = 48000, int targetChannels = 2, int prebufferMs = 500);
     void close();
 
     // Pull decoded PCM frames (float32 interleaved). Returns frames read.
@@ -125,6 +126,7 @@ private:
     std::atomic<bool> m_stopRequested{false};
     std::atomic<bool> m_isPaused{false};
     std::atomic<bool> m_isBuffering{true};
+    std::atomic<bool> m_hasStartedPlayback{false};
     std::atomic<bool> m_isEnded{false};
     std::atomic<bool> m_seekRequested{false};
     std::atomic<int64_t> m_seekTargetMs{0};
@@ -148,6 +150,8 @@ private:
     AVFormatContext* m_fmtCtx{nullptr};
     AVCodecContext* m_codecCtx{nullptr};
     SwrContext* m_swrCtx{nullptr};
+    AVIOContext* m_customAvioCtx{nullptr};
+    void* m_customHttpReader{nullptr};
     int m_audioStreamIndex{-1};
 
     // Resampler format tracking for dynamic mid-stream adaptation
