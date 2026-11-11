@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 import 'package:material_3_expressive/components/progress_indicators/m3e_progress_indicators.dart';
 import 'package:sautiflow/sautiflow.dart';
@@ -6,6 +7,7 @@ import 'package:sautiplay/isolate_player.dart';
 import 'package:sautiplay/services/app_state_service.dart';
 import 'package:sautiplay/services/app_theme_service.dart';
 import 'package:sautiplay/services/audio_hardware_inspector.dart';
+import 'package:sautiplay/widgets/adaptive_marquee_text.dart';
 
 /// Shows the Developer & Audiophile Audio Engine Diagnostic Panel as a glassmorphic bottom sheet.
 void showAudioEngineDiagnosticPanel(
@@ -181,13 +183,15 @@ class _AudioEngineDiagnosticPanelState
                 Expanded(
                   child: Row(
                     children: [
-                      Text(
-                        'Audio Info & Diagnostics',
-                        style: TextStyle(
-                          color: textPrimary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          letterSpacing: 1.1,
+                      Flexible(
+                        child: AdaptiveMarqueeText(
+                          text: 'Audio Info & Diagnostics',
+                          style: TextStyle(
+                            color: textPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            letterSpacing: 1.1,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -864,32 +868,37 @@ class _AudioEngineDiagnosticPanelState
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Text(
-                          node.stepNumber,
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            color: textMuted.withValues(alpha: 0.6),
-                            fontSize: 11,
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Text(
+                            node.stepNumber,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              color: textMuted.withValues(alpha: 0.6),
+                              fontSize: 11,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          node.nodeName,
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            color: node.latencyMs > 0
-                                ? textPrimary
-                                : textMuted,
-                            fontSize: 11,
-                            fontWeight: node.latencyMs > 0
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: AdaptiveMarqueeText(
+                              text: node.nodeName,
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                color: node.latencyMs > 0
+                                    ? textPrimary
+                                    : textMuted,
+                                fontSize: 11,
+                                fontWeight: node.latencyMs > 0
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 12),
                     Text(
                       node.latencyMs > 0
                           ? '${node.latencyMs.toStringAsFixed(2)} ms'
@@ -933,44 +942,75 @@ class _AudioEngineDiagnosticPanelState
       valColor = primary;
     }
 
+    final labelStyle = TextStyle(
+      fontFamily: 'monospace',
+      color: textMuted,
+      fontSize: 12,
+    );
+    final valueStyle = TextStyle(
+      fontFamily: 'monospace',
+      color: valColor,
+      fontWeight: isValueActive ? FontWeight.bold : FontWeight.normal,
+      fontSize: 12,
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontFamily: 'monospace',
-              color: textMuted,
-              fontSize: 12,
-            ),
-          ),
-          Flexible(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    value,
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      color: valColor,
-                      fontWeight:
-                          isValueActive ? FontWeight.bold : FontWeight.normal,
-                      fontSize: 12,
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final textScaler = MediaQuery.textScalerOf(context);
+                final effectiveDirection =
+                    Directionality.maybeOf(context) ?? TextDirection.ltr;
+                final labelPainter = TextPainter(
+                  text: TextSpan(text: label, style: labelStyle),
+                  maxLines: 1,
+                  textDirection: effectiveDirection,
+                  textScaler: textScaler,
+                )..layout(maxWidth: double.infinity);
+
+                final double gap = constraints.maxWidth > 12.0 ? 12.0 : 0.0;
+                final double usableWidth =
+                    math.max(0.0, constraints.maxWidth - gap);
+                // Reserve minimum space for value so trailing controls and long
+                // labels cannot cause RenderFlex overflow on narrow mobile screens.
+                final double minValueWidth = math.min(usableWidth * 0.4, 96.0);
+                final double maxLabelWidth =
+                    math.max(0.0, usableWidth - minValueWidth);
+                final double resolvedLabelWidth =
+                    math.min(labelPainter.width + 0.5, maxLabelWidth);
+
+                return Row(
+                  children: [
+                    SizedBox(
+                      width: resolvedLabelWidth,
+                      child: AdaptiveMarqueeText(
+                        text: label,
+                        style: labelStyle,
+                      ),
                     ),
-                  ),
-                ),
-                if (trailing != null) ...[
-                  const SizedBox(width: 8),
-                  trailing,
-                ],
-              ],
+                    SizedBox(width: gap),
+                    Expanded(
+                      child: Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: AdaptiveMarqueeText(
+                          text: value,
+                          textAlign: TextAlign.right,
+                          style: valueStyle,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
+            trailing,
+          ],
         ],
       ),
     );

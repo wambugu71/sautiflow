@@ -1303,11 +1303,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w600)),
-                            subtitle: Text(
-                              'Explore songs, albums & playlists by $curArtist',
+                            subtitle: AdaptiveMarqueeText(
+                              text:
+                                  'Explore songs, albums & playlists by $curArtist',
                               style: const TextStyle(
                                   color: Colors.white54, fontSize: 12),
-                              overflow: TextOverflow.ellipsis,
                             ),
                             onTap: () {
                               Navigator.pop(sheetContext);
@@ -1340,13 +1340,12 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w600)),
-                          subtitle: Text(
-                            _isCustomLyricsLoaded
+                          subtitle: AdaptiveMarqueeText(
+                            text: _isCustomLyricsLoaded
                                 ? 'Loaded: ${_customLyricsFileName ?? "Custom LRC"}'
                                 : 'Select synchronized .lrc / .txt file from storage',
                             style: const TextStyle(
                                 color: Colors.white54, fontSize: 12),
-                            overflow: TextOverflow.ellipsis,
                           ),
                           onTap: () {
                             Navigator.pop(sheetContext);
@@ -1591,8 +1590,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                       .instance.currentData.primary),
                               const SizedBox(width: 4),
                               Flexible(
-                                child: Text(
-                                  _isCustomLyricsLoaded
+                                child: AdaptiveMarqueeText(
+                                  text: _isCustomLyricsLoaded
                                       ? (_customLyricsFileName ?? 'Custom LRC')
                                       : (title != null && title.isNotEmpty
                                           ? title
@@ -1602,8 +1601,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white70,
                                   ),
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
                                 ),
                               ),
                             ],
@@ -1992,8 +1989,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'AUDIO OUTPUT CHAIN',
+                  AdaptiveMarqueeText(
+                    text: 'AUDIO OUTPUT CHAIN',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
@@ -2002,8 +1999,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    specs.isBluetooth
+                  AdaptiveMarqueeText(
+                    text: specs.isBluetooth
                         ? (specs.bluetoothDeviceName ?? specs.deviceName)
                         : specs.deviceName,
                     style: const TextStyle(
@@ -2011,8 +2008,6 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -2193,28 +2188,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             color: labelColor,
           ),
           const SizedBox(height: 6),
-          Text(
-            node.label,
+          AdaptiveMarqueeText(
+            text: node.label,
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
               color: labelColor,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
           if (node.sublabel != null) ...[
             const SizedBox(height: 2),
-            Text(
-              node.sublabel!,
+            AdaptiveMarqueeText(
+              text: node.sublabel!,
               style: TextStyle(
                 fontSize: 10,
                 color: node.isHighlight
                     ? primaryColor.withValues(alpha: 0.8)
                     : Colors.white38,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ],
@@ -2272,8 +2263,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       : Colors.white54),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                  label.toUpperCase(),
+                child: AdaptiveMarqueeText(
+                  text: label.toUpperCase(),
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
@@ -2282,22 +2273,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         : Colors.white54,
                     letterSpacing: 0.5,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          Text(
-            value,
+          AdaptiveMarqueeText(
+            text: value,
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
               color: Colors.white,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -2473,25 +2460,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                           CrossAxisAlignment.center,
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Text(
-                                          'PLAYING FROM PLAYLIST',
+                                        AdaptiveMarqueeText(
+                                          text: 'PLAYING FROM PLAYLIST',
+                                          textAlign: TextAlign.center,
                                           style: TextStyle(
                                             fontSize: 11,
                                             fontWeight: FontWeight.bold,
                                             letterSpacing: 1.5,
                                             color: primaryColor,
                                           ),
-                                          overflow: TextOverflow.ellipsis,
                                         ),
                                         const SizedBox(height: 2),
-                                        Text(
-                                          title,
+                                        AdaptiveMarqueeText(
+                                          text: title,
+                                          textAlign: TextAlign.center,
                                           style: const TextStyle(
                                             fontSize: 15,
                                             fontWeight: FontWeight.w600,
                                             color: textLight,
                                           ),
-                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ],
                                     ),
@@ -2647,25 +2634,26 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                     .min,
                                                             children: [
                                                               Flexible(
-                                                                child: Text(
-                                                                  subtitle,
-                                                                  style:
-                                                                      TextStyle(
-                                                                    fontSize:
-                                                                        18,
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .w600,
-                                                                    color: Colors
-                                                                        .white
-                                                                        .withValues(
-                                                                            alpha:
-                                                                                0.85),
+                                                                child:
+                                                                    RepaintBoundary(
+                                                                  child:
+                                                                      AdaptiveMarqueeText(
+                                                                    text:
+                                                                        subtitle,
+                                                                    style:
+                                                                        TextStyle(
+                                                                      fontSize:
+                                                                          18,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w600,
+                                                                      color: Colors
+                                                                          .white
+                                                                          .withValues(
+                                                                              alpha:
+                                                                                  0.85),
+                                                                    ),
                                                                   ),
-                                                                  maxLines: 1,
-                                                                  overflow:
-                                                                      TextOverflow
-                                                                          .ellipsis,
                                                                 ),
                                                               ),
                                                               const SizedBox(
@@ -3197,25 +3185,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Text(
-                                          'PLAYING FROM PLAYLIST',
+                                        AdaptiveMarqueeText(
+                                          text: 'PLAYING FROM PLAYLIST',
+                                          textAlign: TextAlign.center,
                                           style: TextStyle(
                                             fontSize: 10,
                                             fontWeight: FontWeight.bold,
                                             letterSpacing: 1.5,
                                             color: primaryColor,
                                           ),
-                                          overflow: TextOverflow.ellipsis,
                                         ),
                                         const SizedBox(height: 2),
-                                        Text(
-                                          context.strings.nowPlaying,
+                                        AdaptiveMarqueeText(
+                                          text: context.strings.nowPlaying,
+                                          textAlign: TextAlign.center,
                                           style: const TextStyle(
                                             fontSize: 14,
                                             fontWeight: FontWeight.w600,
                                             color: textLight,
                                           ),
-                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ],
                                     ),
@@ -3341,19 +3329,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         MainAxisSize.min,
                                                     children: [
                                                       Flexible(
-                                                        child: Text(
-                                                          subtitle,
-                                                          style:
-                                                              const TextStyle(
-                                                            fontSize: 15,
-                                                            fontWeight:
-                                                                FontWeight.w600,
-                                                            color:
-                                                                Colors.white70,
+                                                        child: RepaintBoundary(
+                                                          child:
+                                                              AdaptiveMarqueeText(
+                                                            text: subtitle,
+                                                            style:
+                                                                const TextStyle(
+                                                              fontSize: 15,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                              color: Colors
+                                                                  .white70,
+                                                            ),
                                                           ),
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
                                                         ),
                                                       ),
                                                       const SizedBox(width: 4),

@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import '../services/app_theme_service.dart';
+import 'adaptive_marquee_text.dart';
 
 class MusicInfoDialog extends StatefulWidget {
   final String title;
@@ -255,12 +256,10 @@ Path/ID: ${widget.videoId ?? 'N/A'}
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _titleController.text.isNotEmpty
+                        AdaptiveMarqueeText(
+                          text: _titleController.text.isNotEmpty
                               ? _titleController.text
                               : widget.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
@@ -268,12 +267,10 @@ Path/ID: ${widget.videoId ?? 'N/A'}
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          _artistController.text.isNotEmpty
+                        AdaptiveMarqueeText(
+                          text: _artistController.text.isNotEmpty
                               ? _artistController.text
                               : widget.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: textDark,
                             fontSize: 13,
