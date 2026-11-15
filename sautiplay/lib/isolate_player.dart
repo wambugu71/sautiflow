@@ -8,6 +8,7 @@ import 'package:sautiplay/services/app_state_service.dart';
 import 'package:sautiplay/services/desktop_system_audio.dart';
 import 'package:sautiplay/services/wav_parser.dart';
 import 'package:sautiplay/services/dlna_service.dart';
+import 'package:sautiplay/services/chromecast_service.dart';
 
 /// A wrapper that runs [MiniAudioPlayer] in a separate isolate.
 class IsolateAudioPlayer {
@@ -25,6 +26,7 @@ class IsolateAudioPlayer {
 
   final List<Map<String, dynamic>> _pendingCommands = [];
   bool _networkStreamingSupported = false;
+  int _engineAddress = 0;
   StreamTelemetry _lastTelemetry = const StreamTelemetry();
   bool _isBuffering = false;
   PlayerStatus? _lastStatus;
@@ -248,6 +250,7 @@ class IsolateAudioPlayer {
         if (message['type'] == 'capabilities') {
           final supported = message['networkStreamingSupported'] == true;
           _networkStreamingSupported = supported;
+          _engineAddress = (message['engineAddress'] as int?) ?? 0;
           _logController.add(
             '[capabilities] network streaming: ${supported ? 'enabled' : 'disabled'}',
           );
@@ -334,12 +337,18 @@ class IsolateAudioPlayer {
     _pendingRequests.clear();
   }
 
+  /// Native engine pointer address (`0` until initialized).
+  int get engineAddress => _engineAddress;
+
   // --- Commands ---
 
   void play() {
     _isPlaying = true;
     if (DlnaService.instance.activeRenderer != null) {
       DlnaService.instance.play();
+    }
+    if (ChromecastService.instance.activeDevice != null) {
+      ChromecastService.instance.play();
     }
     _send({'cmd': 'play'});
   }
@@ -349,6 +358,9 @@ class IsolateAudioPlayer {
     if (DlnaService.instance.activeRenderer != null) {
       DlnaService.instance.pause();
     }
+    if (ChromecastService.instance.activeDevice != null) {
+      ChromecastService.instance.pause();
+    }
     _send({'cmd': 'pause'});
   }
 
@@ -356,6 +368,9 @@ class IsolateAudioPlayer {
     _isPlaying = false;
     if (DlnaService.instance.activeRenderer != null) {
       DlnaService.instance.stop();
+    }
+    if (ChromecastService.instance.activeDevice != null) {
+      ChromecastService.instance.stop();
     }
     _send({'cmd': 'stop'});
   }
@@ -398,6 +413,13 @@ class IsolateAudioPlayer {
   void seekTo(Duration position, {int? index}) {
     if (index != null && index != _lastStatus?.currentIndex) {
       _prearmTrackLoudnessForIndex(index);
+    }
+    if (ChromecastService.instance.activeDevice != null && index == null) {
+      if (ChromecastService.instance.isStreamingLiveTap) {
+        ChromecastService.instance.onLiveTapSeek?.call(position);
+      } else {
+        ChromecastService.instance.seek(position.inMilliseconds / 1000.0);
+      }
     }
     _send({
       'cmd': 'seekTo',
@@ -1802,6 +1824,17 @@ class IsolateAudioPlayer {
   void pushStream(String url) => _send({'cmd': 'pushStream', 'url': url});
 
   bool isNetworkStreamingSupported() => _networkStreamingSupported;
+
+  void setLocalOutputMuted(bool muted) =>
+      _send({'cmd': 'setLocalOutputMuted', 'muted': muted});
+
+  void setCastPcmTap({required bool enabled, bool bypassDsp = false}) => _send({
+        'cmd': 'setCastPcmTap',
+        'enabled': enabled,
+        'bypassDsp': bypassDsp,
+      });
+
+  void flushCastPcmTap() => _send({'cmd': 'flushCastPcmTap'});
   String getLastError() => "";
   void clearLastError() => _send({'cmd': 'clearLastError'});
 
@@ -1991,6 +2024,7 @@ void _isolateEntry(_IsolateInitData initData) {
   initData.sendPort.send({
     'type': 'capabilities',
     'networkStreamingSupported': player.isNetworkStreamingSupported(),
+    'engineAddress': player.engineAddress,
   });
 
   List<AudioSource> isolateSources = [];
@@ -2821,6 +2855,18 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setAutoSampleRateMatchEnabled':
         case 'setAutoBitPerfectEnabled':
           player.setAutoSampleRateMatchEnabled(message['enabled'] == true);
+          break;
+        case 'setLocalOutputMuted':
+          player.setLocalOutputMuted(message['muted'] == true);
+          break;
+        case 'setCastPcmTap':
+          player.setCastPcmTapEnabled(
+            message['enabled'] == true,
+            bypassDsp: message['bypassDsp'] == true,
+          );
+          break;
+        case 'flushCastPcmTap':
+          player.flushCastPcmTap();
           break;
         case 'setDsdOutputMode':
           player.setDsdOutputMode(

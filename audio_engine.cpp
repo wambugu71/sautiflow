@@ -3326,6 +3326,12 @@ namespace
             m_writeIndex.store(0, std::memory_order_relaxed);
             m_readIndex.store(0, std::memory_order_relaxed);
         }
+
+        void consume_all()
+        {
+            const size_t w = m_writeIndex.load(std::memory_order_acquire);
+            m_readIndex.store(w, std::memory_order_release);
+        }
     };
 
     struct RetiredObject
@@ -3406,13 +3412,21 @@ static AudioRatePlan calculateRatePlan(
     uint32_t deviceRate,
     uint32_t userOutputRate,
     bool autoSampleRateMatch,
-    bool exclusiveMode)
+    bool exclusiveMode,
+    bool castTapEnabled = false,
+    uint32_t requestedCastRate = 0)
 {
     AudioRatePlan plan{};
     plan.sourceRate = (sourceRate > 0) ? sourceRate : 48000;
     plan.deviceRate = (deviceRate > 0) ? deviceRate : 48000;
 
-    if (autoSampleRateMatch)
+    if (castTapEnabled && requestedCastRate > 0)
+    {
+        // Cast PCM tap streams directly from engineSampleRate (up to 192 kHz)
+        // independent of the muted local output hardware's rate ceiling.
+        plan.engineRate = requestedCastRate;
+    }
+    else if (autoSampleRateMatch)
     {
         // Auto sample rate match sets hardware device rate to source rate.
         // The engine DSP operates at the negotiated device rate.
@@ -3603,7 +3617,21 @@ struct AudioEngineHandle
     SPSCBuffer<float> pcmRingBuffer;
     SPSCBuffer<uint8_t> pcmDirectRingBuffer;
     std::atomic<bool> isDirectPcmActive{false};
+    std::atomic<bool> localOutputMuted{false};
+    std::atomic<bool> castPcmTapEnabled{false};
+    std::atomic<bool> castBypassDsp{false};
+    SPSCBuffer<uint8_t> castPcmRingBuffer;
+    std::vector<uint8_t> castConvertScratch;
+    std::vector<double> castWorkBuffer64;
+    DitherProcessorState castDitherProcessor;
+    std::mutex castReadMutex;
     GarbageQueue garbageQueue;
+
+    void flushCastRing()
+    {
+        std::lock_guard<std::mutex> lk(castReadMutex);
+        castPcmRingBuffer.consume_all();
+    }
     std::atomic<uint64_t> preloadGeneration{0};
 
     std::mutex decodeProducerMutex;
@@ -4467,6 +4495,10 @@ static inline int resolve_effective_dsd_mode(
     {
         return AE_DSD_MODE_D2P;
     }
+    if (e->castPcmTapEnabled.load(std::memory_order_acquire))
+    {
+        return AE_DSD_MODE_D2P;
+    }
 
     const int pref = e->dsdOutputMode.load(std::memory_order_acquire);
     if (pref == AE_DSD_MODE_D2P)
@@ -5254,7 +5286,8 @@ static bool load_decoder_for_path(
                            ? (ma_uint32)e->engineSampleRate
                            : ((e->sampleRate > 0) ? (ma_uint32)e->sampleRate : 48000);
     ma_format decFormat = ma_format_f32;
-    if (e->exclusiveModeEnabled.load(std::memory_order_relaxed))
+    if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+        !e->castPcmTapEnabled.load(std::memory_order_relaxed))
     {
         if (e->outputFormat != AE_FORMAT_F32)
         {
@@ -6103,6 +6136,7 @@ static void worker_loop(AudioEngineHandle *e)
                 set_playing_state(e, true);
                 e->pcmRingBuffer.reset();
                 e->pcmDirectRingBuffer.reset();
+                e->flushCastRing();
                 e->decodeProducerCv.notify_one();
             }
 
@@ -6600,6 +6634,8 @@ static void service_crossfade_state(AudioEngineHandle *e, std::vector<float> &te
 static bool evaluate_direct_pcm_eligibility(AudioEngineHandle *e)
 {
     if (e == nullptr)
+        return false;
+    if (e->castPcmTapEnabled.load(std::memory_order_relaxed))
         return false;
     if (!e->hasCurrent || e->currentDecoder == nullptr)
         return false;
@@ -7621,6 +7657,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             {
                                 e->pcmRingBuffer.reset();
                                 e->pcmDirectRingBuffer.reset();
+                                e->flushCastRing();
                                 reset_playback_position(e, targetFrameEngine);
                                 if (e->pitchResamplerInit)
                                 {
@@ -8036,6 +8073,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
         if (bpf > 0)
         {
             (void)record_played_frames_realtime(e, bytesRead / bpf);
+        }
+        if (e->localOutputMuted.load(std::memory_order_relaxed))
+        {
+            fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
         }
         e->engineAbsoluteTime.fetch_add(frameCount, std::memory_order_relaxed);
         e->decodeProducerCv.notify_one();
@@ -8689,7 +8730,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
             }
         }
 
-        const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed);
+        const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+            (e->castPcmTapEnabled.load(std::memory_order_relaxed) &&
+             e->castBypassDsp.load(std::memory_order_relaxed));
 
         // =====================================================================
         // Stage 1: Input Pre-Gain (ReplayGain & Loudness Normalizer Gain)
@@ -9475,6 +9518,56 @@ static void decode_producer_loop(AudioEngineHandle *e)
             }
         }
     }
+
+    // 24-bit Signed Little-Endian Cast PCM Tap (before device SRC so Cast receives up to 192 kHz)
+    if (e->castPcmTapEnabled.load(std::memory_order_acquire) &&
+        !e->ringBufferFlushing.load(std::memory_order_relaxed))
+    {
+        const int ch = (e->channels > 0) ? e->channels : 2;
+        size_t castSamples = std::min(
+            (size_t)produced * (size_t)ch,
+            std::min(e->castWorkBuffer64.size(), e->castConvertScratch.size() / 3));
+        castSamples = (castSamples / (size_t)ch) * (size_t)ch;
+        if (castSamples > 0)
+        {
+            double *work64 = e->castWorkBuffer64.data();
+            if (use64 && buf64 != nullptr)
+            {
+                std::memcpy(work64, buf64, castSamples * sizeof(double));
+            }
+            else
+            {
+                for (size_t i = 0; i < castSamples; ++i)
+                {
+                    work64[i] = static_cast<double>(processBuffer[i]);
+                }
+            }
+
+            const int userDither = e->ditherMode.load(std::memory_order_relaxed);
+            const bool castNeedsDither = !bypassAppDsp ||
+                                         e->ratePlan.decoderSRC ||
+                                         e->sourceFormat == ma_format_f32 ||
+                                         e->sourceFormat == ma_format_s32 ||
+                                         (e->sourceDsdRate.load(std::memory_order_relaxed) >= 2822400);
+            const int castDither = (userDither > 0) ? userDither : (castNeedsDither ? 2 : 0);
+            if (castDither > 0)
+            {
+                const int sr = (e->engineSampleRate > 0) ? e->engineSampleRate : 48000;
+                const int srcBits = castNeedsDither ? 53 : get_ma_format_bit_depth(e->sourceFormat);
+                e->castDitherProcessor.process(castDither, AE_FORMAT_S24, work64, castSamples, ch, sr, 24, srcBits);
+            }
+
+            floatToIntExact(AE_FORMAT_S24, e->castConvertScratch.data(), work64, castSamples);
+
+            const size_t frameBytes = (size_t)ch * 3;
+            const size_t availWrite = (e->castPcmRingBuffer.available_write() / frameBytes) * frameBytes;
+            const size_t bytesToWrite = std::min(castSamples * 3, availWrite);
+            if (bytesToWrite > 0)
+            {
+                e->castPcmRingBuffer.write(e->castConvertScratch.data(), bytesToWrite);
+            }
+        }
+    }
     }
 
     // Explicit Engine-to-Device Output Resampling Stage (if engineSampleRate != deviceSampleRate)
@@ -9696,6 +9789,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
     }
     // else F32 -> already in pOutput via finalDstBuffer!
+    if (e->localOutputMuted.load(std::memory_order_relaxed))
+    {
+        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
+    }
     }
     catch (...)
     {
@@ -11452,6 +11549,8 @@ extern "C"
         e->processBuffer64.resize(preallocSamples);
         e->dspStereoBuffer.resize(preallocSamples);
         e->dspStereoBuffer64.resize(preallocSamples);
+        e->castConvertScratch.resize(preallocSamples * 3);
+        e->castWorkBuffer64.resize(preallocSamples);
         e->automixEchoBuffer.assign(384000, 0.0f);
 
         // Initialize advanced settings
@@ -11516,6 +11615,7 @@ extern "C"
         engine_log("engine created (sampleRate=%d channels=%d)", e->sampleRate, e->channels);
         e->pcmRingBuffer.init(1048576);
         e->pcmDirectRingBuffer.init(1048576 * 4);
+        e->castPcmRingBuffer.init(4194304);
         e->crossfadeRingBuffer.init(1048576);
         e->decodeProducerExit.store(false, std::memory_order_release);
         e->decodeProducerThread = std::thread(decode_producer_loop, e);
@@ -12092,6 +12192,7 @@ extern "C"
         {
             e->pcmRingBuffer.reset();
             e->pcmDirectRingBuffer.reset();
+            e->flushCastRing();
             reset_playback_position(e, target);
             if (e->pitchResamplerInit)
             {
@@ -12302,6 +12403,7 @@ extern "C"
             set_playing_state(e, true);
             e->pcmRingBuffer.reset();
             e->pcmDirectRingBuffer.reset();
+            e->flushCastRing();
             e->decodeProducerCv.notify_one();
 
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
@@ -12367,6 +12469,7 @@ extern "C"
             e->nextLengthFrames = 0;
             e->pcmRingBuffer.reset();
             e->pcmDirectRingBuffer.reset();
+            e->flushCastRing();
             arm_transition_fade_in(e);
         }
         {
@@ -14066,9 +14169,12 @@ extern "C"
             }
 
             int oldRate = e->sampleRate > 0 ? e->sampleRate : 48000;
-            int targetOutputRate = e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed)
+            const bool castTapActive = e->castPcmTapEnabled.load(std::memory_order_relaxed);
+            int targetOutputRate = (castTapActive && e->outputSampleRate > 0)
                                    ? e->outputSampleRate
-                                   : e->userOutputSampleRate;
+                                   : (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed)
+                                      ? e->outputSampleRate
+                                      : e->userOutputSampleRate);
             int curSrcDsdRate = e->sourceDsdRate.load(std::memory_order_acquire);
             int desiredDsdMode = e->activeDsdMode.load(std::memory_order_acquire);
             const bool reevalDsd = e->reevalDsdOnRestart.exchange(false, std::memory_order_acq_rel);
@@ -14124,7 +14230,11 @@ extern "C"
                 }
                 else if (desiredDsdMode == AE_DSD_MODE_D2P)
                 {
-                    if (e->userOutputSampleRate > 0)
+                    if (castTapActive && e->outputSampleRate > 0)
+                    {
+                        newRate = e->outputSampleRate;
+                    }
+                    else if (e->userOutputSampleRate > 0)
                     {
                         newRate = e->userOutputSampleRate;
                     }
@@ -14578,12 +14688,17 @@ extern "C"
             {
                 const uint32_t actualRate = e->device.sampleRate;
                 uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : actualRate;
+                const uint32_t castReqRate = (e->outputSampleRate > 0)
+                                                 ? (uint32_t)e->outputSampleRate
+                                                 : (uint32_t)e->userOutputSampleRate;
                 AudioRatePlan plan = calculateRatePlan(
                     srcRate,
                     actualRate,
                     (uint32_t)e->userOutputSampleRate,
                     e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
-                    e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+                    e->exclusiveModeEnabled.load(std::memory_order_relaxed),
+                    castTapActive,
+                    castReqRate
                 );
                 engine_log("APPLY RATE PLAN:\n  source=%u\n  engine=%u\n  device=%u\n  decoderSRC=%s\n  deviceSRC=%s",
                            plan.sourceRate, plan.engineRate, plan.deviceRate,
@@ -14728,6 +14843,7 @@ extern "C"
             e->ringBufferFlushing.store(true, std::memory_order_release);
             e->pcmRingBuffer.reset();
             e->pcmDirectRingBuffer.reset();
+            e->flushCastRing();
             e->ringBufferFlushing.store(false, std::memory_order_release);
             engine_log("RING BUFFER RESET");
             e->underrunCount.store(0, std::memory_order_relaxed);
@@ -15141,7 +15257,9 @@ extern "C"
         const int actDsd = engine->activeDsdMode.load(std::memory_order_acquire);
         const int hwDsd = engine->hwActiveDsdMode.load(std::memory_order_acquire);
         const int targetBitMode = (actDsd == AE_DSD_MODE_DOP || actDsd == AE_DSD_MODE_NATIVE) ? actDsd : 0;
-        if (engine->outputSampleRate == sample_rate && targetBitMode == hwDsd)
+        const bool castTap = engine->castPcmTapEnabled.load(std::memory_order_relaxed);
+        if (engine->outputSampleRate == sample_rate && targetBitMode == hwDsd &&
+            (!castTap || (sample_rate > 0 && engine->engineSampleRate == sample_rate)))
             return;
             
         // Fix: Do not use restart_device_rate_only because it does not recreate the decoder.
@@ -18924,6 +19042,82 @@ extern "C"
         }
 #endif
         return engine->dopSupported.load(std::memory_order_acquire) ? 1 : 0;
+    }
+
+    AE_API void ae_set_local_output_muted(AudioEngineHandle *engine, int muted)
+    {
+        if (!engine)
+            return;
+        engine->localOutputMuted.store(muted != 0, std::memory_order_release);
+    }
+
+    AE_API int ae_get_local_output_muted(AudioEngineHandle *engine)
+    {
+        return (engine && engine->localOutputMuted.load(std::memory_order_acquire)) ? 1 : 0;
+    }
+
+    AE_API void ae_set_cast_pcm_tap_enabled(AudioEngineHandle *engine, int enabled, int bypass_dsp)
+    {
+        if (!engine)
+            return;
+        const bool enable = (enabled != 0);
+        const bool bypass = (bypass_dsp != 0);
+        engine->castBypassDsp.store(enable && bypass, std::memory_order_release);
+        if (enable)
+        {
+            engine->castDitherProcessor.reset();
+            engine->flushCastRing();
+        }
+        engine->castPcmTapEnabled.store(enable, std::memory_order_release);
+        if (!enable)
+        {
+            engine->flushCastRing();
+        }
+    }
+
+    AE_API int ae_get_cast_pcm_tap_enabled(AudioEngineHandle *engine)
+    {
+        return (engine && engine->castPcmTapEnabled.load(std::memory_order_acquire)) ? 1 : 0;
+    }
+
+    AE_API void ae_flush_cast_pcm_tap(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return;
+        engine->flushCastRing();
+    }
+
+    AE_API int ae_read_cast_pcm_s24le(
+        AudioEngineHandle *engine,
+        uint8_t *out_buffer,
+        int max_bytes,
+        int *out_sample_rate,
+        int *out_channels)
+    {
+        if (!engine)
+            return 0;
+        const int sr = (engine->engineSampleRate > 0)
+                           ? engine->engineSampleRate
+                           : ((engine->sampleRate > 0) ? engine->sampleRate : 48000);
+        const int ch = (engine->channels > 0) ? engine->channels : 2;
+        if (out_sample_rate)
+            *out_sample_rate = sr;
+        if (out_channels)
+            *out_channels = ch;
+        if (!out_buffer || max_bytes <= 0)
+            return 0;
+
+        const size_t frameBytes = (size_t)ch * 3;
+        if (frameBytes == 0 || (size_t)max_bytes < frameBytes)
+            return 0;
+
+        std::lock_guard<std::mutex> lk(engine->castReadMutex);
+        const size_t avail = engine->castPcmRingBuffer.available_read();
+        size_t toRead = std::min((size_t)max_bytes, avail);
+        toRead = (toRead / frameBytes) * frameBytes;
+        if (toRead == 0)
+            return 0;
+        return static_cast<int>(engine->castPcmRingBuffer.read(out_buffer, toRead));
     }
 
 } // extern "C"

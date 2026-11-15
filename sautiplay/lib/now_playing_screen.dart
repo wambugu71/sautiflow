@@ -24,6 +24,8 @@ import 'queue_screen.dart';
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
 import 'services/cached_stream_service.dart';
+import 'services/chromecast_service.dart';
+import 'services/dlna_service.dart';
 import 'services/audio_file_inspector.dart';
 import 'services/audio_hardware_inspector.dart';
 import 'services/fft_processor.dart';
@@ -32,6 +34,7 @@ import 'services/lyrics_service.dart';
 import 'services/waveform_extractor_service.dart';
 import 'widgets/adaptive_marquee_text.dart';
 import 'widgets/audio_engine_diagnostic_panel.dart';
+import 'widgets/cast_output_sheet.dart';
 import 'widgets/music_info_dialog.dart';
 import 'widgets/playback_speed_modal.dart';
 import 'widgets/sleep_timer_modal.dart';
@@ -1194,6 +1197,61 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                   currentPositionSeconds:
                                       curStatus.positionSeconds,
                                 );
+                              },
+                            );
+                          },
+                        ),
+                        AnimatedBuilder(
+                          animation: Listenable.merge([
+                            ChromecastService.instance,
+                            DlnaService.instance,
+                          ]),
+                          builder: (ctx, _) {
+                            final cast = ChromecastService.instance;
+                            final dlna = DlnaService.instance;
+                            final hasCast = cast.activeDevice != null;
+                            final hasDlna = dlna.activeRenderer != null;
+                            final isActive = hasCast || hasDlna;
+                            final primaryColor =
+                                AppThemeService.instance.currentData.primary;
+                            final modeText =
+                                cast.audioMode == CastAudioMode.bitPerfect
+                                    ? 'Bit-Perfect'
+                                    : 'DSP';
+                            final subtitleText = hasCast
+                                ? '${cast.activeDevice!.friendlyName} • $modeText (${cast.maxSampleRate.label})'
+                                : hasDlna
+                                    ? '${dlna.activeRenderer!.name} • DLNA ($modeText, ${cast.maxSampleRate.label})'
+                                    : 'Chromecast (up to 24-bit / 192 kHz) & DLNA';
+                            return ListTile(
+                              leading: Icon(
+                                isActive
+                                    ? Icons.cast_connected_rounded
+                                    : Icons.cast_rounded,
+                                color: isActive ? primaryColor : Colors.white,
+                              ),
+                              title: const Text(
+                                'Cast Output',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                              subtitle: Text(
+                                subtitleText,
+                                style: TextStyle(
+                                    color: isActive
+                                        ? primaryColor
+                                        : Colors.white54,
+                                    fontSize: 12),
+                              ),
+                              trailing: const Icon(
+                                Icons.chevron_right_rounded,
+                                color: Colors.white54,
+                                size: 20,
+                              ),
+                              onTap: () {
+                                Navigator.pop(sheetContext);
+                                showCastOutputModal(context);
                               },
                             );
                           },
@@ -3037,6 +3095,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                         baseDurationSecs,
                                                   ),
                                                 ),
+                                                M3EToolbarWidget(
+                                                  child: _buildCastOutputButton(
+                                                    context: context,
+                                                  ),
+                                                ),
                                               ],
                                             ),
                                           ),
@@ -3959,6 +4022,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                         status: status,
                                         baseDurationSecs: baseDurationSecs,
                                       ),
+                                      const SizedBox(width: 8),
+                                      _buildCastOutputButton(context: context),
                                     ],
                                   ),
                                 ),
@@ -4506,6 +4571,37 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               trackDurationSeconds: baseDurationSecs,
               currentPositionSeconds: status.positionSeconds,
             ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCastOutputButton({required BuildContext context}) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        ChromecastService.instance,
+        DlnaService.instance,
+      ]),
+      builder: (context, _) {
+        final castDevice = ChromecastService.instance.activeDevice;
+        final dlnaRenderer = DlnaService.instance.activeRenderer;
+        final isActive = castDevice != null || dlnaRenderer != null;
+        final label = castDevice?.friendlyName ?? dlnaRenderer?.name;
+
+        return Tooltip(
+          message: isActive
+              ? 'Casting to ${label ?? 'device'}'
+              : 'Cast Output (Chromecast & DLNA)',
+          child: M3EIconButton(
+            variant: isActive
+                ? M3EIconButtonVariant.filled
+                : M3EIconButtonVariant.tonal,
+            icon: Icon(
+              isActive ? Icons.cast_connected_rounded : Icons.cast_rounded,
+              color: isActive ? Colors.black : Colors.white,
+            ),
+            onPressed: () => showCastOutputModal(context),
           ),
         );
       },

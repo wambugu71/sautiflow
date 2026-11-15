@@ -689,6 +689,25 @@ class MiniAudioPlayer {
   /// Whether the active hardware endpoint supports DoP v1.1 passthrough.
   bool isDopSupported() => _engine.isDopSupported();
 
+  /// Native `AudioEngineHandle*` pointer address (`0` when uninitialized).
+  int get engineAddress => _engine.engineAddress;
+
+  /// Mute or unmute local hardware output without altering DSP or the Cast tap.
+  void setLocalOutputMuted(bool muted) => _engine.setLocalOutputMuted(muted);
+
+  /// Whether local hardware output is currently muted.
+  bool getLocalOutputMuted() => _engine.getLocalOutputMuted();
+
+  /// Enable or disable the 24-bit signed little-endian PCM Cast tap.
+  void setCastPcmTapEnabled(bool enabled, {bool bypassDsp = false}) =>
+      _engine.setCastPcmTapEnabled(enabled, bypassDsp: bypassDsp);
+
+  /// Whether the 24-bit PCM Cast tap is currently active.
+  bool getCastPcmTapEnabled() => _engine.getCastPcmTapEnabled();
+
+  /// Flush any stale audio frames from the Cast PCM tap ring buffer.
+  void flushCastPcmTap() => _engine.flushCastPcmTap();
+
   /// Set the desired output audio format (f32, s16, u8).
   /// This may cause the audio engine to restart.
   void setOutputFormat(AudioFormat format) => _engine.setOutputFormat(format);
@@ -1487,7 +1506,7 @@ class MiniAudioPlayer {
       // event-loop (the "control thread"), so restart_and_apply_config is safe
       // to call and will not race with the audio device callback.
       final pendingRate = _engine.consumePendingRateChange();
-      if (pendingRate > 0) {
+      if (pendingRate > 0 && !_engine.getCastPcmTapEnabled()) {
         _engine.setOutputSampleRate(pendingRate);
       }
     });

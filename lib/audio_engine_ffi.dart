@@ -2428,6 +2428,28 @@ typedef _SetPhaseInversionNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32);
 typedef _SetPhaseInversionDart = void Function(ffi.Pointer<ffi.Void>, int, int);
 
+typedef _SetCastPcmTapNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32);
+typedef _SetCastPcmTapDart = void Function(ffi.Pointer<ffi.Void>, int, int);
+
+typedef _FlushCastPcmTapNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _FlushCastPcmTapDart = void Function(ffi.Pointer<ffi.Void>);
+
+typedef _ReadCastPcmS24LeNative = ffi.Int32 Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Pointer<ffi.Uint8>,
+  ffi.Int32,
+  ffi.Pointer<ffi.Int32>,
+  ffi.Pointer<ffi.Int32>,
+);
+typedef _ReadCastPcmS24LeDart = int Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Pointer<ffi.Uint8>,
+  int,
+  ffi.Pointer<ffi.Int32>,
+  ffi.Pointer<ffi.Int32>,
+);
+
 typedef _GetPhaseInversionNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, ffi.Pointer<ffi.Int32>);
 typedef _GetPhaseInversionDart = void Function(
@@ -3716,6 +3738,34 @@ class AudioEngineFFI {
     }
 
     try {
+      _setLocalOutputMuted =
+          _lib.lookupFunction<_SetIntNative, _SetIntDart>(
+              'ae_set_local_output_muted');
+      _getLocalOutputMuted =
+          _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+              'ae_get_local_output_muted');
+      _setCastPcmTapEnabled =
+          _lib.lookupFunction<_SetCastPcmTapNative, _SetCastPcmTapDart>(
+              'ae_set_cast_pcm_tap_enabled');
+      _getCastPcmTapEnabled =
+          _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+              'ae_get_cast_pcm_tap_enabled');
+      _flushCastPcmTap =
+          _lib.lookupFunction<_FlushCastPcmTapNative, _FlushCastPcmTapDart>(
+              'ae_flush_cast_pcm_tap');
+      _readCastPcmS24Le =
+          _lib.lookupFunction<_ReadCastPcmS24LeNative, _ReadCastPcmS24LeDart>(
+              'ae_read_cast_pcm_s24le');
+    } catch (_) {
+      _setLocalOutputMuted = null;
+      _getLocalOutputMuted = null;
+      _setCastPcmTapEnabled = null;
+      _getCastPcmTapEnabled = null;
+      _flushCastPcmTap = null;
+      _readCastPcmS24Le = null;
+    }
+
+    try {
       _setPhaseInversion =
           _lib.lookupFunction<_SetPhaseInversionNative, _SetPhaseInversionDart>(
               'ae_set_phase_inversion');
@@ -4255,6 +4305,12 @@ class AudioEngineFFI {
   _GetFloatDart? _getDsdGainBoostDb;
   _GetIntDart? _isNativeDsdSupported;
   _GetIntDart? _isDopSupported;
+  _SetIntDart? _setLocalOutputMuted;
+  _GetIntDart? _getLocalOutputMuted;
+  _SetCastPcmTapDart? _setCastPcmTapEnabled;
+  _GetIntDart? _getCastPcmTapEnabled;
+  _FlushCastPcmTapDart? _flushCastPcmTap;
+  _ReadCastPcmS24LeDart? _readCastPcmS24Le;
   late final _SetPhaseInversionDart? _setPhaseInversion;
   late final _GetPhaseInversionDart? _getPhaseInversion;
   late final _SetLrSwapDart? _setLrSwap;
@@ -4341,6 +4397,7 @@ class AudioEngineFFI {
 
   ffi.Pointer<ffi.Void> _engine;
   ffi.Pointer<ffi.Void> get enginePointer => _engine;
+  int get engineAddress => _engine.address;
 
   final List<AudioSource?> _playlistSources = <AudioSource?>[];
   int _lastClipAutoAdvanceIndex = -1;
@@ -6818,6 +6875,53 @@ class AudioEngineFFI {
   bool isDopSupported() {
     if (_engine == ffi.nullptr || _isDopSupported == null) return false;
     return _isDopSupported!(_engine) != 0;
+  }
+
+  /// Mute or unmute local audio device output at the final callback boundary.
+  void setLocalOutputMuted(bool muted) {
+    if (_engine == ffi.nullptr || _setLocalOutputMuted == null) return;
+    _setLocalOutputMuted!(_engine, muted ? 1 : 0);
+  }
+
+  /// Whether local device output is currently muted.
+  bool getLocalOutputMuted() {
+    if (_engine == ffi.nullptr || _getLocalOutputMuted == null) return false;
+    return _getLocalOutputMuted!(_engine) != 0;
+  }
+
+  /// Enable or disable the 24-bit signed little-endian PCM Cast tap.
+  void setCastPcmTapEnabled(bool enabled, {bool bypassDsp = false}) {
+    if (_engine == ffi.nullptr || _setCastPcmTapEnabled == null) return;
+    _setCastPcmTapEnabled!(_engine, enabled ? 1 : 0, bypassDsp ? 1 : 0);
+  }
+
+  /// Whether the 24-bit PCM Cast tap is currently enabled.
+  bool getCastPcmTapEnabled() {
+    if (_engine == ffi.nullptr || _getCastPcmTapEnabled == null) return false;
+    return _getCastPcmTapEnabled!(_engine) != 0;
+  }
+
+  /// Flush queued samples from the Cast PCM tap ring buffer.
+  void flushCastPcmTap() {
+    if (_engine == ffi.nullptr || _flushCastPcmTap == null) return;
+    _flushCastPcmTap!(_engine);
+  }
+
+  /// Read frame-aligned 24-bit signed little-endian LPCM bytes from the Cast tap.
+  int readCastPcmS24Le(
+    ffi.Pointer<ffi.Uint8> outBuffer,
+    int maxBytes,
+    ffi.Pointer<ffi.Int32> outSampleRate,
+    ffi.Pointer<ffi.Int32> outChannels,
+  ) {
+    if (_engine == ffi.nullptr || _readCastPcmS24Le == null) return 0;
+    return _readCastPcmS24Le!(
+      _engine,
+      outBuffer,
+      maxBytes,
+      outSampleRate,
+      outChannels,
+    );
   }
 
   // ── Limiter & Clipping Detection ──────────────────────────────────────────

@@ -11,9 +11,11 @@ import 'database/preferences_store.dart';
 
 import 'isolate_player.dart';
 import 'services/app_theme_service.dart';
+import 'services/chromecast_service.dart';
 import 'services/dlna_renderer_service.dart';
 import 'services/dlna_service.dart';
 import 'services/ftp_service.dart';
+import 'widgets/cast_output_sheet.dart';
 
 class NetworkSourcesScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -56,9 +58,9 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     super.initState();
     final initialTab = PreferencesStore.instance
         .getInt('network_sources_tab_index', defaultValue: 0)!
-        .clamp(0, 1);
+        .clamp(0, 2);
     _tabController =
-        TabController(length: 2, vsync: this, initialIndex: initialTab);
+        TabController(length: 3, vsync: this, initialIndex: initialTab);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         PreferencesStore.instance
@@ -67,12 +69,14 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     });
     _loadFtpConfigs();
     DlnaService.instance.addListener(_onDlnaStateChanged);
+    ChromecastService.instance.addListener(_onDlnaStateChanged);
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     DlnaService.instance.removeListener(_onDlnaStateChanged);
+    ChromecastService.instance.removeListener(_onDlnaStateChanged);
     super.dispose();
   }
 
@@ -236,16 +240,18 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
           labelColor: _primary,
           unselectedLabelColor: _textDark,
           tabs: const [
-            Tab(icon: Icon(Icons.folder_zip_rounded), text: 'FTP Remote'),
+            Tab(icon: Icon(Icons.cast_rounded), text: 'Chromecast'),
             Tab(icon: Icon(Icons.cast_connected_rounded), text: 'DLNA / UPnP'),
+            Tab(icon: Icon(Icons.folder_zip_rounded), text: 'FTP Remote'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildFtpTab(),
+          _buildChromecastTab(),
           _buildDlnaTab(),
+          _buildFtpTab(),
         ],
       ),
     );
@@ -416,6 +422,302 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
   // TAB 2: DLNA / UPnP Explorer & Casting
   // ---------------------------------------------------------------------------
 
+  Widget _buildChromecastTab() {
+    final cast = ChromecastService.instance;
+    final devices = cast.devices;
+    final active = cast.activeDevice;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: _cardDark,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white.withAlpha(12)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _primary.withAlpha(30),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.cast_connected_rounded,
+                          color: _primary, size: 28),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Google Cast Hi-Res Audio',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            cast.isScanning
+                                ? 'Scanning LAN via mDNS (up to 24-bit / 192 kHz)...'
+                                : '${devices.length} Cast device(s) • 24-bit / up to ${cast.maxSampleRate.label}',
+                            style: TextStyle(color: _textDark, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _primary,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        if (cast.isScanning) {
+                          cast.stopDiscovery();
+                        } else {
+                          cast.startDiscovery();
+                        }
+                      },
+                      icon: Icon(cast.isScanning
+                          ? Icons.stop_rounded
+                          : Icons.radar_rounded),
+                      label: Text(cast.isScanning ? 'Stop' : 'Scan'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _primary,
+                        side: BorderSide(color: _primary.withAlpha(120)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => showAddManualCastIpDialog(context),
+                      icon: const Icon(Icons.add_link_rounded, size: 18),
+                      label: const Text('+ Add Cast IP'),
+                    ),
+                    if (active != null) ...[
+                      const Spacer(),
+                      M3EButton.tonal(
+                        onPressed: () => cast.disconnect(),
+                        child: const Text('Disconnect'),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const CastModeAndRateCard(),
+          if (active != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _primary.withAlpha(24),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _primary.withAlpha(100)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.speaker_rounded, color: _primary, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Connected: ${active.friendlyName}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        cast.isStreamingLiveTap
+                            ? '24-bit WAV Tap'
+                            : 'Pass-Through',
+                        style: TextStyle(
+                          color: _primary,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(
+                          cast.isMuted
+                              ? Icons.volume_off_rounded
+                              : Icons.volume_up_rounded,
+                          color: _primary,
+                          size: 20,
+                        ),
+                        onPressed: () => cast.setMuted(!cast.isMuted),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: cast.volumeLevel.clamp(0.0, 1.0),
+                          activeColor: _primary,
+                          inactiveColor: Colors.white24,
+                          onChanged: cast.setVolume,
+                        ),
+                      ),
+                      Text(
+                        '${(cast.volumeLevel * 100).round()}%',
+                        style: TextStyle(color: _textDark, fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (cast.lastError != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withAlpha(30),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.redAccent.withAlpha(110)),
+              ),
+              child: Text(
+                cast.lastError!,
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          Text(
+            'Discovered Receivers (${devices.length})',
+            style: TextStyle(
+              color: _primary,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (devices.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: _cardDark,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withAlpha(10)),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.cast_rounded,
+                      size: 48, color: _textDark.withAlpha(110)),
+                  const SizedBox(height: 10),
+                  Text(
+                    cast.isScanning
+                        ? 'Looking for Chromecast Audio, Google TV & Cast speakers...'
+                        : 'No Chromecast receivers found.\nTap Scan or + Add Cast IP.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: _textDark, fontSize: 13),
+                  ),
+                ],
+              ),
+            )
+          else
+            M3EList(
+              itemCount: devices.length,
+              itemBuilder: (context, index) {
+                final d = devices[index];
+                final isActive = active == d;
+                return M3EListItem(
+                  selected: isActive,
+                  leading: M3EContainer(
+                    Shapes.pill,
+                    width: 40,
+                    height: 40,
+                    color: (isActive ? Colors.white : _primary).withAlpha(25),
+                    child: Center(
+                      child: Icon(
+                        Icons.cast_rounded,
+                        color: isActive ? Colors.white : _primary,
+                      ),
+                    ),
+                  ),
+                  headline: d.friendlyName,
+                  supportingText:
+                      '${d.modelName} • ${d.host}:${d.port}${d.isManual ? ' (Manual)' : ''}',
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (d.isManual)
+                        IconButton(
+                          tooltip: 'Remove manual device',
+                          icon: Icon(Icons.delete_outline_rounded,
+                              color: _textDark, size: 20),
+                          onPressed: () {
+                            if (isActive) cast.disconnect();
+                            cast.removeManualDevice(d);
+                          },
+                        ),
+                      if (isActive)
+                        const Text(
+                          'Connected',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        )
+                      else
+                        Icon(Icons.chevron_right_rounded, color: _textDark),
+                    ],
+                  ),
+                  onTap: () async {
+                    if (isActive) {
+                      await cast.disconnect();
+                    } else {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final ok = await cast.connect(d);
+                      if (mounted && ok) {
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Text('Connected to ${d.friendlyName}'),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDlnaTab() {
     final dlna = DlnaService.instance;
     final servers = dlna.mediaServers;
@@ -426,6 +728,8 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const CastModeAndRateCard(),
+          const SizedBox(height: 16),
           // Scan Control Header
           Container(
             padding: const EdgeInsets.all(18),
@@ -597,12 +901,18 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
                       headline: r.name,
                       supportingText: r.locationUrl,
                       trailing: M3EButton(
-                        onPressed: () {
+                        onPressed: () async {
                           if (isActive) {
-                            dlna.stop();
+                            try {
+                              await dlna.stop();
+                            } catch (_) {}
+                            dlna.setActiveRenderer(null);
                           } else {
+                            final messenger = ScaffoldMessenger.of(context);
+                            await ChromecastService.instance.disconnect();
                             dlna.setActiveRenderer(r);
-                            ScaffoldMessenger.of(context).showSnackBar(
+                            if (!mounted) return;
+                            messenger.showSnackBar(
                               SnackBar(
                                   content: Text(
                                       'Set active casting device to ${r.name}')),

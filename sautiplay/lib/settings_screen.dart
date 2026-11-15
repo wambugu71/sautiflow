@@ -834,7 +834,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const M3EDivider(),
                             _buildCategoryCard(
                               title: context.strings.localAndNetwork,
-                              subtitle: 'FTP servers & DLNA media hubs',
+                              subtitle: 'Chromecast (24-bit/192 kHz), DLNA & FTP',
                               icon: SautiIcons.localNetworkAudio,
                               accentColor: _primary,
                               onTap: () {

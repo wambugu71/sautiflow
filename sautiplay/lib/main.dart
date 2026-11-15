@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
 
@@ -48,6 +49,7 @@ import 'settings_screen.dart';
 import 'shimmer_mini_player.dart';
 import 'widgets/app_showcase.dart';
 import 'widgets/sauti_icons.dart';
+import 'package:sautiplay/services/chromecast_service.dart';
 import 'package:sautiplay/services/dlna_service.dart';
 import 'package:sautiplay/services/dlna_renderer_service.dart';
 import 'package:sautiplay/services/local_media_server.dart';
@@ -385,6 +387,260 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
   bool _exclusiveMode = false;
 
+  bool _wasCastOutputActive = false;
+  int? _savedPreCastOutputRate;
+  String? _lastCastSyncKey;
+  int _castSyncGeneration = 0;
+
+  void _onCastOutputConfigChanged() {
+    if (!mounted) return;
+    final chromecast = ChromecastService.instance;
+    final dlna = DlnaService.instance;
+
+    // Keep Chromecast and DLNA mutually exclusive when either connects.
+    if (chromecast.activeDevice != null && dlna.activeRenderer != null) {
+      dlna.setActiveRenderer(null);
+      return;
+    }
+
+    if (chromecast.activeDevice == null && dlna.activeRenderer == null) {
+      if (_wasCastOutputActive) {
+        _restoreLocalAfterCast();
+      }
+      return;
+    }
+
+    final idx = _status.value.currentIndex;
+    if (idx < 0 || idx >= _playlist.length) {
+      if (!_wasCastOutputActive) {
+        _savedPreCastOutputRate = _outputSampleRate;
+        _wasCastOutputActive = true;
+        _player.setLocalOutputMuted(true);
+      }
+      return;
+    }
+
+    final source = _playlist[idx];
+    final meta = _metadata.value;
+    final durSecs = _durationFromSource(source);
+    unawaited(_syncActiveCastOutput(
+      source: source,
+      title: _nameFromSource(source),
+      artist: meta.artist,
+      artworkBytes: meta.albumArt,
+      durationSeconds: durSecs != null && durSecs > 0 ? durSecs.toDouble() : null,
+    ));
+  }
+
+  void _retriggerLiveCastOnSeek() {
+    if (!mounted) return;
+    if (ChromecastService.instance.activeDevice == null &&
+        DlnaService.instance.activeRenderer == null) {
+      return;
+    }
+    final idx = _status.value.currentIndex;
+    if (idx < 0 || idx >= _playlist.length) return;
+    final source = _playlist[idx];
+    final meta = _metadata.value;
+    final durSecs = _durationFromSource(source);
+    Future.delayed(const Duration(milliseconds: 80), () {
+      if (!mounted) return;
+      _player.flushCastPcmTap();
+      unawaited(_syncActiveCastOutput(
+        source: source,
+        title: _nameFromSource(source),
+        artist: meta.artist,
+        artworkBytes: meta.albumArt,
+        durationSeconds:
+            durSecs != null && durSecs > 0 ? durSecs.toDouble() : null,
+        force: true,
+      ));
+    });
+  }
+
+  void _restoreLocalAfterCast() {
+    _castSyncGeneration++;
+    _wasCastOutputActive = false;
+    _lastCastSyncKey = null;
+    LocalMediaServer.instance.stopLiveWavStream();
+    _player.setCastPcmTap(enabled: false);
+    _player.setLocalOutputMuted(false);
+
+    final restoreRate = _savedPreCastOutputRate;
+    _savedPreCastOutputRate = null;
+    if (restoreRate != null && restoreRate > 0) {
+      _player.setOutputSampleRate(restoreRate);
+    } else if (_outputSampleRate > 0) {
+      _player.setOutputSampleRate(_outputSampleRate);
+    } else {
+      final activeRate = AudioHardwareInspector.currentSpecs?.sampleRate;
+      if (activeRate != null && activeRate > 0) {
+        _player.setOutputSampleRate(activeRate);
+      }
+    }
+  }
+
+  Future<void> _syncActiveCastOutput({
+    required AudioSource source,
+    required String title,
+    required String artist,
+    Uint8List? artworkBytes,
+    double? durationSeconds,
+    bool force = false,
+  }) async {
+    final chromecast = ChromecastService.instance;
+    final dlna = DlnaService.instance;
+    final activeCast = chromecast.activeDevice;
+    final activeDlna = dlna.activeRenderer;
+    if (activeCast == null && activeDlna == null) {
+      if (_wasCastOutputActive) {
+        _restoreLocalAfterCast();
+      }
+      return;
+    }
+
+    if (!_wasCastOutputActive) {
+      _savedPreCastOutputRate = _outputSampleRate;
+      _wasCastOutputActive = true;
+    }
+    _player.setLocalOutputMuted(true);
+
+    final mode = chromecast.audioMode;
+    final ceilingRate = chromecast.maxSampleRate.hz;
+    final targetKey = activeCast != null
+        ? 'cast:${activeCast.id}'
+        : 'dlna:${activeDlna!.name}';
+    final syncKey =
+        '$targetKey|${mode.name}|$ceilingRate|${source.uri}|${source.clipStart?.inMilliseconds ?? 0}';
+    if (!force && syncKey == _lastCastSyncKey) {
+      return;
+    }
+    _lastCastSyncKey = syncKey;
+    final gen = ++_castSyncGeneration;
+
+    LocalMediaServer.instance.setArtworkBytes(artworkBytes);
+    final artworkUrl = await LocalMediaServer.instance.ensureArtworkUrl();
+    if (!mounted || gen != _castSyncGeneration) return;
+
+    int srcSampleRate = 48000;
+    int srcBitDepth = 16;
+    int srcChannels = _outputChannels > 0 ? _outputChannels : 2;
+    bool srcIsFloat = false;
+    String? srcFormatName;
+
+    final filePath =
+        source.uri.scheme == 'file' ? _safeFilePathFromUri(source.uri) : null;
+    bool gotFileInfo = false;
+    if (filePath != null) {
+      final stripped = CueVirtualPath.strip(filePath);
+      final info = await _player.inspectFile(stripped);
+      if (!mounted || gen != _castSyncGeneration) return;
+      if (info != null) {
+        gotFileInfo = true;
+        if (info['sampleRate'] is int && (info['sampleRate'] as int) > 0) {
+          srcSampleRate = info['sampleRate'] as int;
+        }
+        if (info['bitDepth'] is int && (info['bitDepth'] as int) > 0) {
+          srcBitDepth = info['bitDepth'] as int;
+        }
+        if (info['channels'] is int && (info['channels'] as int) > 0) {
+          srcChannels = info['channels'] as int;
+        }
+        srcIsFloat = info['isFloat'] == true;
+        srcFormatName = info['formatName'] as String?;
+      }
+    }
+    if (!gotFileInfo) {
+      try {
+        final ps = await _player.getPipelineState();
+        if (!mounted || gen != _castSyncGeneration) return;
+        if (ps.inputSampleRate > 0) srcSampleRate = ps.inputSampleRate;
+        if (ps.inputChannels > 0) srcChannels = ps.inputChannels;
+      } catch (_) {}
+    }
+
+    final isChromecast = activeCast != null;
+    final canDirect = filePath != null &&
+        mode == CastAudioMode.bitPerfect &&
+        ChromecastService.canPassThroughDirectly(
+          uri: source.uri,
+          isClipped: source.isClipped,
+          sampleRate: srcSampleRate,
+          bitDepth: srcBitDepth,
+          isFloat: srcIsFloat,
+          ceilingRate: ceilingRate,
+          isChromecast: isChromecast,
+          formatName: srcFormatName,
+        );
+
+    if (canDirect) {
+      LocalMediaServer.instance.stopLiveWavStream();
+      _player.setCastPcmTap(enabled: false);
+      final stripped = CueVirtualPath.strip(filePath);
+      final castUrl = await LocalMediaServer.instance.serveFile(stripped);
+      if (!mounted || gen != _castSyncGeneration || castUrl == null) return;
+
+      if (activeCast != null) {
+        final mime = LocalMediaServer.mimeTypeForPathOrExt(stripped);
+        await chromecast.castMedia(
+          url: castUrl,
+          contentType: mime,
+          title: title,
+          artist: artist,
+          artworkUrl: artworkUrl,
+          durationSeconds: durationSeconds,
+          isLiveStream: false,
+          startPositionSeconds: math.max(0.0, _status.value.positionSeconds),
+        );
+      } else if (activeDlna != null) {
+        await dlna.castAudioUrl(
+          renderer: activeDlna,
+          audioUrl: castUrl,
+          title: title,
+        );
+      }
+      return;
+    }
+
+    // 24-bit / up-to-192 kHz LPCM WAV engine stream (With DSP Present, or
+    // Bit-Perfect fallback for DSD / 32-bit float / >ceiling / CUE / ALAC).
+    final targetSr = ChromecastService.resolveCastTargetSampleRate(
+      srcSampleRate,
+      ceilingRate,
+    );
+    final targetCh = _outputChannels > 0 ? _outputChannels : srcChannels;
+    final bypassDsp = mode == CastAudioMode.bitPerfect;
+
+    _player.setCastPcmTap(enabled: true, bypassDsp: bypassDsp);
+    _player.setOutputSampleRate(targetSr);
+    _player.flushCastPcmTap();
+
+    final liveUrl = await LocalMediaServer.instance.serveLive24BitWav(
+      engineAddress: _player.engineAddress,
+      sampleRate: targetSr,
+      channels: targetCh,
+      isPlaying: () => _status.value.isPlaying,
+    );
+    if (!mounted || gen != _castSyncGeneration || liveUrl == null) return;
+
+    if (activeCast != null) {
+      await chromecast.castMedia(
+        url: liveUrl,
+        contentType: 'audio/wav',
+        title: title,
+        artist: artist,
+        artworkUrl: artworkUrl,
+        isLiveStream: true,
+      );
+    } else if (activeDlna != null) {
+      await dlna.castAudioUrl(
+        renderer: activeDlna,
+        audioUrl: liveUrl,
+        title: title,
+      );
+    }
+  }
+
   bool _analyzerEnabled = true;
   String _analyzerType = 'bar';
   int _analyzerSampleSize = 1024;
@@ -585,10 +841,14 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         AudioHardwareInspector.hardwareStream(_player).listen((specs) {
       if (!mounted) return;
       // When engine output sample rate is set to Native (0), match active device hardware rate
-      if (_outputSampleRate == 0 && specs.sampleRate > 0) {
+      if (_outputSampleRate == 0 && specs.sampleRate > 0 && !_wasCastOutputActive) {
         _player.setOutputSampleRate(specs.sampleRate);
       }
     });
+
+    ChromecastService.instance.addListener(_onCastOutputConfigChanged);
+    DlnaService.instance.addListener(_onCastOutputConfigChanged);
+    ChromecastService.instance.onLiveTapSeek = (_) => _retriggerLiveCastOnSeek();
 
     if (Platform.isAndroid) {
       unawaited(_ensureNotificationPermission());
@@ -947,6 +1207,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _metadata.removeListener(_applyReplayGain);
     _metadata.removeListener(_extractArtworkTheme);
     LikedSongsService.instance.likedSongsNotifier.removeListener(_syncNotificationFavoriteStatus);
+    ChromecastService.instance.removeListener(_onCastOutputConfigChanged);
+    DlnaService.instance.removeListener(_onCastOutputConfigChanged);
+    ChromecastService.instance.onLiveTapSeek = null;
+    LocalMediaServer.instance.stopLiveWavStream();
     DlnaRendererService.instance.stopInternal();
     ProximityGestureService.instance.dispose();
     _status.dispose();
@@ -1023,27 +1287,17 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       _updateMetadata(source).then((_) async {
         if (!mounted || gen != _nowPlayingPublishGeneration) return;
 
-        // --- DLNA Casting & Local Mute ---
-        if (DlnaService.instance.activeRenderer != null) {
-          String? castUrl;
-          if (source.uri.scheme == 'file') {
-            final path = _safeFilePathFromUri(source.uri);
-            if (path != null) {
-              castUrl = await LocalMediaServer.instance
-                  .serveFile(CueVirtualPath.strip(path));
-            }
-          } else {
-            castUrl = source.uri.toString();
-          }
-
-          if (castUrl != null) {
-            await DlnaService.instance.castAudioUrl(
-              renderer: DlnaService.instance.activeRenderer!,
-              audioUrl: castUrl,
-              title: title,
-            );
-          }
-          _player.setGain(0.0); // Mute local audio
+        // --- Chromecast & DLNA Casting ---
+        if (ChromecastService.instance.activeDevice != null ||
+            DlnaService.instance.activeRenderer != null) {
+          final durSecs = _durationFromSource(source) ?? 0;
+          await _syncActiveCastOutput(
+            source: source,
+            title: title,
+            artist: _metadata.value.artist,
+            artworkBytes: _metadata.value.albumArt,
+            durationSeconds: durSecs > 0 ? durSecs.toDouble() : null,
+          );
         }
 
         if (!mounted || gen != _nowPlayingPublishGeneration) return;

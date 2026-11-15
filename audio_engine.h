@@ -1059,6 +1059,19 @@ extern "C"
     AE_API int ae_is_native_dsd_supported(AudioEngineHandle *engine);
     AE_API int ae_is_dop_supported(AudioEngineHandle *engine);
 
+    // Local Output Mute & Cast 24-bit Post-DSP PCM Tap
+    AE_API void ae_set_local_output_muted(AudioEngineHandle *engine, int muted);
+    AE_API int ae_get_local_output_muted(AudioEngineHandle *engine);
+    AE_API void ae_set_cast_pcm_tap_enabled(AudioEngineHandle *engine, int enabled, int bypass_dsp);
+    AE_API int ae_get_cast_pcm_tap_enabled(AudioEngineHandle *engine);
+    AE_API void ae_flush_cast_pcm_tap(AudioEngineHandle *engine);
+    AE_API int ae_read_cast_pcm_s24le(
+        AudioEngineHandle *engine,
+        uint8_t *out_buffer,
+        int max_bytes,
+        int *out_sample_rate,
+        int *out_channels);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,6 +1,31 @@
+import 'dart:async';
+import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:sautiflow/sautiflow.dart' show AudioEngineFFI;
+
+typedef _FlushCastTapNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _FlushCastTapDart = void Function(ffi.Pointer<ffi.Void>);
+typedef _ReadCastPcmNative = ffi.Int32 Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Pointer<ffi.Uint8>,
+  ffi.Int32,
+  ffi.Pointer<ffi.Int32>,
+  ffi.Pointer<ffi.Int32>,
+);
+typedef _ReadCastPcmDart = int Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Pointer<ffi.Uint8>,
+  int,
+  ffi.Pointer<ffi.Int32>,
+  ffi.Pointer<ffi.Int32>,
+);
+typedef _MallocNative = ffi.Pointer<ffi.Void> Function(ffi.IntPtr);
+typedef _MallocDart = ffi.Pointer<ffi.Void> Function(int);
+typedef _FreeNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _FreeDart = void Function(ffi.Pointer<ffi.Void>);
 
 class LocalMediaServer {
   static final LocalMediaServer instance = LocalMediaServer._internal();
@@ -9,6 +34,24 @@ class LocalMediaServer {
   HttpServer? _server;
   int _port = 8080;
   String? _currentFilePath;
+  String? _lastLanIp;
+
+  Uint8List? _artworkBytes;
+  int _artworkToken = 0;
+
+  int _liveToken = 0;
+  int _liveSessionToken = 0;
+  int _liveEngineAddress = 0;
+  int _liveSampleRate = 48000;
+  int _liveChannels = 2;
+  bool Function()? _liveIsPlaying;
+  VoidCallback? _activeLiveCancel;
+
+  bool _ffiResolved = false;
+  _FlushCastTapDart? _aeFlushCastTap;
+  _ReadCastPcmDart? _aeReadCastPcmS24Le;
+  _MallocDart? _malloc;
+  _FreeDart? _free;
 
   Future<void> start() async {
     if (_server != null) return;
@@ -36,32 +79,52 @@ class LocalMediaServer {
     }
   }
 
+  void _applyCors(HttpResponse response) {
+    response.headers.set('Access-Control-Allow-Origin', '*');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    response.headers.set('Access-Control-Allow-Headers', 'Range, Content-Type, Accept');
+  }
+
   void _handleRequest(HttpRequest request) async {
+    _applyCors(request.response);
+
+    if (request.method == 'OPTIONS') {
+      request.response.statusCode = HttpStatus.ok;
+      await request.response.close();
+      return;
+    }
+
+    final reqPath = request.uri.path;
+    if (reqPath == '/artwork.jpg') {
+      await _handleArtworkRequest(request);
+      return;
+    }
+
+    if (reqPath.startsWith('/cast/live_') && reqPath.endsWith('.wav')) {
+      await _handleLiveWavRequest(request);
+      return;
+    }
+
     if (_currentFilePath == null || !File(_currentFilePath!).existsSync()) {
       request.response.statusCode = HttpStatus.notFound;
-      request.response.close();
+      await request.response.close();
       return;
     }
 
     final file = File(_currentFilePath!);
     final ext = p.extension(_currentFilePath!).toLowerCase();
-    String contentType = 'audio/mpeg'; // default
-    if (ext == '.flac') contentType = 'audio/flac';
-    if (ext == '.wav') contentType = 'audio/x-wav';
-    if (ext == '.m4a' || ext == '.mp4') contentType = 'audio/mp4';
-    if (ext == '.aac') contentType = 'audio/aac';
-    if (ext == '.ogg') contentType = 'audio/ogg';
-
+    final contentType = _mimeTypeForExtension(ext);
     final fileSize = await file.length();
+    final isHead = request.method == 'HEAD';
 
-    // DLNA often uses Range requests
+    // DLNA / Chromecast often send Range requests
     final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
 
     if (rangeHeader != null) {
       final parts = rangeHeader.replaceFirst('bytes=', '').split('-');
       final start = int.tryParse(parts[0]) ?? 0;
       final end = parts.length > 1 && parts[1].isNotEmpty
-          ? int.tryParse(parts[1]) ?? fileSize - 1
+          ? (int.tryParse(parts[1]) ?? fileSize - 1).clamp(start, fileSize - 1)
           : fileSize - 1;
 
       if (start >= fileSize) {
@@ -81,18 +144,26 @@ class LocalMediaServer {
       request.response.headers
           .set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/$fileSize');
 
-      // Serve the requested range
+      if (isHead) {
+        await request.response.close();
+        return;
+      }
+
       final stream = file.openRead(start, end + 1);
       await stream.pipe(request.response).catchError((e) {
         debugPrint(
             '[LocalMediaServer] Pipe error (client probably disconnected): $e');
       });
     } else {
-      // Full file request
       request.response.headers.set(HttpHeaders.contentTypeHeader, contentType);
       request.response.headers
           .set(HttpHeaders.contentLengthHeader, fileSize.toString());
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+
+      if (isHead) {
+        await request.response.close();
+        return;
+      }
 
       final stream = file.openRead();
       await stream.pipe(request.response).catchError((e) {
@@ -102,18 +173,321 @@ class LocalMediaServer {
     }
   }
 
+  static String _mimeTypeForExtension(String ext) {
+    switch (ext.toLowerCase()) {
+      case '.flac':
+        return 'audio/flac';
+      case '.wav':
+        return 'audio/wav';
+      case '.mp3':
+        return 'audio/mpeg';
+      case '.m4a':
+      case '.mp4':
+        return 'audio/mp4';
+      case '.aac':
+        return 'audio/aac';
+      case '.ogg':
+        return 'audio/ogg';
+      case '.opus':
+        return 'audio/opus';
+      case '.webm':
+        return 'audio/webm';
+      case '.wv':
+        return 'audio/x-wavpack';
+      case '.aif':
+      case '.aiff':
+        return 'audio/aiff';
+      case '.dsf':
+        return 'audio/dsf';
+      case '.dff':
+        return 'audio/dff';
+      default:
+        return 'audio/mpeg';
+    }
+  }
+
+  /// Stores current cover artwork bytes to serve over `/artwork.jpg`.
+  void setArtworkBytes(Uint8List? bytes) {
+    _artworkBytes = (bytes != null && bytes.isNotEmpty) ? bytes : null;
+    _artworkToken++;
+  }
+
+  /// Returns the URL of the active cover artwork if the server is running and
+  /// artwork bytes are present.
+  String? get artworkUrl {
+    if (_server == null || _artworkBytes == null || _lastLanIp == null) {
+      return null;
+    }
+    return 'http://$_lastLanIp:$_port/artwork.jpg?v=$_artworkToken';
+  }
+
+  /// Ensures the HTTP server is listening and returns the cover artwork URL if available.
+  Future<String?> ensureArtworkUrl() async {
+    if (_artworkBytes == null || _artworkBytes!.isEmpty) return null;
+    if (_server == null) await start();
+    if (_server == null) return null;
+    _lastLanIp ??= await bestLanIpv4() ?? '127.0.0.1';
+    return artworkUrl;
+  }
+
+  Future<void> _handleArtworkRequest(HttpRequest request) async {
+    final bytes = _artworkBytes;
+    if (bytes == null || bytes.isEmpty) {
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
+      return;
+    }
+    final isPng = bytes.length >= 4 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47;
+    request.response.headers
+        .set(HttpHeaders.contentTypeHeader, isPng ? 'image/png' : 'image/jpeg');
+    request.response.headers
+        .set(HttpHeaders.contentLengthHeader, bytes.length.toString());
+    request.response.headers.set('Cache-Control', 'no-cache');
+    if (request.method != 'HEAD') {
+      request.response.add(bytes);
+    }
+    await request.response.close();
+  }
+
+  /// Builds a standard 44-byte 24-bit signed little-endian LPCM WAVE header.
+  static Uint8List buildWavHeader24Bit({
+    required int sampleRate,
+    required int channels,
+    int dataSize = 0x7FFFF000,
+  }) {
+    final safeSr = sampleRate > 0 ? sampleRate : 48000;
+    final safeCh = channels > 0 ? channels : 2;
+    const bitsPerSample = 24;
+    final blockAlign = safeCh * (bitsPerSample ~/ 8);
+    final byteRate = safeSr * blockAlign;
+    final riffSize = 36 + dataSize;
+
+    final hdr = Uint8List(44);
+    final bd = ByteData.sublistView(hdr);
+    hdr.setRange(0, 4, const [0x52, 0x49, 0x46, 0x46]); // 'RIFF'
+    bd.setUint32(4, riffSize, Endian.little);
+    hdr.setRange(8, 12, const [0x57, 0x41, 0x56, 0x45]); // 'WAVE'
+    hdr.setRange(12, 16, const [0x66, 0x6D, 0x74, 0x20]); // 'fmt '
+    bd.setUint32(16, 16, Endian.little);
+    bd.setUint16(20, 1, Endian.little); // PCM format
+    bd.setUint16(22, safeCh, Endian.little);
+    bd.setUint32(24, safeSr, Endian.little);
+    bd.setUint32(28, byteRate, Endian.little);
+    bd.setUint16(32, blockAlign, Endian.little);
+    bd.setUint16(34, bitsPerSample, Endian.little);
+    hdr.setRange(36, 40, const [0x64, 0x61, 0x74, 0x61]); // 'data'
+    bd.setUint32(40, dataSize, Endian.little);
+    return hdr;
+  }
+
+  void _ensureLiveFfi() {
+    if (_ffiResolved) return;
+    _ffiResolved = true;
+    try {
+      final lib = AudioEngineFFI.openLibrary(null);
+      final allocLib = AudioEngineFFI.openAllocatorLibrary();
+      _malloc = allocLib.lookupFunction<_MallocNative, _MallocDart>('malloc');
+      _free = allocLib.lookupFunction<_FreeNative, _FreeDart>('free');
+      _aeFlushCastTap = lib.lookupFunction<_FlushCastTapNative, _FlushCastTapDart>(
+        'ae_flush_cast_pcm_tap',
+      );
+      _aeReadCastPcmS24Le =
+          lib.lookupFunction<_ReadCastPcmNative, _ReadCastPcmDart>(
+        'ae_read_cast_pcm_s24le',
+      );
+    } catch (e) {
+      debugPrint('[LocalMediaServer] Failed resolving Cast tap FFI: $e');
+    }
+  }
+
+  /// Registers a live 24-bit LPCM WAV stream backed by `ae_read_cast_pcm_s24le`
+  /// and returns its LAN HTTP URL for Chromecast or DLNA receivers.
+  Future<String?> serveLive24BitWav({
+    required int engineAddress,
+    required int sampleRate,
+    required int channels,
+    required bool Function() isPlaying,
+  }) async {
+    if (_server == null) {
+      await start();
+    }
+    if (_server == null || engineAddress == 0) return null;
+
+    _activeLiveCancel?.call();
+    _liveToken++;
+    _liveSessionToken = _liveToken;
+    _liveEngineAddress = engineAddress;
+    _liveSampleRate = sampleRate > 0 ? sampleRate : 48000;
+    _liveChannels = channels > 0 ? channels : 2;
+    _liveIsPlaying = isPlaying;
+
+    String? localIp = await bestLanIpv4();
+    localIp ??= '127.0.0.1';
+    _lastLanIp = localIp;
+
+    return 'http://$localIp:$_port/cast/live_$_liveToken.wav';
+  }
+
+  void stopLiveWavStream() {
+    _liveSessionToken = 0;
+    _activeLiveCancel?.call();
+    _activeLiveCancel = null;
+  }
+
+  Future<void> _handleLiveWavRequest(HttpRequest request) async {
+    _ensureLiveFfi();
+    final tokenStr = request.uri.path
+        .replaceFirst('/cast/live_', '')
+        .replaceFirst('.wav', '');
+    final reqToken = int.tryParse(tokenStr);
+    if (_liveEngineAddress == 0 ||
+        reqToken == null ||
+        reqToken != _liveSessionToken ||
+        _aeReadCastPcmS24Le == null ||
+        _malloc == null ||
+        _free == null) {
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
+      return;
+    }
+
+    final sr = _liveSampleRate;
+    final ch = _liveChannels;
+    final header = buildWavHeader24Bit(sampleRate: sr, channels: ch);
+
+    request.response.headers.set(HttpHeaders.contentTypeHeader, 'audio/wav');
+    request.response.headers.set('Cache-Control', 'no-cache, no-store');
+
+    if (request.method == 'HEAD') {
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'none');
+      await request.response.close();
+      return;
+    }
+
+    // Handle tiny probe ranges (e.g. bytes=0-1 or bytes=0-43) without opening
+    // the continuous engine stream or flushing audio.
+    final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
+    if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+      final parts = rangeHeader.replaceFirst('bytes=', '').split('-');
+      final start = int.tryParse(parts[0]) ?? 0;
+      final end = parts.length > 1 && parts[1].isNotEmpty
+          ? int.tryParse(parts[1])
+          : null;
+      if (end != null && end < header.length && start <= end) {
+        const virtualTotal = 44 + 0x7FFFF000;
+        final slice = header.sublist(start, end + 1);
+        request.response.statusCode = HttpStatus.partialContent;
+        request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+        request.response.headers
+            .set(HttpHeaders.contentLengthHeader, slice.length.toString());
+        request.response.headers.set(
+          HttpHeaders.contentRangeHeader,
+          'bytes $start-$end/$virtualTotal',
+        );
+        request.response.add(slice);
+        await request.response.close();
+        return;
+      }
+    }
+
+    _activeLiveCancel?.call();
+    request.response.statusCode = HttpStatus.ok;
+    request.response.bufferOutput = false;
+    request.response.headers.set(HttpHeaders.acceptRangesHeader, 'none');
+
+    final enginePtr = ffi.Pointer<ffi.Void>.fromAddress(_liveEngineAddress);
+    _aeFlushCastTap?.call(enginePtr);
+    request.response.add(header);
+
+    final frameBytes = math.max(3, ch * 3);
+    final framesPer20ms = math.max(1, (sr * 20) ~/ 1000);
+    final chunk20msBytes = framesPer20ms * frameBytes;
+    final readBufCapacity = math.max(65536, chunk20msBytes * 4);
+    final nativeBuf = _malloc!(readBufCapacity).cast<ffi.Uint8>();
+    final outSrPtr = _malloc!(4).cast<ffi.Int32>();
+    final outChPtr = _malloc!(4).cast<ffi.Int32>();
+    final silence20ms = Uint8List(chunk20msBytes);
+
+    var closed = false;
+    Timer? timer;
+    int emptyTicks = 0;
+
+    void cleanup() {
+      if (closed) return;
+      closed = true;
+      timer?.cancel();
+      timer = null;
+      try {
+        request.response.close();
+      } catch (_) {}
+      try {
+        _free!(nativeBuf.cast<ffi.Void>());
+        _free!(outSrPtr.cast<ffi.Void>());
+        _free!(outChPtr.cast<ffi.Void>());
+      } catch (_) {}
+      if (_activeLiveCancel == cleanup) {
+        _activeLiveCancel = null;
+      }
+    }
+
+    _activeLiveCancel = cleanup;
+    request.response.done.then((_) => cleanup()).catchError((_) => cleanup());
+
+    timer = Timer.periodic(const Duration(milliseconds: 20), (_) {
+      if (closed || reqToken != _liveSessionToken) {
+        cleanup();
+        return;
+      }
+
+      try {
+        final playing = _liveIsPlaying?.call() ?? false;
+        final n = _aeReadCastPcmS24Le!(
+          enginePtr,
+          nativeBuf,
+          readBufCapacity,
+          outSrPtr,
+          outChPtr,
+        );
+
+        if (n > 0) {
+          emptyTicks = 0;
+          final bytes = Uint8List.fromList(nativeBuf.asTypedList(n));
+          request.response.add(bytes);
+        } else if (!playing) {
+          emptyTicks = 0;
+          request.response.add(silence20ms);
+        } else {
+          emptyTicks++;
+          // Keep HTTP socket alive if source stalls temporarily while playing.
+          if (emptyTicks >= 25) {
+            emptyTicks = 0;
+            request.response.add(silence20ms);
+          }
+        }
+      } catch (_) {
+        cleanup();
+      }
+    });
+  }
+
   /// Sets the file that the server will serve at the root endpoint.
-  /// Returns the URL that can be given to a DLNA Renderer.
+  /// Returns the URL that can be given to a Chromecast or DLNA Renderer.
   Future<String?> serveFile(String filePath) async {
     if (_server == null) {
       await start();
     }
     if (_server == null) return null;
 
+    stopLiveWavStream();
     _currentFilePath = filePath;
 
     String? localIp = await bestLanIpv4();
     localIp ??= '127.0.0.1';
+    _lastLanIp = localIp;
 
     final ext = p.extension(filePath);
     return 'http://$localIp:$_port/stream$ext';
@@ -173,7 +547,11 @@ class LocalMediaServer {
     }
   }
 
+  static String mimeTypeForPathOrExt(String pathOrExt) =>
+      _mimeTypeForExtension(p.extension(pathOrExt).isNotEmpty ? p.extension(pathOrExt) : pathOrExt);
+
   void stop() {
+    stopLiveWavStream();
     _server?.close(force: true);
     _server = null;
     _currentFilePath = null;
