@@ -644,6 +644,157 @@ void testMiniaudioDsdBackendLifecycle() {
     std::printf("[PASS] testMiniaudioDsdBackendLifecycle\n");
 }
 
+void testMultichannelDsd51NativeDopAndD2p() {
+    const char* path = "test_tmp_51.dsf";
+    const uint32_t channels = 6; // 5.1 surround
+    const uint32_t blkSz = 4096;
+    const uint32_t bytesPerCh = 4096;
+    std::vector<std::vector<uint8_t>> chBytes(channels, std::vector<uint8_t>(bytesPerCh, kDsdSilenceByte));
+    // Distinct LSB-first patterns per channel for the first 4 bytes
+    for (uint32_t c = 0; c < channels; ++c) {
+        chBytes[c][0] = static_cast<uint8_t>(0x11u + c);
+        chBytes[c][1] = static_cast<uint8_t>(0x21u + c);
+        chBytes[c][2] = static_cast<uint8_t>(0x31u + c);
+        chBytes[c][3] = static_cast<uint8_t>(0x41u + c);
+    }
+
+    // Build 6-channel DSF file
+    {
+        FILE* fp = std::fopen(path, "wb");
+        assert(fp != nullptr);
+        const uint64_t dataBytes = static_cast<uint64_t>(blkSz) * channels;
+        const uint64_t dataChunkSize = 12ull + dataBytes;
+        const uint64_t fileSize = 28ull + 52ull + dataChunkSize;
+
+        auto w32 = [&](uint32_t v) {
+            uint8_t b[4] = {uint8_t(v & 0xFFu), uint8_t((v >> 8) & 0xFFu), uint8_t((v >> 16) & 0xFFu), uint8_t((v >> 24) & 0xFFu)};
+            std::fwrite(b, 1, 4, fp);
+        };
+        auto w64 = [&](uint64_t v) { w32(uint32_t(v & 0xFFFFFFFFull)); w32(uint32_t(v >> 32)); };
+
+        std::fwrite("DSD ", 1, 4, fp);
+        w64(28);
+        w64(fileSize);
+        w64(0);
+
+        std::fwrite("fmt ", 1, 4, fp);
+        w64(52);
+        w32(1);
+        w32(0);
+        w32(5); // 5.1 channel type
+        w32(channels);
+        w32(2822400u);
+        w32(1); // LSB-first
+        w64(static_cast<uint64_t>(bytesPerCh) * 8ull);
+        w32(blkSz);
+        w32(0);
+
+        std::fwrite("data", 1, 4, fp);
+        w64(dataChunkSize);
+        for (uint32_t c = 0; c < channels; ++c) {
+            std::fwrite(chBytes[c].data(), 1, blkSz, fp);
+        }
+        std::fclose(fp);
+    }
+
+    DsdFileHeader hdr = parse_dsd_file_header_utf8(path);
+    assert(hdr.valid);
+    assert(hdr.channels == 6);
+    assert(hdr.dsdSampleRate == 2822400u);
+
+    ma_decoding_backend_vtable* customVtables[] = { &g_ma_decoding_backend_vtable_dsd };
+
+    // 1. 5.1 Native DSD S32
+    {
+        tls_dsd_open_options() = DsdOpenOptions{};
+        tls_dsd_open_options().mode = AE_DSD_MODE_NATIVE;
+
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_unknown, 0, 0);
+        cfg.ppCustomBackendVTables = customVtables;
+        cfg.customBackendCount = 1;
+
+        ma_decoder dec{};
+        assert(ma_decoder_init_file(path, &cfg, &dec) == MA_SUCCESS);
+
+        AEDsdOutputMode qMode = AE_DSD_MODE_AUTO;
+        uint32_t qOutRate = 0, qCh = 0;
+        ma_format qFmt = ma_format_unknown;
+        assert(query_dsd_decoder_info(&dec, &qMode, nullptr, &qOutRate, &qFmt, &qCh));
+        assert(qMode == AE_DSD_MODE_NATIVE);
+        assert(qOutRate == 88200u);
+        assert(qCh == 6u);
+        assert(qFmt == ma_format_s32);
+
+        int32_t natBuf[2 * 6]{};
+        ma_uint64 readCount = 0;
+        assert(ma_decoder_read_pcm_frames(&dec, natBuf, 2u, &readCount) == MA_SUCCESS);
+        assert(readCount == 2u);
+        for (uint32_t c = 0; c < channels; ++c) {
+            const uint32_t expected =
+                (static_cast<uint32_t>(kBitReverseTable[chBytes[c][0]]) << 24) |
+                (static_cast<uint32_t>(kBitReverseTable[chBytes[c][1]]) << 16) |
+                (static_cast<uint32_t>(kBitReverseTable[chBytes[c][2]]) << 8) |
+                static_cast<uint32_t>(kBitReverseTable[chBytes[c][3]]);
+            assert(static_cast<uint32_t>(natBuf[c]) == expected);
+        }
+        ma_decoder_uninit(&dec);
+    }
+
+    // 2. 5.1 DoP S32
+    {
+        tls_dsd_open_options() = DsdOpenOptions{};
+        tls_dsd_open_options().mode = AE_DSD_MODE_DOP;
+        tls_dsd_open_options().dopFormat = ma_format_s32;
+
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_unknown, 0, 0);
+        cfg.ppCustomBackendVTables = customVtables;
+        cfg.customBackendCount = 1;
+
+        ma_decoder dec{};
+        assert(ma_decoder_init_file(path, &cfg, &dec) == MA_SUCCESS);
+
+        AEDsdOutputMode qMode = AE_DSD_MODE_AUTO;
+        uint32_t qOutRate = 0, qCh = 0;
+        assert(query_dsd_decoder_info(&dec, &qMode, nullptr, &qOutRate, nullptr, &qCh));
+        assert(qMode == AE_DSD_MODE_DOP);
+        assert(qOutRate == 176400u);
+        assert(qCh == 6u);
+
+        int32_t dopBuf[2 * 6]{};
+        ma_uint64 readCount = 0;
+        assert(ma_decoder_read_pcm_frames(&dec, dopBuf, 2u, &readCount) == MA_SUCCESS);
+        assert(readCount == 2u);
+        for (uint32_t c = 0; c < channels; ++c) {
+            assert((static_cast<uint32_t>(dopBuf[c]) >> 24) == 0x05u);
+            assert((static_cast<uint32_t>(dopBuf[channels + c]) >> 24) == 0xFAu);
+        }
+        ma_decoder_uninit(&dec);
+    }
+
+    // 3. 5.1 D2P downmix to stereo PCM (graceful fallback for stereo DACs)
+    {
+        tls_dsd_open_options() = DsdOpenOptions{};
+        tls_dsd_open_options().mode = AE_DSD_MODE_D2P;
+        tls_dsd_open_options().requestedD2pRate = 88200u;
+
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, 88200u);
+        cfg.ppCustomBackendVTables = customVtables;
+        cfg.customBackendCount = 1;
+
+        ma_decoder dec{};
+        assert(ma_decoder_init_file(path, &cfg, &dec) == MA_SUCCESS);
+        assert(dec.outputChannels == 2u);
+        float pcmBuf[64 * 2]{};
+        ma_uint64 readCount = 0;
+        assert(ma_decoder_read_pcm_frames(&dec, pcmBuf, 64u, &readCount) == MA_SUCCESS);
+        assert(readCount == 64u);
+        ma_decoder_uninit(&dec);
+    }
+
+    std::remove(path);
+    std::printf("[PASS] testMultichannelDsd51NativeDopAndD2p\n");
+}
+
 } // namespace
 
 int main() {
@@ -652,6 +803,7 @@ int main() {
     testDecimatorSilenceSineBoostAndDsd512();
     testDopAndNativePackers();
     testMiniaudioDsdBackendLifecycle();
+    testMultichannelDsd51NativeDopAndD2p();
     std::printf("ALL DSD PIPELINE TESTS PASSED\n");
     return 0;
 }

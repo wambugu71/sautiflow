@@ -690,7 +690,8 @@ inline UsbSelectedConfig select_best_uac_alt_setting(
     AEAudioFormat preferredFormat,
     bool explicitFormat,
     const std::vector<int> *uac2ClockRates = nullptr,
-    bool wantNativeDsd = false
+    bool wantNativeDsd = false,
+    bool requireExactChannels = false
 ) {
     UsbSelectedConfig best;
     if (!profile.valid || profile.altSettings.empty()) {
@@ -712,6 +713,9 @@ inline UsbSelectedConfig select_best_uac_alt_setting(
     int bestScore = -1000000;
     for (const auto &alt : profile.altSettings) {
         if (alt.isNativeDsd != wantNativeDsd) {
+            continue;
+        }
+        if (requireExactChannels && alt.channels != desiredChannels) {
             continue;
         }
         const std::vector<int> &rates =

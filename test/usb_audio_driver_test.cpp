@@ -254,11 +254,43 @@ static void testUac2NativeDsdAndDopDetection() {
     std::printf("[PASS] testUac2NativeDsdAndDopDetection\n");
 }
 
+static void testUac2MultichannelNativeDsdSelection() {
+    std::vector<int> dsdRates = {44100, 48000, 88200, 96000, 176400, 192000};
+
+    // Stereo-only Native DSD DAC must NOT match a 6-channel Native DSD request when requireExactChannels=true
+    auto stereoRaw = buildUac2NativeDsdTestConfigDescriptor();
+    UsbAudioDeviceProfile stereoProfile = parse_uac_descriptors(stereoRaw.data(), stereoRaw.size());
+    UsbSelectedConfig reject6ch = select_best_uac_alt_setting(
+        stereoProfile, 88200, 6, AE_FORMAT_S32, true, &dsdRates, true, true);
+    assert(!reject6ch.found);
+
+    // Multi-channel UAC2 DAC exposing 6-channel RAW_DATA alt 4
+    std::vector<uint8_t> mcRaw = stereoRaw;
+    appendDesc(mcRaw, {9, 0x04, 1, 4, 2, 0x01, 0x02, 0x20, 0});
+    appendDesc(mcRaw, {16, 0x24, 0x01, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x80, 6, 0x3F, 0, 0, 0, 0});
+    appendDesc(mcRaw, {6, 0x24, 0x02, 0x01, 4, 32});
+    appendDesc(mcRaw, {7, 0x05, 0x01, 0x05, 0x00, 0x04, 1});
+    appendDesc(mcRaw, {7, 0x05, 0x81, 0x11, 4, 0, 4});
+
+    UsbAudioDeviceProfile mcProfile = parse_uac_descriptors(mcRaw.data(), mcRaw.size());
+    assert(mcProfile.valid);
+    UsbSelectedConfig sel6ch = select_best_uac_alt_setting(
+        mcProfile, 88200, 6, AE_FORMAT_S32, true, &dsdRates, true, true);
+    assert(sel6ch.found);
+    assert(sel6ch.alt.isNativeDsd);
+    assert(sel6ch.alt.channels == 6);
+    assert(sel6ch.alt.altSetting == 4);
+    assert(sel6ch.sampleRate == 88200);
+
+    std::printf("[PASS] testUac2MultichannelNativeDsdSelection\n");
+}
+
 int main() {
     testUac1DescriptorAndSelection();
     testUac2DescriptorClockAndAltSelection();
     testIsoPacketPlannerAndFeedback();
     testUac2NativeDsdAndDopDetection();
+    testUac2MultichannelNativeDsdSelection();
     std::printf("ALL USB AUDIO DRIVER TESTS PASSED\n");
     return 0;
 }

@@ -3858,7 +3858,8 @@ struct AudioEngineHandle
     std::atomic<bool> userOutputFormatExplicit{false};
     int outputSampleRate = 0;     // Active hardware DAC output rate (0 = native)
     int userOutputSampleRate = 0; // User-selected preferred output rate (0 = native)
-    int outputChannels = 2;       // default stereo
+    int outputChannels = 2;       // Active hardware output channels (default stereo)
+    int userOutputChannels = 2;   // User-selected preferred output channels (default stereo)
 
     bool multibandEqEnabled = false;
     int eqBandCount = 0;
@@ -4545,7 +4546,7 @@ static inline void fill_output_silence(
     std::memset(pOutput, (fmt == ma_format_u8) ? 0x80 : 0x00, static_cast<size_t>(frameCount) * channels * (bps > 0 ? bps : 4u));
 }
 
-static inline bool dsd_requires_hw_restart(AudioEngineHandle *e, int effectiveRate, ma_format decFmt)
+static inline bool dsd_requires_hw_restart(AudioEngineHandle *e, int effectiveRate, ma_format decFmt, int decCh = 0)
 {
     if (!e) return false;
     const int actDsd = e->activeDsdMode.load(std::memory_order_acquire);
@@ -4558,7 +4559,8 @@ static inline bool dsd_requires_hw_restart(AudioEngineHandle *e, int effectiveRa
     if (targetHwBitMode != 0)
     {
         if ((effectiveRate > 0 && static_cast<uint32_t>(effectiveRate) != e->device.sampleRate) ||
-            (decFmt != ma_format_unknown && decFmt != e->device.playback.format))
+            (decFmt != ma_format_unknown && decFmt != e->device.playback.format) ||
+            (decCh > 0 && static_cast<uint32_t>(decCh) != e->device.playback.channels))
         {
             return true;
         }
@@ -4573,14 +4575,16 @@ static inline void sync_active_dsd_from_decoder(AudioEngineHandle *e, ma_decoder
     uint32_t srcDsdRate = 0;
     uint32_t outRate = 0;
     ma_format outFmt = ma_format_unknown;
+    uint32_t outCh = 0;
     if (dec != nullptr &&
-        sautiflow::dsd::query_dsd_decoder_info(dec, &dsdMode, &srcDsdRate, &outRate, &outFmt, nullptr))
+        sautiflow::dsd::query_dsd_decoder_info(dec, &dsdMode, &srcDsdRate, &outRate, &outFmt, &outCh))
     {
         e->activeDsdMode.store(static_cast<int>(dsdMode), std::memory_order_release);
         e->sourceDsdRate.store(static_cast<int>(srcDsdRate), std::memory_order_release);
         if (outRate > 0) e->sourceSampleRate = static_cast<int>(outRate);
         if (outFmt != ma_format_unknown) e->sourceFormat = outFmt;
-        if (dsd_requires_hw_restart(e, static_cast<int>(outRate), outFmt))
+        if (outCh > 0) e->sourceChannels = static_cast<int>(outCh);
+        if (dsd_requires_hw_restart(e, static_cast<int>(outRate), outFmt, static_cast<int>(outCh)))
         {
             const int req = (outRate > 0) ? static_cast<int>(outRate) : (e->outputSampleRate > 0 ? e->outputSampleRate : 48000);
             e->pendingAutoSampleRateMatchRate.store(req, std::memory_order_release);
@@ -10472,6 +10476,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 ? AE_FORMAT_S32
                 : (wantDop ? ((e->outputFormat == AE_FORMAT_S24) ? AE_FORMAT_S24 : AE_FORMAT_S32) : e->outputFormat);
             const bool usbExplicitFmt = (wantNativeDsd || wantDop) ? true : explicitFmt;
+            const bool requireExactCh = (wantNativeDsd || wantDop) && (targetChannels > 0);
             sautiflow::usb::UsbSelectedConfig selected = sautiflow::usb::select_best_uac_alt_setting(
                 profile,
                 targetSampleRate,
@@ -10479,25 +10484,27 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 usbPrefFmt,
                 usbExplicitFmt,
                 pUac2Rates,
-                wantNativeDsd);
+                wantNativeDsd,
+                requireExactCh);
 
             if (!selected.found)
             {
-                engine_log("AndroidUsbDacSink: select_best_uac_alt_setting returned no candidate");
+                engine_log("AndroidUsbDacSink: select_best_uac_alt_setting returned no candidate (ch=%d, native=%d, dop=%d)",
+                           targetChannels, wantNativeDsd ? 1 : 0, wantDop ? 1 : 0);
                 release();
                 return false;
             }
-            if (wantNativeDsd && (!selected.alt.isNativeDsd || selected.alt.subslotSize != 4 || selected.alt.bitResolution < 32 || selected.sampleRate != targetSampleRate))
+            if (wantNativeDsd && (!selected.alt.isNativeDsd || selected.alt.subslotSize != 4 || selected.alt.bitResolution < 32 || selected.sampleRate != targetSampleRate || (targetChannels > 0 && static_cast<int>(selected.alt.channels) != targetChannels)))
             {
-                engine_log("AndroidUsbDacSink: DAC rejected Native DSD carrier rate=%d (got rate=%d, raw=%d, subslot=%d, bits=%d)",
-                           targetSampleRate, selected.sampleRate, selected.alt.isNativeDsd ? 1 : 0, selected.alt.subslotSize, selected.alt.bitResolution);
+                engine_log("AndroidUsbDacSink: DAC rejected Native DSD carrier rate=%d ch=%d (got rate=%d, ch=%u, raw=%d, subslot=%d, bits=%d)",
+                           targetSampleRate, targetChannels, selected.sampleRate, selected.alt.channels, selected.alt.isNativeDsd ? 1 : 0, selected.alt.subslotSize, selected.alt.bitResolution);
                 release();
                 return false;
             }
-            if (wantDop && (selected.alt.isNativeDsd || selected.alt.isFloat || selected.alt.bitResolution < 24 || selected.sampleRate != targetSampleRate))
+            if (wantDop && (selected.alt.isNativeDsd || selected.alt.isFloat || selected.alt.bitResolution < 24 || selected.sampleRate != targetSampleRate || (targetChannels > 0 && static_cast<int>(selected.alt.channels) != targetChannels)))
             {
-                engine_log("AndroidUsbDacSink: DAC rejected DoP carrier rate=%d (got rate=%d, float=%d, bits=%d)",
-                           targetSampleRate, selected.sampleRate, selected.alt.isFloat ? 1 : 0, selected.alt.bitResolution);
+                engine_log("AndroidUsbDacSink: DAC rejected DoP carrier rate=%d ch=%d (got rate=%d, ch=%u, float=%d, bits=%d)",
+                           targetSampleRate, targetChannels, selected.sampleRate, selected.alt.channels, selected.alt.isFloat ? 1 : 0, selected.alt.bitResolution);
                 release();
                 return false;
             }
@@ -11556,6 +11563,7 @@ extern "C"
         // Initialize advanced settings
         e->outputSampleRate = sample_rate;
         e->outputChannels = channels;
+        e->userOutputChannels = channels;
         // Default format is F32
         e->outputFormat = AE_FORMAT_F32;
 
@@ -12431,10 +12439,11 @@ extern "C"
                 AEDsdOutputMode nMode = AE_DSD_MODE_D2P;
                 uint32_t nRate = 0;
                 ma_format nFmt = ma_format_unknown;
-                const bool nextIsDsd = sautiflow::dsd::query_dsd_decoder_info(e->nextDecoder, &nMode, nullptr, &nRate, &nFmt, nullptr);
+                uint32_t nCh = 0;
+                const bool nextIsDsd = sautiflow::dsd::query_dsd_decoder_info(e->nextDecoder, &nMode, nullptr, &nRate, &nFmt, &nCh);
                 const int targetBitMode = (nextIsDsd && (nMode == AE_DSD_MODE_DOP || nMode == AE_DSD_MODE_NATIVE)) ? static_cast<int>(nMode) : 0;
                 if (targetBitMode != e->hwActiveDsdMode.load(std::memory_order_acquire) ||
-                    (targetBitMode != 0 && (static_cast<uint32_t>(nRate) != e->device.sampleRate || nFmt != e->device.playback.format)))
+                    (targetBitMode != 0 && (static_cast<uint32_t>(nRate) != e->device.sampleRate || nFmt != e->device.playback.format || (nCh > 0 && nCh != e->device.playback.channels))))
                 {
                     return false;
                 }
@@ -14176,6 +14185,7 @@ extern "C"
                                       ? e->outputSampleRate
                                       : e->userOutputSampleRate);
             int curSrcDsdRate = e->sourceDsdRate.load(std::memory_order_acquire);
+            int curSrcDsdChannels = e->sourceChannels;
             int desiredDsdMode = e->activeDsdMode.load(std::memory_order_acquire);
             const bool reevalDsd = e->reevalDsdOnRestart.exchange(false, std::memory_order_acq_rel);
             {
@@ -14188,12 +14198,13 @@ extern "C"
                     }
                 }
                 if (!trackPathSnap.empty() && sautiflow::dsd::is_dsd_file_path(trackPathSnap) &&
-                    (reevalDsd || desiredDsdMode == 0 || curSrcDsdRate == 0))
+                    (reevalDsd || desiredDsdMode == 0 || curSrcDsdRate == 0 || curSrcDsdChannels <= 0))
                 {
                     sautiflow::dsd::DsdFileHeader hdr = sautiflow::dsd::parse_dsd_file_header_utf8(trackPathSnap.c_str());
                     if (hdr.valid)
                     {
                         curSrcDsdRate = static_cast<int>(hdr.dsdSampleRate);
+                        curSrcDsdChannels = static_cast<int>(hdr.channels);
                         desiredDsdMode = resolve_effective_dsd_mode(e, hdr);
                     }
                 }
@@ -14206,7 +14217,14 @@ extern "C"
                 : 0u;
 
             int newRate = targetOutputRate > 0 ? targetOutputRate : 0;
-            int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
+            const int baseUserCh = (e->userOutputChannels > 0)
+                ? e->userOutputChannels
+                : ((e->outputChannels > 0) ? e->outputChannels : 2);
+            int newCh = (isDsdTrackRestart &&
+                         (desiredDsdMode == AE_DSD_MODE_NATIVE || desiredDsdMode == AE_DSD_MODE_DOP) &&
+                         curSrcDsdChannels > 0)
+                ? curSrcDsdChannels
+                : baseUserCh;
 
             bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
                                  e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
@@ -14358,6 +14376,9 @@ extern "C"
                     }
                     if (!initOk && desiredDsdMode == AE_DSD_MODE_D2P)
                     {
+                        newCh = baseUserCh;
+                        e->channels = newCh;
+                        cfg.playback.channels = static_cast<ma_uint32>(newCh);
                         int d2pUsbRate = (e->userOutputSampleRate > 0)
                             ? e->userOutputSampleRate
                             : static_cast<int>(d2pFallbackRate);
@@ -14437,6 +14458,9 @@ extern "C"
                     }
                     if (!initOk && desiredDsdMode == AE_DSD_MODE_D2P)
                     {
+                        newCh = baseUserCh;
+                        e->channels = newCh;
+                        cfg.playback.channels = static_cast<ma_uint32>(newCh);
                         e->activeDsdMode.store(AE_DSD_MODE_D2P, std::memory_order_release);
                         e->sourceSampleRate = static_cast<int>(d2pFallbackRate);
                         int targetRate = (e->userOutputSampleRate > 0)
@@ -14513,6 +14537,9 @@ extern "C"
                     {
                         engine_log("miniaudio backend does not support DoP in current mode -> cascading safely to D2P");
                         desiredDsdMode = AE_DSD_MODE_D2P;
+                        newCh = baseUserCh;
+                        e->channels = newCh;
+                        cfg.playback.channels = static_cast<ma_uint32>(newCh);
                         cfg.playback.format = origCfgFmt;
                         newRate = (e->userOutputSampleRate > 0)
                             ? e->userOutputSampleRate
@@ -14546,10 +14573,11 @@ extern "C"
                     {
                         if (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP &&
                             (e->device.sampleRate != cfg.sampleRate ||
+                             e->device.playback.channels != cfg.playback.channels ||
                              (e->device.playback.format != ma_format_s24 && e->device.playback.format != ma_format_s32)))
                         {
-                            engine_log("Exclusive DoP opened with mismatched rate/fmt (%u Hz, fmt=%d) -> tearing down!",
-                                       e->device.sampleRate, (int)e->device.playback.format);
+                            engine_log("Exclusive DoP opened with mismatched rate/ch/fmt (%u Hz, %u ch, fmt=%d) -> tearing down!",
+                                       e->device.sampleRate, e->device.playback.channels, (int)e->device.playback.format);
                             ma_device_uninit(&e->device);
                             initOk = false;
                         }
@@ -14566,11 +14594,12 @@ extern "C"
                         if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
                         {
                             if (e->device.sampleRate == cfg.sampleRate &&
+                                e->device.playback.channels == cfg.playback.channels &&
                                 (e->device.playback.format == ma_format_s24 || e->device.playback.format == ma_format_s32))
                             {
                                 initOk = true;
-                                engine_log("Exclusive DoP initialized on alternate container fmt=%d @ %u Hz.",
-                                           (int)e->device.playback.format, e->device.sampleRate);
+                                engine_log("Exclusive DoP initialized on alternate container fmt=%d @ %u Hz (%u ch).",
+                                           (int)e->device.playback.format, e->device.sampleRate, e->device.playback.channels);
                             }
                             else
                             {
@@ -14589,6 +14618,9 @@ extern "C"
                 {
                     engine_log("Exclusive DoP unavailable @ %u Hz -> cascading safely to D2P before Shared fallback!", cfg.sampleRate);
                     desiredDsdMode = AE_DSD_MODE_D2P;
+                    newCh = baseUserCh;
+                    e->channels = newCh;
+                    cfg.playback.channels = static_cast<ma_uint32>(newCh);
                     cfg.playback.format = origCfgFmt;
                     newRate = (e->userOutputSampleRate > 0) ? e->userOutputSampleRate : static_cast<int>(d2pFallbackRate);
                     cfg.sampleRate = static_cast<ma_uint32>(newRate > 0 ? newRate : 0);
@@ -14654,6 +14686,25 @@ extern "C"
                 set_last_error(e, "Failed to re-initialize audio output device.");
                 e->rateTransitionInProgress.store(false, std::memory_order_release);
                 return;
+            }
+
+            if (e->device.playback.channels > 0)
+            {
+                const int actualCh = static_cast<int>(e->device.playback.channels);
+                if (actualCh != e->channels)
+                {
+                    e->channels = actualCh;
+                    e->update_eq_filters();
+                    e->update_multiband_fx_filters();
+                    std::lock_guard<std::mutex> fx(e->fxMutex);
+                    reinit_advanced_fx_filters(e);
+                }
+                e->outputChannels = actualCh;
+            }
+            else
+            {
+                e->channels = newCh;
+                e->outputChannels = newCh;
             }
 
             if (isDsdTrackRestart)
@@ -15257,8 +15308,11 @@ extern "C"
         const int actDsd = engine->activeDsdMode.load(std::memory_order_acquire);
         const int hwDsd = engine->hwActiveDsdMode.load(std::memory_order_acquire);
         const int targetBitMode = (actDsd == AE_DSD_MODE_DOP || actDsd == AE_DSD_MODE_NATIVE) ? actDsd : 0;
+        const int hwCh = (engine->device.playback.channels > 0) ? static_cast<int>(engine->device.playback.channels) : engine->channels;
+        const int baseUserCh = (engine->userOutputChannels > 0) ? engine->userOutputChannels : ((engine->outputChannels > 0) ? engine->outputChannels : 2);
+        const int targetCh = (targetBitMode != 0 && engine->sourceChannels > 0) ? engine->sourceChannels : baseUserCh;
         const bool castTap = engine->castPcmTapEnabled.load(std::memory_order_relaxed);
-        if (engine->outputSampleRate == sample_rate && targetBitMode == hwDsd &&
+        if (engine->outputSampleRate == sample_rate && targetBitMode == hwDsd && targetCh == hwCh &&
             (!castTap || (sample_rate > 0 && engine->engineSampleRate == sample_rate)))
             return;
             
@@ -15291,6 +15345,7 @@ extern "C"
     {
         if (!engine || channels <= 0)
             return;
+        engine->userOutputChannels = channels;
         if (engine->outputChannels == channels)
             return;
         // See ae_set_output_format(): no unlocked stop; restart handles it under deviceMutex.
@@ -15488,15 +15543,18 @@ extern "C"
         const int actDsd = engine->activeDsdMode.load(std::memory_order_acquire);
         const int hwDsd = engine->hwActiveDsdMode.load(std::memory_order_acquire);
         const int targetBitMode = (actDsd == AE_DSD_MODE_DOP || actDsd == AE_DSD_MODE_NATIVE) ? actDsd : 0;
-        if (pending > 0 && (pending != engine->outputSampleRate || targetBitMode != hwDsd))
+        const int hwCh = (engine->device.playback.channels > 0) ? static_cast<int>(engine->device.playback.channels) : engine->channels;
+        const int baseUserCh = (engine->userOutputChannels > 0) ? engine->userOutputChannels : ((engine->outputChannels > 0) ? engine->outputChannels : 2);
+        const int targetCh = (targetBitMode != 0 && engine->sourceChannels > 0) ? engine->sourceChannels : baseUserCh;
+        if (pending > 0 && (pending != engine->outputSampleRate || targetBitMode != hwDsd || targetCh != hwCh))
         {
-            if (targetBitMode != hwDsd)
+            if (targetBitMode != hwDsd || targetCh != hwCh)
             {
                 engine->reevalDsdOnRestart.store(true, std::memory_order_release);
             }
             engine->pendingAutoRateConsumeInFlight.store(true, std::memory_order_release);
-            engine_log("ae_consume_pending_rate_change: Applying deferred Auto Sample-Rate Match rate = %d Hz (dsd %d -> hw %d)",
-                       pending, targetBitMode, hwDsd);
+            engine_log("ae_consume_pending_rate_change: Applying deferred Auto Sample-Rate Match rate = %d Hz (dsd %d -> hw %d, ch %d -> hwCh %d)",
+                       pending, targetBitMode, hwDsd, targetCh, hwCh);
             return pending;
         }
         return 0;
