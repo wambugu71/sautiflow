@@ -11088,12 +11088,16 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (!trackClass) { env->ExceptionClear(); break; }
 
                 jclass attrBuilderClass = env->FindClass("android/media/AudioAttributes$Builder");
-                jclass fmtBuilderClass = env->FindClass("android/media/AudioFormat$Builder");
-                jclass trackBuilderClass = env->FindClass("android/media/AudioTrack$Builder");
-                jclass bufferClass = env->FindClass("java/nio/Buffer");
+                if (env->ExceptionCheck()) { env->ExceptionClear(); attrBuilderClass = nullptr; }
+                jclass fmtBuilderClass = attrBuilderClass ? env->FindClass("android/media/AudioFormat$Builder") : nullptr;
+                if (env->ExceptionCheck()) { env->ExceptionClear(); fmtBuilderClass = nullptr; }
+                jclass trackBuilderClass = fmtBuilderClass ? env->FindClass("android/media/AudioTrack$Builder") : nullptr;
+                if (env->ExceptionCheck()) { env->ExceptionClear(); trackBuilderClass = nullptr; }
+                jclass bufferClass = trackBuilderClass ? env->FindClass("java/nio/Buffer") : nullptr;
+                if (env->ExceptionCheck()) { env->ExceptionClear(); bufferClass = nullptr; }
                 if (!attrBuilderClass || !fmtBuilderClass || !trackBuilderClass)
                 {
-                    env->ExceptionClear();
+                    if (env->ExceptionCheck()) env->ExceptionClear();
                     break;
                 }
 
@@ -11150,21 +11154,31 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (wantDirect || wantDapHiRes)
                 {
                     jclass atClass = env->FindClass("android/app/ActivityThread");
+                    if (env->ExceptionCheck()) { env->ExceptionClear(); atClass = nullptr; }
                     jclass ctxClass = env->FindClass("android/content/Context");
+                    if (env->ExceptionCheck()) { env->ExceptionClear(); ctxClass = nullptr; }
                     if (atClass && ctxClass)
                     {
                         jmethodID curAt = env->GetStaticMethodID(atClass, "currentActivityThread", "()Landroid/app/ActivityThread;");
-                        jmethodID getApp = env->GetMethodID(atClass, "getApplication", "()Landroid/app/Application;");
-                        jfieldID audioSvcFld = env->GetStaticFieldID(ctxClass, "AUDIO_SERVICE", "Ljava/lang/String;");
-                        jmethodID getSysSvc = env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); curAt = nullptr; }
+                        jmethodID getApp = curAt ? env->GetMethodID(atClass, "getApplication", "()Landroid/app/Application;") : nullptr;
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); getApp = nullptr; }
+                        jfieldID audioSvcFld = getApp ? env->GetStaticFieldID(ctxClass, "AUDIO_SERVICE", "Ljava/lang/String;") : nullptr;
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); audioSvcFld = nullptr; }
+                        jmethodID getSysSvc = audioSvcFld ? env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;") : nullptr;
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); getSysSvc = nullptr; }
                         if (curAt && getApp && audioSvcFld && getSysSvc)
                         {
                             jobject atObj = env->CallStaticObjectMethod(atClass, curAt);
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); atObj = nullptr; }
                             jobject appCtx = atObj ? env->CallObjectMethod(atObj, getApp) : nullptr;
-                            jobject svcName = env->GetStaticObjectField(ctxClass, audioSvcFld);
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); appCtx = nullptr; }
+                            jobject svcName = appCtx ? env->GetStaticObjectField(ctxClass, audioSvcFld) : nullptr;
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); svcName = nullptr; }
                             if (appCtx && svcName)
                             {
                                 audioManagerObj = env->CallObjectMethod(appCtx, getSysSvc, svcName);
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); audioManagerObj = nullptr; }
                             }
                             if (svcName) env->DeleteLocalRef(svcName);
                             if (appCtx) env->DeleteLocalRef(appCtx);
@@ -11178,30 +11192,36 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     if (audioManagerObj)
                     {
                         audioManagerClass = env->FindClass("android/media/AudioManager");
+                        if (env->ExceptionCheck()) { env->ExceptionClear(); audioManagerClass = nullptr; }
                         if (audioManagerClass)
                         {
                             // Apply vendor DAP AudioManager parameter hint if present (e.g., hifi_dac=on, hiby_direct=on)
                             if (wantDapHiRes && dapDetection.profile.audioManagerParams != nullptr && dapDetection.profile.audioManagerParams[0] != '\0')
                             {
                                 jmethodID setParamsMethod = env->GetMethodID(audioManagerClass, "setParameters", "(Ljava/lang/String;)V");
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); setParamsMethod = nullptr; }
                                 if (setParamsMethod)
                                 {
                                     jstring paramStr = env->NewStringUTF(dapDetection.profile.audioManagerParams);
                                     if (paramStr)
                                     {
                                         env->CallVoidMethod(audioManagerObj, setParamsMethod, paramStr);
+                                        if (env->ExceptionCheck()) env->ExceptionClear();
                                         env->DeleteLocalRef(paramStr);
                                     }
                                 }
-                                if (env->ExceptionCheck()) env->ExceptionClear();
                             }
 
                             jmethodID getDevicesMethod = env->GetMethodID(audioManagerClass, "getDevices", "(I)[Landroid/media/AudioDeviceInfo;");
-                            jclass devInfoClass = env->FindClass("android/media/AudioDeviceInfo");
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); getDevicesMethod = nullptr; }
+                            jclass devInfoClass = getDevicesMethod ? env->FindClass("android/media/AudioDeviceInfo") : nullptr;
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); devInfoClass = nullptr; }
                             jmethodID getTypeMethod = devInfoClass ? env->GetMethodID(devInfoClass, "getType", "()I") : nullptr;
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); getTypeMethod = nullptr; }
                             if (getDevicesMethod && devInfoClass && getTypeMethod)
                             {
                                 jobjectArray devArr = (jobjectArray)env->CallObjectMethod(audioManagerObj, getDevicesMethod, 2 /* GET_DEVICES_OUTPUTS */);
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); devArr = nullptr; }
                                 if (devArr)
                                 {
                                     jsize len = env->GetArrayLength(devArr);
@@ -11211,6 +11231,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                         jobject d = env->GetObjectArrayElement(devArr, i);
                                         if (!d) continue;
                                         int t = env->CallIntMethod(d, getTypeMethod);
+                                        if (env->ExceptionCheck())
+                                        {
+                                            env->ExceptionClear();
+                                            env->DeleteLocalRef(d);
+                                            continue;
+                                        }
                                         int prio = 0;
                                         if (t == 3 || t == 4) prio = 5;        // TYPE_WIRED_HEADSET / TYPE_WIRED_HEADPHONES
                                         else if (t == 5 || t == 19) prio = 4;  // TYPE_LINE_ANALOG / TYPE_AUX_LINE
@@ -11301,44 +11327,86 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         audioManagerClass,
                         "getSupportedMixerAttributes",
                         "(Landroid/media/AudioDeviceInfo;)Ljava/util/List;");
-                    jmethodID setPrefMixerMethod = env->GetMethodID(
-                        audioManagerClass,
-                        "setPreferredMixerAttributes",
-                        "(Landroid/media/AudioAttributes;Landroid/media/AudioDeviceInfo;Landroid/media/AudioMixerAttributes;)Z");
                     if (env->ExceptionCheck())
                     {
                         env->ExceptionClear();
                         getSuppMixerMethod = nullptr;
-                        setPrefMixerMethod = nullptr;
+                    }
+                    jmethodID setPrefMixerMethod = nullptr;
+                    if (getSuppMixerMethod)
+                    {
+                        setPrefMixerMethod = env->GetMethodID(
+                            audioManagerClass,
+                            "setPreferredMixerAttributes",
+                            "(Landroid/media/AudioAttributes;Landroid/media/AudioDeviceInfo;Landroid/media/AudioMixerAttributes;)Z");
+                        if (env->ExceptionCheck())
+                        {
+                            env->ExceptionClear();
+                            setPrefMixerMethod = nullptr;
+                        }
                     }
                     if (getSuppMixerMethod && setPrefMixerMethod)
                     {
                         jobject listObj = env->CallObjectMethod(audioManagerObj, getSuppMixerMethod, preferredDeviceObj);
-                        if (listObj && !env->ExceptionCheck())
+                        if (env->ExceptionCheck())
+                        {
+                            env->ExceptionClear();
+                            if (listObj) { env->DeleteLocalRef(listObj); listObj = nullptr; }
+                        }
+                        if (listObj)
                         {
                             jclass listClass = env->FindClass("java/util/List");
-                            jclass mixerAttrClass = env->FindClass("android/media/AudioMixerAttributes");
-                            jclass audioFmtClass = env->FindClass("android/media/AudioFormat");
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); listClass = nullptr; }
+                            jclass mixerAttrClass = listClass ? env->FindClass("android/media/AudioMixerAttributes") : nullptr;
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); mixerAttrClass = nullptr; }
+                            jclass audioFmtClass = mixerAttrClass ? env->FindClass("android/media/AudioFormat") : nullptr;
+                            if (env->ExceptionCheck()) { env->ExceptionClear(); audioFmtClass = nullptr; }
                             if (listClass && mixerAttrClass && audioFmtClass)
                             {
                                 jmethodID listSize = env->GetMethodID(listClass, "size", "()I");
-                                jmethodID listGet = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
-                                jmethodID getBehavior = env->GetMethodID(mixerAttrClass, "getMixerBehavior", "()I");
-                                jmethodID getFormat = env->GetMethodID(mixerAttrClass, "getFormat", "()Landroid/media/AudioFormat;");
-                                jmethodID getRate = env->GetMethodID(audioFmtClass, "getSampleRate", "()I");
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); listSize = nullptr; }
+                                jmethodID listGet = listSize ? env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;") : nullptr;
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); listGet = nullptr; }
+                                jmethodID getBehavior = listGet ? env->GetMethodID(mixerAttrClass, "getMixerBehavior", "()I") : nullptr;
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); getBehavior = nullptr; }
+                                jmethodID getFormat = getBehavior ? env->GetMethodID(mixerAttrClass, "getFormat", "()Landroid/media/AudioFormat;") : nullptr;
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); getFormat = nullptr; }
+                                jmethodID getRate = getFormat ? env->GetMethodID(audioFmtClass, "getSampleRate", "()I") : nullptr;
+                                if (env->ExceptionCheck()) { env->ExceptionClear(); getRate = nullptr; }
                                 if (listSize && listGet && getBehavior && getFormat && getRate)
                                 {
                                     jint n = env->CallIntMethod(listObj, listSize);
+                                    if (env->ExceptionCheck()) { env->ExceptionClear(); n = 0; }
                                     jobject chosenMixerAttr = nullptr;
                                     for (jint idx = 0; idx < n; ++idx)
                                     {
                                         jobject item = env->CallObjectMethod(listObj, listGet, idx);
+                                        if (env->ExceptionCheck())
+                                        {
+                                            env->ExceptionClear();
+                                            if (item) env->DeleteLocalRef(item);
+                                            continue;
+                                        }
                                         if (!item) continue;
                                         int behavior = env->CallIntMethod(item, getBehavior);
+                                        if (env->ExceptionCheck())
+                                        {
+                                            env->ExceptionClear();
+                                            env->DeleteLocalRef(item);
+                                            continue;
+                                        }
                                         if (behavior == 1 /* MIXER_BEHAVIOR_BIT_PERFECT */)
                                         {
                                             jobject mFmt = env->CallObjectMethod(item, getFormat);
+                                            if (env->ExceptionCheck())
+                                            {
+                                                env->ExceptionClear();
+                                                if (mFmt) env->DeleteLocalRef(mFmt);
+                                                env->DeleteLocalRef(item);
+                                                continue;
+                                            }
                                             int mRate = mFmt ? env->CallIntMethod(mFmt, getRate) : 0;
+                                            if (env->ExceptionCheck()) { env->ExceptionClear(); mRate = 0; }
                                             if (mFmt) env->DeleteLocalRef(mFmt);
                                             if (mRate == sampleRate || chosenMixerAttr == nullptr)
                                             {
@@ -11354,7 +11422,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                     {
                                         jboolean applied = env->CallBooleanMethod(
                                             audioManagerObj, setPrefMixerMethod, attrObj, preferredDeviceObj, chosenMixerAttr);
-                                        if (!env->ExceptionCheck() && applied == JNI_TRUE)
+                                        if (env->ExceptionCheck())
+                                        {
+                                            env->ExceptionClear();
+                                            applied = JNI_FALSE;
+                                        }
+                                        if (applied == JNI_TRUE)
                                         {
                                             this->bitPerfectMixerActive = true;
                                             engine_log("DAP Hi-Res: Android 14+ MIXER_BEHAVIOR_BIT_PERFECT enabled @ %d Hz", sampleRate);
