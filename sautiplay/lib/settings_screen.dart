@@ -9,7 +9,6 @@ import 'package:sautiflow/sautiflow.dart';
 import 'database/preferences_store.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart'
     hide M3EHapticFeedback;
 import 'package:m3e_seekbar/m3e_seekbar.dart';
@@ -937,36 +936,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return AppSettingsTile(
       title: title,
       subtitle: subtitle,
-      leading: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: accentColor.withAlpha(25),
-          shape: BoxShape.circle,
-        ),
-        child: Center(
-          child: Icon(icon, color: accentColor, size: 20),
-        ),
-      ),
+      leading: _buildLeadingIcon(icon, accentColor, 38, 20),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (alertBadge != null) ...[
-            Container(
+            AppStatusBadge(
+              text: alertBadge,
+              color: Colors.greenAccent,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.greenAccent.withAlpha(30),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.greenAccent.withAlpha(120)),
-              ),
-              child: Text(
-                alertBadge,
-                style: const TextStyle(
-                  color: Colors.greenAccent,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
             ),
             const SizedBox(width: 6),
           ],
@@ -993,18 +971,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return AppCardContainer(children: children);
   }
 
-  Widget _buildLeadingIcon(IconData icon, [Color? color]) {
+  Widget _buildLeadingIcon(
+    IconData icon, [
+    Color? color,
+    double size = 36,
+    double iconSize = 18,
+  ]) {
     final c = color ?? _primary;
     return Container(
-      width: 36,
-      height: 36,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: c.withValues(alpha: 0.15),
         shape: BoxShape.circle,
       ),
       child: Center(
-        child: Icon(icon, color: c, size: 18),
+        child: Icon(icon, color: c, size: iconSize),
       ),
+    );
+  }
+
+  /// Standardized header row for custom card sections (sliders, chips, etc.)
+  /// matching [AppSettingsTile] typography and leading-icon alignment.
+  Widget _buildSectionTileHeader({
+    required IconData icon,
+    Color? iconColor,
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _buildLeadingIcon(icon, iconColor),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: _textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: _textDark,
+                    fontSize: 12.5,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (trailing != null) ...[
+          const SizedBox(width: 10),
+          trailing,
+        ],
+      ],
     );
   }
 
@@ -1029,161 +1063,122 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return StatefulBuilder(
       builder: (context, setSubState) {
         final appTheme = AppThemeProvider.of(context);
-        final cardColor = appTheme.cardDark;
         final accent = appTheme.primary;
-        final mutedText = appTheme.textDark;
         final isDarkTheme = appTheme.bgDark.computeLuminance() < 0.15;
-        final textPrimaryColor =
-            isDarkTheme ? Colors.white : const Color(0xFF1A1A2E);
 
         return _buildSubScreenLayout(
           title: 'Appearance',
           children: [
             // ── THEME SECTION ─────────────────────────────────────────────
             _buildSectionHeader('APP THEME'),
-            const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: cardColor,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: context.outlineColor),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: accent.withAlpha(25),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(Icons.palette_outlined,
-                              color: accent, size: 20),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Color Theme',
-                                style: TextStyle(
-                                    color: textPrimaryColor,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Personalize colors and accent styling',
-                                style:
-                                    TextStyle(color: mutedText, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                  child: _buildSectionTileHeader(
+                    icon: Icons.palette_outlined,
+                    iconColor: accent,
+                    title: 'Color Theme',
+                    subtitle: 'Personalize colors and accent styling',
                   ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 130,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: AppThemeService.themes.length,
-                      itemBuilder: (context, index) {
-                        final theme = AppThemeService.themes[index];
-                        final isActive = _activeThemeId == theme.id;
-                        final isItemDark =
-                            theme.bgDark.computeLuminance() < 0.15;
-                        return GestureDetector(
-                          onTap: () {
-                            AppThemeService.instance.saveTheme(theme.id);
-                            setState(() {});
-                            setSubState(() {});
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 220),
-                            curve: Curves.easeOutCubic,
-                            width: 80,
-                            margin:
-                                const EdgeInsets.only(right: 12, bottom: 16),
-                            decoration: BoxDecoration(
-                              color: theme.bgDark,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: isActive
-                                    ? theme.primary
-                                    : (isItemDark
-                                        ? Colors.white.withAlpha(18)
-                                        : Colors.black.withAlpha(18)),
-                                width: isActive ? 2.5 : 1.5,
-                              ),
-                              boxShadow: isActive
-                                  ? [
-                                      BoxShadow(
-                                        color: theme.primary.withAlpha(80),
-                                        blurRadius: 12,
-                                        spreadRadius: 1,
-                                      )
-                                    ]
-                                  : null,
+                ),
+                SizedBox(
+                  height: 126,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                    itemCount: AppThemeService.themes.length,
+                    itemBuilder: (context, index) {
+                      final theme = AppThemeService.themes[index];
+                      final isActive = _activeThemeId == theme.id;
+                      final isItemDark =
+                          theme.bgDark.computeLuminance() < 0.15;
+                      return GestureDetector(
+                        onTap: () {
+                          AppThemeService.instance.saveTheme(theme.id);
+                          setState(() {});
+                          setSubState(() {});
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          width: 80,
+                          margin: const EdgeInsets.only(right: 10),
+                          decoration: BoxDecoration(
+                            color: theme.bgDark,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isActive
+                                  ? theme.primary
+                                  : (isItemDark
+                                      ? Colors.white.withAlpha(18)
+                                      : Colors.black.withAlpha(18)),
+                              width: isActive ? 2.0 : 1.0,
                             ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                // accent dot
-                                Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    Container(
-                                      width: 40,
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        color: theme.cardDark,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: theme.primary.withAlpha(80),
-                                          width: 1.5,
-                                        ),
+                            boxShadow: isActive
+                                ? [
+                                    BoxShadow(
+                                      color: theme.primary.withAlpha(65),
+                                      blurRadius: 10,
+                                      spreadRadius: 0.5,
+                                    )
+                                  ]
+                                : null,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: theme.cardDark,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: theme.primary.withAlpha(80),
+                                        width: 1.5,
                                       ),
-                                      child: Center(
-                                        child: Icon(
-                                          theme.icon,
+                                    ),
+                                    child: Center(
+                                      child: Icon(
+                                        theme.icon,
+                                        color: theme.primary,
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isActive)
+                                    Positioned(
+                                      right: 0,
+                                      top: 0,
+                                      child: Container(
+                                        width: 16,
+                                        height: 16,
+                                        decoration: BoxDecoration(
                                           color: theme.primary,
-                                          size: 20,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                              color: theme.bgDark,
+                                              width: 1.5),
+                                        ),
+                                        child: const Icon(
+                                          Icons.check,
+                                          color: Colors.white,
+                                          size: 10,
                                         ),
                                       ),
                                     ),
-                                    if (isActive)
-                                      Positioned(
-                                        right: 0,
-                                        top: 0,
-                                        child: Container(
-                                          width: 16,
-                                          height: 16,
-                                          decoration: BoxDecoration(
-                                            color: theme.primary,
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
-                                                color: theme.bgDark,
-                                                width: 1.5),
-                                          ),
-                                          child: const Icon(
-                                            Icons.check,
-                                            color: Colors.white,
-                                            size: 10,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: Text(
                                   theme.displayName,
                                   style: TextStyle(
                                     color: isActive
@@ -1194,24 +1189,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     fontSize: 11,
                                     fontWeight: isActive
                                         ? FontWeight.w700
-                                        : FontWeight.w400,
+                                        : FontWeight.w500,
                                   ),
                                   textAlign: TextAlign.center,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
             const SizedBox(height: 20),
-            // ── TYPOGRAPHY & MATERIAL 3 EXPRESSIVE FONTS ────────────────────
             // ── TYPOGRAPHY & FONTS ──────────────────────────────────────────
             _buildSectionHeader('TYPOGRAPHY & FONTS'),
             const SizedBox(height: 8),
@@ -1228,42 +1222,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     AppThemeService.instance.saveUseM3ETypography(val);
                   },
                 ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: M3EDivider(),
-                ),
+                const M3EDivider(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          _buildLeadingIcon(Icons.font_download_outlined),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Text(
-                              'Font Family',
-                              style: TextStyle(
-                                color: textPrimaryColor,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(
-                            _fontFamily == 'System'
-                                ? 'System Default'
-                                : _fontFamily,
-                            style: TextStyle(
-                              color: accent,
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
+                      _buildSectionTileHeader(
+                        icon: Icons.font_download_outlined,
+                        title: 'Font Family',
+                        trailing: AppStatusBadge(
+                          text: _fontFamily == 'System'
+                              ? 'System Default'
+                              : _fontFamily,
+                          color: accent,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       SingleChildScrollView(
@@ -1314,10 +1287,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 if (_useM3EAlbumArtShape) ...[
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16.0),
-                    child: M3EDivider(),
-                  ),
+                  const M3EDivider(),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                     child: AlbumArtShapeSelector(
@@ -1341,10 +1311,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Waveform Seek Bar',
                   subtitle:
                       'Display interactive audio waveforms instead of a flat progress line',
-                  secondary: Center(
-                    child: Icon(Icons.graphic_eq_rounded,
-                        color: _primary, size: 20),
-                  ),
+                  secondary: _buildLeadingIcon(Icons.graphic_eq_rounded),
                   value: _useWaveformSeekBar,
                   onChanged: (val) {
                     setState(() => _useWaveformSeekBar = val);
@@ -1352,53 +1319,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     AppStateService.instance.saveUseWaveformSeekBar(val);
                   },
                 ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: M3EDivider(),
-                ),
+                const M3EDivider(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Center(
-                            child: Icon(
-                              _useWavySlider
-                                  ? Icons.waves_rounded
-                                  : Icons.linear_scale_rounded,
-                              color: _primary,
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Slider & Mini Player Animation',
-                                  style: TextStyle(
-                                    color: textPrimaryColor,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _useWavySlider
-                                      ? 'Travelling sine-wave animation'
-                                      : 'Classic straight progress line',
-                                  style: TextStyle(
-                                    color: mutedText,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      _buildSectionTileHeader(
+                        icon: _useWavySlider
+                            ? Icons.waves_rounded
+                            : Icons.linear_scale_rounded,
+                        title: 'Slider & Mini Player Animation',
+                        subtitle: _useWavySlider
+                            ? 'Travelling sine-wave animation'
+                            : 'Classic straight progress line',
                       ),
                       const SizedBox(height: 14),
                       // Live interactive preview of the selected M3E Slider & Mini Player Progress
@@ -1409,7 +1343,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           color: isDarkTheme
                               ? Colors.black.withAlpha(50)
                               : Colors.black.withAlpha(10),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: context.outlineColor.withAlpha(40),
                           ),
@@ -1474,14 +1408,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       value: (_previewSliderValue / 100.0)
                                           .clamp(0.0, 1.0),
                                       linearSize: M3EProgressIndicatorSize.s,
-                                      trackColor: Colors.white.withAlpha(20),
+                                      trackColor:
+                                          _primary.withValues(alpha: 0.2),
                                       color: _primary,
                                     )
                                   : M3EProgressIndicator.linear(
                                       value: (_previewSliderValue / 100.0)
                                           .clamp(0.0, 1.0),
                                       linearSize: M3EProgressIndicatorSize.s,
-                                      trackColor: Colors.white.withAlpha(20),
+                                      trackColor:
+                                          _primary.withValues(alpha: 0.2),
                                       color: _primary,
                                     ),
                             ),
@@ -1527,12 +1463,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
-                AppSettingsTile(
+                AppSettingsValueTile(
                   title: context.strings.language,
-                  subtitle: _getLanguageSubtitle(),
+                  subtitle: 'App interface language',
+                  value: _getLanguageSubtitle(),
                   leading: _buildLeadingIcon(Icons.language_rounded),
-                  trailing: Icon(Icons.arrow_forward_ios_rounded,
-                      size: 14, color: _textDark),
                   onTap: () =>
                       _showLanguageDialog(onDone: () => setSubState(() {})),
                 ),
@@ -1548,7 +1483,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle:
                       'Restart the guided walkthrough of SautiPlay features',
                   leading: _buildLeadingIcon(Icons.tour_rounded),
-                  trailing: Icon(Icons.play_arrow_rounded, color: _primary),
+                  trailing: Icon(Icons.chevron_right_rounded,
+                      color: _textDark, size: 20),
                   onTap: () {
                     Navigator.of(context).pop();
                     widget.onTriggerShowcase?.call();
@@ -1569,7 +1505,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Audio Engine',
           children: [
-            const SizedBox(height: 20),
             _buildSectionHeader('RESAMPLING & DITHERING'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -2530,24 +2465,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       },
                     ),
                     const M3EDivider(),
-                    ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 6),
-                      leading: _buildLeadingIcon(
-                        Icons.tune_rounded,
-                        _primary,
-                      ),
-                      title: const Text('DAP Hardware Profile'),
-                      subtitle: Text(
-                        statusBadges.isNotEmpty
-                            ? '${currentProfile.label}\n${statusBadges.join(' • ')}'
-                            : currentProfile.label,
-                        style: TextStyle(
-                          color: _textDark,
-                          fontSize: 12,
-                        ),
-                      ),
-                      trailing: const Icon(Icons.chevron_right_rounded),
+                    AppSettingsTile(
+                      title: 'DAP Hardware Profile',
+                      subtitle: statusBadges.isNotEmpty
+                          ? '${currentProfile.label}\n${statusBadges.join(' • ')}'
+                          : currentProfile.label,
+                      leading: _buildLeadingIcon(Icons.tune_rounded),
+                      trailing: Icon(Icons.chevron_right_rounded,
+                          color: _textDark, size: 20),
                       onTap: () => _showDapProfileDialog(context, setSubState),
                     ),
                   ],
@@ -2603,26 +2528,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const M3EDivider(),
                   Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
+                        horizontal: 16, vertical: 12),
                     child: Row(
                       children: [
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Peak Ceiling',
-                                  style: TextStyle(
-                                      color: _textPrimary,
-                                      fontWeight: FontWeight.w500)),
-                              const SizedBox(height: 2),
-                              Text(
+                          child: _buildSectionTileHeader(
+                            icon: Icons.vertical_align_top_rounded,
+                            title: 'Peak Ceiling',
+                            subtitle:
                                 'Max: ${(_limiterThreshold * 100).toInt()}% (${(20 * math.log(_limiterThreshold) / math.ln10).toStringAsFixed(2)} dBFS)',
-                                style:
-                                    TextStyle(color: _textDark, fontSize: 12),
-                              ),
-                            ],
                           ),
                         ),
+                        const SizedBox(width: 12),
                         SizedBox(
                           width: 90,
                           child: ModernAudioKnob(
@@ -2645,24 +2562,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const M3EDivider(),
                   Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
+                        horizontal: 16, vertical: 12),
                     child: Row(
                       children: [
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Safety Headroom',
-                                  style: TextStyle(
-                                      color: _textPrimary,
-                                      fontWeight: FontWeight.w500)),
-                              const SizedBox(height: 2),
-                              Text('Output level attenuation buffer',
-                                  style: TextStyle(
-                                      color: _textDark, fontSize: 12)),
-                            ],
+                          child: _buildSectionTileHeader(
+                            icon: Icons.shield_outlined,
+                            title: 'Safety Headroom',
+                            subtitle: 'Output level attenuation buffer',
                           ),
                         ),
+                        const SizedBox(width: 12),
                         SizedBox(
                           width: 90,
                           child: ModernAudioKnob(
@@ -2699,50 +2609,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Equalizer',
           children: [
-            const SizedBox(height: 20),
             _buildSectionHeader('GRAPHIC EQUALIZER BANDS'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(20.0),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          _buildLeadingIcon(Icons.settings_input_composite),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('EQ Band Layout',
-                                    style: TextStyle(
-                                        color: _textPrimary,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500)),
-                                const SizedBox(height: 4),
-                                Text('Select number of graphic frequency bands',
-                                    style: TextStyle(
-                                        color: _textDark, fontSize: 13)),
-                              ],
-                            ),
-                          ),
-                        ],
+                      _buildSectionTileHeader(
+                        icon: Icons.settings_input_composite,
+                        title: 'EQ Band Layout',
+                        subtitle: 'Select number of graphic frequency bands',
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         child: M3EChipGroup(
-                          groupLabel: 'Graphic  Equalizer  Bands',
+                          groupLabel: 'Graphic Equalizer Bands',
                           child: Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: <Widget>[
                               M3EChip(
                                 type: M3EChipType.filter,
-                                selected: (_eqBandCount == 10) ? true : false,
+                                selected: _eqBandCount == 10,
                                 label: '10-Band',
                                 onPressed: () async {
                                   final count = 10;
@@ -2762,7 +2655,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               M3EChip(
                                 type: M3EChipType.filter,
                                 label: '16-Band',
-                                selected: (_eqBandCount == 16) ? true : false,
+                                selected: _eqBandCount == 16,
                                 onPressed: () async {
                                   final count = 16;
                                   setState(() => _eqBandCount = count);
@@ -2781,7 +2674,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               M3EChip(
                                 type: M3EChipType.filter,
                                 label: '32-Band',
-                                selected: (_eqBandCount == 32) ? true : false,
+                                selected: _eqBandCount == 32,
                                 onPressed: () async {
                                   final count = 32;
                                   setState(() => _eqBandCount = count);
@@ -2796,167 +2689,128 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     bandCount: count,
                                   );
                                 },
-                              )
+                              ),
                             ],
                           ),
                         ),
-                        //   ]),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             _buildSectionHeader('CHANNEL EQUALIZATION ROUTING'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(20.0),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          _buildLeadingIcon(Icons.alt_route_rounded),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Channel Routing Mode',
-                                    style: TextStyle(
-                                        color: _textPrimary,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500)),
-                                const SizedBox(height: 4),
-                                Text(
-                                    _eqChannelMode == 1
-                                        ? '2-Way Dual Channel: Calibrate Left and Right curves independently'
-                                        : 'Stereo (Whole): Both audio channels share identical EQ curves',
-                                    style: TextStyle(
-                                        color: _textDark, fontSize: 13)),
-                              ],
-                            ),
-                          ),
-                        ],
+                      _buildSectionTileHeader(
+                        icon: Icons.alt_route_rounded,
+                        title: 'Channel Routing Mode',
+                        subtitle: _eqChannelMode == 1
+                            ? '2-Way Dual Channel: Calibrate Left and Right curves independently'
+                            : 'Stereo (Whole): Both audio channels share identical EQ curves',
                       ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                          width: double.infinity,
-                          child: M3EChipGroup(
-                            groupLabel: 'Eq routing',
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: <Widget>[
-                                M3EChip(
-                                  selected:
-                                      (_eqChannelMode == 0) ? true : false,
-                                  type: M3EChipType.filter,
-                                  label: 'Stereo',
-                                  onPressed: () async {
-                                    final mode = 0;
-                                    setState(() => _eqChannelMode = mode);
-                                    setSubState(() {});
-                                    widget.player
-                                        .setMultibandEqChannelMode(mode);
-                                    final ext = await AppStateService.instance
-                                        .loadEqExtendedSettings(
-                                            bandCount: _eqBandCount);
-                                    await AppStateService.instance
-                                        .saveEqExtendedSettings(
-                                      channelMode: mode,
-                                      gainsRight: ext.gainsRight,
-                                      sliderLinkMode: ext.sliderLinkMode,
-                                      topology: ext.topology,
-                                    );
-                                  },
-                                ),
-                                M3EChip(
-                                  selected:
-                                      (_eqChannelMode == 1) ? true : false,
-                                  label: '2-way Dual L,R',
-                                  type: M3EChipType.filter,
-                                  onPressed: () async {
-                                    final mode = 1;
-                                    setState(() => _eqChannelMode = mode);
-                                    setSubState(() {});
-                                    widget.player
-                                        .setMultibandEqChannelMode(mode);
-                                    final ext = await AppStateService.instance
-                                        .loadEqExtendedSettings(
-                                            bandCount: _eqBandCount);
-                                    await AppStateService.instance
-                                        .saveEqExtendedSettings(
-                                      channelMode: mode,
-                                      gainsRight: ext.gainsRight,
-                                      sliderLinkMode: ext.sliderLinkMode,
-                                      topology: ext.topology,
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                          )),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            _buildSectionHeader('SLIDER ADJUSTMENT COUPLING'),
-            const SizedBox(height: 8),
-            _buildCardContainer(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          _buildLeadingIcon(Icons.tune_rounded),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Slider Movement Behavior',
-                                    style: TextStyle(
-                                        color: _textPrimary,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500)),
-                                const SizedBox(height: 4),
-                                Text(
-                                    _eqSliderLinkMode == 1
-                                        ? 'Loose Group: Moving one slider smoothly adjusts neighbors in a bell curve'
-                                        : (_eqSliderLinkMode == 2
-                                            ? 'Tight Group: Moving one slider moves a wider group proportionally'
-                                            : 'Single: Sliders move completely independently'),
-                                    style: TextStyle(
-                                        color: _textDark, fontSize: 13)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         child: M3EChipGroup(
-                          groupLabel: 'Filters',
+                          groupLabel: 'Channel Routing',
                           child: Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: <Widget>[
                               M3EChip(
-                                selected: _eqSliderLinkMode == 0 ? true : false,
+                                selected: _eqChannelMode == 0,
+                                type: M3EChipType.filter,
+                                label: 'Stereo',
+                                onPressed: () async {
+                                  final mode = 0;
+                                  setState(() => _eqChannelMode = mode);
+                                  setSubState(() {});
+                                  widget.player.setMultibandEqChannelMode(mode);
+                                  final ext = await AppStateService.instance
+                                      .loadEqExtendedSettings(
+                                          bandCount: _eqBandCount);
+                                  await AppStateService.instance
+                                      .saveEqExtendedSettings(
+                                    channelMode: mode,
+                                    gainsRight: ext.gainsRight,
+                                    sliderLinkMode: ext.sliderLinkMode,
+                                    topology: ext.topology,
+                                  );
+                                },
+                              ),
+                              M3EChip(
+                                selected: _eqChannelMode == 1,
+                                label: '2-way Dual L,R',
+                                type: M3EChipType.filter,
+                                onPressed: () async {
+                                  final mode = 1;
+                                  setState(() => _eqChannelMode = mode);
+                                  setSubState(() {});
+                                  widget.player.setMultibandEqChannelMode(mode);
+                                  final ext = await AppStateService.instance
+                                      .loadEqExtendedSettings(
+                                          bandCount: _eqBandCount);
+                                  await AppStateService.instance
+                                      .saveEqExtendedSettings(
+                                    channelMode: mode,
+                                    gainsRight: ext.gainsRight,
+                                    sliderLinkMode: ext.sliderLinkMode,
+                                    topology: ext.topology,
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('SLIDER ADJUSTMENT COUPLING'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionTileHeader(
+                        icon: Icons.tune_rounded,
+                        title: 'Slider Movement Behavior',
+                        subtitle: _eqSliderLinkMode == 1
+                            ? 'Loose Group: Moving one slider smoothly adjusts neighbors in a bell curve'
+                            : (_eqSliderLinkMode == 2
+                                ? 'Tight Group: Moving one slider moves a wider group proportionally'
+                                : 'Single: Sliders move completely independently'),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: M3EChipGroup(
+                          groupLabel: 'Slider Coupling',
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: <Widget>[
+                              M3EChip(
+                                selected: _eqSliderLinkMode == 0,
                                 type: M3EChipType.filter,
                                 label: 'Single',
                                 onPressed: () async {
-                                  // if (newSelection.isNotEmpty) {
                                   final mode = 0;
                                   setState(() => _eqSliderLinkMode = mode);
                                   setSubState(() {});
@@ -2973,11 +2827,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 },
                               ),
                               M3EChip(
-                                selected: _eqSliderLinkMode == 1 ? true : false,
+                                selected: _eqSliderLinkMode == 1,
                                 label: 'Loose group',
                                 type: M3EChipType.filter,
                                 onPressed: () async {
-                                  // if (newSelection.isNotEmpty) {
                                   final mode = 1;
                                   setState(() => _eqSliderLinkMode = mode);
                                   setSubState(() {});
@@ -2994,11 +2847,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 },
                               ),
                               M3EChip(
-                                selected: _eqSliderLinkMode == 2 ? true : false,
+                                selected: _eqSliderLinkMode == 2,
                                 type: M3EChipType.filter,
                                 label: 'Tight group',
                                 onPressed: () async {
-                                  // if (newSelection.isNotEmpty) {
                                   final mode = 2;
                                   setState(() => _eqSliderLinkMode = mode);
                                   setSubState(() {});
@@ -3013,7 +2865,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     topology: ext.topology,
                                   );
                                 },
-                              )
+                              ),
                             ],
                           ),
                         ),
@@ -3023,48 +2875,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             _buildSectionHeader('FILTER ARCHITECTURE'),
             const SizedBox(height: 8),
             _buildCardContainer(
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(20.0),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          _buildLeadingIcon(Icons.memory_rounded),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('DSP Topology',
-                                    style: TextStyle(
-                                        color: _textPrimary,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500)),
-                                const SizedBox(height: 4),
-                                Text(
-                                    _eqTopology == 1
-                                        ? 'Symmetric Parallel: Constant-Q bank eliminating phase delay'
-                                        : (_eqTopology == 2
-                                            ? 'Legacy Cascade: Direct series biquads for A/B comparison'
-                                            : 'Matrix Compensated: Decoupled interaction matrix (0 ripple)'),
-                                    style: TextStyle(
-                                        color: _textDark, fontSize: 13)),
-                              ],
-                            ),
-                          ),
-                        ],
+                      _buildSectionTileHeader(
+                        icon: Icons.memory_rounded,
+                        title: 'DSP Topology',
+                        subtitle: _eqTopology == 1
+                            ? 'Symmetric Parallel: Constant-Q bank eliminating phase delay'
+                            : (_eqTopology == 2
+                                ? 'Legacy Cascade: Direct series biquads for A/B comparison'
+                                : 'Matrix Compensated: Decoupled interaction matrix (0 ripple)'),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         child: M3EChipGroup(
-                          groupLabel: 'Filters',
+                          groupLabel: 'DSP Topology',
                           child: Wrap(
                             spacing: 8,
                             runSpacing: 8,
@@ -3154,7 +2989,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Visualizer',
           children: [
-            const SizedBox(height: 20),
             // ── TOP LIVE RTA & RMS LOUDNESS CARD ────────────────────────────
             _buildSectionHeader('LIVE VOLUME & PEAK METER'),
             const SizedBox(height: 8),
@@ -3163,14 +2997,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Row(
                   children: [
-                    AppShapeIcon(
+                    _buildLeadingIcon(
                       SautiIcons.rmsLevel,
-                      shape: Shapes.pill,
-                      color: widget.analyzerEnabled ? _primary : _textDark,
-                      size: 38,
-                      iconSize: 20,
+                      widget.analyzerEnabled ? _primary : _textDark,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3609,10 +3440,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     const SizedBox(height: 2),
                                     Text(
                                       isInstalled
-                                          ? '${ProjectMPresetManager.instance.curatedPresetCount} community presets installed'
+                                          ? '${ProjectMPresetManager.instance.curatedPresetCount} presets installed'
                                           : status.message.isNotEmpty
                                               ? status.message
-                                              : '400+ curated presets with textures (~30 MB)',
+                                              : '400+ presets with textures (< 2 MB)',
                                       style: TextStyle(
                                           color: _textDark, fontSize: 12),
                                     ),
@@ -3948,7 +3779,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Playback',
           children: [
-            const SizedBox(height: 20),
             _buildSectionHeader('TRANSITIONS & PLAYBACK'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -3968,34 +3798,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const M3EDivider(),
                 Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   child: Column(
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              _buildLeadingIcon(SautiIcons.crossfadeDuration),
-                              const SizedBox(width: 16),
-                              Text('Crossfade Duration',
-                                  style: TextStyle(
-                                      color: _textPrimary,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500)),
-                            ],
-                          ),
-                          M3ESwitch(
-                            value: widget.crossfadeEnabled,
-                            onChanged: (v) {
-                              widget.onCrossfadeEnabledChanged(v);
-                              widget.player.setCrossfadeEnabled(v);
-                              setSubState(() {});
-                            },
-                          ),
-                        ],
+                      _buildSectionTileHeader(
+                        icon: SautiIcons.crossfadeDuration,
+                        title: 'Crossfade Duration',
+                        trailing: M3ESwitch(
+                          value: widget.crossfadeEnabled,
+                          onChanged: (v) {
+                            widget.onCrossfadeEnabledChanged(v);
+                            widget.player.setCrossfadeEnabled(v);
+                            setSubState(() {});
+                          },
+                        ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       M3ESlider(
                         value: widget.crossfadeDurationMs / 1000.0,
                         min: 0,
@@ -4072,7 +3890,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             _buildSectionHeader('AUTO DJ & AUTOMIX (SMART MIXING)'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -4096,7 +3914,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (_automixEnabled) ...[
                   const M3EDivider(),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -4104,14 +3923,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'Transition Style',
                           style: TextStyle(
                             color: _textPrimary,
-                            fontSize: 14,
+                            fontSize: 15,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 3),
                         Text(
                           'DSP curve and frequency crossover algorithm for track blending.',
-                          style: TextStyle(color: _textDark, fontSize: 12),
+                          style: TextStyle(color: _textDark, fontSize: 12.5),
                         ),
                         const SizedBox(height: 12),
                         SingleChildScrollView(
@@ -4119,125 +3938,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           physics: const BouncingScrollPhysics(),
                           child: Row(
                             children: [
-                              ChoiceChip(
-                                label: const Text('Smart Auto (Hybrid)'),
-                                selected: _automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto',
-                                selectedColor: _primary.withValues(alpha: 0.22),
-                                side: BorderSide(
-                                  color: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? _primary : context.outlineColor,
+                              for (final entry in const [
+                                ('smart_hybrid', 'Smart Auto (Hybrid)'),
+                                ('bass_swap', 'Bass-Swap (LR4)'),
+                                ('blend', 'Beat Blend'),
+                                ('filter', 'Filter Sweep'),
+                                ('space_echo', 'Space Echo'),
+                                ('cut', 'Drop / Cut'),
+                              ])
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: M3EChip(
+                                    type: M3EChipType.filter,
+                                    label: entry.$2,
+                                    selected: _automixStyle == entry.$1 ||
+                                        (entry.$1 == 'smart_hybrid' &&
+                                            (_automixStyle == 'smart' ||
+                                                _automixStyle == 'auto')) ||
+                                        (entry.$1 == 'space_echo' &&
+                                            _automixStyle == 'echo'),
+                                    onPressed: () {
+                                      setState(() => _automixStyle = entry.$1);
+                                      setSubState(() {});
+                                      _applyAutomixConfig();
+                                    },
+                                  ),
                                 ),
-                                labelStyle: TextStyle(
-                                  color: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? _primary : _textPrimary,
-                                  fontWeight: (_automixStyle == 'smart_hybrid' || _automixStyle == 'smart' || _automixStyle == 'auto') ? FontWeight.bold : FontWeight.normal,
-                                  fontSize: 12,
-                                ),
-                                onSelected: (_) {
-                                  setState(() => _automixStyle = 'smart_hybrid');
-                                  setSubState(() {});
-                                  _applyAutomixConfig();
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                              ChoiceChip(
-                                label: const Text('Bass-Swap (LR4)'),
-                                selected: _automixStyle == 'bass_swap',
-                                selectedColor: _primary.withValues(alpha: 0.22),
-                                side: BorderSide(
-                                  color: _automixStyle == 'bass_swap' ? _primary : context.outlineColor,
-                                ),
-                                labelStyle: TextStyle(
-                                  color: _automixStyle == 'bass_swap' ? _primary : _textPrimary,
-                                  fontWeight: _automixStyle == 'bass_swap' ? FontWeight.bold : FontWeight.normal,
-                                  fontSize: 12,
-                                ),
-                                onSelected: (_) {
-                                  setState(() => _automixStyle = 'bass_swap');
-                                  setSubState(() {});
-                                  _applyAutomixConfig();
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                              ChoiceChip(
-                                label: const Text('Beat Blend'),
-                                selected: _automixStyle == 'blend',
-                                selectedColor: _primary.withValues(alpha: 0.22),
-                                side: BorderSide(
-                                  color: _automixStyle == 'blend' ? _primary : context.outlineColor,
-                                ),
-                                labelStyle: TextStyle(
-                                  color: _automixStyle == 'blend' ? _primary : _textPrimary,
-                                  fontWeight: _automixStyle == 'blend' ? FontWeight.bold : FontWeight.normal,
-                                  fontSize: 12,
-                                ),
-                                onSelected: (_) {
-                                  setState(() => _automixStyle = 'blend');
-                                  setSubState(() {});
-                                  _applyAutomixConfig();
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                              ChoiceChip(
-                                label: const Text('Filter Sweep'),
-                                selected: _automixStyle == 'filter',
-                                selectedColor: _primary.withValues(alpha: 0.22),
-                                side: BorderSide(
-                                  color: _automixStyle == 'filter' ? _primary : context.outlineColor,
-                                ),
-                                labelStyle: TextStyle(
-                                  color: _automixStyle == 'filter' ? _primary : _textPrimary,
-                                  fontWeight: _automixStyle == 'filter' ? FontWeight.bold : FontWeight.normal,
-                                  fontSize: 12,
-                                ),
-                                onSelected: (_) {
-                                  setState(() => _automixStyle = 'filter');
-                                  setSubState(() {});
-                                  _applyAutomixConfig();
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                              ChoiceChip(
-                                label: const Text('Space Echo'),
-                                selected: _automixStyle == 'space_echo' || _automixStyle == 'echo',
-                                selectedColor: _primary.withValues(alpha: 0.22),
-                                side: BorderSide(
-                                  color: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
-                                      ? _primary
-                                      : context.outlineColor,
-                                ),
-                                labelStyle: TextStyle(
-                                  color: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
-                                      ? _primary
-                                      : _textPrimary,
-                                  fontWeight: (_automixStyle == 'space_echo' || _automixStyle == 'echo')
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                  fontSize: 12,
-                                ),
-                                onSelected: (_) {
-                                  setState(() => _automixStyle = 'space_echo');
-                                  setSubState(() {});
-                                  _applyAutomixConfig();
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                              ChoiceChip(
-                                label: const Text('Drop / Cut'),
-                                selected: _automixStyle == 'cut',
-                                selectedColor: _primary.withValues(alpha: 0.22),
-                                side: BorderSide(
-                                  color: _automixStyle == 'cut' ? _primary : context.outlineColor,
-                                ),
-                                labelStyle: TextStyle(
-                                  color: _automixStyle == 'cut' ? _primary : _textPrimary,
-                                  fontWeight: _automixStyle == 'cut' ? FontWeight.bold : FontWeight.normal,
-                                  fontSize: 12,
-                                ),
-                                onSelected: (_) {
-                                  setState(() => _automixStyle = 'cut');
-                                  setSubState(() {});
-                                  _applyAutomixConfig();
-                                },
-                              ),
                             ],
                           ),
                         ),
@@ -4518,7 +4244,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Audio Focus',
           children: [
-            const SizedBox(height: 20),
             _buildSectionHeader('FOCUS & INTERRUPTIONS'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -4539,35 +4264,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const M3EDivider(),
                   Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
+                        horizontal: 16, vertical: 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                _buildLeadingIcon(Icons.tune_rounded),
-                                const SizedBox(width: 16),
-                                Text('Ducking Volume Level',
-                                    style: TextStyle(
-                                        color: _textPrimary,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500)),
-                              ],
-                            ),
-                            Text(
-                              '${(_audioFocusSettings.duckGain * 100).round()}%',
-                              style: TextStyle(
-                                color: _primary,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+                        _buildSectionTileHeader(
+                          icon: Icons.tune_rounded,
+                          title: 'Ducking Volume Level',
+                          trailing: AppStatusBadge(
+                            text: '${(_audioFocusSettings.duckGain * 100).round()}%',
+                            color: _primary,
+                          ),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         M3ESlider(
                           value: _audioFocusSettings.duckGain,
                           min: 0.05,
@@ -4624,108 +4333,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const M3EDivider(),
                 Padding(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          _buildLeadingIcon(Icons.motion_photos_paused_rounded),
-                          const SizedBox(width: 16),
-                          Text('Permanent Focus Loss Action',
-                              style: TextStyle(
-                                  color: _textPrimary,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500)),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'When another audio app starts playing (e.g. YouTube, Spotify):',
-                        style: TextStyle(color: _textDark, fontSize: 13),
+                      _buildSectionTileHeader(
+                        icon: Icons.motion_photos_paused_rounded,
+                        title: 'Permanent Focus Loss Action',
+                        subtitle:
+                            'When another audio app starts playing (e.g. YouTube, Spotify)',
                       ),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: _audioFocusSettings
-                                            .permanentFocusLossAction ==
-                                        'pause'
-                                    ? _primary.withValues(alpha: 0.2)
-                                    : Colors.transparent,
-                                side: BorderSide(
-                                  color: _audioFocusSettings
-                                              .permanentFocusLossAction ==
-                                          'pause'
-                                      ? _primary
-                                      : _textDark.withValues(alpha: 0.3),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: () {
-                                updateSettings(_audioFocusSettings.copyWith(
-                                    permanentFocusLossAction: 'pause'));
-                              },
-                              child: Text(
-                                'Pause',
-                                style: TextStyle(
-                                  color: _audioFocusSettings
-                                              .permanentFocusLossAction ==
-                                          'pause'
-                                      ? _primary
-                                      : _textPrimary,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: M3ESegmentedButton<String>(
+                          segments: const [
+                            M3ESegment<String>(
+                              value: 'pause',
+                              label: 'Pause',
+                              icon: Icon(Icons.pause_rounded, size: 18),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton(
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: _audioFocusSettings
-                                            .permanentFocusLossAction ==
-                                        'stop'
-                                    ? _primary.withValues(alpha: 0.2)
-                                    : Colors.transparent,
-                                side: BorderSide(
-                                  color: _audioFocusSettings
-                                              .permanentFocusLossAction ==
-                                          'stop'
-                                      ? _primary
-                                      : _textDark.withValues(alpha: 0.3),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10)),
-                              ),
-                              onPressed: () {
-                                updateSettings(_audioFocusSettings.copyWith(
-                                    permanentFocusLossAction: 'stop'));
-                              },
-                              child: Text(
-                                'Stop',
-                                style: TextStyle(
-                                  color: _audioFocusSettings
-                                              .permanentFocusLossAction ==
-                                          'stop'
-                                      ? _primary
-                                      : _textPrimary,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                            M3ESegment<String>(
+                              value: 'stop',
+                              label: 'Stop',
+                              icon: Icon(Icons.stop_rounded, size: 18),
                             ),
-                          ),
-                        ],
+                          ],
+                          selected: {
+                            _audioFocusSettings.permanentFocusLossAction
+                          },
+                          onSelectionChanged: (newSelection) {
+                            if (newSelection.isNotEmpty) {
+                              updateSettings(_audioFocusSettings.copyWith(
+                                  permanentFocusLossAction:
+                                      newSelection.first));
+                            }
+                          },
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             _buildSectionHeader('STARTUP & CONNECTION'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -4815,10 +4466,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _buildGestureRow('1 Click', 'Play / Pause toggle'),
                         const SizedBox(height: 6),
                         _buildGestureRow(
-                            '2 double click)', 'Next song in current playlist'),
+                            '2 Clicks', 'Next song in current playlist'),
                         const SizedBox(height: 6),
-                        _buildGestureRow('3 triple click)',
-                            'Previous song in current playlist'),
+                        _buildGestureRow(
+                            '3 Clicks', 'Previous song in current playlist'),
                       ],
                     ),
                   ),
@@ -4827,40 +4478,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const M3EDivider(),
                   Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
+                        horizontal: 16, vertical: 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                _buildLeadingIcon(Icons.speed_rounded),
-                                const SizedBox(width: 16),
-                                Text('Multi-Press Speed',
-                                    style: TextStyle(
-                                        color: _textPrimary,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500)),
-                              ],
-                            ),
-                            Text(
-                              '${_audioFocusSettings.headsetClickTimeoutMs}ms',
-                              style: TextStyle(
-                                color: _primary,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+                        _buildSectionTileHeader(
+                          icon: Icons.speed_rounded,
+                          title: 'Multi-Press Speed',
+                          subtitle:
+                              'Time window to wait for consecutive clicks (lower = faster response, higher = easier multi-click)',
+                          trailing: AppStatusBadge(
+                            text: '${_audioFocusSettings.headsetClickTimeoutMs}ms',
+                            color: _primary,
+                          ),
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Time window to wait for consecutive clicks (lower = faster response, higher = easier multi-click)',
-                          style: TextStyle(color: _textDark, fontSize: 13),
-                        ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         M3ESlider(
                           value: _audioFocusSettings.headsetClickTimeoutMs
                               .toDouble(),
@@ -5066,7 +4698,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'Streaming & Storage',
           children: [
-            const SizedBox(height: 20),
             // ── AUDIO STREAMING QUALITY ──────────────────────────────────────
             _buildSectionHeader('STREAMING QUALITY'),
             const SizedBox(height: 8),
@@ -5233,40 +4864,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: TextStyle(
                           color: isSelected ? _primary : _textPrimary,
                           fontWeight:
-                              isSelected ? FontWeight.bold : FontWeight.w500,
+                              isSelected ? FontWeight.w700 : FontWeight.w600,
                           fontSize: 15,
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Container(
+                      AppStatusBadge(
+                        text: badge,
+                        color: isSelected ? _primary : _textDark,
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? _primary.withValues(alpha: 0.15)
-                              : _cardDark,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: isSelected
-                                ? _primary.withValues(alpha: 0.3)
-                                : Colors.white10,
-                          ),
-                        ),
-                        child: Text(
-                          badge,
-                          style: TextStyle(
-                            color: isSelected ? _primary : _textDark,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                            horizontal: 7, vertical: 2),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    style: TextStyle(color: _textDark, fontSize: 12),
+                    style: TextStyle(
+                      color: _textDark,
+                      fontSize: 12.5,
+                      height: 1.25,
+                    ),
                   ),
                 ],
               ),
@@ -5516,7 +5134,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _buildSubScreenLayout(
           title: 'About & Diagnostics',
           children: [
-            const SizedBox(height: 20),
             _buildSectionHeader('ABOUT & SYSTEM LICENSES'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -5571,23 +5188,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       subtitle = isDownloaded
                           ? 'Downloaded ${release?.tagName ?? ""}. Ready to install!'
                           : 'New version ${release?.tagName ?? ""} available!';
-                      trailing = Container(
+                      trailing = AppStatusBadge(
+                        text: 'UPDATE',
+                        color: Colors.greenAccent,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: Colors.greenAccent.withValues(alpha: 0.5)),
-                        ),
-                        child: const Text(
-                          'UPDATE',
-                          style: TextStyle(
-                            color: Colors.greenAccent,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
                       );
                     } else if (updateService.stage == UpdateStage.error) {
                       subtitle = 'Update check failed. Tap to retry.';
@@ -5666,8 +5271,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Open Source Licenses',
                   subtitle: 'Third-party libraries & acknowledgments',
                   leading: _buildLeadingIcon(Icons.policy_outlined),
-                  trailing:
-                      Icon(Icons.chevron_right, color: _textDark, size: 20),
+                  trailing: Icon(Icons.chevron_right_rounded,
+                      color: _textDark, size: 20),
                   onTap: () {
                     showLicensePage(
                       context: context,
@@ -5684,22 +5289,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
+                      AppStatusBadge(
+                        text: _appVersion,
+                        color: _primary,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _primary.withAlpha(25),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: _primary.withAlpha(60)),
-                        ),
-                        child: Text(
-                          _appVersion,
-                          style: TextStyle(
-                            color: _primary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                       ),
                       const SizedBox(width: 6),
                       Icon(Icons.chevron_right_rounded,
@@ -5747,23 +5341,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
+                      AppStatusBadge(
+                        text: 'FAQ',
+                        color: _primary,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _primary.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: _primary.withValues(alpha: 0.4)),
-                        ),
-                        child: Text(
-                          'FAQ',
-                          style: TextStyle(
-                            color: _primary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
                       ),
                       const SizedBox(width: 6),
                       Icon(Icons.chevron_right_rounded,
@@ -5794,8 +5376,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Poll Native Audio Errors',
                   subtitle: 'Check low-level engine status',
                   leading: _buildLeadingIcon(Icons.refresh),
-                  trailing:
-                      Icon(Icons.chevron_right, color: _textDark, size: 20),
+                  trailing: Icon(Icons.chevron_right_rounded,
+                      color: _textDark, size: 20),
                   onTap: widget.onPollError,
                 ),
                 const M3EDivider(),
@@ -5803,8 +5385,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: 'Clear Native Errors',
                   subtitle: 'Reset engine error flags',
                   leading: _buildLeadingIcon(Icons.cleaning_services_outlined),
-                  trailing:
-                      Icon(Icons.chevron_right, color: _textDark, size: 20),
+                  trailing: Icon(Icons.chevron_right_rounded,
+                      color: _textDark, size: 20),
                   onTap: widget.onClearNativeError,
                 ),
               ],
@@ -6254,97 +5836,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showLanguageDialog({VoidCallback? onDone}) {
-    final languages = [
-      {
-        'lang': AppLanguage.system,
-        'title': context.strings.systemDefault,
-        'subtitle': 'Follow device operating system language',
-        'badge': 'AUTO',
-      },
-      {
-        'lang': AppLanguage.english,
-        'title': 'English',
-        'subtitle': 'English (US / UK / Global)',
-        'badge': 'EN',
-      },
-      {
-        'lang': AppLanguage.swahili,
-        'title': 'Kiswahili',
-        'subtitle': 'Lugha ya Kiswahili (Afrika Mashariki)',
-        'badge': 'SW',
-      },
-      {
-        'lang': AppLanguage.amharic,
-        'title': 'አማርኛ',
-        'subtitle': 'የአማርኛ ቋንቋ (ኢትዮጵያ / Ethiopia)',
-        'badge': 'AM',
-      },
-    ];
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: context.strings.selectLanguage,
-          subtitle: 'English • Kiswahili • አማርኛ',
-          height: MediaQuery.of(context).size.height * 0.55,
-          child: M3EList.scrollable(
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: languages.length,
-            onTap: (i) async {
-              final selectedLang = languages[i]['lang'] as AppLanguage;
-              await AppLocaleService.instance.setLocale(selectedLang.locale);
-              if (mounted) {
-                setState(() {});
-              }
-              onDone?.call();
-              if (ctx.mounted) {
-                Navigator.pop(ctx);
-              }
-            },
-            itemBuilder: (context, i) {
-              final item = languages[i];
-              final lang = item['lang'] as AppLanguage;
-              final isSelected =
-                  lang == AppLocaleService.instance.currentLanguage;
-              return M3EListItem(
-                headline: item['title'] as String,
-                supportingText: item['subtitle'] as String,
-                selected: isSelected,
-                leading: Container(
-                  width: 38,
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: isSelected ? _primary.withAlpha(50) : _cardDark,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isSelected ? _primary : context.outlineColor,
-                    ),
-                  ),
-                  child: Text(
-                    item['badge'] as String,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: isSelected ? _primary : _textDark,
-                    ),
-                  ),
-                ),
-                trailing: isSelected
-                    ? Icon(Icons.check_circle_rounded, color: _primary)
-                    : null,
-              );
-            },
-          ),
+    _showOptionBottomSheet<AppLanguage>(
+      title: context.strings.selectLanguage,
+      subtitle: 'English • Kiswahili • አማርኛ',
+      currentValue: AppLocaleService.instance.currentLanguage,
+      options: [
+        (
+          value: AppLanguage.system,
+          title: context.strings.systemDefault,
+          subtitle: 'Follow device operating system language',
+          icon: null,
+          badge: null,
+          leadingBadge: 'AUTO',
         ),
-      ),
+        (
+          value: AppLanguage.english,
+          title: 'English',
+          subtitle: 'English (US / UK / Global)',
+          icon: null,
+          badge: null,
+          leadingBadge: 'EN',
+        ),
+        (
+          value: AppLanguage.swahili,
+          title: 'Kiswahili',
+          subtitle: 'Lugha ya Kiswahili (Afrika Mashariki)',
+          icon: null,
+          badge: null,
+          leadingBadge: 'SW',
+        ),
+        (
+          value: AppLanguage.amharic,
+          title: 'አማርኛ',
+          subtitle: 'የአማርኛ ቋንቋ (ኢትዮጵያ / Ethiopia)',
+          icon: null,
+          badge: null,
+          leadingBadge: 'AM',
+        ),
+      ],
+      onSelected: (selectedLang) async {
+        await AppLocaleService.instance.setLocale(selectedLang.locale);
+        if (mounted) {
+          setState(() {});
+        }
+        onDone?.call();
+      },
     );
   }
 
@@ -6440,6 +5976,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  void _showOptionBottomSheet<T>({
+    required String title,
+    String? subtitle,
+    double? height,
+    required T currentValue,
+    required List<
+            ({
+              T value,
+              String title,
+              String? subtitle,
+              IconData? icon,
+              String? badge,
+              String? leadingBadge,
+            })>
+        options,
+    required FutureOr<void> Function(T value) onSelected,
+    bool autoPop = true,
+  }) {
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final computedHeight =
+        height ?? (132.0 + options.length * 84.0).clamp(280.0, screenHeight * 0.78);
+
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: title,
+          subtitle: subtitle,
+          height: computedHeight,
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (index) async {
+              final val = options[index].value;
+              setDlgState(() {});
+              if (autoPop && ctx.mounted) {
+                Navigator.pop(ctx);
+              }
+              await onSelected(val);
+            },
+            itemBuilder: (context, index) {
+              final opt = options[index];
+              final isSelected = opt.value == currentValue;
+              Widget? leading;
+              if (opt.leadingBadge != null) {
+                leading = Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: isSelected ? _primary.withAlpha(50) : _cardDark,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected ? _primary : context.outlineColor,
+                    ),
+                  ),
+                  child: Text(
+                    opt.leadingBadge!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? _primary : _textDark,
+                    ),
+                  ),
+                );
+              } else if (opt.icon != null) {
+                leading = Icon(
+                  opt.icon,
+                  color: isSelected ? _primary : _textDark,
+                  size: 22,
+                );
+              }
+
+              final radio = M3ERadio<T>(
+                value: opt.value,
+                groupValue: currentValue,
+                onChanged: (val) async {
+                  setDlgState(() {});
+                  if (autoPop && ctx.mounted) {
+                    Navigator.pop(ctx);
+                  }
+                  await onSelected(val);
+                },
+              );
+
+              return M3EListItem(
+                leading: leading,
+                headline: opt.title,
+                supportingText: opt.subtitle,
+                selected: isSelected,
+                trailing: opt.badge != null
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppStatusBadge(
+                            text: opt.badge!,
+                            color: isSelected ? _primary : _textDark,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2),
+                          ),
+                          const SizedBox(width: 8),
+                          radio,
+                        ],
+                      )
+                    : radio,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildModalBottomSheetLayout({
     required String title,
     String? subtitle,
@@ -6460,17 +6115,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Center(
-              child: Container(
-                margin: const EdgeInsets.only(top: 8, bottom: 4),
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: _textDark.withValues(alpha: 0.35),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 10.0),
               child: Column(
@@ -6515,71 +6159,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showOversamplingDialog({VoidCallback? onDone}) {
-    final options = [
-      {
-        'factor': 1,
-        'name': 'Off (1x)',
-        'subtitle': 'Native sample rate (Saves battery)'
-      },
-      {
-        'factor': 2,
-        'name': '2x Oversampling',
-        'subtitle': 'Enhanced clarity for EQ and DSP effects (Recommended)',
-      },
-      {
-        'factor': 4,
-        'name': '4x Oversampling',
-        'subtitle': 'Maximum purity and anti-aliasing (Higher CPU usage)',
-      },
-    ];
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Anti-Aliasing Oversampling',
-          subtitle: 'Improves DSP effects clarity and prevents harshness',
-          child: M3EList.scrollable(
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: options.length,
-            onTap: (index) {
-              final val = options[index]['factor'] as int;
-              setDlgState(() {});
-              setState(() => _dspOversampling = val);
-              AppStateService.instance.saveDspOversampling(val);
-              onDone?.call();
-              Navigator.pop(ctx);
-            },
-            itemBuilder: (context, index) {
-              final item = options[index];
-              final val = item['factor'] as int;
-              final isSelected = val == _dspOversampling;
-              return M3EListItem(
-                headline: item['name'] as String,
-                supportingText: item['subtitle'] as String,
-                selected: isSelected,
-                trailing: M3ERadio<int>(
-                  value: val,
-                  groupValue: _dspOversampling,
-                  onChanged: (v) {
-                    setDlgState(() {});
-                    setState(() => _dspOversampling = v);
-                    AppStateService.instance.saveDspOversampling(v);
-                    onDone?.call();
-                    Navigator.pop(ctx);
-                  },
-                ),
-              );
-            },
-          ),
+    _showOptionBottomSheet<int>(
+      title: 'Anti-Aliasing Oversampling',
+      subtitle: 'Improves DSP effects clarity and prevents harshness',
+      currentValue: _dspOversampling,
+      options: const [
+        (
+          value: 1,
+          title: 'Off (1x)',
+          subtitle: 'Native sample rate (Saves battery)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
         ),
-      ),
+        (
+          value: 2,
+          title: '2x Oversampling',
+          subtitle: 'Enhanced clarity for EQ and DSP effects (Recommended)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 4,
+          title: '4x Oversampling',
+          subtitle: 'Maximum purity and anti-aliasing (Higher CPU usage)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+      ],
+      onSelected: (val) {
+        setState(() => _dspOversampling = val);
+        AppStateService.instance.saveDspOversampling(val);
+        onDone?.call();
+      },
     );
   }
 
@@ -7147,235 +6761,163 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showDacValidBitDepthDialog({VoidCallback? onDone}) {
-    final options = [
-      (
-        0,
-        'Auto (Negotiated)',
-        'Matches USB DAC descriptor / output stream resolution automatically'
-      ),
-      (
-        32,
-        '32-Bit True PCM',
-        'Full 32-bit linearity for flagship 32-bit USB DACs (R2R & Delta-Sigma)'
-      ),
-      (
-        24,
-        '24-Bit (in 32-Bit Container)',
-        'Standard studio Hi-Res 24-bit noise-shaped target inside 32-bit frames'
-      ),
-      (
-        16,
-        '16-Bit Integer',
-        'Truncates / dithers precisely for classic 16-bit DAC stages'
-      ),
-    ];
-
-    Future<void> selectBits(int bits, BuildContext dlgCtx) async {
-      setState(() => _dacValidBitDepth = bits);
-      widget.player.setDacValidBitDepth(bits);
-      await AppStateService.instance.saveDacValidBitDepth(bits);
-      await AudioHardwareInspector.inspectAsync(widget.player);
-      onDone?.call();
-      if (dlgCtx.mounted) Navigator.pop(dlgCtx);
-    }
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'DAC Valid Bit Depth',
-          subtitle: 'Physical DAC valid bit resolution for dithering & packing',
-          child: M3EList.scrollable(
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: options.length,
-            onTap: (index) {
-              setDlgState(() {});
-              selectBits(options[index].$1, ctx);
-            },
-            itemBuilder: (context, index) {
-              final item = options[index];
-              final bits = item.$1;
-              final isSelected = bits == _dacValidBitDepth;
-              return M3EListItem(
-                headline: item.$2,
-                supportingText: item.$3,
-                selected: isSelected,
-                trailing: M3ERadio<int>(
-                  value: bits,
-                  groupValue: _dacValidBitDepth,
-                  onChanged: (_) {
-                    setDlgState(() {});
-                    selectBits(bits, ctx);
-                  },
-                ),
-              );
-            },
-          ),
+    _showOptionBottomSheet<int>(
+      title: 'DAC Valid Bit Depth',
+      subtitle: 'Physical DAC valid bit resolution for dithering & packing',
+      currentValue: _dacValidBitDepth,
+      options: const [
+        (
+          value: 0,
+          title: 'Auto (Negotiated)',
+          subtitle:
+              'Matches USB DAC descriptor / output stream resolution automatically',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
         ),
-      ),
+        (
+          value: 32,
+          title: '32-Bit True PCM',
+          subtitle:
+              'Full 32-bit linearity for flagship 32-bit USB DACs (R2R & Delta-Sigma)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 24,
+          title: '24-Bit (in 32-Bit Container)',
+          subtitle:
+              'Standard studio Hi-Res 24-bit noise-shaped target inside 32-bit frames',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 16,
+          title: '16-Bit Integer',
+          subtitle: 'Truncates / dithers precisely for classic 16-bit DAC stages',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+      ],
+      onSelected: (bits) async {
+        setState(() => _dacValidBitDepth = bits);
+        widget.player.setDacValidBitDepth(bits);
+        await AppStateService.instance.saveDacValidBitDepth(bits);
+        await AudioHardwareInspector.inspectAsync(widget.player);
+        onDone?.call();
+      },
     );
   }
 
   void _showDsdOutputModeDialog({VoidCallback? onDone}) {
-    final options = [
-      (
-        DsdOutputMode.auto,
-        'Auto (Native → DoP → D2P)',
-        'Tries 1-bit Native DSD first, falls back to DoP v1.1, then high-precision D2P'
-      ),
-      (
-        DsdOutputMode.nativeDsd,
-        'Native DSD (1-bit Raw)',
-        'Pure bit-perfect 1-bit DSD stream via USB UAC2 RAW_DATA (bypasses mixer & DSP)'
-      ),
-      (
-        DsdOutputMode.dop,
-        'DoP v1.1 (DSD over PCM)',
-        'Encapsulates 1-bit DSD inside 24/32-bit PCM frames with 0x05/0xFA markers'
-      ),
-      (
-        DsdOutputMode.d2p,
-        'D2P (DSD-to-PCM)',
-        '128-tap Blackman-Harris FIR decimation for universal DAC & 7-Zone DSP compatibility'
-      ),
-    ];
-
-    Future<void> selectMode(DsdOutputMode mode, BuildContext dlgCtx) async {
-      setState(() => _dsdOutputMode = mode);
-      widget.player.setDsdOutputMode(mode);
-      await AppStateService.instance.saveDsdOutputMode(mode.value);
-      final dsdState = await widget.player.getDsdState();
-      if (mounted) {
-        setState(() {
-          _nativeDsdSupported = dsdState['isNativeDsdSupported'] == true;
-          _dopSupported = dsdState['isDopSupported'] == true;
-        });
-      }
-      onDone?.call();
-      if (dlgCtx.mounted) Navigator.pop(dlgCtx);
-    }
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'DSD Output Mode',
-          subtitle: 'Select direct 1-bit DSD, DoP encapsulation, or D2P FIR',
-          child: M3EList.scrollable(
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: options.length,
-            onTap: (index) {
-              setDlgState(() {});
-              selectMode(options[index].$1, ctx);
-            },
-            itemBuilder: (context, index) {
-              final item = options[index];
-              final mode = item.$1;
-              final isSelected = mode == _dsdOutputMode;
-              return M3EListItem(
-                headline: item.$2,
-                supportingText: item.$3,
-                selected: isSelected,
-                trailing: M3ERadio<DsdOutputMode>(
-                  value: mode,
-                  groupValue: _dsdOutputMode,
-                  onChanged: (_) {
-                    setDlgState(() {});
-                    selectMode(mode, ctx);
-                  },
-                ),
-              );
-            },
-          ),
+    _showOptionBottomSheet<DsdOutputMode>(
+      title: 'DSD Output Mode',
+      subtitle: 'Select direct 1-bit DSD, DoP encapsulation, or D2P FIR',
+      currentValue: _dsdOutputMode,
+      options: const [
+        (
+          value: DsdOutputMode.auto,
+          title: 'Auto (Native → DoP → D2P)',
+          subtitle:
+              'Tries 1-bit Native DSD first, falls back to DoP v1.1, then high-precision D2P',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
         ),
-      ),
+        (
+          value: DsdOutputMode.nativeDsd,
+          title: 'Native DSD (1-bit Raw)',
+          subtitle:
+              'Pure bit-perfect 1-bit DSD stream via USB UAC2 RAW_DATA (bypasses mixer & DSP)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: DsdOutputMode.dop,
+          title: 'DoP v1.1 (DSD over PCM)',
+          subtitle:
+              'Encapsulates 1-bit DSD inside 24/32-bit PCM frames with 0x05/0xFA markers',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: DsdOutputMode.d2p,
+          title: 'D2P (DSD-to-PCM)',
+          subtitle:
+              '128-tap Blackman-Harris FIR decimation for universal DAC & 7-Zone DSP compatibility',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+      ],
+      onSelected: (mode) async {
+        setState(() => _dsdOutputMode = mode);
+        widget.player.setDsdOutputMode(mode);
+        await AppStateService.instance.saveDsdOutputMode(mode.value);
+        final dsdState = await widget.player.getDsdState();
+        if (mounted) {
+          setState(() {
+            _nativeDsdSupported = dsdState['isNativeDsdSupported'] == true;
+            _dopSupported = dsdState['isDopSupported'] == true;
+          });
+        }
+        onDone?.call();
+      },
     );
   }
 
   void _showDsdD2pRateDialog({VoidCallback? onDone}) {
-    final options = [
-      (
-        0,
-        'Auto (88.2 / 176.4 kHz)',
-        'Automatically picks integer-ratio decimation rate matching your DAC'
-      ),
-      (
-        88200,
-        '88.2 kHz (Recommended)',
-        'Exact 32× decimation from DSD64 with ultra-low ultrasonic noise'
-      ),
-      (
-        176400,
-        '176.4 kHz',
-        'Exact 16× decimation from DSD64 / 32× from DSD128 for extended HF headroom'
-      ),
-      (
-        352800,
-        '352.8 kHz (DXD)',
-        'Pure studio DXD master rate (8× from DSD64 / 16× from DSD128)'
-      ),
-    ];
-
-    Future<void> selectRate(int rate, BuildContext dlgCtx) async {
-      setState(() => _dsdD2pSampleRate = rate);
-      widget.player.setDsdD2pSampleRate(rate);
-      await AppStateService.instance.saveDsdD2pSampleRate(rate);
-      onDone?.call();
-      if (dlgCtx.mounted) Navigator.pop(dlgCtx);
-    }
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'D2P Target Sample Rate',
-          subtitle: 'PCM sample rate used by the 128-tap DSD decimator',
-          child: M3EList.scrollable(
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: options.length,
-            onTap: (index) {
-              setDlgState(() {});
-              selectRate(options[index].$1, ctx);
-            },
-            itemBuilder: (context, index) {
-              final item = options[index];
-              final rate = item.$1;
-              final isSelected = rate == _dsdD2pSampleRate;
-              return M3EListItem(
-                headline: item.$2,
-                supportingText: item.$3,
-                selected: isSelected,
-                trailing: M3ERadio<int>(
-                  value: rate,
-                  groupValue: _dsdD2pSampleRate,
-                  onChanged: (_) {
-                    setDlgState(() {});
-                    selectRate(rate, ctx);
-                  },
-                ),
-              );
-            },
-          ),
+    _showOptionBottomSheet<int>(
+      title: 'D2P Target Sample Rate',
+      subtitle: 'PCM sample rate used by the 128-tap DSD decimator',
+      currentValue: _dsdD2pSampleRate,
+      options: const [
+        (
+          value: 0,
+          title: 'Auto (88.2 / 176.4 kHz)',
+          subtitle:
+              'Automatically picks integer-ratio decimation rate matching your DAC',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
         ),
-      ),
+        (
+          value: 88200,
+          title: '88.2 kHz (Recommended)',
+          subtitle: 'Exact 32× decimation from DSD64 with ultra-low ultrasonic noise',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 176400,
+          title: '176.4 kHz',
+          subtitle:
+              'Exact 16× decimation from DSD64 / 32× from DSD128 for extended HF headroom',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 352800,
+          title: '352.8 kHz (DXD)',
+          subtitle: 'Pure studio DXD master rate (8× from DSD64 / 16× from DSD128)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+      ],
+      onSelected: (rate) async {
+        setState(() => _dsdD2pSampleRate = rate);
+        widget.player.setDsdD2pSampleRate(rate);
+        await AppStateService.instance.saveDsdD2pSampleRate(rate);
+        onDone?.call();
+      },
     );
   }
 
@@ -7400,60 +6942,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
       (768000, '768.0 kHz (PCM Max)', 'Maximum UAC 2.0 USB DAC sample rate'),
     ];
 
-    void selectRate(int rate, BuildContext dlgCtx) {
-      setState(() {});
-      widget.onOutputSampleRateChanged(rate);
-      widget.player.setOutputSampleRate(rate);
-      AudioHardwareInspector.inspectAsync(widget.player);
-      onDone?.call();
-      Navigator.pop(dlgCtx);
-    }
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Output Sample Rate',
-          subtitle: 'Target sample rate sent to audio hardware or USB DAC',
-          height: MediaQuery.of(context).size.height * 0.72,
-          child: M3EList.scrollable(
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: rates.length,
-            onTap: (index) {
-              setDlgState(() {});
-              selectRate(rates[index].$1, ctx);
-            },
-            itemBuilder: (context, index) {
-              final item = rates[index];
-              final r = item.$1;
-              final isSelected = r == widget.outputSampleRate;
-              final isDacSupported = r > 0 && supportedRates.contains(r);
-              final supporting = isDacSupported
-                  ? '${item.$3} • DAC Supported'
-                  : item.$3;
-              return M3EListItem(
-                headline: item.$2,
-                supportingText: supporting,
-                selected: isSelected,
-                trailing: M3ERadio<int>(
-                  value: r,
-                  groupValue: widget.outputSampleRate,
-                  onChanged: (_) {
-                    setDlgState(() {});
-                    selectRate(r, ctx);
-                  },
-                ),
-              );
-            },
-          ),
-        ),
-      ),
+    _showOptionBottomSheet<int>(
+      title: 'Output Sample Rate',
+      subtitle: 'Target sample rate sent to audio hardware or USB DAC',
+      height: MediaQuery.of(context).size.height * 0.72,
+      currentValue: widget.outputSampleRate,
+      options: rates
+          .map((item) => (
+                value: item.$1,
+                title: item.$2,
+                subtitle: (item.$1 > 0 && supportedRates.contains(item.$1))
+                    ? '${item.$3} • DAC Supported'
+                    : item.$3,
+                icon: null,
+                badge: null,
+                leadingBadge: null,
+              ))
+          .toList(),
+      onSelected: (rate) {
+        setState(() {});
+        widget.onOutputSampleRateChanged(rate);
+        widget.player.setOutputSampleRate(rate);
+        AudioHardwareInspector.inspectAsync(widget.player);
+        onDone?.call();
+      },
     );
   }
 
@@ -7682,98 +7194,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showChannelsDialog({VoidCallback? onDone}) {
-    final options = [
-      {'ch': 1, 'name': 'Mono', 'subtitle': 'Single channel mono output'},
-      {
-        'ch': 2,
-        'name': 'Stereo',
-        'subtitle': 'Standard 2-channel Left / Right stereo (Recommended)'
-      },
-      {
-        'ch': 3,
-        'name': '2.1 Surround',
-        'subtitle': 'Left, Right, and dedicated Subwoofer'
-      },
-      {
-        'ch': 4,
-        'name': '4.0 Quadraphonic',
-        'subtitle': 'Front Left/Right and Rear Left/Right'
-      },
-      {
-        'ch': 5,
-        'name': '5.0 Surround',
-        'subtitle': 'Front Left/Right, Center, and Rear Left/Right'
-      },
-      {
-        'ch': 6,
-        'name': '5.1 Surround',
-        'subtitle': '5 speakers plus dedicated subwoofer'
-      },
-      {
-        'ch': 7,
-        'name': '7.0 Surround',
-        'subtitle': '7-channel full surround layout'
-      },
-      {
-        'ch': 8,
-        'name': '7.1 Surround',
-        'subtitle': '7 speakers plus dedicated subwoofer'
-      },
-    ];
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Speaker Configuration',
-          subtitle: 'Select speaker layout for output channels',
-          height: MediaQuery.of(context).size.height * 0.78,
-          child: M3EList.scrollable(
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: options.length,
-            onTap: (i) {
-              final item = options[i];
-              final ch = item['ch'] as int;
-              setDlgState(() {});
-              widget.onOutputChannelsChanged(ch);
-              widget.player.setOutputChannels(ch);
-              setState(() {});
-              onDone?.call();
-              Navigator.pop(ctx);
-            },
-            itemBuilder: (context, i) {
-              final item = options[i];
-              final ch = item['ch'] as int;
-              final name = item['name'] as String;
-              final subtitle = item['subtitle'] as String;
-              final isSelected = ch == widget.outputChannels;
-              return M3EListItem(
-                headline: name,
-                supportingText: subtitle,
-                selected: isSelected,
-                trailing: M3ERadio<int>(
-                  value: ch,
-                  groupValue: widget.outputChannels,
-                  onChanged: (val) {
-                    setDlgState(() {});
-                    widget.onOutputChannelsChanged(val);
-                    widget.player.setOutputChannels(val);
-                    setState(() {});
-                    onDone?.call();
-                    Navigator.pop(ctx);
-                  },
-                ),
-              );
-            },
-          ),
+    _showOptionBottomSheet<int>(
+      title: 'Speaker Configuration',
+      subtitle: 'Select speaker layout for output channels',
+      height: MediaQuery.of(context).size.height * 0.78,
+      currentValue: widget.outputChannels,
+      options: const [
+        (
+          value: 1,
+          title: 'Mono',
+          subtitle: 'Single channel mono output',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
         ),
-      ),
+        (
+          value: 2,
+          title: 'Stereo',
+          subtitle: 'Standard 2-channel Left / Right stereo (Recommended)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 3,
+          title: '2.1 Surround',
+          subtitle: 'Left, Right, and dedicated Subwoofer',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 4,
+          title: '4.0 Quadraphonic',
+          subtitle: 'Front Left/Right and Rear Left/Right',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 5,
+          title: '5.0 Surround',
+          subtitle: 'Front Left/Right, Center, and Rear Left/Right',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 6,
+          title: '5.1 Surround',
+          subtitle: '5 speakers plus dedicated subwoofer',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 7,
+          title: '7.0 Surround',
+          subtitle: '7-channel full surround layout',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 8,
+          title: '7.1 Surround',
+          subtitle: '7 speakers plus dedicated subwoofer',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+      ],
+      onSelected: (ch) {
+        widget.onOutputChannelsChanged(ch);
+        widget.player.setOutputChannels(ch);
+        setState(() {});
+        onDone?.call();
+      },
     );
   }
 
@@ -7933,138 +7430,102 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showSubsonicDialog({VoidCallback? onDone}) {
-    final options = [
-      (0.0, 'Disabled', 'Passes full sub-bass spectrum unfiltered'),
-      (
-        15.0,
-        '15 Hz (Gentle)',
-        'Removes direct-current rumble while keeping deepest bass'
-      ),
-      (
-        20.0,
-        '20 Hz (Standard)',
-        'Cuts inaudible sub-bass and saves amplifier power (Recommended)'
-      ),
-      (
-        25.0,
-        '25 Hz (Compact Speakers)',
-        'Protects smaller speakers and phone drivers from bass distortion'
-      ),
-    ];
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Sub-Bass Protection Filter',
-          subtitle:
-              'Removes inaudible rumble below human hearing to protect woofers',
-          child: M3EList.scrollable(
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: options.length,
-            onTap: (index) {
-              final val = options[index].$1;
-              setState(() => _subsonicCutoffHz = val);
-              _persistSpeakerProtectionSettings();
-              onDone?.call();
-              Navigator.pop(ctx);
-            },
-            itemBuilder: (context, index) {
-              final opt = options[index];
-              final isSelected = opt.$1 == _subsonicCutoffHz;
-              return M3EListItem(
-                headline: opt.$2,
-                supportingText: opt.$3,
-                selected: isSelected,
-                trailing: M3ERadio<double>(
-                  value: opt.$1,
-                  groupValue: _subsonicCutoffHz,
-                  onChanged: (val) {
-                    setState(() => _subsonicCutoffHz = val);
-                    _persistSpeakerProtectionSettings();
-                    onDone?.call();
-                    Navigator.pop(ctx);
-                  },
-                ),
-              );
-            },
-          ),
+    _showOptionBottomSheet<double>(
+      title: 'Sub-Bass Protection Filter',
+      subtitle:
+          'Removes inaudible rumble below human hearing to protect woofers',
+      currentValue: _subsonicCutoffHz,
+      options: const [
+        (
+          value: 0.0,
+          title: 'Disabled',
+          subtitle: 'Passes full sub-bass spectrum unfiltered',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
         ),
-      ),
+        (
+          value: 15.0,
+          title: '15 Hz (Gentle)',
+          subtitle: 'Removes direct-current rumble while keeping deepest bass',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 20.0,
+          title: '20 Hz (Standard)',
+          subtitle:
+              'Cuts inaudible sub-bass and saves amplifier power (Recommended)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 25.0,
+          title: '25 Hz (Compact Speakers)',
+          subtitle:
+              'Protects smaller speakers and phone drivers from bass distortion',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+      ],
+      onSelected: (val) {
+        setState(() => _subsonicCutoffHz = val);
+        _persistSpeakerProtectionSettings();
+        onDone?.call();
+      },
     );
   }
 
   void _showUltrasonicDialog({VoidCallback? onDone}) {
-    final options = [
-      (24000.0, 'Disabled', 'Passes ultra-high frequencies without cutoff'),
-      (
-        22000.0,
-        '22 kHz (Hi-Res Limit)',
-        'Retains high-res harmonics while blocking high-band noise'
-      ),
-      (
-        20000.0,
-        '20 kHz (Hearing Limit)',
-        'Standard limit of human hearing. Reduces listener fatigue (Recommended)'
-      ),
-      (
-        18000.0,
-        '18 kHz (Tweeter Guard)',
-        'Protects sensitive tweeters from radio frequency hiss and noise'
-      ),
-    ];
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'High-Frequency Guard Filter',
-          subtitle:
-              'Filters ultrasonic frequencies above human hearing to protect tweeters and ears',
-          child: M3EList.scrollable(
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: options.length,
-            onTap: (index) {
-              final val = options[index].$1;
-              setState(() => _ultrasonicCutoffHz = val);
-              _persistSpeakerProtectionSettings();
-              onDone?.call();
-              Navigator.pop(ctx);
-            },
-            itemBuilder: (context, index) {
-              final opt = options[index];
-              final isSelected = opt.$1 == _ultrasonicCutoffHz;
-              return M3EListItem(
-                headline: opt.$2,
-                supportingText: opt.$3,
-                selected: isSelected,
-                trailing: M3ERadio<double>(
-                  value: opt.$1,
-                  groupValue: _ultrasonicCutoffHz,
-                  onChanged: (val) {
-                    setState(() => _ultrasonicCutoffHz = val);
-                    _persistSpeakerProtectionSettings();
-                    onDone?.call();
-                    Navigator.pop(ctx);
-                  },
-                ),
-              );
-            },
-          ),
+    _showOptionBottomSheet<double>(
+      title: 'High-Frequency Guard Filter',
+      subtitle:
+          'Filters ultrasonic frequencies above human hearing to protect tweeters and ears',
+      currentValue: _ultrasonicCutoffHz,
+      options: const [
+        (
+          value: 24000.0,
+          title: 'Disabled',
+          subtitle: 'Passes ultra-high frequencies without cutoff',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
         ),
-      ),
+        (
+          value: 22000.0,
+          title: '22 kHz (Hi-Res Limit)',
+          subtitle: 'Retains high-res harmonics while blocking high-band noise',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 20000.0,
+          title: '20 kHz (Hearing Limit)',
+          subtitle:
+              'Standard limit of human hearing. Reduces listener fatigue (Recommended)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: 18000.0,
+          title: '18 kHz (Tweeter Guard)',
+          subtitle:
+              'Protects sensitive tweeters from radio frequency hiss and noise',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+      ],
+      onSelected: (val) {
+        setState(() => _ultrasonicCutoffHz = val);
+        _persistSpeakerProtectionSettings();
+        onDone?.call();
+      },
     );
   }
 
@@ -8099,76 +7560,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showVisualizerQualityDialog(StateSetter setSubState) {
-    final qualities = [
-      (
-        VisualizerQuality.eco,
-        'Eco (360p)',
-        'Low GPU load, optimal for thermal and battery life',
-      ),
-      (
-        VisualizerQuality.balanced,
-        'Balanced (540p)',
-        'Crisp graphics with balanced shader overhead (Recommended)',
-      ),
-      (
-        VisualizerQuality.high,
-        'High Definition (720p)',
-        'Sharp preset textures and dynamic light refraction',
-      ),
-      (
-        VisualizerQuality.native,
-        'Native Resolution',
-        'Full native display pixel grid (demands more GPU power)',
-      ),
-    ];
-
-    M3EBottomSheet.show<void>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
-          title: 'Render Resolution & Detail',
-          subtitle:
-              'Configures rendering canvas resolution and texture scaling for visualizers',
-          child: M3EList.scrollable(
-            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
-            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            gap: 6.0,
-            outerRadius: 20.0,
-            innerRadius: 6.0,
-            itemCount: qualities.length,
-            onTap: (index) async {
-              final q = qualities[index].$1;
-              setDlgState(() {});
-              await VisualizerSettingsService.instance.setQuality(q);
-              setSubState(() {});
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            itemBuilder: (context, index) {
-              final item = qualities[index];
-              final q = item.$1;
-              final isSelected =
-                  q == VisualizerSettingsService.instance.quality;
-              return M3EListItem(
-                headline: item.$2,
-                supportingText: item.$3,
-                selected: isSelected,
-                trailing: M3ERadio<VisualizerQuality>(
-                  value: q,
-                  groupValue: VisualizerSettingsService.instance.quality,
-                  onChanged: (val) async {
-                    setDlgState(() {});
-                    await VisualizerSettingsService.instance.setQuality(val);
-                    setSubState(() {});
-                    if (ctx.mounted) Navigator.pop(ctx);
-                  },
-                ),
-              );
-            },
-          ),
+    _showOptionBottomSheet<VisualizerQuality>(
+      title: 'Render Resolution & Detail',
+      subtitle:
+          'Configures rendering canvas resolution and texture scaling for visualizers',
+      currentValue: VisualizerSettingsService.instance.quality,
+      options: const [
+        (
+          value: VisualizerQuality.eco,
+          title: 'Eco (360p)',
+          subtitle: 'Low GPU load, optimal for thermal and battery life',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
         ),
-      ),
+        (
+          value: VisualizerQuality.balanced,
+          title: 'Balanced (540p)',
+          subtitle:
+              'Crisp graphics with balanced shader overhead (Recommended)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: VisualizerQuality.high,
+          title: 'High Definition (720p)',
+          subtitle: 'Sharp preset textures and dynamic light refraction',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+        (
+          value: VisualizerQuality.native,
+          title: 'Native Resolution',
+          subtitle: 'Full native display pixel grid (demands more GPU power)',
+          icon: null,
+          badge: null,
+          leadingBadge: null,
+        ),
+      ],
+      onSelected: (q) async {
+        await VisualizerSettingsService.instance.setQuality(q);
+        setSubState(() {});
+      },
     );
   }
 
@@ -8177,136 +7612,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
     StateSetter setSubState,
   ) {
     final urlController = TextEditingController();
-    showDialog<void>(
-      context: context,
-      builder: (dialogCtx) => StatefulBuilder(
-        builder: (context, setDlgState) {
-          final themePrimary = _primary;
-          final cardDark = _cardDark;
-          return M3EDialog(
-            title: 'Download Presets from URL',
-            topDivider: true,
-            bottomDivider: true,
-            content: Material(
-              color: Colors.transparent,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Paste a direct GitHub release URL or raw link to a Milkdrop preset pack (.zip, .apk) or individual .milk file.',
-                      style: TextStyle(
-                        color: _textDark,
-                        fontSize: 13,
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: urlController,
-                      style: TextStyle(color: _textPrimary, fontSize: 13),
-                      decoration: InputDecoration(
-                        labelText: 'GitHub / Direct Preset URL',
-                        hintText: 'https://github.com/.../presets.zip',
-                        hintStyle: TextStyle(
-                          color: _textDark.withValues(alpha: 0.5),
-                          fontSize: 12,
-                        ),
-                        labelStyle: TextStyle(color: _textDark),
-                        filled: true,
-                        fillColor: cardDark,
-                        prefixIcon: Icon(
-                          Icons.link_rounded,
-                          color: themePrimary,
-                          size: 20,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: themePrimary.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              BorderSide(color: themePrimary, width: 1.5),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: themePrimary.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: themePrimary.withValues(alpha: 0.2),
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.info_outline_rounded,
-                            size: 16,
-                            color: themePrimary,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Supports Poweramp .apk packs, GitHub zip archives, and raw Milkdrop equations with embedded textures. Preset textures are unpacked in a background isolate.',
-                              style: TextStyle(
-                                color: _textDark,
-                                fontSize: 11,
-                                height: 1.3,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogCtx),
-                child: Text('Cancel', style: TextStyle(color: _textDark)),
-              ),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: themePrimary,
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+    M3EDialog.show<void>(
+      context,
+      dialog: M3EDialog(
+        title: 'Download Presets from URL',
+        topDivider: true,
+        bottomDivider: true,
+        content: Material(
+          color: Colors.transparent,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Paste a direct GitHub release URL or raw link to a Milkdrop preset pack (.zip, .apk) or individual .milk file.',
+                  style: TextStyle(
+                    color: _textDark,
+                    fontSize: 13,
+                    height: 1.4,
                   ),
                 ),
-                icon: const Icon(Icons.download_rounded, size: 16),
-                label: const Text(
-                  'Download & Install',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-                onPressed: () {
-                  final url = urlController.text.trim();
-                  if (url.isEmpty || !url.startsWith('http')) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Please enter a valid HTTP/HTTPS URL'),
-                        duration: Duration(seconds: 2),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: urlController,
+                  style: TextStyle(color: _textPrimary, fontSize: 13),
+                  decoration: InputDecoration(
+                    labelText: 'GitHub / Direct Preset URL',
+                    hintText: 'https://github.com/.../presets.zip',
+                    hintStyle: TextStyle(
+                      color: _textDark.withValues(alpha: 0.5),
+                      fontSize: 12,
+                    ),
+                    labelStyle: TextStyle(color: _textDark),
+                    filled: true,
+                    fillColor: _cardDark,
+                    prefixIcon: Icon(
+                      Icons.link_rounded,
+                      color: _primary,
+                      size: 20,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: _primary.withValues(alpha: 0.3),
                       ),
-                    );
-                    return;
-                  }
-                  Navigator.pop(dialogCtx);
-                  ProjectMPresetManager.instance.downloadCustomPackFromUrl(url);
-                  setSubState(() {});
-                },
-              ),
-            ],
-          );
-        },
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: _primary, width: 1.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _primary.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: _primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Supports Poweramp .apk packs, .zip archives, and .milk files with embedded textures.',
+                          style: TextStyle(
+                            color: _textDark,
+                            fontSize: 11,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          M3EButton.text(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          M3EButton.icon(
+            icon: const Icon(Icons.download_rounded, size: 16),
+            label: const Text('Download & Install'),
+            onPressed: () {
+              final url = urlController.text.trim();
+              if (url.isEmpty || !url.startsWith('http')) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter a valid HTTP/HTTPS URL'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(context);
+              ProjectMPresetManager.instance.downloadCustomPackFromUrl(url);
+              setSubState(() {});
+            },
+          ),
+        ],
       ),
     );
   }
