@@ -478,6 +478,7 @@ class AudioProfileService {
       'convolverEnabled': false,
       'limiterEnabled': false,
       'surroundEnabled': false,
+      'levellerEnabled': false,
       ...profile.sautiDspState,
     };
     await AppStateService.instance.saveSautiDspState(cleanDspState);
@@ -725,14 +726,14 @@ class AudioProfileService {
             'gain': 10.0,
           },
           'limiter': {
-            'enabled': true,
+            'enabled': false,
             'threshold': 0.95,
             'attackMs': 2.0,
             'releaseMs': 50.0,
           },
         },
         sautiDspState: {
-          'dspMasterEnabled': false,
+          'dspMasterEnabled': true,
           'dynamicSystemEnabled': true,
           'dynamicSystemProfile': TransducerProfile.clubPAPunch.value,
           'dynamicSystemStrength': 0.80,
@@ -749,6 +750,7 @@ class AudioProfileService {
           'limiterEnabled': true,
           'limiterCeilingDb': -0.2,
           'limiterReleaseMs': 50.0,
+          'levellerEnabled': false,
         },
       ),
       AudioProfile(
