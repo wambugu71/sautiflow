@@ -961,8 +961,27 @@ extern "C"
         AE_BACKEND_OPENSL       = 2, // Android legacy OpenSL ES
         AE_BACKEND_AUDIOTRACK   = 3, // Android standard framework AudioTrack
         AE_BACKEND_DIRECT_HIRES = 4, // Android bit-perfect Direct Hi-Res (Hexagon/MTK/Exynos/Tensor)
-        AE_BACKEND_USB_DIRECT   = 5  // Android direct USB Audio Class 1.0/2.0 driver via libusb (AudioFlinger & kernel bypass)
+        AE_BACKEND_USB_DIRECT   = 5, // Android direct USB Audio Class 1.0/2.0 driver via libusb (AudioFlinger & kernel bypass)
+        AE_BACKEND_DAP_HIRES    = 6  // Dedicated Hi-Res Audio driver for selected DAPs (Direct HAL / Bit-Perfect Mixer / Vendor DAC)
     } AEAudioBackend;
+
+    // Dedicated Digital Audio Player (DAP) Hi-Res Driver Status
+    typedef struct AEDapInfo
+    {
+        int is_dap_detected;          // 1 if a supported DAP hardware profile was detected or overridden
+        int dap_family;               // DapFamily enum id (0=Generic, 1=FiiO, 2=HiBy, 3=iBasso, 4=Shanling, 5=Sony, ...)
+        char vendor_name[64];         // e.g. "FiiO", "HiBy", "iBasso", "Shanling", "Sony"
+        char model_name[64];          // e.g. "FiiO M17", "Sony NW-ZX707"
+        char dac_architecture[128];   // e.g. "Dual ESS ES9038PRO + THX AAA-788+"
+        char driver_name[128];        // e.g. "FiiO Direct Hi-Res HAL"
+        int max_sample_rate;          // Max supported PCM sample rate in Hz (e.g. 384000, 768000)
+        int preferred_bit_depth;      // Preferred PCM bit depth (24 or 32)
+        int supports_dop;             // 1 if DoP v1.1 is supported
+        int supports_native_dsd;      // 1 if Native DSD is supported
+        int bit_perfect_mixer_active; // 1 if Android 14+ MIXER_BEHAVIOR_BIT_PERFECT is active
+        int alsa_direct_accessible;   // 1 if /dev/snd/pcm* is directly R/W accessible
+        int direct_hal_active;        // 1 if DirectOutputThread / Direct PCM HAL is active
+    } AEDapInfo;
 
     // Native Hardware Audio Engine Inspection
     typedef struct AEHardwareInfo
@@ -992,6 +1011,11 @@ extern "C"
     AE_API int ae_is_backend_supported(AudioEngineHandle *engine, int backend);
     AE_API int ae_request_usb_dac_permission(AudioEngineHandle *engine);
     AE_API void ae_set_android_usb_fd(AudioEngineHandle *engine, int fd, const uint8_t *raw_descriptors, int raw_desc_len, const char *device_name);
+
+    // Dedicated DAP Hi-Res Driver Inspection & Profile Override (-1 = auto-detect, 0 = generic, 1..10 = DapFamily)
+    AE_API AEDapInfo ae_get_dap_info(AudioEngineHandle *engine);
+    AE_API int ae_set_dap_driver_profile(AudioEngineHandle *engine, int family_id);
+    AE_API int ae_get_dap_driver_profile(AudioEngineHandle *engine);
 
     // Reads tags and ReplayGain for a local audio file via FFmpeg libavformat.
     // Returns 1 on success, 0 on failure. Safe for local files; returns 0 immediately for network URLs.

@@ -1352,7 +1352,8 @@ enum AudioOutputBackend {
   openSl(2, 'OpenSL ES (Android Legacy Fallback)'),
   audioTrack(3, 'AudioTrack (Java Audio Subsystem)'),
   directHiRes(4, 'Direct Hi-Res (Bit-Perfect Direct HAL / DAC)'),
-  usbDirect(5, 'USB Direct (libusb Bit-Perfect DAC Bypass)');
+  usbDirect(5, 'USB Direct (libusb Bit-Perfect DAC Bypass)'),
+  dapHiRes(6, 'DAP Hi-Res (Dedicated Digital Audio Player Driver)');
 
   final int value;
   final String displayName;
@@ -1363,6 +1364,134 @@ enum AudioOutputBackend {
       if (b.value == value) return b;
     }
     return AudioOutputBackend.auto;
+  }
+}
+
+/// Supported Digital Audio Player (DAP) hardware families.
+enum DapFamily {
+  autoDetect(-1, 'Auto-Detect DAP'),
+  generic(0, 'Generic Android Hi-Res'),
+  fiio(1, 'FiiO (M11 / M15 / M17 / M23 / R7 / R9 / JM21)'),
+  hiby(2, 'HiBy (R4 / R5 / R6 / R8 / RS6 / RS8 — DTA)'),
+  ibasso(3, 'iBasso (DX160 / DX170 / DX180 / DX240 / DX260 / DX320)'),
+  shanling(4, 'Shanling (M3X / M6 / M7 / M8 / M9 — AGLO)'),
+  sonyWalkman(5, 'Sony Walkman (NW-A / NW-ZX / NW-WM — S-Master HX)'),
+  cayin(6, 'Cayin (N3Ultra / N6ii / N7 / N8ii — DTA)'),
+  astellKern(7, 'Astell&Kern (SR25 / SR35 / SE300 / SP3000)'),
+  lgQuadDac(8, 'LG Hi-Fi Quad DAC (V20–V60 / G7 / G8)'),
+  tempotec(9, 'TempoTec (V-Series DAP)'),
+  onkyoPioneer(10, 'Onkyo / Pioneer (DP-X1 / XDP-100R / 300R)');
+
+  final int value;
+  final String label;
+  const DapFamily(this.value, this.label);
+
+  static DapFamily fromInt(int value) {
+    for (final f in DapFamily.values) {
+      if (f.value == value) return f;
+    }
+    return DapFamily.autoDetect;
+  }
+}
+
+final class AEDapInfoNative extends ffi.Struct {
+  @ffi.Int32()
+  external int is_dap_detected;
+
+  @ffi.Int32()
+  external int dap_family;
+
+  @ffi.Array<ffi.Uint8>(64)
+  external ffi.Array<ffi.Uint8> vendor_name;
+
+  @ffi.Array<ffi.Uint8>(64)
+  external ffi.Array<ffi.Uint8> model_name;
+
+  @ffi.Array<ffi.Uint8>(128)
+  external ffi.Array<ffi.Uint8> dac_architecture;
+
+  @ffi.Array<ffi.Uint8>(128)
+  external ffi.Array<ffi.Uint8> driver_name;
+
+  @ffi.Int32()
+  external int max_sample_rate;
+
+  @ffi.Int32()
+  external int preferred_bit_depth;
+
+  @ffi.Int32()
+  external int supports_dop;
+
+  @ffi.Int32()
+  external int supports_native_dsd;
+
+  @ffi.Int32()
+  external int bit_perfect_mixer_active;
+
+  @ffi.Int32()
+  external int alsa_direct_accessible;
+
+  @ffi.Int32()
+  external int direct_hal_active;
+}
+
+class AEDapInfo {
+  final bool isDapDetected;
+  final DapFamily family;
+  final String vendorName;
+  final String modelName;
+  final String dacArchitecture;
+  final String driverName;
+  final int maxSampleRate;
+  final int preferredBitDepth;
+  final bool supportsDop;
+  final bool supportsNativeDsd;
+  final bool bitPerfectMixerActive;
+  final bool alsaDirectAccessible;
+  final bool directHalActive;
+
+  const AEDapInfo({
+    this.isDapDetected = false,
+    this.family = DapFamily.generic,
+    this.vendorName = 'Generic Android Hi-Res',
+    this.modelName = 'Android Direct Hi-Res',
+    this.dacArchitecture = 'Direct PCM Hardware HAL',
+    this.driverName = 'Generic Direct Hi-Res HAL',
+    this.maxSampleRate = 192000,
+    this.preferredBitDepth = 24,
+    this.supportsDop = true,
+    this.supportsNativeDsd = false,
+    this.bitPerfectMixerActive = false,
+    this.alsaDirectAccessible = false,
+    this.directHalActive = false,
+  });
+
+  static String _readFixedUtf8(ffi.Array<ffi.Uint8> arr, int maxLen) {
+    final bytes = <int>[];
+    for (int i = 0; i < maxLen; i++) {
+      final b = arr[i];
+      if (b == 0) break;
+      bytes.add(b);
+    }
+    return utf8.decode(bytes, allowMalformed: true).trim();
+  }
+
+  factory AEDapInfo.fromNative(AEDapInfoNative native) {
+    return AEDapInfo(
+      isDapDetected: native.is_dap_detected != 0,
+      family: DapFamily.fromInt(native.dap_family),
+      vendorName: _readFixedUtf8(native.vendor_name, 64),
+      modelName: _readFixedUtf8(native.model_name, 64),
+      dacArchitecture: _readFixedUtf8(native.dac_architecture, 128),
+      driverName: _readFixedUtf8(native.driver_name, 128),
+      maxSampleRate: native.max_sample_rate,
+      preferredBitDepth: native.preferred_bit_depth,
+      supportsDop: native.supports_dop != 0,
+      supportsNativeDsd: native.supports_native_dsd != 0,
+      bitPerfectMixerActive: native.bit_perfect_mixer_active != 0,
+      alsaDirectAccessible: native.alsa_direct_accessible != 0,
+      directHalActive: native.direct_hal_active != 0,
+    );
   }
 }
 
@@ -2663,6 +2792,16 @@ typedef _GetHardwareInfoNative = AEHardwareInfoNative Function(
     ffi.Pointer<ffi.Void>);
 typedef _GetHardwareInfoDart = AEHardwareInfoNative Function(
     ffi.Pointer<ffi.Void>);
+
+typedef _GetDapInfoNative = AEDapInfoNative Function(ffi.Pointer<ffi.Void>);
+typedef _GetDapInfoDart = AEDapInfoNative Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetDapDriverProfileNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32);
+typedef _SetDapDriverProfileDart = int Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _GetDapDriverProfileNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _GetDapDriverProfileDart = int Function(ffi.Pointer<ffi.Void>);
 
 typedef _RegisterAndroidJvmNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _RegisterAndroidJvmDart = void Function(ffi.Pointer<ffi.Void>);
@@ -4066,6 +4205,21 @@ class AudioEngineFFI {
     }
 
     try {
+      _getDapInfo =
+          _lib.lookupFunction<_GetDapInfoNative, _GetDapInfoDart>(
+        'ae_get_dap_info',
+      );
+      _setDapDriverProfile = _lib.lookupFunction<_SetDapDriverProfileNative,
+          _SetDapDriverProfileDart>('ae_set_dap_driver_profile');
+      _getDapDriverProfile = _lib.lookupFunction<_GetDapDriverProfileNative,
+          _GetDapDriverProfileDart>('ae_get_dap_driver_profile');
+    } catch (_) {
+      _getDapInfo = null;
+      _setDapDriverProfile = null;
+      _getDapDriverProfile = null;
+    }
+
+    try {
       _registerAndroidJvm = _lib
           .lookupFunction<_RegisterAndroidJvmNative, _RegisterAndroidJvmDart>(
         'ae_register_android_jvm',
@@ -4372,6 +4526,9 @@ class AudioEngineFFI {
   _IsStreamLiveDart? _isStreamLive;
   _InspectFileDart? _inspectFile;
   _GetHardwareInfoDart? _getHardwareInfo;
+  _GetDapInfoDart? _getDapInfo;
+  _SetDapDriverProfileDart? _setDapDriverProfile;
+  _GetDapDriverProfileDart? _getDapDriverProfile;
   _RegisterAndroidJvmDart? _registerAndroidJvm;
   _RequestUsbDacPermissionDart? _requestUsbDacPermission;
   _SetAndroidUsbFdDart? _setAndroidUsbFd;
@@ -6761,6 +6918,28 @@ class AudioEngineFFI {
   int getDacValidBitDepth() {
     if (_engine == ffi.nullptr || _getDacValidBitDepth == null) return 0;
     return _getDacValidBitDepth(_engine);
+  }
+
+  /// Inspect the detected Digital Audio Player (DAP) Hi-Res driver profile
+  /// and active bit-perfect / direct HAL status.
+  AEDapInfo getDapInfo() {
+    if (_engine == ffi.nullptr || _getDapInfo == null) {
+      return const AEDapInfo();
+    }
+    return AEDapInfo.fromNative(_getDapInfo!(_engine));
+  }
+
+  /// Override the DAP Hi-Res driver profile (`-1` = Auto-Detect, `0` = Generic,
+  /// or a [DapFamily] value). Returns true on success.
+  bool setDapDriverProfile(int familyId) {
+    if (_engine == ffi.nullptr || _setDapDriverProfile == null) return false;
+    return _setDapDriverProfile!(_engine, familyId) != 0;
+  }
+
+  /// Returns the currently configured DAP driver profile override (`-1` = Auto).
+  int getDapDriverProfile() {
+    if (_engine == ffi.nullptr || _getDapDriverProfile == null) return -1;
+    return _getDapDriverProfile!(_engine);
   }
 
   /// Enable or disable 64-bit float DSP processing mode (-320dB mathematical headroom).

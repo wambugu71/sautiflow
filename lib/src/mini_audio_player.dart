@@ -285,6 +285,19 @@ class MiniAudioPlayer {
   bool isBackendSupported(AudioOutputBackend backend) =>
       _engine.isBackendSupported(backend);
 
+  /// Inspects the detected Digital Audio Player (DAP) Hi-Res driver profile
+  /// and active bit-perfect / direct HAL status.
+  AEDapInfo getDapInfo() => _engine.getDapInfo();
+
+  /// Overrides the active DAP Hi-Res driver profile (`DapFamily.autoDetect`
+  /// for automatic hardware detection, or a specific DAP vendor family).
+  bool setDapDriverProfile(DapFamily family) =>
+      _engine.setDapDriverProfile(family.value);
+
+  /// Returns the currently configured DAP driver profile override.
+  DapFamily getDapDriverProfile() =>
+      DapFamily.fromInt(_engine.getDapDriverProfile());
+
   /// Requests Android USB permission for an attached USB Audio Class DAC.
   ///
   /// Returns `1` if already granted, `0` if the permission dialog was launched,

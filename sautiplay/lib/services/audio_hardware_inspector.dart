@@ -270,7 +270,9 @@ class AudioHardwareSpecs {
     } else if (isDirectPcm) {
       nodes.add(SignalChainNode(
         label: backendName,
-        sublabel: 'Direct Hi-Res Bit-Perfect',
+        sublabel: backendName == 'DAP Hi-Res'
+            ? 'Dedicated DAP Hi-Res Driver'
+            : 'Direct Hi-Res Bit-Perfect',
         icon: SignalChainIcon.backend,
         isHighlight: true,
       ));
@@ -439,6 +441,7 @@ class AudioHardwareInspector {
     final bool isUsbDirect = nativeHw.backendName == 'USB Direct';
     final bool isNativeDirect = isUsbDirect ||
         nativeHw.backendName == 'Direct Hi-Res' ||
+        nativeHw.backendName == 'DAP Hi-Res' ||
         nativeHw.isDirectPcm ||
         nativeHw.isExclusiveMode;
 

@@ -1209,6 +1209,7 @@ class AppStateService {
   static const _kAnalyzerLogScale = 'sp_analyzer_log_scale';
   static const _kSpectrumStyle = 'sp_spectrum_style';
   static const _kOutputBackend = 'sp_output_backend';
+  static const _kDapDriverProfile = 'sp_dap_driver_profile';
   static const _kDacValidBitDepth = 'sp_dac_valid_bit_depth';
   static const _kDsdOutputMode = 'sp_dsd_output_mode';
   static const _kDsdD2pSampleRate = 'sp_dsd_d2p_sample_rate';
@@ -1255,7 +1256,7 @@ class AppStateService {
     await prefs.setBool(_kAnalyzerLogScale, analyzerLogScale);
     await prefs.setString(_kSpectrumStyle, spectrumStyle);
     if (outputBackend != null) {
-      await prefs.setInt(_kOutputBackend, outputBackend.clamp(0, 5));
+      await prefs.setInt(_kOutputBackend, outputBackend.clamp(0, 6));
     }
     if (dacValidBitDepth != null) {
       await prefs.setInt(_kDacValidBitDepth, dacValidBitDepth);
@@ -1272,12 +1273,25 @@ class AppStateService {
     audioProcessingSettingsChanged.add(null);
   }
 
-  /// Saves the selected Android audio output backend (e.g. USB Direct vs AAudio)
+  /// Saves the selected Android audio output backend (e.g. USB Direct vs DAP Hi-Res)
   /// without disturbing unrelated engine settings.
   Future<void> saveOutputBackend(int backendValue) async {
     final prefs = PreferencesStore.instance;
-    await prefs.setInt(_kOutputBackend, backendValue.clamp(0, 5));
+    await prefs.setInt(_kOutputBackend, backendValue.clamp(0, 6));
     audioProcessingSettingsChanged.add(null);
+  }
+
+  /// Saves the selected DAP Hi-Res driver profile override (`-1` = Auto-Detect).
+  Future<void> saveDapDriverProfile(int familyId) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setInt(_kDapDriverProfile, familyId.clamp(-1, 10));
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  /// Loads the saved DAP Hi-Res driver profile override (`-1` = Auto-Detect).
+  Future<int> loadDapDriverProfile() async {
+    final prefs = PreferencesStore.instance;
+    return (prefs.getInt(_kDapDriverProfile) ?? -1).clamp(-1, 10);
   }
 
   /// Saves the configured DAC valid bit depth (`0` = Auto, `16`, `24`, or `32`).
@@ -1370,7 +1384,7 @@ class AppStateService {
       analyzerShowGrids: prefs.getBool(_kAnalyzerShowGrids) ?? true,
       analyzerLogScale: prefs.getBool(_kAnalyzerLogScale) ?? true,
       spectrumStyle: prefs.getString(_kSpectrumStyle) ?? 'minimal',
-      outputBackend: rawBackend.clamp(0, 5),
+      outputBackend: rawBackend.clamp(0, 6),
       dacValidBitDepth: allowedDacBits.contains(rawDacBits) ? rawDacBits : 0,
       dsdOutputMode: rawDsdMode.clamp(0, 3),
       dsdD2pSampleRate:

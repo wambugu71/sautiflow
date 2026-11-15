@@ -1751,6 +1751,41 @@ class IsolateAudioPlayer {
     return response as bool? ?? false;
   }
 
+  void setDapDriverProfile(DapFamily family) =>
+      _send({'cmd': 'setDapDriverProfile', 'family': family.value});
+
+  Future<DapFamily> getDapDriverProfile() async {
+    final response = await _request('getDapDriverProfile');
+    if (response is int) {
+      return DapFamily.fromInt(response);
+    }
+    return DapFamily.autoDetect;
+  }
+
+  Future<AEDapInfo> getDapInfo() async {
+    final response = await _request('getDapInfo');
+    if (response is Map) {
+      return AEDapInfo(
+        isDapDetected: response['isDapDetected'] == true,
+        family: DapFamily.fromInt(response['family'] as int? ?? 0),
+        vendorName: response['vendorName'] as String? ?? 'Generic Android Hi-Res',
+        modelName: response['modelName'] as String? ?? 'Android Direct Hi-Res',
+        dacArchitecture:
+            response['dacArchitecture'] as String? ?? 'Direct PCM Hardware HAL',
+        driverName:
+            response['driverName'] as String? ?? 'Generic Direct Hi-Res HAL',
+        maxSampleRate: response['maxSampleRate'] as int? ?? 192000,
+        preferredBitDepth: response['preferredBitDepth'] as int? ?? 24,
+        supportsDop: response['supportsDop'] == true,
+        supportsNativeDsd: response['supportsNativeDsd'] == true,
+        bitPerfectMixerActive: response['bitPerfectMixerActive'] == true,
+        alsaDirectAccessible: response['alsaDirectAccessible'] == true,
+        directHalActive: response['directHalActive'] == true,
+      );
+    }
+    return const AEDapInfo();
+  }
+
   /// Requests Android `UsbManager` permission for an attached USB Audio DAC
   /// and binds its file descriptor and raw USB descriptors to the engine.
   ///
@@ -2808,6 +2843,10 @@ void _isolateEntry(_IsolateInitData initData) {
           final bVal = message['backend'] as int? ?? 0;
           player.setOutputBackend(AudioOutputBackend.fromInt(bVal));
           break;
+        case 'setDapDriverProfile':
+          final fVal = message['family'] as int? ?? -1;
+          player.setDapDriverProfile(DapFamily.fromInt(fVal));
+          break;
         case 'setLoudnessNormalizerEnabled':
           player.setLoudnessNormalizerEnabled(message['enabled'] == true);
           break;
@@ -2916,6 +2955,35 @@ void _isolateEntry(_IsolateInitData initData) {
           final supVal = message['backend'] as int? ?? 0;
           try {
             sendResponse(message, player.isBackendSupported(AudioOutputBackend.fromInt(supVal)));
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'getDapDriverProfile':
+          try {
+            sendResponse(message, player.getDapDriverProfile().value);
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'getDapInfo':
+          try {
+            final info = player.getDapInfo();
+            sendResponse(message, {
+              'isDapDetected': info.isDapDetected,
+              'family': info.family.value,
+              'vendorName': info.vendorName,
+              'modelName': info.modelName,
+              'dacArchitecture': info.dacArchitecture,
+              'driverName': info.driverName,
+              'maxSampleRate': info.maxSampleRate,
+              'preferredBitDepth': info.preferredBitDepth,
+              'supportsDop': info.supportsDop,
+              'supportsNativeDsd': info.supportsNativeDsd,
+              'bitPerfectMixerActive': info.bitPerfectMixerActive,
+              'alsaDirectAccessible': info.alsaDirectAccessible,
+              'directHalActive': info.directHalActive,
+            });
           } catch (e) {
             sendResponse(message, null, e);
           }

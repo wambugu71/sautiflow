@@ -30,6 +30,7 @@
 
 #include "audio_engine.h"
 #include "usb_audio_driver.h"
+#include "dap_hires_driver.h"
 #include "crossfeed_node.h"
 #include "reverb_node.h"
 #include <samplerate.h>
@@ -3560,6 +3561,9 @@ struct AudioEngineHandle
 
     std::atomic<int> configuredBackend{0 /* AE_BACKEND_AUTO */};
     std::atomic<int> activeBackend{0 /* AE_BACKEND_AUTO */};
+    std::atomic<int> dapProfileOverride{-1}; // -1 = Auto-detect, 0 = Generic, 1..N = DapFamily
+    std::atomic<bool> dapBitPerfectMixerActive{false};
+    std::atomic<bool> dapDirectHalActive{false};
     ma_context customContext{};
     bool customContextInit = false;
     void *pAudioTrackSink = nullptr;
@@ -4450,6 +4454,19 @@ extern "C"
     static void restart_and_apply_config(AudioEngineHandle *e);
 }
 
+static inline bool is_audiotrack_family_backend(int bk)
+{
+    return bk == AE_BACKEND_AUDIOTRACK ||
+           bk == AE_BACKEND_DIRECT_HIRES ||
+           bk == AE_BACKEND_DAP_HIRES;
+}
+
+static inline bool is_direct_hires_family_backend(int bk)
+{
+    return bk == AE_BACKEND_DIRECT_HIRES ||
+           bk == AE_BACKEND_DAP_HIRES;
+}
+
 static inline bool dsd_backend_allows_dop(AudioEngineHandle *e)
 {
     if (!e) return false;
@@ -4461,7 +4478,7 @@ static inline bool dsd_backend_allows_dop(AudioEngineHandle *e)
     {
         return e->dopSupported.load(std::memory_order_acquire);
     }
-    return (cfgBk == AE_BACKEND_DIRECT_HIRES);
+    return is_direct_hires_family_backend(cfgBk);
 #else
     return e->exclusiveModeEnabled.load(std::memory_order_acquire);
 #endif
@@ -11009,6 +11026,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
         int encoding = 4; // ENCODING_PCM_FLOAT (4), ENCODING_PCM_24BIT_PACKED (21), ENCODING_PCM_16BIT (2), ENCODING_PCM_32BIT (22)
         size_t framesPerBuffer = 1024;
         bool isDirectHiRes = false;
+        bool isDapHiRes = false;
+        bool bitPerfectMixerActive = false;
+        bool directHalActive = false;
 
         std::vector<float> renderBuffer;
 
@@ -11027,7 +11047,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             floatToIntExact(AE_FORMAT_S32, dst, src, count);
         }
 
-        bool init(AudioEngineHandle* e, int targetSampleRate, int targetChannels, bool wantDirect)
+        bool init(AudioEngineHandle* e, int targetSampleRate, int targetChannels, bool wantDirect, bool wantDapHiRes = false)
         {
             if (g_androidJavaVM == nullptr || e == nullptr)
                 return false;
@@ -11038,7 +11058,14 @@ static void decode_producer_loop(AudioEngineHandle *e)
             this->engine = e;
             this->sampleRate = targetSampleRate > 0 ? targetSampleRate : 48000;
             this->channels = targetChannels > 0 ? targetChannels : 2;
-            this->isDirectHiRes = wantDirect;
+            this->isDirectHiRes = wantDirect || wantDapHiRes;
+            this->isDapHiRes = wantDapHiRes;
+            this->bitPerfectMixerActive = false;
+            this->directHalActive = false;
+
+            const sautiflow::dap::DapDetectionResult dapDetection = wantDapHiRes
+                ? sautiflow::dap::detectCurrentDapProfile(e->dapProfileOverride.load(std::memory_order_relaxed))
+                : sautiflow::dap::DapDetectionResult{};
 
             JNIEnv* env = nullptr;
             bool needsDetach = false;
@@ -11095,6 +11122,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 jmethodID trackSetFmt = env->GetMethodID(trackBuilderClass, "setAudioFormat", "(Landroid/media/AudioFormat;)Landroid/media/AudioTrack$Builder;");
                 jmethodID trackSetBufSize = env->GetMethodID(trackBuilderClass, "setBufferSizeInBytes", "(I)Landroid/media/AudioTrack$Builder;");
                 jmethodID trackSetTransferMode = env->GetMethodID(trackBuilderClass, "setTransferMode", "(I)Landroid/media/AudioTrack$Builder;");
+                jmethodID trackSetPerfMode = env->GetMethodID(trackBuilderClass, "setPerformanceMode", "(I)Landroid/media/AudioTrack$Builder;");
+                if (env->ExceptionCheck()) { env->ExceptionClear(); trackSetPerfMode = nullptr; }
                 jmethodID trackBuild = env->GetMethodID(trackBuilderClass, "build", "()Landroid/media/AudioTrack;");
 
                 if (!attrInit || !attrBuild || !fmtInit || !fmtBuild || !trackInit || !trackBuild)
@@ -11112,14 +11141,108 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (attrSetUsage) env->CallObjectMethod(attrBuilder, attrSetUsage, 1 /* USAGE_MEDIA */);
                 if (attrSetContentType) env->CallObjectMethod(attrBuilder, attrSetContentType, 2 /* CONTENT_TYPE_MUSIC */);
                 jobject attrObj = env->CallObjectMethod(attrBuilder, attrBuild);
+                env->DeleteLocalRef(attrBuilder);
+
+                // Resolve AudioManager & preferred wired/DAP AudioDeviceInfo for Direct HAL routing
+                jobject audioManagerObj = nullptr;
+                jobject preferredDeviceObj = nullptr;
+                jclass audioManagerClass = nullptr;
+                if (wantDirect || wantDapHiRes)
+                {
+                    jclass atClass = env->FindClass("android/app/ActivityThread");
+                    jclass ctxClass = env->FindClass("android/content/Context");
+                    if (atClass && ctxClass)
+                    {
+                        jmethodID curAt = env->GetStaticMethodID(atClass, "currentActivityThread", "()Landroid/app/ActivityThread;");
+                        jmethodID getApp = env->GetMethodID(atClass, "getApplication", "()Landroid/app/Application;");
+                        jfieldID audioSvcFld = env->GetStaticFieldID(ctxClass, "AUDIO_SERVICE", "Ljava/lang/String;");
+                        jmethodID getSysSvc = env->GetMethodID(ctxClass, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+                        if (curAt && getApp && audioSvcFld && getSysSvc)
+                        {
+                            jobject atObj = env->CallStaticObjectMethod(atClass, curAt);
+                            jobject appCtx = atObj ? env->CallObjectMethod(atObj, getApp) : nullptr;
+                            jobject svcName = env->GetStaticObjectField(ctxClass, audioSvcFld);
+                            if (appCtx && svcName)
+                            {
+                                audioManagerObj = env->CallObjectMethod(appCtx, getSysSvc, svcName);
+                            }
+                            if (svcName) env->DeleteLocalRef(svcName);
+                            if (appCtx) env->DeleteLocalRef(appCtx);
+                            if (atObj) env->DeleteLocalRef(atObj);
+                        }
+                    }
+                    if (atClass) env->DeleteLocalRef(atClass);
+                    if (ctxClass) env->DeleteLocalRef(ctxClass);
+                    if (env->ExceptionCheck()) env->ExceptionClear();
+
+                    if (audioManagerObj)
+                    {
+                        audioManagerClass = env->FindClass("android/media/AudioManager");
+                        if (audioManagerClass)
+                        {
+                            // Apply vendor DAP AudioManager parameter hint if present (e.g., hifi_dac=on, hiby_direct=on)
+                            if (wantDapHiRes && dapDetection.profile.audioManagerParams != nullptr && dapDetection.profile.audioManagerParams[0] != '\0')
+                            {
+                                jmethodID setParamsMethod = env->GetMethodID(audioManagerClass, "setParameters", "(Ljava/lang/String;)V");
+                                if (setParamsMethod)
+                                {
+                                    jstring paramStr = env->NewStringUTF(dapDetection.profile.audioManagerParams);
+                                    if (paramStr)
+                                    {
+                                        env->CallVoidMethod(audioManagerObj, setParamsMethod, paramStr);
+                                        env->DeleteLocalRef(paramStr);
+                                    }
+                                }
+                                if (env->ExceptionCheck()) env->ExceptionClear();
+                            }
+
+                            jmethodID getDevicesMethod = env->GetMethodID(audioManagerClass, "getDevices", "(I)[Landroid/media/AudioDeviceInfo;");
+                            jclass devInfoClass = env->FindClass("android/media/AudioDeviceInfo");
+                            jmethodID getTypeMethod = devInfoClass ? env->GetMethodID(devInfoClass, "getType", "()I") : nullptr;
+                            if (getDevicesMethod && devInfoClass && getTypeMethod)
+                            {
+                                jobjectArray devArr = (jobjectArray)env->CallObjectMethod(audioManagerObj, getDevicesMethod, 2 /* GET_DEVICES_OUTPUTS */);
+                                if (devArr)
+                                {
+                                    jsize len = env->GetArrayLength(devArr);
+                                    int bestPrio = -1;
+                                    for (jsize i = 0; i < len; ++i)
+                                    {
+                                        jobject d = env->GetObjectArrayElement(devArr, i);
+                                        if (!d) continue;
+                                        int t = env->CallIntMethod(d, getTypeMethod);
+                                        int prio = 0;
+                                        if (t == 3 || t == 4) prio = 5;        // TYPE_WIRED_HEADSET / TYPE_WIRED_HEADPHONES
+                                        else if (t == 5 || t == 19) prio = 4;  // TYPE_LINE_ANALOG / TYPE_AUX_LINE
+                                        else if (t == 22 || t == 11) prio = 3; // TYPE_USB_HEADSET / TYPE_USB_DEVICE
+                                        else if (t == 2) prio = 1;             // TYPE_BUILTIN_SPEAKER
+                                        if (prio > bestPrio)
+                                        {
+                                            bestPrio = prio;
+                                            if (preferredDeviceObj) env->DeleteLocalRef(preferredDeviceObj);
+                                            preferredDeviceObj = d;
+                                        }
+                                        else
+                                        {
+                                            env->DeleteLocalRef(d);
+                                        }
+                                    }
+                                    env->DeleteLocalRef(devArr);
+                                }
+                            }
+                            if (devInfoClass) env->DeleteLocalRef(devInfoClass);
+                            if (env->ExceptionCheck()) env->ExceptionClear();
+                        }
+                    }
+                }
 
                 // Candidate encodings:
-                // Hardware DSPs (Qualcomm Hexagon, MediaTek HiFi, Exynos) require integer PCM on direct_pcm HAL profiles.
+                // Hardware DSPs (Qualcomm Hexagon, MediaTek HiFi, Exynos) & DAP DACs require integer PCM on direct_pcm HAL profiles.
                 // 21 = ENCODING_PCM_24BIT_PACKED, 22 = ENCODING_PCM_32BIT, 4 = ENCODING_PCM_FLOAT, 2 = ENCODING_PCM_16BIT, 3 = ENCODING_PCM_8BIT
                 std::vector<int> candidates;
                 const AEAudioFormat reqFmt = (this->engine != nullptr) ? this->engine->outputFormat : AE_FORMAT_F32;
                 const bool explicitFmt = (this->engine != nullptr) && this->engine->userOutputFormatExplicit.load(std::memory_order_relaxed);
-                const bool wantDopTrack = wantDirect && (this->engine != nullptr) &&
+                const bool wantDopTrack = (wantDirect || wantDapHiRes) && (this->engine != nullptr) &&
                                           (this->engine->activeDsdMode.load(std::memory_order_acquire) == AE_DSD_MODE_DOP);
                 if (wantDopTrack)
                 {
@@ -11145,12 +11268,22 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         break;
                     case AE_FORMAT_F32:
                     default:
-                        if (wantDirect)
+                        if (wantDapHiRes)
+                            candidates = dapDetection.profile.preferInt32
+                                ? std::vector<int>{22 /* 32-bit int */, 21 /* 24-bit packed */, 4 /* float */, 2 /* 16-bit */}
+                                : std::vector<int>{21 /* 24-bit packed */, 22 /* 32-bit int */, 4 /* float */, 2 /* 16-bit */};
+                        else if (wantDirect)
                             candidates = {4 /* float */, 21 /* 24-bit packed */, 22 /* 32-bit int */, 2 /* 16-bit */};
                         else
                             candidates = {4 /* float */, 2 /* 16-bit */};
                         break;
                     }
+                }
+                else if (wantDapHiRes)
+                {
+                    candidates = dapDetection.profile.preferInt32
+                        ? std::vector<int>{22 /* 32-bit int */, 21 /* 24-bit packed */, 4 /* float */, 2 /* 16-bit */}
+                        : std::vector<int>{21 /* 24-bit packed */, 22 /* 32-bit int */, 4 /* float */, 2 /* 16-bit */};
                 }
                 else if (wantDirect)
                 {
@@ -11161,8 +11294,88 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     candidates = {4 /* float */, 2 /* 16-bit */};
                 }
 
+                // On Android 14+ (API 34+), attempt MIXER_BEHAVIOR_BIT_PERFECT via AudioManager.setPreferredMixerAttributes
+                if (wantDapHiRes && dapDetection.profile.preferApi34BitPerfect && audioManagerObj && audioManagerClass && preferredDeviceObj)
+                {
+                    jmethodID getSuppMixerMethod = env->GetMethodID(
+                        audioManagerClass,
+                        "getSupportedMixerAttributes",
+                        "(Landroid/media/AudioDeviceInfo;)Ljava/util/List;");
+                    jmethodID setPrefMixerMethod = env->GetMethodID(
+                        audioManagerClass,
+                        "setPreferredMixerAttributes",
+                        "(Landroid/media/AudioAttributes;Landroid/media/AudioDeviceInfo;Landroid/media/AudioMixerAttributes;)Z");
+                    if (env->ExceptionCheck())
+                    {
+                        env->ExceptionClear();
+                        getSuppMixerMethod = nullptr;
+                        setPrefMixerMethod = nullptr;
+                    }
+                    if (getSuppMixerMethod && setPrefMixerMethod)
+                    {
+                        jobject listObj = env->CallObjectMethod(audioManagerObj, getSuppMixerMethod, preferredDeviceObj);
+                        if (listObj && !env->ExceptionCheck())
+                        {
+                            jclass listClass = env->FindClass("java/util/List");
+                            jclass mixerAttrClass = env->FindClass("android/media/AudioMixerAttributes");
+                            jclass audioFmtClass = env->FindClass("android/media/AudioFormat");
+                            if (listClass && mixerAttrClass && audioFmtClass)
+                            {
+                                jmethodID listSize = env->GetMethodID(listClass, "size", "()I");
+                                jmethodID listGet = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
+                                jmethodID getBehavior = env->GetMethodID(mixerAttrClass, "getMixerBehavior", "()I");
+                                jmethodID getFormat = env->GetMethodID(mixerAttrClass, "getFormat", "()Landroid/media/AudioFormat;");
+                                jmethodID getRate = env->GetMethodID(audioFmtClass, "getSampleRate", "()I");
+                                if (listSize && listGet && getBehavior && getFormat && getRate)
+                                {
+                                    jint n = env->CallIntMethod(listObj, listSize);
+                                    jobject chosenMixerAttr = nullptr;
+                                    for (jint idx = 0; idx < n; ++idx)
+                                    {
+                                        jobject item = env->CallObjectMethod(listObj, listGet, idx);
+                                        if (!item) continue;
+                                        int behavior = env->CallIntMethod(item, getBehavior);
+                                        if (behavior == 1 /* MIXER_BEHAVIOR_BIT_PERFECT */)
+                                        {
+                                            jobject mFmt = env->CallObjectMethod(item, getFormat);
+                                            int mRate = mFmt ? env->CallIntMethod(mFmt, getRate) : 0;
+                                            if (mFmt) env->DeleteLocalRef(mFmt);
+                                            if (mRate == sampleRate || chosenMixerAttr == nullptr)
+                                            {
+                                                if (chosenMixerAttr) env->DeleteLocalRef(chosenMixerAttr);
+                                                chosenMixerAttr = item;
+                                                if (mRate == sampleRate) break;
+                                                continue;
+                                            }
+                                        }
+                                        env->DeleteLocalRef(item);
+                                    }
+                                    if (chosenMixerAttr)
+                                    {
+                                        jboolean applied = env->CallBooleanMethod(
+                                            audioManagerObj, setPrefMixerMethod, attrObj, preferredDeviceObj, chosenMixerAttr);
+                                        if (!env->ExceptionCheck() && applied == JNI_TRUE)
+                                        {
+                                            this->bitPerfectMixerActive = true;
+                                            engine_log("DAP Hi-Res: Android 14+ MIXER_BEHAVIOR_BIT_PERFECT enabled @ %d Hz", sampleRate);
+                                        }
+                                        env->DeleteLocalRef(chosenMixerAttr);
+                                    }
+                                }
+                            }
+                            if (listClass) env->DeleteLocalRef(listClass);
+                            if (mixerAttrClass) env->DeleteLocalRef(mixerAttrClass);
+                            if (audioFmtClass) env->DeleteLocalRef(audioFmtClass);
+                            env->DeleteLocalRef(listObj);
+                        }
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                    }
+                }
+                if (audioManagerClass) env->DeleteLocalRef(audioManagerClass);
+                if (audioManagerObj) env->DeleteLocalRef(audioManagerObj);
+
                 jmethodID isDirectMethod = nullptr;
-                if (wantDirect)
+                if (wantDirect || wantDapHiRes)
                 {
                     isDirectMethod = env->GetStaticMethodID(trackClass, "isDirectPlaybackSupported", "(Landroid/media/AudioFormat;Landroid/media/AudioAttributes;)Z");
                     if (env->ExceptionCheck())
@@ -11174,7 +11387,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 int chosenEncoding = candidates[0];
                 bool directSupportedFound = false;
-                if (wantDirect && isDirectMethod)
+                if ((wantDirect || wantDapHiRes) && isDirectMethod)
                 {
                     for (int cand : candidates)
                     {
@@ -11197,9 +11410,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         }
                     }
                 }
-                if (wantDopTrack && !directSupportedFound)
+                if (wantDopTrack && !directSupportedFound && !wantDapHiRes)
                 {
                     engine_log("AndroidAudioTrackSink: Direct playback not supported for DoP rate=%d -> fallback", sampleRate);
+                    if (preferredDeviceObj) env->DeleteLocalRef(preferredDeviceObj);
                     env->DeleteLocalRef(attrObj);
                     break;
                 }
@@ -11233,8 +11447,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         if (query > 0) minBufSize = query;
                     }
 
-                    int targetBufSize = minBufSize * 2;
-                    if (wantDirect && targetBufSize < 32768) targetBufSize = 32768;
+                    int targetBufSize = minBufSize * (wantDapHiRes ? 4 : 2);
+                    if (wantDapHiRes && targetBufSize < dapDetection.profile.minDirectBufferBytes)
+                        targetBufSize = dapDetection.profile.minDirectBufferBytes;
+                    else if (wantDirect && targetBufSize < 32768) targetBufSize = 32768;
                     else if (targetBufSize < 8192) targetBufSize = 8192;
 
                     jobject tBuilder = env->NewObject(trackBuilderClass, trackInit);
@@ -11242,6 +11458,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     if (trackSetFmt) env->CallObjectMethod(tBuilder, trackSetFmt, fObj);
                     if (trackSetBufSize) env->CallObjectMethod(tBuilder, trackSetBufSize, targetBufSize);
                     if (trackSetTransferMode) env->CallObjectMethod(tBuilder, trackSetTransferMode, 1 /* MODE_STREAM */);
+                    if ((wantDirect || wantDapHiRes) && trackSetPerfMode)
+                        env->CallObjectMethod(tBuilder, trackSetPerfMode, 0 /* PERFORMANCE_MODE_NONE - avoid 48kHz fast mixer */);
 
                     localTrack = env->CallObjectMethod(tBuilder, trackBuild);
                     env->DeleteLocalRef(tBuilder);
@@ -11263,8 +11481,28 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 if (!localTrack)
                 {
+                    if (preferredDeviceObj) env->DeleteLocalRef(preferredDeviceObj);
                     engine_log("Failed to build AudioTrack via Builder for any encoding candidate");
                     break;
+                }
+
+                if (preferredDeviceObj)
+                {
+                    jmethodID setPrefDev = env->GetMethodID(trackClass, "setPreferredDevice", "(Landroid/media/AudioDeviceInfo;)Z");
+                    if (setPrefDev)
+                    {
+                        env->CallBooleanMethod(localTrack, setPrefDev, preferredDeviceObj);
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                    }
+                    env->DeleteLocalRef(preferredDeviceObj);
+                    preferredDeviceObj = nullptr;
+                }
+
+                this->directHalActive = directSupportedFound || this->bitPerfectMixerActive || wantDapHiRes;
+                if (this->engine)
+                {
+                    this->engine->dapBitPerfectMixerActive.store(this->bitPerfectMixerActive, std::memory_order_release);
+                    this->engine->dapDirectHalActive.store(this->directHalActive, std::memory_order_release);
                 }
 
                 audioTrackObj = env->NewGlobalRef(localTrack);
@@ -12093,8 +12331,7 @@ extern "C"
                 reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->start();
             }
             else if (e->pAudioTrackSink != nullptr &&
-                     (e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_AUDIOTRACK ||
-                      e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_DIRECT_HIRES))
+                     is_audiotrack_family_backend(e->activeBackend.load(std::memory_order_relaxed)))
             {
                 reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->start();
             }
@@ -12158,8 +12395,7 @@ extern "C"
             reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->stop();
         }
         else if (e->pAudioTrackSink != nullptr &&
-                 (e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_AUDIOTRACK ||
-                  e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_DIRECT_HIRES))
+                 is_audiotrack_family_backend(e->activeBackend.load(std::memory_order_relaxed)))
         {
             reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->stop();
         }
@@ -14229,7 +14465,7 @@ extern "C"
             bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
                                  e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
 #if defined(_WIN32)
-            if (e->configuredBackend.load(std::memory_order_relaxed) == AE_BACKEND_DIRECT_HIRES)
+            if (is_direct_hires_family_backend(e->configuredBackend.load(std::memory_order_relaxed)))
             {
                 wantExclusive = true;
             }
@@ -14412,14 +14648,15 @@ extern "C"
                 }
             }
 
-            if (!initOk && (targetBackend == AE_BACKEND_AUDIOTRACK || targetBackend == AE_BACKEND_DIRECT_HIRES))
+            if (!initOk && is_audiotrack_family_backend(targetBackend))
             {
                 if (e->pAudioTrackSink == nullptr)
                 {
                     e->pAudioTrackSink = new AndroidAudioTrackSink();
                 }
                 auto *sink = reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink);
-                bool wantDirect = (targetBackend == AE_BACKEND_DIRECT_HIRES);
+                bool wantDapHiRes = (targetBackend == AE_BACKEND_DAP_HIRES);
+                bool wantDirect = is_direct_hires_family_backend(targetBackend);
 
                 if (isDsdTrackRestart)
                 {
@@ -14439,7 +14676,7 @@ extern "C"
                         e->device.playback.channels = (ma_uint32)newCh;
                         e->device.sampleRate = (ma_uint32)dopRate;
                         e->device.pUserData = e;
-                        if (sink->init(e, dopRate, newCh, true) &&
+                        if (sink->init(e, dopRate, newCh, true, wantDapHiRes) &&
                             (sink->encoding == 21 || sink->encoding == 22) &&
                             sink->sampleRate == dopRate)
                         {
@@ -14447,7 +14684,8 @@ extern "C"
                             e->device.playback.format = (sink->encoding == 21) ? ma_format_s24 : ma_format_s32;
                             e->device.sampleRate = (ma_uint32)sink->sampleRate;
                             e->activeBackend.store(targetBackend, std::memory_order_release);
-                            engine_log("AudioTrack DoP sink initialized (rate=%d, enc=%d)", sink->sampleRate, sink->encoding);
+                            engine_log("AudioTrack DoP sink initialized (rate=%d, enc=%d, dap=%s)",
+                                       sink->sampleRate, sink->encoding, wantDapHiRes ? "true" : "false");
                         }
                         else
                         {
@@ -14470,11 +14708,12 @@ extern "C"
                         e->device.playback.channels = (ma_uint32)newCh;
                         e->device.sampleRate = (ma_uint32)targetRate;
                         e->device.pUserData = e;
-                        if (sink->init(e, targetRate, newCh, wantDirect))
+                        if (sink->init(e, targetRate, newCh, wantDirect, wantDapHiRes))
                         {
                             initOk = true;
                             e->activeBackend.store(targetBackend, std::memory_order_release);
-                            engine_log("AudioTrack D2P sink initialized (direct=%s, rate=%d)", wantDirect ? "true" : "false", targetRate);
+                            engine_log("AudioTrack D2P sink initialized (direct=%s, dap=%s, rate=%d)",
+                                       wantDirect ? "true" : "false", wantDapHiRes ? "true" : "false", targetRate);
                         }
                         else
                         {
@@ -14486,17 +14725,18 @@ extern "C"
                 {
                     int targetRate = (wantDirect && e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit;
 
-                    // AudioTrack sink internally consumes float PCM from data_callback and converts to S24 packed if required
+                    // AudioTrack sink internally consumes float PCM from data_callback and converts to S24/S32 if required
                     e->device.playback.format = ma_format_f32;
                     e->device.playback.channels = (ma_uint32)newCh;
                     e->device.sampleRate = (ma_uint32)targetRate;
                     e->device.pUserData = e;
 
-                    if (sink->init(e, targetRate, newCh, wantDirect))
+                    if (sink->init(e, targetRate, newCh, wantDirect, wantDapHiRes))
                     {
                         initOk = true;
                         e->activeBackend.store(targetBackend, std::memory_order_release);
-                        engine_log("AudioTrack sink initialized successfully (direct=%s, rate=%d)", wantDirect ? "true" : "false", targetRate);
+                        engine_log("AudioTrack sink initialized successfully (direct=%s, dap=%s, rate=%d)",
+                                   wantDirect ? "true" : "false", wantDapHiRes ? "true" : "false", targetRate);
                     }
                     else
                     {
@@ -14933,8 +15173,7 @@ extern "C"
                     reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->start();
                 }
                 else if (e->pAudioTrackSink != nullptr &&
-                         (e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_AUDIOTRACK ||
-                          e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_DIRECT_HIRES))
+                         is_audiotrack_family_backend(e->activeBackend.load(std::memory_order_relaxed)))
                 {
                     reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->start();
                 }
@@ -15145,21 +15384,21 @@ extern "C"
         {
             return (g_androidJavaVM != nullptr) ? 1 : 0;
         }
-        if (backend == AE_BACKEND_DIRECT_HIRES)
+        if (backend == AE_BACKEND_DIRECT_HIRES || backend == AE_BACKEND_DAP_HIRES)
         {
             return (g_androidJavaVM != nullptr) ? 1 : 0;
         }
         return 0;
 #elif defined(_WIN32)
-        if (backend == AE_BACKEND_DIRECT_HIRES)
+        if (backend == AE_BACKEND_DIRECT_HIRES || backend == AE_BACKEND_DAP_HIRES)
             return 1;
         return 0;
 #elif defined(__APPLE__)
-        if (backend == AE_BACKEND_DIRECT_HIRES)
+        if (backend == AE_BACKEND_DIRECT_HIRES || backend == AE_BACKEND_DAP_HIRES)
             return 1;
         return 0;
 #elif defined(__linux__)
-        if (backend == AE_BACKEND_DIRECT_HIRES)
+        if (backend == AE_BACKEND_DIRECT_HIRES || backend == AE_BACKEND_DAP_HIRES)
             return 1;
         return 0;
 #else
@@ -15171,7 +15410,7 @@ extern "C"
     {
         if (!engine)
             return 0;
-        if (backend < 0 || backend > AE_BACKEND_USB_DIRECT)
+        if (backend < 0 || backend > AE_BACKEND_DAP_HIRES)
             return 0;
 
         if (!ae_is_backend_supported(engine, backend))
@@ -18366,7 +18605,7 @@ extern "C"
                 info.is_float = (usbSink->wireFormat == AE_FORMAT_F32) ? 1 : 0;
             }
             else if (engine->pAudioTrackSink != nullptr &&
-                     (activeBkForHw == AE_BACKEND_AUDIOTRACK || activeBkForHw == AE_BACKEND_DIRECT_HIRES))
+                     is_audiotrack_family_backend(activeBkForHw))
             {
                 auto* sink = reinterpret_cast<AndroidAudioTrackSink*>(engine->pAudioTrackSink);
                 info.sample_rate = sink->sampleRate;
@@ -18380,7 +18619,7 @@ extern "C"
                     info.period_size_frames = (uint32_t)userFramesAT;
                     if (userPeriodsAT > 0) info.period_count = (uint32_t)userPeriodsAT;
                 }
-                info.is_exclusive_mode = (activeBkForHw == AE_BACKEND_DIRECT_HIRES) ? 1 : 0;
+                info.is_exclusive_mode = is_direct_hires_family_backend(activeBkForHw) ? 1 : 0;
 
                 AEAudioFormat effectiveAtFmt = engine->outputFormat;
                 if (!engine->userOutputFormatExplicit.load(std::memory_order_relaxed))
@@ -18515,7 +18754,13 @@ extern "C"
                 info.is_exclusive_mode = 1;
             }
             else
-            if (activeBk == AE_BACKEND_DIRECT_HIRES)
+            if (activeBk == AE_BACKEND_DAP_HIRES)
+            {
+                std::strncpy(info.backend_name, "DAP Hi-Res", sizeof(info.backend_name) - 1);
+                info.is_direct_pcm = 1;
+                info.is_exclusive_mode = 1;
+            }
+            else if (activeBk == AE_BACKEND_DIRECT_HIRES)
             {
                 std::strncpy(info.backend_name, "Direct Hi-Res", sizeof(info.backend_name) - 1);
                 info.is_direct_pcm = 1;
@@ -18577,9 +18822,24 @@ extern "C"
                 info.is_direct_pcm = 1;
                 info.is_exclusive_mode = 1;
             }
-            if (activeBk == AE_BACKEND_DIRECT_HIRES)
+            if (activeBk == AE_BACKEND_DIRECT_HIRES || activeBk == AE_BACKEND_DAP_HIRES)
             {
                 info.is_direct_pcm = 1;
+            }
+            if (activeBk == AE_BACKEND_DAP_HIRES)
+            {
+                info.is_exclusive_mode = 1;
+                const auto dapDet = sautiflow::dap::detectCurrentDapProfile(
+                    engine->dapProfileOverride.load(std::memory_order_relaxed));
+                std::snprintf(
+                    info.dsp_hardware,
+                    sizeof(info.dsp_hardware),
+                    "%s • %s (%s)",
+                    dapDet.profile.modelName,
+                    dapDet.profile.dacArchitecture,
+                    engine->dapBitPerfectMixerActive.load(std::memory_order_relaxed)
+                        ? "Bit-Perfect Mixer"
+                        : "Direct HAL");
             }
 #endif
             {
@@ -18614,6 +18874,54 @@ extern "C"
         }
 
         return info;
+    }
+
+    AE_API AEDapInfo ae_get_dap_info(AudioEngineHandle *engine)
+    {
+        AEDapInfo out;
+        std::memset(&out, 0, sizeof(AEDapInfo));
+        const int overrideFamily = engine
+            ? engine->dapProfileOverride.load(std::memory_order_relaxed)
+            : -1;
+        const auto det = sautiflow::dap::detectCurrentDapProfile(overrideFamily);
+        out.is_dap_detected = det.isDapDetected ? 1 : 0;
+        out.dap_family = static_cast<int>(det.profile.family);
+        std::strncpy(out.vendor_name, det.profile.vendorName, sizeof(out.vendor_name) - 1);
+        std::strncpy(out.model_name, det.profile.modelName, sizeof(out.model_name) - 1);
+        std::strncpy(out.dac_architecture, det.profile.dacArchitecture, sizeof(out.dac_architecture) - 1);
+        std::strncpy(out.driver_name, det.profile.driverName, sizeof(out.driver_name) - 1);
+        out.max_sample_rate = det.profile.maxSampleRate;
+        out.preferred_bit_depth = det.profile.preferredBitDepth;
+        out.supports_dop = det.profile.supportsDop ? 1 : 0;
+        out.supports_native_dsd = det.profile.supportsNativeDsd ? 1 : 0;
+        out.alsa_direct_accessible = det.alsaDirectAccessible ? 1 : 0;
+        if (engine)
+        {
+            out.bit_perfect_mixer_active = engine->dapBitPerfectMixerActive.load(std::memory_order_relaxed) ? 1 : 0;
+            out.direct_hal_active = engine->dapDirectHalActive.load(std::memory_order_relaxed) ? 1 : 0;
+        }
+        return out;
+    }
+
+    AE_API int ae_set_dap_driver_profile(AudioEngineHandle *engine, int family_id)
+    {
+        if (!engine)
+            return 0;
+        if (family_id < -1 || family_id > static_cast<int>(sautiflow::dap::DapFamily::OnkyoPioneer))
+            return 0;
+        engine->dapProfileOverride.store(family_id, std::memory_order_relaxed);
+        if (engine->configuredBackend.load(std::memory_order_relaxed) == AE_BACKEND_DAP_HIRES)
+        {
+            restart_and_apply_config(engine);
+        }
+        return 1;
+    }
+
+    AE_API int ae_get_dap_driver_profile(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return -1;
+        return engine->dapProfileOverride.load(std::memory_order_relaxed);
     }
 
     AE_API void ae_set_loudness_meter_enabled(AudioEngineHandle *engine, int enabled)

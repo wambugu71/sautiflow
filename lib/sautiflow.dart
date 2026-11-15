@@ -15,6 +15,8 @@ export 'audio_engine_ffi.dart'
         TrackNativeInfo,
         AEHardwareInfo,
         AudioOutputBackend,
+        DapFamily,
+        AEDapInfo,
         CrossfeedAlgorithm,
         CrossfeedParams,
         AEResamplingPolicyInfo,

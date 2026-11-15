@@ -1018,12 +1018,19 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (engine.dacValidBitDepth > 0) {
       _player.setDacValidBitDepth(engine.dacValidBitDepth);
     }
-    if (Platform.isAndroid && engine.outputBackend > 0) {
-      final savedBackend = AudioOutputBackend.fromInt(engine.outputBackend);
-      if (savedBackend == AudioOutputBackend.usbDirect) {
-        await _player.requestUsbDacPermission();
+    if (Platform.isAndroid) {
+      final savedDapFamily =
+          await AppStateService.instance.loadDapDriverProfile();
+      if (savedDapFamily != -1) {
+        _player.setDapDriverProfile(DapFamily.fromInt(savedDapFamily));
       }
-      _player.setOutputBackend(savedBackend);
+      if (engine.outputBackend > 0) {
+        final savedBackend = AudioOutputBackend.fromInt(engine.outputBackend);
+        if (savedBackend == AudioOutputBackend.usbDirect) {
+          await _player.requestUsbDacPermission();
+        }
+        _player.setOutputBackend(savedBackend);
+      }
     }
     _player.setExclusiveMode(_exclusiveMode);
     _player.setCrossfadeEnabled(_crossfadeEnabled);

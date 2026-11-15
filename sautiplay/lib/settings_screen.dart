@@ -2484,6 +2484,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
             const SizedBox(height: 20),
+            _buildSectionHeader('DEDICATED DAP HI-RES DRIVER'),
+            const SizedBox(height: 8),
+            FutureBuilder<(AEDapInfo, DapFamily)>(
+              future: Future.wait([
+                widget.player.getDapInfo(),
+                widget.player.getDapDriverProfile(),
+              ]).then((res) => (res[0] as AEDapInfo, res[1] as DapFamily)),
+              builder: (_, snap) {
+                final dapInfo = snap.data?.$1 ?? const AEDapInfo();
+                final currentProfile = snap.data?.$2 ?? DapFamily.autoDetect;
+                final isDapBackend =
+                    _selectedBackend == AudioOutputBackend.dapHiRes;
+                final maxRateKhz = (dapInfo.maxSampleRate / 1000.0)
+                    .toStringAsFixed(dapInfo.maxSampleRate % 1000 == 0 ? 0 : 1);
+                final statusBadges = <String>[
+                  if (dapInfo.isDapDetected) 'Detected: ${dapInfo.modelName}',
+                  if (dapInfo.bitPerfectMixerActive) 'API 34+ Bit-Perfect Mixer',
+                  if (dapInfo.directHalActive) 'Direct HAL Active',
+                  if (dapInfo.alsaDirectAccessible) 'ALSA Direct Ready',
+                ];
+                return _buildCardContainer(
+                  children: [
+                    _buildM3ESwitchTile(
+                      title: 'Dedicated DAP Hi-Res Driver',
+                      subtitle: isDapBackend
+                          ? '${dapInfo.driverName} • ${dapInfo.dacArchitecture} (${dapInfo.preferredBitDepth}-bit / $maxRateKhz kHz)'
+                          : 'Enable dedicated bit-perfect driver for FiiO, HiBy, iBasso, Shanling, Sony Walkman, Cayin, Astell&Kern & LG Quad DAC',
+                      secondary: _buildLeadingIcon(
+                        Icons.speaker_group_rounded,
+                        isDapBackend ? Colors.tealAccent : _primary,
+                      ),
+                      value: isDapBackend,
+                      onChanged: (val) async {
+                        final target = val
+                            ? AudioOutputBackend.dapHiRes
+                            : AudioOutputBackend.auto;
+                        widget.player.setOutputBackend(target);
+                        await AppStateService.instance
+                            .saveOutputBackend(target.value);
+                        setState(() => _selectedBackend = target);
+                        setSubState(() {});
+                        await AudioHardwareInspector.inspectAsync(
+                            widget.player);
+                      },
+                    ),
+                    const M3EDivider(),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
+                      leading: _buildLeadingIcon(
+                        Icons.tune_rounded,
+                        _primary,
+                      ),
+                      title: const Text('DAP Hardware Profile'),
+                      subtitle: Text(
+                        statusBadges.isNotEmpty
+                            ? '${currentProfile.label}\n${statusBadges.join(' • ')}'
+                            : currentProfile.label,
+                        style: TextStyle(
+                          color: _textDark,
+                          fontSize: 12,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => _showDapProfileDialog(context, setSubState),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 20),
             _buildSectionHeader('SPEAKER & EAR PROTECTION'),
             const SizedBox(height: 8),
             _buildCardContainer(
@@ -7420,6 +7491,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Icons.verified_rounded,
       ),
       (
+        AudioOutputBackend.dapHiRes,
+        'DAP Hi-Res Driver (Selected Players)',
+        'Dedicated bit-perfect HAL & Android 14+ Bit-Perfect Mixer for FiiO, HiBy, iBasso, Shanling, Sony Walkman, Cayin, Astell&Kern & LG Quad DAC',
+        Icons.audiotrack_rounded,
+      ),
+      (
         AudioOutputBackend.usbDirect,
         'USB Direct (libusb Bit-Perfect)',
         'Userspace libusb UAC 1.0/2.0 driver. Bypasses Android AudioFlinger & kernel HAL for native 32-bit / 384–768 kHz USB DAC playback',
@@ -7506,6 +7583,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (v) {
                     setDlgState(() {});
                     selectBackend(v, ctx);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDapProfileDialog(
+      BuildContext context, StateSetter setSubState) async {
+    final current = await widget.player.getDapDriverProfile();
+    if (!context.mounted) return;
+    final families = DapFamily.values;
+
+    Future<void> selectProfile(DapFamily selected, BuildContext dlgCtx) async {
+      widget.player.setDapDriverProfile(selected);
+      await AppStateService.instance.saveDapDriverProfile(selected.value);
+      setSubState(() {});
+      if (mounted) setState(() {});
+      await AudioHardwareInspector.inspectAsync(widget.player);
+      if (dlgCtx.mounted) Navigator.pop(dlgCtx);
+    }
+
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'DAP Hi-Res Hardware Profile',
+          subtitle:
+              'Auto-detects your Digital Audio Player or locks a dedicated DAC/HAL profile',
+          height: MediaQuery.of(context).size.height * 0.72,
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: families.length,
+            onTap: (index) {
+              setDlgState(() {});
+              selectProfile(families[index], ctx);
+            },
+            itemBuilder: (context, index) {
+              final fam = families[index];
+              final isSelected = fam == current;
+              return M3EListItem(
+                leading: Icon(
+                  fam == DapFamily.autoDetect
+                      ? Icons.auto_awesome_rounded
+                      : Icons.audiotrack_rounded,
+                  color: isSelected ? _primary : _textDark,
+                  size: 22,
+                ),
+                headline: fam.label,
+                selected: isSelected,
+                trailing: M3ERadio<DapFamily>(
+                  value: fam,
+                  groupValue: current,
+                  onChanged: (v) {
+                    setDlgState(() {});
+                    selectProfile(v, ctx);
                   },
                 ),
               );
