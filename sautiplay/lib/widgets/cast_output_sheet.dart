@@ -110,7 +110,7 @@ Future<void> showAddManualCastIpDialog(
   }
 }
 
-/// Shared selector card for Cast / DLNA audio delivery mode and sample-rate
+/// Shared selector card for Cast and DLNA audio delivery mode and sample-rate
 /// ceiling (`192 kHz`, `96 kHz`, `48 kHz`).
 class CastModeAndRateCard extends StatelessWidget {
   const CastModeAndRateCard({super.key});
@@ -179,43 +179,31 @@ class CastModeAndRateCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 mode == CastAudioMode.bitPerfect
-                    ? 'Direct original file pass-through up to ${maxRate.label}; auto-uses DSP-bypassed 24-bit WAV for DSD, float, >${maxRate.label}, CUE slices & ALAC.'
-                    : 'Streams live 24-bit LPCM WAV post-DSP (EQ, Crossfeed, Surround, Limiter & Loudness preserved up to ${maxRate.label}).',
+                    ? 'Original file up to ${maxRate.label}. Uses 24-bit WAV (no DSP) for DSD, float, CUE, or ALAC.'
+                    : 'Live 24-bit LPCM WAV up to ${maxRate.label} with EQ, crossfeed, surround, and limiter.',
                 style: TextStyle(color: theme.textDark, fontSize: 11.5),
               ),
               const SizedBox(height: 12),
-              Row(
+              Text(
+                'Sample-Rate Ceiling',
+                style: TextStyle(
+                  color: theme.textDark,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  Text(
-                    'Sample-Rate Ceiling:',
-                    style: TextStyle(
-                      color: theme.textDark,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  for (final rate in CastMaxSampleRate.values) ...[
-                    const SizedBox(width: 6),
-                    ChoiceChip(
-                      label: Text(
-                        rate.label,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: maxRate == rate
-                              ? Colors.black
-                              : Colors.white.withAlpha(220),
-                        ),
-                      ),
+                  for (final rate in CastMaxSampleRate.values)
+                    M3EChip(
+                      label: rate.label,
+                      type: M3EChipType.filter,
                       selected: maxRate == rate,
-                      selectedColor: theme.primary,
-                      backgroundColor: Colors.white.withAlpha(14),
-                      side: BorderSide.none,
-                      visualDensity: VisualDensity.compact,
-                      onSelected: (_) => cast.setMaxSampleRate(rate),
+                      onPressed: () => cast.setMaxSampleRate(rate),
                     ),
-                  ],
                 ],
               ),
             ],
@@ -358,9 +346,9 @@ class _CastOutputSheetState extends State<_CastOutputSheet> {
                 children: [
                   Center(
                     child: Container(
-                      width: 36,
+                      width: 38,
                       height: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin: const EdgeInsets.only(bottom: 14),
                       decoration: BoxDecoration(
                         color: Colors.white24,
                         borderRadius: BorderRadius.circular(2),
@@ -369,57 +357,101 @@ class _CastOutputSheetState extends State<_CastOutputSheet> {
                   ),
                   Row(
                     children: [
-                      Icon(Icons.cast_connected_rounded,
-                          color: theme.primary, size: 22),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: Text(
-                          'Cast Output',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                          ),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: theme.primary.withAlpha(35),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.cast_connected_rounded,
+                          color: theme.primary,
+                          size: 20,
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Add Cast IP manually',
-                        icon: Icon(Icons.add_link_rounded, color: theme.primary),
-                        onPressed: () => showAddManualCastIpDialog(context),
-                      ),
-                      if (isScanning)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          child: SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: theme.primary,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Cast Output',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
-                          ),
-                        )
-                      else
-                        IconButton(
-                          tooltip: 'Scan network',
-                          icon: Icon(Icons.refresh_rounded, color: theme.primary),
-                          onPressed: _rescan,
+                            Text(
+                              'Chromecast and DLNA',
+                              style: TextStyle(
+                                color: theme.textDark,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ),
+                      ),
+                      Tooltip(
+                        message: 'Add Cast IP manually',
+                        child: M3EIconButton(
+                          variant: M3EIconButtonVariant.tonal,
+                          icon: Icon(
+                            Icons.add_link_rounded,
+                            color: theme.primary,
+                          ),
+                          onPressed: () => showAddManualCastIpDialog(context),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: Center(
+                          child: isScanning
+                              ? SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: theme.primary,
+                                  ),
+                                )
+                              : Tooltip(
+                                  message: 'Scan network',
+                                  child: M3EIconButton(
+                                    variant: M3EIconButtonVariant.tonal,
+                                    icon: Icon(
+                                      Icons.refresh_rounded,
+                                      color: theme.primary,
+                                    ),
+                                    onPressed: _rescan,
+                                  ),
+                                ),
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                   if (activeCast != null || activeDlna != null) ...[
                     _ActiveCastBanner(
                       deviceName: activeCast?.friendlyName ?? activeDlna!.name,
                       protocolLabel:
                           activeCast != null ? 'Google Cast' : 'DLNA / UPnP',
+                      deviceDetail: activeCast != null
+                          ? (activeCast.modelName.isNotEmpty
+                              ? '${activeCast.modelName} (${activeCast.host})'
+                              : activeCast.host)
+                          : (Uri.tryParse(activeDlna!.locationUrl)?.host ??
+                              activeDlna.locationUrl),
                       streamModeLabel: activeCast != null
                           ? (cast.isStreamingLiveTap
-                              ? 'Live 24-bit LPCM Stream (up to ${cast.maxSampleRate.label})'
-                              : 'Direct File Pass-Through')
+                              ? 'Live 24-bit LPCM'
+                              : 'Direct Pass-Through')
                           : (cast.audioMode == CastAudioMode.dspProcessed
-                              ? 'Live 24-bit LPCM Stream'
-                              : 'Bit-Perfect / Auto'),
+                              ? 'Live 24-bit LPCM'
+                              : 'Bit-Perfect'),
+                      rateCeilingLabel: 'Max ${cast.maxSampleRate.label}',
                       primary: theme.primary,
                       textMuted: theme.textDark,
                       showVolumeSlider: activeCast != null,
@@ -480,14 +512,17 @@ class _CastOutputSheetState extends State<_CastOutputSheet> {
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       child: Text(
                         cast.isScanning
-                            ? 'Scanning LAN via mDNS for Google Cast speakers & TVs...'
-                            : 'No Chromecast devices discovered yet. Tap Scan or Add IP.',
+                            ? 'Scanning local network for Chromecast devices...'
+                            : 'No Chromecast devices found. Tap Refresh or Add IP.',
                         style: TextStyle(color: theme.textDark, fontSize: 12.5),
                       ),
                     )
                   else
                     ...cast.devices.map((device) {
                       final isConnected = activeCast == device;
+                      final hostLabel = device.modelName.isNotEmpty
+                          ? '${device.modelName} (${device.host})'
+                          : device.host;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 6),
                         child: M3EListItem(
@@ -507,7 +542,8 @@ class _CastOutputSheetState extends State<_CastOutputSheet> {
                             ),
                           ),
                           headline: device.friendlyName,
-                          supportingText: '${device.modelName} • ${device.host}',
+                          supportingText:
+                              device.isManual ? '$hostLabel (Manual)' : hostLabel,
                           trailing: cast.isConnecting && activeCast == device
                               ? SizedBox(
                                   width: 18,
@@ -548,7 +584,7 @@ class _CastOutputSheetState extends State<_CastOutputSheet> {
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Text(
                         dlna.isSearching
-                            ? 'Searching LAN via SSDP for DLNA renderers...'
+                            ? 'Scanning local network for DLNA renderers...'
                             : 'No DLNA renderers found.',
                         style: TextStyle(color: theme.textDark, fontSize: 12.5),
                       ),
@@ -611,7 +647,9 @@ class _CastOutputSheetState extends State<_CastOutputSheet> {
 class _ActiveCastBanner extends StatelessWidget {
   final String deviceName;
   final String protocolLabel;
+  final String deviceDetail;
   final String streamModeLabel;
+  final String rateCeilingLabel;
   final Color primary;
   final Color textMuted;
   final bool showVolumeSlider;
@@ -624,7 +662,9 @@ class _ActiveCastBanner extends StatelessWidget {
   const _ActiveCastBanner({
     required this.deviceName,
     required this.protocolLabel,
+    required this.deviceDetail,
     required this.streamModeLabel,
+    required this.rateCeilingLabel,
     required this.primary,
     required this.textMuted,
     required this.showVolumeSlider,
@@ -662,22 +702,34 @@ class _ActiveCastBanner extends StatelessWidget {
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
-                        fontSize: 14,
+                        fontSize: 14.5,
                       ),
                     ),
-                    Text(
-                      '$protocolLabel • $streamModeLabel',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: textMuted, fontSize: 11.5),
-                    ),
+                    if (deviceDetail.isNotEmpty)
+                      Text(
+                        deviceDetail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: textMuted, fontSize: 11.5),
+                      ),
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
               M3EButton.tonal(
                 onPressed: onDisconnect,
                 child: const Text('Disconnect'),
               ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _CastInfoPill(label: protocolLabel, color: primary),
+              _CastInfoPill(label: streamModeLabel, color: Colors.white),
+              _CastInfoPill(label: rateCeilingLabel, color: textMuted),
             ],
           ),
           if (showVolumeSlider) ...[
@@ -701,14 +753,50 @@ class _ActiveCastBanner extends StatelessWidget {
                     onChanged: onVolumeChanged,
                   ),
                 ),
-                Text(
-                  '${(volume * 100).round()}%',
-                  style: TextStyle(color: textMuted, fontSize: 11.5),
+                SizedBox(
+                  width: 38,
+                  child: Text(
+                    '${(volume * 100).round()}%',
+                    textAlign: TextAlign.end,
+                    style: TextStyle(color: textMuted, fontSize: 11.5),
+                  ),
                 ),
               ],
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _CastInfoPill extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _CastInfoPill({
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withAlpha(24),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withAlpha(70)),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

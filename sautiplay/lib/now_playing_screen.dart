@@ -1219,10 +1219,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                     ? 'Bit-Perfect'
                                     : 'DSP';
                             final subtitleText = hasCast
-                                ? '${cast.activeDevice!.friendlyName} • $modeText (${cast.maxSampleRate.label})'
+                                ? '${cast.activeDevice!.friendlyName} - $modeText (${cast.maxSampleRate.label})'
                                 : hasDlna
-                                    ? '${dlna.activeRenderer!.name} • DLNA ($modeText, ${cast.maxSampleRate.label})'
-                                    : 'Chromecast (up to 24-bit / 192 kHz) & DLNA';
+                                    ? '${dlna.activeRenderer!.name} - DLNA ($modeText, ${cast.maxSampleRate.label})'
+                                    : 'Chromecast (up to 192 kHz) and DLNA';
                             return ListTile(
                               leading: Icon(
                                 isActive
@@ -1238,6 +1238,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               ),
                               subtitle: Text(
                                 subtitleText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                     color: isActive
                                         ? primaryColor
@@ -4031,6 +4033,72 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             ),
 
                             const SizedBox(height: 10),
+
+                            // Active Cast Output Pill Banner
+                            AnimatedBuilder(
+                              animation: Listenable.merge([
+                                ChromecastService.instance,
+                                DlnaService.instance,
+                              ]),
+                              builder: (context, _) {
+                                final cast = ChromecastService.instance;
+                                final dlna = DlnaService.instance;
+                                final castDevice = cast.activeDevice;
+                                final dlnaRenderer = dlna.activeRenderer;
+                                if (castDevice == null && dlnaRenderer == null) {
+                                  return const SizedBox.shrink();
+                                }
+                                final deviceLabel =
+                                    castDevice?.friendlyName ?? dlnaRenderer!.name;
+                                final modeLabel =
+                                    cast.audioMode == CastAudioMode.bitPerfect
+                                        ? 'Bit-Perfect'
+                                        : 'DSP';
+                                return Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                      20.0, 0.0, 20.0, 8.0),
+                                  child: Center(
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(20),
+                                      onTap: () => showCastOutputModal(context),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: primaryColor.withAlpha(30),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                          border: Border.all(
+                                            color: primaryColor.withAlpha(70),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.cast_connected_rounded,
+                                                size: 14, color: primaryColor),
+                                            const SizedBox(width: 6),
+                                            Flexible(
+                                              child: Text(
+                                                '$deviceLabel ($modeLabel, ${cast.maxSampleRate.label})',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: primaryColor,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
 
                             // Sleep Timer Active Pill Banner
                             ValueListenableBuilder<SleepTimerState>(
