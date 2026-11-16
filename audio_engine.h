@@ -124,6 +124,18 @@ extern "C"
         float pitch;
         float rate;
         int pitch_correction_enabled;
+
+        // Accurate telemetry / conversion diagnostics
+        int precision64_reasons;       // Bitmask: 1=user, 2=exclusive, 4=int_output
+        int float64_end_to_end;        // 1 if 64-bit path reaches output without F32 island/SRC downcast
+        int app_dsp_bypassed;          // 1 if exclusive mode or cast-bypass skips app DSP
+        int active_limiter;            // 0=none, 1=masterLimiterDsp, 2=lookaheadLimiter, 3=limiter
+        int decoder_src_active;        // 1 if sourceSampleRate != engineSampleRate
+        int device_src_active;         // 1 if engineSampleRate != deviceSampleRate
+        int engine_sample_rate;        // Internal DSP/mixer rate (e->engineSampleRate)
+        int device_resampler_algo;     // Effective device-stage algorithm (0 = linear LPF4)
+        int device_format_actual;      // Actual negotiated playback format mapped to AE_FORMAT_* (-1 if unknown)
+        unsigned int active_node_mask; // Bitmask of active DSP zones/nodes (Z1..Z6, DynLoudness, PreGain, F32 islands)
     } AEPipelineState;
 
     AE_API AudioEngineHandle *ae_create_engine(int sample_rate, int channels);

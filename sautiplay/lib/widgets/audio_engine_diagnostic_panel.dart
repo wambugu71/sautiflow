@@ -11,6 +11,8 @@ import 'package:sautiplay/services/chromecast_service.dart';
 import 'package:sautiplay/services/dlna_renderer_service.dart';
 import 'package:sautiplay/services/dlna_service.dart';
 import 'package:sautiplay/widgets/adaptive_marquee_text.dart';
+import 'package:sautiplay/widgets/signal_path.dart';
+import 'package:sautiplay/widgets/signal_path_card.dart';
 
 /// Shows the Developer & Audiophile Audio Engine Diagnostic Panel as a glassmorphic bottom sheet.
 void showAudioEngineDiagnosticPanel(
@@ -370,30 +372,10 @@ class _AudioEngineDiagnosticPanelState
     final int srcRate = t['inputSampleRate'] as int? ?? 48000;
     final int srcDepth =
         t['inputBitDepth'] as int? ?? ((hw['bitDepth'] as int?) ?? 16);
-    final int dspRate = t['processingSampleRate'] as int? ?? 48000;
+    final bool srcDepthInferred = t['inputBitDepthInferred'] == true;
+    final int dspRate = (t['engineSampleRate'] as int?) ??
+        (t['processingSampleRate'] as int? ?? 48000);
     final int dspChannels = t['processingChannels'] as int? ?? 2;
-    final int? procFmtCode = t['processingFormat'] as int?;
-    final int dacRate = t['outputSampleRate'] as int? ??
-        (hw['sampleRate'] as int? ?? specs.sampleRate);
-    final int? outFmtCode = t['outputFormat'] as int?;
-    final int dacDepth = switch (outFmtCode) {
-      0 => 32,
-      4 => (t['dacValidBitDepth'] as int? ?? 32) > 0
-          ? (t['dacValidBitDepth'] as int? ?? 32)
-          : 32,
-      3 => 24,
-      1 => 16,
-      2 => 8,
-      _ => hw['bitDepth'] as int? ?? specs.bitDepth,
-    };
-    final String dacFormatType = switch (outFmtCode) {
-      0 => 'Float',
-      1 || 2 || 3 || 4 => 'Int',
-      _ => (hw['isFloat'] as bool? ?? specs.isFloat) ? 'Float' : 'Int',
-    };
-    final bool is64BitDsp = (t['is64BitProcessing'] == true) ||
-        (procFmtCode == 64) ||
-        (outFmtCode != null && outFmtCode >= 1 && outFmtCode <= 4);
     final int activeDsdModeInt = t['activeDsdMode'] as int? ?? 0;
     final int sourceDsdRate = t['sourceDsdRate'] as int? ?? 0;
     final int dsdOutModeInt = t['dsdOutputMode'] as int? ?? 0;
@@ -405,22 +387,9 @@ class _AudioEngineDiagnosticPanelState
         ActiveDsdMode.fromValue(activeDsdModeInt);
     final bool isDsdActive =
         activeDsdMode != ActiveDsdMode.none && sourceDsdRate > 0;
-    final bool isDsdPassthrough = activeDsdMode == ActiveDsdMode.dop ||
-        activeDsdMode == ActiveDsdMode.nativeDsd;
     final castService = ChromecastService.instance;
     final castMode = castService.audioMode;
     final castCeiling = castService.maxSampleRate;
-    final String dspPrecisionLabel = isCastingOut
-        ? (castMode == CastAudioMode.bitPerfect
-            ? 'Bypassed (Bit-Perfect Cast)'
-            : 'Float64 → 24-bit WAV Tap (With DSP)')
-        : ((specs.isDirectPcm || isDsdPassthrough)
-            ? 'Bypassed (Bit-Perfect)'
-            : (is64BitDsp
-                ? (dacFormatType == 'Int'
-                    ? 'Float64 → $dacDepth-bit Int'
-                    : 'Float64')
-                : 'Float32'));
     final bool isExclusive =
         hw['isExclusiveMode'] as bool? ?? specs.isExclusiveMode;
     final String backend = hw['backendName'] as String? ?? specs.backendName;
@@ -434,20 +403,12 @@ class _AudioEngineDiagnosticPanelState
         (t['reverbEngine'] as String?) ?? 'Dattorro Plate';
     final double crossfeedMix = (t['crossfeedMix'] as num?)?.toDouble() ?? 0.0;
     final String crossfeedAlgo =
-        _formatCrossfeedAlgo(t['crossfeedAlgo']?.toString(), crossfeedMix);
+        formatCrossfeedAlgoName(t['crossfeedAlgo']?.toString(), crossfeedMix);
     final bool sautiDspOn = t['sautiDspEnabled'] == true;
     final bool lookaheadOn = t['lookaheadLimiterEnabled'] == true;
     final bool simpleLimiterOn = t['simpleLimiterEnabled'] == true ||
         (t['limiterEnabled'] == true && !lookaheadOn);
     final bool limiterOn = lookaheadOn || simpleLimiterOn;
-    String limiterDisplay = 'OFF';
-    if (lookaheadOn && simpleLimiterOn) {
-      limiterDisplay = 'ON (Dual Limiter)';
-    } else if (lookaheadOn) {
-      limiterDisplay = 'ON (Look-Ahead)';
-    } else if (simpleLimiterOn) {
-      limiterDisplay = 'ON (Anti-Clipping)';
-    }
 
     final bool normOn = t['loudnessNormalizerEnabled'] == true;
     final double normTarget =
@@ -463,9 +424,6 @@ class _AudioEngineDiagnosticPanelState
           'ON (${normTarget.toStringAsFixed(1)} LUFS, $sign${normGainDb.toStringAsFixed(1)} dB)';
     }
 
-    final bool stereoWidenOn = t['stereoWidenEnabled'] == true;
-    final bool stereoEnhanceOn = t['stereoEnhancementEnabled'] == true;
-
     final String? castOutputLabel = isCastingDlna
         ? 'DLNA Output (${activeDlna.name})'
         : isCastingChromecast
@@ -475,51 +433,30 @@ class _AudioEngineDiagnosticPanelState
         ? 'Source / DLNA Stream (${dlnaRenderer.friendlyName})'
         : null;
 
-    // Calculate node latencies across 7-Zone Studio Architecture
-    final nodeLatencies = _calculatePerNodeLatencies(
-      sampleRate: dspRate,
-      hwLatencyMs: isCastingOut
-          ? 0.0
-          : ((t['deviceLatencyMs'] as num?)?.toDouble() ?? specs.latencyMs),
-      crossfeedAlgo: crossfeedAlgo,
-      crossfeedDelayMs: (t['crossfeedDelayMs'] as num?)?.toDouble() ?? 0.40,
-      limiterOn: limiterOn,
-      stereoWidenOn: stereoWidenOn,
-      stereoEnhanceOn: stereoEnhanceOn,
-      reverbOn: reverbOn,
-      reverbEngineName: reverbEngineName,
-      sautiDspOn: sautiDspOn,
-      eqOn: eqOn,
-      isSrcActive: (srcRate != dacRate),
-      resampleLatencyMs: (t['resampleLatencyMs'] as num?)?.toDouble(),
-      deviceType: activeDeviceType,
-      activeDsdMode: activeDsdMode,
-      dsdGainBoostDb: dsdGainBoostDb,
+    final signalPath = buildSignalPath(
+      t,
+      specs,
+      activeDeviceType: activeDeviceType,
+      isCastingOut: isCastingOut,
+      castMode: castMode,
+      castMaxSampleRateHz: castCeiling.hz,
       castOutputLabel: castOutputLabel,
       dlnaSourceLabel: dlnaSourceLabel,
     );
 
-    // Sum DSP node latencies
-    double sumDspMs = 0.0;
-    double sumDspSamples = 0.0;
-    for (final n in nodeLatencies) {
-      if (!n.nodeName.startsWith('Source /') && !n.isHardware) {
-        sumDspMs += n.latencyMs;
-        sumDspSamples += n.latencySamples;
-      }
-    }
+    final String dspPrecisionLabel = signalPath.dspPrecisionLabel;
+    final String limiterDisplay = signalPath.limiterLabel;
+    final String resamplerAlgo = signalPath.resamplerLabel;
+    final bool isSrcActive = signalPath.srcLabel.startsWith('ON');
 
     final double hwLatencyMs =
         (t['deviceLatencyMs'] as num?)?.toDouble() ?? specs.latencyMs;
-    final double totalEndToEndLatencyMs = hwLatencyMs + sumDspMs;
+    final double totalMeasuredMs =
+        signalPath.totalMeasuredLatencyMs ?? hwLatencyMs;
     final int clippedCount = t['clippedCount'] as int? ?? 0;
     final int underrunCount = t['underrunCount'] as int? ?? 0;
     final double truePeakDBTP =
         (t['truePeakDBTP'] as num?)?.toDouble() ?? -100.0;
-
-    final bool isSrcActive = (srcRate != dacRate);
-    final String resamplerAlgo =
-        _formatResamplerAlgo(t['resampleAlgorithm']?.toString());
 
     final appTheme = context.appTheme;
     final isDark = context.isDark;
@@ -534,30 +471,16 @@ class _AudioEngineDiagnosticPanelState
             : appTheme.bgDark.withValues(alpha: 0.7))
         : appTheme.bgDark.withValues(alpha: 0.6);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // 1. Hardware Output Device Card (Speakers, Built-in Earpiece, 3.5mm, BT, USB DAC, etc.)
-        //  _buildHardwareDeviceCard(specs, activeDeviceName),
+    final signalPathCard = SignalPathCard(
+      path: signalPath,
+      cardBg: cardBg,
+      outlineColor: outlineColor,
+      isDark: isDark,
+      textPrimary: textPrimary,
+      textMuted: textMuted,
+    );
 
-        const SizedBox(height: 16),
-
-        // 2. Per-Node Latency Breakdown Card (Source -> DAC)
-        _buildPerNodeLatencyCard(
-          nodeLatencies,
-          totalEndToEndLatencyMs,
-          sumDspSamples,
-          cardBg: cardBg,
-          outlineColor: outlineColor,
-          isDark: isDark,
-          textPrimary: textPrimary,
-          textMuted: textMuted,
-        ),
-
-        const SizedBox(height: 16),
-
-        // 3. Terminal Matrix Display Box (DSP & Telemetry Details)
-        Container(
+    final dspTelemetryCard = Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: cardBg,
@@ -631,7 +554,7 @@ class _AudioEngineDiagnosticPanelState
                   'Source',
                   isDsdActive
                       ? '${ActiveDsdMode.formatDsdRateName(sourceDsdRate)} (${(sourceDsdRate / 1000000.0).toStringAsFixed(4)} MHz / 1-bit SDM)'
-                      : '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit PCM',
+                      : '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit${srcDepthInferred ? " (inferred)" : ""} PCM',
                   isValueActive: isDsdActive,
                   context: context),
               _buildTelemetryRow(
@@ -667,18 +590,7 @@ class _AudioEngineDiagnosticPanelState
                   context: context),
               _buildTelemetryRow(
                   'Output',
-                  isCastingOut
-                      ? (castMode == CastAudioMode.bitPerfect
-                          ? '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit (${isCastingDlna ? "DLNA Bit-Perfect" : "Cast Bit-Perfect"})'
-                          : '${(ChromecastService.resolveCastTargetSampleRate(srcRate, castCeiling.hz) / 1000.0).toStringAsFixed(1)} kHz / 24-bit LPCM (${isCastingDlna ? "DLNA + DSP" : "Cast + DSP"})')
-                      : switch (activeDsdMode) {
-                          ActiveDsdMode.nativeDsd =>
-                            '${ActiveDsdMode.formatDsdRateName(sourceDsdRate)} / 1-bit Native DSD ($activeDeviceType)',
-                          ActiveDsdMode.dop =>
-                            '${(dacRate / 1000.0).toStringAsFixed(1)} kHz DoP Container ($activeDeviceType)',
-                          _ =>
-                            '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit $dacFormatType ($activeDeviceType)',
-                        },
+                  signalPath.outputLabel,
                   context: context),
               if (!isCastingOut &&
                   specs.socName != null &&
@@ -705,13 +617,12 @@ class _AudioEngineDiagnosticPanelState
                       : '$periodFrames frames',
                   context: context),
               _buildTelemetryRow('Total Latency',
-                  '${totalEndToEndLatencyMs.toStringAsFixed(2)} ms (DSP: ${sumDspMs.toStringAsFixed(2)} ms + Hardware: ${hwLatencyMs.toStringAsFixed(2)} ms)',
+                  '${totalMeasuredMs.toStringAsFixed(2)} ms (Measured)',
                   context: context),
               _buildTelemetryRow(
                   'SRC',
-                  isSrcActive
-                      ? 'ON (${(srcRate / 1000.0).toStringAsFixed(1)} → ${(dacRate / 1000.0).toStringAsFixed(1)} kHz)'
-                      : 'OFF',
+                  signalPath.srcLabel,
+                  isValueActive: isSrcActive,
                   context: context),
               _buildTelemetryRow('Resampler', resamplerAlgo,
                   context: context),
@@ -923,125 +834,34 @@ class _AudioEngineDiagnosticPanelState
               const SizedBox(height: 8),
             ],
           ),
-        ),
+        );
 
-        const SizedBox(height: 16),
-      ],
-    );
-  }
-
-  Widget _buildPerNodeLatencyCard(
-    List<_NodeLatencyInfo> nodes,
-    double totalMs,
-    double dspSamples, {
-    required Color cardBg,
-    required Color outlineColor,
-    required bool isDark,
-    required Color textPrimary,
-    required Color textMuted,
-  }) {
-    final successColor =
-        isDark ? const Color(0xFF4ADE80) : const Color(0xFF16A34A);
-    final accentMsColor =
-        isDark ? Colors.amberAccent : const Color(0xFFD97706);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? textPrimary.withValues(alpha: 0.08) : outlineColor,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Chain Latency',
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  color: textPrimary.withValues(alpha: 0.85),
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              Text(
-                '${totalMs.toStringAsFixed(2)} ms',
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  color: successColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Divider(
-            color: isDark
-                ? textPrimary.withValues(alpha: 0.08)
-                : outlineColor,
-            height: 1,
-          ),
-          const SizedBox(height: 10),
-          ...nodes.map((node) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Text(
-                            node.stepNumber,
-                            style: TextStyle(
-                              fontFamily: 'monospace',
-                              color: textMuted.withValues(alpha: 0.6),
-                              fontSize: 11,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: AdaptiveMarqueeText(
-                              text: node.nodeName,
-                              style: TextStyle(
-                                fontFamily: 'monospace',
-                                color: node.latencyMs > 0
-                                    ? textPrimary
-                                    : textMuted,
-                                fontSize: 11,
-                                fontWeight: node.latencyMs > 0
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      node.latencyMs > 0
-                          ? '${node.latencyMs.toStringAsFixed(2)} ms'
-                          : '0.00 ms',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        color: node.latencyMs > 0
-                            ? accentMsColor
-                            : textMuted.withValues(alpha: 0.5),
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              )),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 840) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 16, bottom: 16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: signalPathCard),
+                const SizedBox(width: 16),
+                Expanded(child: dspTelemetryCard),
+              ],
+            ),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 16),
+            signalPathCard,
+            const SizedBox(height: 16),
+            dspTelemetryCard,
+            const SizedBox(height: 16),
+          ],
+        );
+      },
     );
   }
 
@@ -1436,293 +1256,4 @@ class _AudioEngineDiagnosticPanelState
       },
     );
   }
-
-  List<_NodeLatencyInfo> _calculatePerNodeLatencies({
-    required int sampleRate,
-    required double hwLatencyMs,
-    required String crossfeedAlgo,
-    required double crossfeedDelayMs,
-    required bool limiterOn,
-    required bool stereoWidenOn,
-    required bool stereoEnhanceOn,
-    required bool reverbOn,
-    String reverbEngineName = 'Dattorro Plate',
-    required bool sautiDspOn,
-    required bool eqOn,
-    required bool isSrcActive,
-    double? resampleLatencyMs,
-    String? deviceType,
-    ActiveDsdMode activeDsdMode = ActiveDsdMode.none,
-    double dsdGainBoostDb = 6.0,
-    String? castOutputLabel,
-    String? dlnaSourceLabel,
-  }) {
-    final list = <_NodeLatencyInfo>[];
-    int step = 1;
-
-    // 1. Source / Decoder
-    final String sourceLabel = dlnaSourceLabel ??
-        switch (activeDsdMode) {
-          ActiveDsdMode.nativeDsd => 'Source / Native DSD 1-Bit Stream',
-          ActiveDsdMode.dop => 'Source / DoP v1.1 Frame Packer',
-          ActiveDsdMode.d2p =>
-            'Source / D2P 128-Tap FIR (+${dsdGainBoostDb.toStringAsFixed(1)} dB)',
-          ActiveDsdMode.none => 'Source / Decoder',
-        };
-    list.add(_NodeLatencyInfo('${step++}.', sourceLabel, 0.0, 0.0));
-
-    if (activeDsdMode == ActiveDsdMode.nativeDsd ||
-        activeDsdMode == ActiveDsdMode.dop) {
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        '7-Zone DSP & SRC (Bit-Perfect DSD Bypass)',
-        0.0,
-        0.0,
-      ));
-      final double hwSamples = hwLatencyMs * 0.001 * sampleRate;
-      final hwLabel = castOutputLabel ??
-          (deviceType != null && deviceType.isNotEmpty
-              ? 'HW Output ($deviceType)'
-              : 'HW Output DAC');
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        hwLabel,
-        hwLatencyMs,
-        hwSamples,
-        isHardware: true,
-      ));
-      return list;
-    }
-
-    // Zone 1: Restorative Filtering (Subsonic HPF, Studio Noise Gate, Downward Expander)
-    list.add(_NodeLatencyInfo(
-      '${step++}.',
-      'Restoration',
-      0.0,
-      0.0,
-      zoneBadge: 'Z1',
-    ));
-
-    // Zone 2: Corrective Tone & Sibilance (Dynamic EQ, De-Esser)
-    list.add(_NodeLatencyInfo(
-      '${step++}.',
-      'Tone & De-Esser',
-      0.0,
-      0.0,
-      zoneBadge: 'Z2',
-    ));
-
-    // Zone 3: Harmonics & Character (Analog Warmth, Tape Drift, Bass Exciter, Clarity)
-    list.add(_NodeLatencyInfo(
-      '${step++}.',
-      'Harmonics & Character',
-      0.0,
-      0.0,
-      zoneBadge: 'Z3',
-    ));
-
-    // Zone 4: Macro Dynamics & Master EQ (Compressor, Parametric/Graphic EQ)
-    list.add(_NodeLatencyInfo(
-      '${step++}.',
-      'Dynamics & Master EQ',
-      0.0,
-      0.0,
-      zoneBadge: 'Z4',
-    ));
-
-    // Zone 5: Spatialization & Acoustics
-    if (crossfeedAlgo != 'OFF') {
-      final double delayMs = crossfeedDelayMs > 0 ? crossfeedDelayMs : 0.40;
-      final double samples = delayMs * 0.001 * sampleRate;
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'Crossfeed ($crossfeedAlgo)',
-        delayMs,
-        samples,
-        zoneBadge: 'Z5',
-      ));
-    }
-    if (stereoWidenOn) {
-      const double delayMs = 15.0;
-      final double samples = delayMs * 0.001 * sampleRate;
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'Stereo Widen',
-        delayMs,
-        samples,
-        zoneBadge: 'Z5',
-      ));
-    }
-    if (stereoEnhanceOn) {
-      const double delayMs = 1.20;
-      final double samples = delayMs * 0.001 * sampleRate;
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'Stereo Enhancement',
-        delayMs,
-        samples,
-        zoneBadge: 'Z5',
-      ));
-    }
-    if (reverbOn) {
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'Reverb ($reverbEngineName)',
-        0.0,
-        0.0,
-        zoneBadge: 'Z5',
-      ));
-    }
-    if (crossfeedAlgo == 'OFF' &&
-        !stereoWidenOn &&
-        !stereoEnhanceOn &&
-        !reverbOn) {
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'Spatial & Acoustic Space',
-        0.0,
-        0.0,
-        zoneBadge: 'Z5',
-      ));
-    }
-
-    // Zone 6: Transducer Calibration & Delivery Stage (AutoEQ FIR Convolver, Leveller AGC, Metering)
-    if (sautiDspOn) {
-      const double dspMs = 0.50; // Low-latency partitioned convolution
-      final double samples = dspMs * 0.001 * sampleRate;
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'AutoEQ FIR & Leveller',
-        dspMs,
-        samples,
-        zoneBadge: 'Z6',
-      ));
-    } else {
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'Transducer & Delivery',
-        0.0,
-        0.0,
-        zoneBadge: 'Z6',
-      ));
-    }
-
-    // Zone 7: Mastering Peak Limiter & Output Stage (Master Brickwall Limiter)
-    if (limiterOn) {
-      const double attackMs = 2.0; // 2 ms Lookahead window
-      final double samples = attackMs * 0.001 * sampleRate;
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'Master Lookahead Limiter',
-        attackMs,
-        samples,
-        zoneBadge: 'Z7',
-      ));
-    } else {
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'Master Output Limiter',
-        0.0,
-        0.0,
-        zoneBadge: 'Z7',
-      ));
-    }
-
-    // Resampler Node
-    if (isSrcActive) {
-      final double resampleMs =
-          (resampleLatencyMs != null && resampleLatencyMs > 0.0)
-              ? resampleLatencyMs
-              : 0.50;
-      final double samples = resampleMs * 0.001 * sampleRate;
-      list.add(_NodeLatencyInfo(
-        '${step++}.',
-        'SRC Resampler',
-        resampleMs,
-        samples,
-      ));
-    }
-
-    // Hardware Output DAC (or Cast / DLNA Output)
-    final double hwSamples = hwLatencyMs * 0.001 * sampleRate;
-    final hwLabel = castOutputLabel ??
-        (deviceType != null && deviceType.isNotEmpty
-            ? 'HW Output ($deviceType)'
-            : 'HW Output DAC');
-    list.add(_NodeLatencyInfo(
-      '${step++}.',
-      hwLabel,
-      hwLatencyMs,
-      hwSamples,
-      isHardware: true,
-    ));
-
-    return list;
-  }
-
-  String _formatResamplerAlgo(String? algo) {
-    if (algo == null) return 'Miniaudio Linear';
-    switch (algo) {
-      case 'miniaudioLinear':
-        return 'Miniaudio Linear';
-      case 'srcSincBestQuality':
-        return 'SRC Sinc Best Quality';
-      case 'srcSincMediumQuality':
-        return 'SRC Sinc Medium Quality';
-      case 'srcSincFastest':
-        return 'SRC Sinc Fastest';
-      case 'soxrVHQLinearPhase':
-      case 'soxrHQ':
-      case 'soxrFast':
-        return 'r8brain Linear Phase (Legacy SoX)';
-      case 'soxrVHQMinimumPhase':
-        return 'r8brain Minimum Phase (Legacy SoX)';
-      case 'r8brain24LinearPhase':
-        return 'r8brain Linear Phase';
-      case 'r8brain24MinimumPhase':
-        return 'r8brain Minimum Phase';
-      default:
-        return algo;
-    }
-  }
-
-  String _formatCrossfeedAlgo(String? algo, double mix) {
-    if (algo == null || algo == 'off' || algo == 'OFF' || mix <= 0.0001) {
-      return 'OFF';
-    }
-    switch (algo.toLowerCase()) {
-      case 'simple':
-        return 'Simple ITD';
-      case 'bs2b':
-        return 'BS2B Chu Moy';
-      case 'meier':
-        return 'Jan Meier';
-      case 'natural':
-        return 'Natural Crossfeed';
-      case 'race':
-        return 'Ambiophonics RACE';
-      case 'openstage':
-        return 'OpenStage Acoustic';
-      default:
-        return algo.toUpperCase();
-    }
-  }
-}
-
-class _NodeLatencyInfo {
-  final String stepNumber;
-  final String nodeName;
-  final double latencyMs;
-  final double latencySamples;
-  final bool isHardware;
-  final String? zoneBadge;
-
-  _NodeLatencyInfo(
-    this.stepNumber,
-    this.nodeName,
-    this.latencyMs,
-    this.latencySamples, {
-    this.isHardware = false,
-    this.zoneBadge,
-  });
 }

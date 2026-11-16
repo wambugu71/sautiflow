@@ -3952,6 +3952,7 @@ struct AudioEngineHandle
     sauti::dsp::MasterLimiterDSP masterLimiterDsp;
     sauti::dsp::SpatialSurroundDSP surroundDsp;
     sauti::dsp::SubsonicFilter subsonicFilter;
+    sauti::dsp::UltrasonicFilter ultrasonicFilter;
     sauti::dsp::DynamicLoudnessDSP dynamicLoudnessDsp;
     sauti::dsp::BroadcastLevellerDSP levellerDsp;
     sauti::dsp::NoiseGateDSP noiseGateDsp;
@@ -4958,6 +4959,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     e->masterLimiterDsp.setSampleRate(srF);
     e->surroundDsp.setSampleRate(srF);
     e->subsonicFilter.setSampleRate(srF);
+    e->ultrasonicFilter.setSampleRate(srF);
     e->dynamicLoudnessDsp.setSampleRate(srF);
     e->levellerDsp.setSampleRate(srF);
     e->noiseGateDsp.setSampleRate(srF);
@@ -5104,6 +5106,8 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->masterLimiterDsp.setSampleRate(srF);
         e->surroundDsp.setSampleRate(srF);
         e->subsonicFilter.setSampleRate(srF);
+        e->ultrasonicFilter.setSampleRate(srF);
+    e->ultrasonicFilter.setSampleRate(srF);
         e->dynamicLoudnessDsp.setSampleRate(srF);
         e->levellerDsp.setSampleRate(srF);
         e->noiseGateDsp.setSampleRate(srF);
@@ -7997,6 +8001,28 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
     }
 
+    enum : int
+    {
+        AE_P64_USER = 1,
+        AE_P64_EXCLUSIVE = 2,
+        AE_P64_INT_OUTPUT = 4
+    };
+
+    static inline int precision64_reasons(const AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        int r = 0;
+        if (e->use64BitProcessing.load(std::memory_order_relaxed))
+            r |= AE_P64_USER;
+        if (e->exclusiveModeEnabled.load(std::memory_order_relaxed))
+            r |= AE_P64_EXCLUSIVE;
+        const AEAudioFormat f = e->outputFormat;
+        if (f == AE_FORMAT_U8 || f == AE_FORMAT_S16 || f == AE_FORMAT_S24 || f == AE_FORMAT_S32)
+            r |= AE_P64_INT_OUTPUT;
+        return r;
+    }
+
     static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
     {
     if (pDevice == nullptr || pOutput == nullptr || frameCount == 0)
@@ -8107,9 +8133,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
     ma_uint32 produced = 0;
     const bool needsDeviceSRC = (e->engineSampleRate > 0 && e->deviceSampleRate > 0 && e->engineSampleRate != e->deviceSampleRate);
-    const bool use64 = e->use64BitProcessing.load(std::memory_order_relaxed) ||
-                       e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                       (e->outputFormat == AE_FORMAT_U8 || e->outputFormat == AE_FORMAT_S16 || e->outputFormat == AE_FORMAT_S24 || e->outputFormat == AE_FORMAT_S32);
+    const int p64Reasons = precision64_reasons(e);
+    const bool use64 = (p64Reasons != 0);
     double *buf64 = nullptr;
     ma_uint64 inNeeded = (ma_uint64)frameCount;
 
@@ -8876,6 +8901,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->subsonicFilter.process(buf64, produced, e->channels);
                 else
                     e->subsonicFilter.process(processBuffer, produced, e->channels);
+            }
+            if (e->ultrasonicFilter.isEnabled())
+            {
+                if (use64)
+                    e->ultrasonicFilter.process(buf64, produced, e->channels);
+                else
+                    e->ultrasonicFilter.process(processBuffer, produced, e->channels);
             }
 
             // =================================================================
@@ -9712,7 +9744,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
     const bool isAppFxActive = !e->exclusiveModeEnabled.load(std::memory_order_relaxed) && (
                                e->eqEnabled || e->multibandEqEnabled || (e->multibandFxEnabled && e->has_active_multiband_fx()) ||
-                               e->toneCrossoverDsp.isEnabled() || e->subsonicFilter.isEnabled() ||
+                               e->toneCrossoverDsp.isEnabled() || e->subsonicFilter.isEnabled() || e->ultrasonicFilter.isEnabled() ||
                                e->noiseGateDsp.isEnabled() || e->downwardExpanderDsp.isEnabled() ||
                                e->dynamicEqDsp.isEnabled() || e->deEsserDsp.isEnabled() ||
                                e->harmonicBassDsp.isEnabled() || e->dynamicSystemDsp.isEnabled() ||
@@ -13520,10 +13552,8 @@ extern "C"
         ps.input_sample_rate = (e->sourceSampleRate > 0) ? e->sourceSampleRate : e->sampleRate;
         ps.input_channels = e->channels;
 
-        const bool is64Active = e->use64BitProcessing.load(std::memory_order_relaxed) ||
-                                e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                                (e->outputFormat == AE_FORMAT_U8 || e->outputFormat == AE_FORMAT_S16 ||
-                                 e->outputFormat == AE_FORMAT_S24 || e->outputFormat == AE_FORMAT_S32);
+        const int p64Reasons = precision64_reasons(e);
+        const bool is64Active = (p64Reasons != 0);
         // Report 64-bit float internal precision as 64 (or AE_FORMAT_F32 = 0 for 32-bit float)
         ps.processing_format = is64Active ? 64 : (int)AE_FORMAT_F32;
         ps.processing_sample_rate = e->sampleRate;
@@ -13532,6 +13562,48 @@ extern "C"
         ps.output_format = (int)e->outputFormat;
         ps.output_sample_rate = (e->outputSampleRate > 0) ? e->outputSampleRate : e->sampleRate;
         ps.output_channels = (e->outputChannels > 0) ? e->outputChannels : e->channels;
+
+        const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+            (e->castPcmTapEnabled.load(std::memory_order_relaxed) &&
+             e->castBypassDsp.load(std::memory_order_relaxed));
+
+        const int engRate = (e->engineSampleRate > 0) ? e->engineSampleRate : e->sampleRate;
+        const int devRate = (e->deviceSampleRate > 0) ? e->deviceSampleRate : ps.output_sample_rate;
+        const bool decoderSrcActive = (ps.input_sample_rate > 0 && engRate > 0 && ps.input_sample_rate != engRate);
+        const bool deviceSrcActive = (engRate > 0 && devRate > 0 && engRate != devRate);
+
+        ps.precision64_reasons = p64Reasons;
+        ps.app_dsp_bypassed = bypassAppDsp ? 1 : 0;
+        ps.decoder_src_active = decoderSrcActive ? 1 : 0;
+        ps.device_src_active = deviceSrcActive ? 1 : 0;
+        ps.engine_sample_rate = engRate;
+
+        {
+            std::unique_lock<std::mutex> rLock(e->deviceResamplerMutex, std::try_to_lock);
+            if (rLock.owns_lock() && e->deviceResamplerInit)
+            {
+                ps.device_resampler_algo = e->deviceResamplerAlgorithm;
+            }
+            else
+            {
+                ps.device_resampler_algo = 0;
+            }
+        }
+
+        ps.device_format_actual = -1;
+        {
+            std::unique_lock<std::mutex> devLock(e->deviceMutex, std::try_to_lock);
+            if (devLock.owns_lock())
+            {
+                const ma_device *pDev = &e->device;
+                if (pDev->pContext != nullptr &&
+                    ma_device_get_state(pDev) != ma_device_state_uninitialized &&
+                    pDev->playback.format != ma_format_unknown)
+                {
+                    ps.device_format_actual = (int)ma_format_to_ae_format(pDev->playback.format);
+                }
+            }
+        }
 
         std::lock_guard<std::mutex> fx(e->fxMutex);
         ps.eq_enabled = e->eqEnabled ? 1 : 0;
@@ -13546,6 +13618,95 @@ extern "C"
         ps.pitch = e->pitchMultiplier.load(std::memory_order_relaxed);
         ps.rate = e->rateMultiplier.load(std::memory_order_relaxed);
         ps.pitch_correction_enabled = e->pitchCorrectionEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+
+        // Active limiter priority matches data_callback else-if order
+        if (bypassAppDsp)
+        {
+            ps.active_limiter = 0;
+        }
+        else if (e->masterLimiterDsp.isEnabled())
+        {
+            ps.active_limiter = 1;
+        }
+        else if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+        {
+            ps.active_limiter = 2;
+        }
+        else if (e->limiterEnabled)
+        {
+            ps.active_limiter = 3;
+        }
+        else
+        {
+            ps.active_limiter = 0;
+        }
+
+        const bool hasFloatPreDynamics = (e->channels >= 2) && (
+            e->downwardExpanderDsp.isEnabled() ||
+            e->deEsserDsp.isEnabled() ||
+            e->harmonicBassDsp.isEnabled() ||
+            e->dynamicSystemDsp.isEnabled() ||
+            e->analogWarmthDsp.isEnabled() ||
+            e->dialogEnhancerDsp.isEnabled() ||
+            e->clarityDsp.isEnabled());
+        const bool isStereoSpatial = (e->channels == 2);
+        const bool hasFloatOnlySpatialFx = e->stereoWidenEnabled ||
+            e->stereoEnhancementEnabled ||
+            (isStereoSpatial && e->surroundDsp.isEnabled()) ||
+            e->reverbEnabled ||
+            e->crystalizerEnabled;
+        const bool hasFftConvolver = (e->channels >= 2 && e->fftConvolverDsp.isEnabled());
+        const bool hasFloatIsland = !bypassAppDsp && (hasFloatPreDynamics || hasFloatOnlySpatialFx || hasFftConvolver);
+
+        ps.float64_end_to_end = (is64Active && !deviceSrcActive && !hasFloatIsland) ? 1 : 0;
+
+        unsigned int mask = 0;
+        if (!bypassAppDsp)
+        {
+            const bool z1Subsonic = e->subsonicFilter.isEnabled() || e->ultrasonicFilter.isEnabled();
+            const bool z1Gate = (e->channels >= 2 && e->noiseGateDsp.isEnabled());
+            const bool z1Expander = (e->channels >= 2 && e->downwardExpanderDsp.isEnabled());
+            if (z1Subsonic || z1Gate || z1Expander)
+                mask |= (1u << 0); // Z1 Restoration
+            if (z1Subsonic)
+                mask |= (1u << 12);
+            if (z1Gate)
+                mask |= (1u << 13);
+            if (z1Expander)
+                mask |= (1u << 14);
+            if (e->channels >= 2 && (e->dynamicEqDsp.isEnabled() || e->deEsserDsp.isEnabled()))
+                mask |= (1u << 1); // Z2 Tone & De-Esser
+            if (e->channels >= 2 && (e->harmonicBassDsp.isEnabled() || e->dynamicSystemDsp.isEnabled() ||
+                                     e->analogWarmthDsp.isEnabled() || e->tapeDriftDsp.isEnabled() ||
+                                     e->dialogEnhancerDsp.isEnabled() || e->clarityDsp.isEnabled()))
+                mask |= (1u << 2); // Z3 Harmonics & Character
+            const bool mbFxActive = e->multibandFxEnabled && e->has_active_multiband_fx();
+            if (e->compressorEnabled || e->multibandEqEnabled || mbFxActive || e->eqEnabled || e->toneCrossoverDsp.isEnabled())
+                mask |= (1u << 3); // Z4 Dynamics & Master EQ
+            if (e->crossfeedEnabled || hasFloatOnlySpatialFx)
+                mask |= (1u << 4); // Z5 Spatial
+            if (hasFftConvolver)
+                mask |= (1u << 5); // Z6 AutoEQ FIR
+            if (e->levellerDsp.isEnabled())
+                mask |= (1u << 6); // Z6 Broadcast Leveller
+            if (e->dynamicLoudnessDsp.isEnabled())
+                mask |= (1u << 7); // Dynamic Loudness
+        }
+        const bool rgActive = std::fabs(e->replayGainLinear.load(std::memory_order_relaxed) - 1.0f) > 1e-6f;
+        const bool normActive = e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed);
+        if (rgActive || normActive)
+            mask |= (1u << 8); // Stage 1 Pre-Gain
+        if (!bypassAppDsp)
+        {
+            if (hasFloatPreDynamics)
+                mask |= (1u << 9);  // F32 island in Z1..Z3
+            if (hasFloatOnlySpatialFx)
+                mask |= (1u << 10); // F32 island in Z5
+            if (hasFftConvolver)
+                mask |= (1u << 11); // F32 island in Z6 AutoEQ FIR
+        }
+        ps.active_node_mask = mask;
+
         return ps;
     }
 
@@ -14069,22 +14230,22 @@ extern "C"
 
     AE_API void ae_set_lowpass_enabled(AudioEngineHandle *e, int enabled)
     {
-        (void)e; (void)enabled;
+        if (e) e->ultrasonicFilter.setEnabled(enabled != 0);
     }
 
     AE_API void ae_set_lowpass_cutoff(AudioEngineHandle *e, float hz)
     {
-        (void)e; (void)hz;
+        if (e) e->ultrasonicFilter.setCutoffHz(static_cast<double>(hz));
     }
 
     AE_API void ae_set_highpass_enabled(AudioEngineHandle *e, int enabled)
     {
-        (void)e; (void)enabled;
+        if (e) e->subsonicFilter.setEnabled(enabled != 0);
     }
 
     AE_API void ae_set_highpass_cutoff(AudioEngineHandle *e, float hz)
     {
-        (void)e; (void)hz;
+        if (e) e->subsonicFilter.setCutoffHz(static_cast<double>(hz));
     }
 
     AE_API void ae_set_delay_enabled(AudioEngineHandle *e, int enabled)
@@ -17569,6 +17730,7 @@ extern "C"
         engine->masterLimiterDsp.reset();
         engine->surroundDsp.reset();
         engine->subsonicFilter.reset();
+        engine->ultrasonicFilter.reset();
         engine->dynamicLoudnessDsp.reset();
         engine->noiseGateDsp.reset();
         engine->levellerDsp.reset();

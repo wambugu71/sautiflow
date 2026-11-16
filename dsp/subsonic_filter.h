@@ -39,6 +39,15 @@ public:
 
     float getSampleRate() const { return sample_rate_; }
 
+    void setCutoffHz(double hz) {
+        const double clamped = std::clamp(hz, 5.0, 200.0);
+        if (std::abs(cutoff_hz_ - clamped) < 0.01 && b0_ != 1.0) return;
+        cutoff_hz_ = clamped;
+        updateCoefficients();
+    }
+
+    double getCutoffHz() const { return cutoff_hz_; }
+
     void setEnabled(bool enabled) {
         if (enabled_ != enabled) {
             enabled_ = enabled;
@@ -65,7 +74,7 @@ public:
 
     void updateCoefficients() {
         constexpr double PI = 3.14159265358979323846;
-        const double f0 = 18.0; // 18 Hz subsonic cutoff
+        const double f0 = std::clamp(cutoff_hz_, 5.0, 200.0);
         const double Q = 0.7071067811865475; // Butterworth Q
         double w0 = 2.0 * PI * f0 / static_cast<double>(sample_rate_);
         if (w0 > PI * 0.95) w0 = PI * 0.95;
@@ -199,14 +208,108 @@ public:
     }
 
 private:
-    bool enabled_ = true;
+    bool enabled_ = false;
     float sample_rate_ = 48000.0f;
+    double cutoff_hz_ = 18.0;
 
     double b0_ = 1.0, b1_ = -2.0, b2_ = 1.0;
     double a1_ = 0.0, a2_ = 0.0;
 
     double s1_[MAX_CHANNELS] = {};
     double s2_[MAX_CHANNELS] = {};
+};
+
+// =============================================================================
+// UltrasonicFilter: 2nd-order Butterworth Low-Pass for Ultrasonic Noise
+// =============================================================================
+class UltrasonicFilter {
+public:
+    UltrasonicFilter() {
+        sample_rate_ = 48000.0f;
+        updateCoefficients();
+        reset();
+    }
+
+    void setSampleRate(float sampleRate) {
+        if (sampleRate <= 0.0f) sampleRate = 48000.0f;
+        if (std::abs(sample_rate_ - sampleRate) < 0.1f && b0_ != 1.0) return;
+        sample_rate_ = sampleRate;
+        updateCoefficients();
+    }
+
+    void setCutoffHz(double hz) {
+        const double clamped = std::clamp(hz, 8000.0, 96000.0);
+        if (std::abs(cutoff_hz_ - clamped) < 0.1 && b0_ != 1.0) return;
+        cutoff_hz_ = clamped;
+        updateCoefficients();
+    }
+
+    double getCutoffHz() const { return cutoff_hz_; }
+
+    void setEnabled(bool enabled) {
+        if (enabled_ != enabled) {
+            enabled_ = enabled;
+            if (!enabled) reset();
+        }
+    }
+
+    bool isEnabled() const { return enabled_; }
+
+    void reset() {
+        std::fill(std::begin(s1_), std::end(s1_), 0.0);
+        std::fill(std::begin(s2_), std::end(s2_), 0.0);
+    }
+
+    void updateCoefficients() {
+        constexpr double PI = 3.14159265358979323846;
+        const double maxSafe = static_cast<double>(sample_rate_) * 0.48;
+        if (cutoff_hz_ >= maxSafe) {
+            b0_ = 1.0; b1_ = 0.0; b2_ = 0.0;
+            a1_ = 0.0; a2_ = 0.0;
+            return;
+        }
+        const double Q = 0.7071067811865475;
+        double w0 = 2.0 * PI * cutoff_hz_ / static_cast<double>(sample_rate_);
+        if (w0 > PI * 0.95) w0 = PI * 0.95;
+        if (w0 < 1.0e-4) w0 = 1.0e-4;
+
+        const double cos_w0 = std::cos(w0);
+        const double sin_w0 = std::sin(w0);
+        const double alpha = sin_w0 / (2.0 * Q);
+
+        const double a0 = 1.0 + alpha;
+        b0_ = ((1.0 - cos_w0) / 2.0) / a0;
+        b1_ = (1.0 - cos_w0) / a0;
+        b2_ = ((1.0 - cos_w0) / 2.0) / a0;
+        a1_ = (-2.0 * cos_w0) / a0;
+        a2_ = (1.0 - alpha) / a0;
+    }
+
+    template <typename T>
+    void process(T* interleaved_samples, uint32_t frame_count, int channels = 2) {
+        if (!enabled_ || frame_count == 0 || !interleaved_samples || channels < 1) return;
+        const size_t chs = std::min(static_cast<size_t>(channels), size_t{16});
+        for (uint32_t i = 0; i < frame_count; ++i) {
+            const size_t base_idx = static_cast<size_t>(i) * static_cast<size_t>(channels);
+            for (size_t c = 0; c < chs; ++c) {
+                const double in_s = static_cast<double>(interleaved_samples[base_idx + c]);
+                double out_s = in_s * b0_ + s1_[c];
+                if (std::fabs(out_s) < 1.0e-20) out_s = 0.0;
+                s1_[c] = in_s * b1_ - out_s * a1_ + s2_[c];
+                s2_[c] = in_s * b2_ - out_s * a2_;
+                interleaved_samples[base_idx + c] = static_cast<T>(out_s);
+            }
+        }
+    }
+
+private:
+    bool enabled_ = false;
+    float sample_rate_ = 48000.0f;
+    double cutoff_hz_ = 20000.0;
+    double b0_ = 1.0, b1_ = 0.0, b2_ = 0.0;
+    double a1_ = 0.0, a2_ = 0.0;
+    double s1_[16] = {};
+    double s2_[16] = {};
 };
 
 } // namespace sauti::dsp

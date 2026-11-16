@@ -414,6 +414,13 @@ class IsolateAudioPlayer {
     if (index != null && index != _lastStatus?.currentIndex) {
       _prearmTrackLoudnessForIndex(index);
     }
+    if (DlnaService.instance.activeRenderer != null && index == null) {
+      if (DlnaService.instance.isStreamingLiveTap) {
+        DlnaService.instance.onLiveTapSeek?.call(position);
+      } else {
+        DlnaService.instance.seek(position);
+      }
+    }
     if (ChromecastService.instance.activeDevice != null && index == null) {
       if (ChromecastService.instance.isStreamingLiveTap) {
         ChromecastService.instance.onLiveTapSeek?.call(position);
@@ -2775,7 +2782,7 @@ void _isolateEntry(_IsolateInitData initData) {
               } else {
                 player.setHighpass(enabled: false, cutoffHz: 20.0);
               }
-              if (ultraHz > 0) {
+              if (ultraHz > 0 && ultraHz < 24000) {
                 player.setLowpass(enabled: true, cutoffHz: ultraHz);
               } else {
                 player.setLowpass(enabled: false, cutoffHz: 20000.0);
@@ -3069,6 +3076,7 @@ void _isolateEntry(_IsolateInitData initData) {
             int inputRate = ps.inputSampleRate;
             int inputChannels = ps.inputChannels;
             int inputBitDepth = 16;
+            bool inputBitDepthInferred = false;
             String fileType = 'PCM';
             int bitrateKbps = 0;
             int fileSizeBytes = 0;
@@ -3154,13 +3162,16 @@ void _isolateEntry(_IsolateInitData initData) {
                   if (codecLower.contains('s24') ||
                       codecLower.contains('pcm_s24')) {
                     inputBitDepth = 24;
+                    inputBitDepthInferred = true;
                   } else if (codecLower.contains('s32') ||
                       codecLower.contains('f32') ||
                       codecLower.contains('pcm_s32')) {
                     inputBitDepth = 32;
+                    inputBitDepthInferred = true;
                   } else if (codecLower.contains('s16') ||
                       codecLower.contains('pcm_s16')) {
                     inputBitDepth = 16;
+                    inputBitDepthInferred = true;
                   } else if ((codecLower.contains('wav') ||
                           codecLower.contains('pcm')) &&
                       st.bitrate > 0 &&
@@ -3171,6 +3182,7 @@ void _isolateEntry(_IsolateInitData initData) {
                             .round();
                     if (inferred == 16 || inferred == 24 || inferred == 32) {
                       inputBitDepth = inferred;
+                      inputBitDepthInferred = true;
                     }
                   }
                 }
@@ -3191,12 +3203,26 @@ void _isolateEntry(_IsolateInitData initData) {
               'inputSampleRate': inputRate,
               'inputChannels': inputChannels,
               'inputBitDepth': inputBitDepth,
+              'inputBitDepthInferred': inputBitDepthInferred,
               'processingFormat': ps.processingFormat,
               'processingSampleRate': ps.processingSampleRate,
               'processingChannels': ps.processingChannels,
-              'is64BitProcessing': player.is64BitProcessingEnabled ||
+              'is64BitProcessing': ps.precision64Reasons != 0 ||
                   ps.processingFormat == 64 ||
-                  (ps.outputFormat >= 1 && ps.outputFormat <= 4),
+                  player.is64BitProcessingEnabled,
+              'precision64Reasons': ps.precision64Reasons,
+              'float64EndToEnd': ps.float64EndToEnd,
+              'appDspBypassed': ps.appDspBypassed,
+              'activeLimiter': ps.activeLimiter,
+              'decoderSrcActive': ps.decoderSrcActive,
+              'deviceSrcActive': ps.deviceSrcActive,
+              'engineSampleRate': ps.engineSampleRate,
+              'deviceResamplerAlgo': ps.deviceResamplerAlgo,
+              'deviceFormatActual': ps.deviceFormatActual,
+              'activeNodeMask': ps.activeNodeMask,
+              'fftConvolverEnabled': (ps.activeNodeMask & (1 << 5)) != 0,
+              'levellerEnabled': (ps.activeNodeMask & (1 << 6)) != 0,
+              'anyFxEnabled': dspOn,
               'dacValidBitDepth': player.getDacValidBitDepth(),
               'dsdOutputMode': player.getDsdOutputMode().value,
               'activeDsdMode': player.getActiveDsdMode().value,
@@ -3235,7 +3261,7 @@ void _isolateEntry(_IsolateInitData initData) {
               'crossfeedDelayMs': crossfeedParams.delayMs,
               'crossfeedCutoffHz': crossfeedParams.cutoffHz,
               'crossfeedComp': crossfeedParams.outputCompensation,
-              'sautiDspEnabled': dspOn,
+              'sautiDspEnabled': (ps.activeNodeMask & ((1 << 5) | (1 << 6))) != 0,
               'truePeakDBTP': qt.truePeakDBTP,
               'samplePeakDB': qt.samplePeakDB,
               'momentaryLUFS': qt.momentaryLUFS,

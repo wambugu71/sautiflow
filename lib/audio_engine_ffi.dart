@@ -979,6 +979,27 @@ final class PipelineStateNative extends ffi.Struct {
   external double rate;
   @ffi.Int32()
   external int pitch_correction_enabled;
+
+  @ffi.Int32()
+  external int precision64_reasons;
+  @ffi.Int32()
+  external int float64_end_to_end;
+  @ffi.Int32()
+  external int app_dsp_bypassed;
+  @ffi.Int32()
+  external int active_limiter;
+  @ffi.Int32()
+  external int decoder_src_active;
+  @ffi.Int32()
+  external int device_src_active;
+  @ffi.Int32()
+  external int engine_sample_rate;
+  @ffi.Int32()
+  external int device_resampler_algo;
+  @ffi.Int32()
+  external int device_format_actual;
+  @ffi.Uint32()
+  external int active_node_mask;
 }
 
 final class AETrackInfoNative extends ffi.Struct {
@@ -3020,6 +3041,18 @@ class PipelineAudioState {
   final double rate;
   final bool pitchCorrectionEnabled;
 
+  // Accurate telemetry / conversion diagnostics
+  final int precision64Reasons;
+  final bool float64EndToEnd;
+  final bool appDspBypassed;
+  final int activeLimiter;
+  final bool decoderSrcActive;
+  final bool deviceSrcActive;
+  final int engineSampleRate;
+  final int deviceResamplerAlgo;
+  final int deviceFormatActual;
+  final int activeNodeMask;
+
   const PipelineAudioState({
     required this.inputFormat,
     required this.inputSampleRate,
@@ -3042,6 +3075,16 @@ class PipelineAudioState {
     required this.pitch,
     this.rate = 1.0,
     this.pitchCorrectionEnabled = true,
+    this.precision64Reasons = 0,
+    this.float64EndToEnd = false,
+    this.appDspBypassed = false,
+    this.activeLimiter = 0,
+    this.decoderSrcActive = false,
+    this.deviceSrcActive = false,
+    this.engineSampleRate = 0,
+    this.deviceResamplerAlgo = 0,
+    this.deviceFormatActual = -1,
+    this.activeNodeMask = 0,
   });
 
   factory PipelineAudioState.fromNative(PipelineStateNative native) {
@@ -3067,6 +3110,16 @@ class PipelineAudioState {
       pitch: native.pitch,
       rate: native.rate,
       pitchCorrectionEnabled: native.pitch_correction_enabled != 0,
+      precision64Reasons: native.precision64_reasons,
+      float64EndToEnd: native.float64_end_to_end != 0,
+      appDspBypassed: native.app_dsp_bypassed != 0,
+      activeLimiter: native.active_limiter,
+      decoderSrcActive: native.decoder_src_active != 0,
+      deviceSrcActive: native.device_src_active != 0,
+      engineSampleRate: native.engine_sample_rate,
+      deviceResamplerAlgo: native.device_resampler_algo,
+      deviceFormatActual: native.device_format_actual,
+      activeNodeMask: native.active_node_mask,
     );
   }
 

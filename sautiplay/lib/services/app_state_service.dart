@@ -1363,7 +1363,7 @@ class AppStateService {
     final rawBackend = prefs.getInt(_kOutputBackend) ?? 0;
     final rawDacBits = prefs.getInt(_kDacValidBitDepth) ?? 0;
     const allowedDacBits = {0, 16, 24, 32};
-    final rawDsdMode = prefs.getInt(_kDsdOutputMode) ?? 0;
+    final rawDsdMode = prefs.getInt(_kDsdOutputMode) ?? 1;
     final rawD2pRate = prefs.getInt(_kDsdD2pSampleRate) ?? 0;
     const allowedD2pRates = {0, 88200, 96000, 176400, 192000, 352800, 384000};
     final rawDsdBoost = prefs.getDouble(_kDsdGainBoostDb) ?? 6.0;
@@ -1652,7 +1652,7 @@ class AppStateService {
   })> loadSpeakerProtection() async {
     final prefs = PreferencesStore.instance;
     return (
-      enabled: prefs.getBool(_kSpeakerProtectionEnabled) ?? true,
+      enabled: prefs.getBool(_kSpeakerProtectionEnabled) ?? false,
       subsonicCutoffHz: prefs.getDouble(_kSubsonicCutoff) ?? 25.0,
       ultrasonicCutoffHz: prefs.getDouble(_kUltrasonicCutoff) ?? 20000.0,
       limiterThreshold: prefs.getDouble(_kSpeakerLimiterThreshold) ?? 0.95,
@@ -1739,7 +1739,7 @@ class AppStateService {
 
   Future<bool> loadAutoBitPerfectEnabled() async {
     final prefs = PreferencesStore.instance;
-    return prefs.getBool(_kAutoBitPerfectEnabled) ?? true;
+    return prefs.getBool(_kAutoBitPerfectEnabled) ?? false;
   }
 
   // ─── Hardware Buffer Size & Latency Settings ──────────────────────────────
