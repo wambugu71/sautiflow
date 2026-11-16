@@ -6,6 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:sautiflow/sautiflow.dart' show AudioEngineFFI;
 
+import 'ftp_service.dart';
+import 'ftp_stream_relay.dart';
+
 typedef _FlushCastTapNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _FlushCastTapDart = void Function(ffi.Pointer<ffi.Void>);
 typedef _ReadCastPcmNative = ffi.Int32 Function(
@@ -102,6 +105,11 @@ class LocalMediaServer {
 
     if (reqPath.startsWith('/cast/live_') && reqPath.endsWith('.wav')) {
       await _handleLiveWavRequest(request);
+      return;
+    }
+
+    if (reqPath.startsWith('/ftp/')) {
+      await FtpStreamRelay.instance.handleHttpRequest(request);
       return;
     }
 
@@ -562,6 +570,20 @@ class LocalMediaServer {
       debugPrint('[LocalMediaServer] Failed to get local IP: $e');
       return null;
     }
+  }
+
+  /// Registers an FTP track for local HTTP byte-range streaming and returns its
+  /// `http://127.0.0.1:<port>/ftp/...` relay URL, or `null` if the server could
+  /// not start.
+  Future<String?> registerFtpTrack(FtpConfig config, FtpFileEntry entry) async {
+    await start();
+    if (_server == null) return null;
+    return FtpStreamRelay.instance.registerEntry(
+      config,
+      entry,
+      serverPort: _port,
+      mimeType: mimeTypeForPathOrExt(entry.name),
+    );
   }
 
   static String mimeTypeForPathOrExt(String pathOrExt) =>

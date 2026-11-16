@@ -632,6 +632,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
           artworkUrl: artworkUrl,
           durationSeconds: durationSeconds,
           mimeType: mime,
+          isLiveStream: false,
         );
       }
       return;
@@ -682,6 +683,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         artworkUrl: artworkUrl,
         durationSeconds: durationSeconds,
         mimeType: 'audio/wav',
+        isLiveStream: true,
       );
     }
   }
@@ -892,6 +894,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     ChromecastService.instance.addListener(_onCastOutputConfigChanged);
     DlnaService.instance.addListener(_onCastOutputConfigChanged);
     ChromecastService.instance.onLiveTapSeek = (_) => _retriggerLiveCastOnSeek();
+    DlnaService.instance.onLiveTapSeek = (_) => _retriggerLiveCastOnSeek();
 
     if (Platform.isAndroid) {
       unawaited(_ensureNotificationPermission());
@@ -2388,6 +2391,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (_onlineTrackMetadata.containsKey(src.uri)) {
       return _onlineTrackMetadata[src.uri]?.videoId == track.videoId;
     }
+    if (src.uri.toString() == track.videoId) {
+      return true;
+    }
     if (src.uri.scheme == 'file') {
       final path = _safeFilePathFromUri(src.uri);
       if (path == null) return false;
@@ -3489,23 +3495,78 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   Future<void> _playFtpFolder(
       List<dynamic> dynamicEntries, dynamic config, int initialIndex) async {
     final entries = dynamicEntries.cast<FtpFileEntry>();
+    if (entries.isEmpty) return;
     final ftpConfig = config as FtpConfig;
+    final safeInitialIndex = initialIndex.clamp(0, entries.length - 1);
 
     _playbackSessionId++;
     final session = _playbackSessionId;
 
+    _isFtpDownloading = false;
     _activeFtpConfig = ftpConfig;
     _pendingFtpDownloads = List.from(entries);
 
     final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text('Starting playback for ${entries.length} FTP tracks...'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
 
     try {
+      // Stream directly via local HTTP-to-FTP byte-range relay (no full-file
+      // download wait before playback starts).
+      final firstRelayUrl = await LocalMediaServer.instance
+          .registerFtpTrack(ftpConfig, entries[safeInitialIndex]);
+      if (!mounted || _playbackSessionId != session) return;
+
+      if (firstRelayUrl != null) {
+        _currentUiQueue.clear();
+        _playlist.clear();
+
+        for (int i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          final relayUrl = i == safeInitialIndex
+              ? firstRelayUrl
+              : await LocalMediaServer.instance
+                  .registerFtpTrack(ftpConfig, entry);
+          if (!mounted || _playbackSessionId != session) return;
+          if (relayUrl == null) {
+            throw StateError('Failed to register FTP relay for ${entry.name}');
+          }
+          final trackInfo = TrackInfo(
+            videoId: relayUrl,
+            title: entry.name,
+            artist: ftpConfig.name,
+            thumbnailUrl: null,
+          );
+          final src = AudioSource.network(
+            relayUrl,
+            title: entry.name,
+            artist: ftpConfig.name,
+          );
+          _onlineTrackMetadata[src.uri] = trackInfo;
+          _currentUiQueue.add(trackInfo);
+          _playlist.add(src);
+        }
+
+        setState(() {});
+
+        _player.setAudioSources(
+          _playlist,
+          initialIndex: safeInitialIndex,
+          initialPosition: Duration.zero,
+          useLazyPreparation: true,
+        );
+
+        _saveQueue();
+        _showNowPlayingScreen();
+        return;
+      }
+
+      // Fallback if local HTTP relay server could not bind: download to cache.
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Starting playback for ${entries.length} FTP tracks...'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
       final supportDir = await getApplicationSupportDirectory();
       final cacheDir = p.join(supportDir.path, 'ftp_cache', ftpConfig.id);
       final cacheDirFile = Directory(cacheDir);
@@ -3515,7 +3576,6 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
       if (!mounted || _playbackSessionId != session) return;
 
-      // Prepare UI queue and AudioSources with predicted cache paths
       _currentUiQueue.clear();
       _playlist.clear();
 
@@ -3533,8 +3593,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
       setState(() {});
 
-      // Download the initial track so we can start playing immediately
-      final initialEntry = entries[initialIndex];
+      final initialEntry = entries[safeInitialIndex];
       final initialPath = p.join(cacheDir, initialEntry.name);
       final initialFile = File(initialPath);
 
@@ -3544,15 +3603,18 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
               content:
                   Text('Downloading first track: ${initialEntry.name}...')),
         );
-        await FtpService.downloadFile(
+        final ok = await FtpService.downloadFile(
             ftpConfig, initialEntry.path, initialFile);
+        if (!ok) {
+          throw StateError('Failed to download ${initialEntry.name}');
+        }
       }
 
       if (!mounted || _playbackSessionId != session) return;
 
       _player.setAudioSources(
         _playlist,
-        initialIndex: initialIndex,
+        initialIndex: safeInitialIndex,
         initialPosition: Duration.zero,
         useLazyPreparation: true,
       );
@@ -3560,9 +3622,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       _saveQueue();
       _showNowPlayingScreen();
 
-      // Start downloading the rest
       _isFtpDownloading = true;
-      _processPendingFtpDownloads(cacheDir, initialIndex);
+      _processPendingFtpDownloads(cacheDir, safeInitialIndex);
     } catch (e) {
       debugPrint('[NetworkSources] Error playing FTP folder: $e');
       messenger.showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -3817,6 +3878,7 @@ void _showNowPlayingScreen() {
                     _saveEngineSettings();
                   },
                   onPlayNetworkFile: _playNetworkFile,
+                  onPlayFtpFolder: _playFtpFolder,
                   analyzerAutoFit: _analyzerAutoFit,
                   onAnalyzerAutoFitChanged: (v) {
                     setState(() => _analyzerAutoFit = v);

@@ -136,17 +136,12 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     }
   }
 
-  bool _isAudioFile(String name) {
-    final ext = name.split('.').last.toLowerCase();
-    return ['mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg'].contains(ext);
-  }
-
   Future<void> _playFtpAudioFile(FtpFileEntry fileEntry) async {
     if (_selectedFtpConfig == null) return;
 
     if (widget.onPlayFtpFolder != null) {
       final audioEntries = _ftpEntries
-          .where((e) => !e.isDirectory && _isAudioFile(e.name))
+          .where((e) => !e.isDirectory && e.isAudioFile)
           .toList();
       final initialIndex =
           audioEntries.indexWhere((e) => e.path == fileEntry.path);

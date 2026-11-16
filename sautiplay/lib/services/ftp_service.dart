@@ -223,7 +223,7 @@ class FtpService {
     return entries;
   }
 
-  /// Downloads a remote audio file to [targetLocalFile].
+  /// Downloads a remote audio file to [targetLocalFile] via a `.part` temp file.
   static Future<bool> downloadFile(
     FtpConfig config,
     String remotePath,
@@ -231,6 +231,7 @@ class FtpService {
     void Function(double progress)? onProgress,
   }) async {
     final client = _buildClient(config);
+    final tempFile = File('${targetLocalFile.path}.part');
     try {
       final isConnected = await client.connect();
       if (!isConnected) return false;
@@ -239,16 +240,37 @@ class FtpService {
       if (!targetLocalFile.parent.existsSync()) {
         targetLocalFile.parent.createSync(recursive: true);
       }
+      if (tempFile.existsSync()) {
+        tempFile.deleteSync();
+      }
 
       final success = await client.downloadFile(
         remotePath,
-        targetLocalFile,
+        tempFile,
+        onProgress: onProgress == null
+            ? null
+            : (percent, _, __) => onProgress(percent / 100.0),
       );
 
       await client.disconnect();
-      return success;
+
+      if (success && tempFile.existsSync()) {
+        if (targetLocalFile.existsSync()) {
+          targetLocalFile.deleteSync();
+        }
+        tempFile.renameSync(targetLocalFile.path);
+        return true;
+      }
+
+      if (tempFile.existsSync()) {
+        tempFile.deleteSync();
+      }
+      return false;
     } catch (e) {
       debugPrint('[FtpService] Error downloading file $remotePath: $e');
+      try {
+        if (tempFile.existsSync()) tempFile.deleteSync();
+      } catch (_) {}
       return false;
     }
   }
