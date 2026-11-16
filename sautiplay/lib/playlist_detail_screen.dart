@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:material_ui/material_ui.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'widgets/m3e_modal_helpers.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
@@ -75,6 +76,56 @@ class PlaylistDetailReactiveController extends ValueNotifier<PlaylistDetailState
       return true;
     }
     return false;
+  }
+
+  Future<bool> reorderTrack(int oldIndex, int newIndex) async {
+    final updated = await M3uPlaylistService.instance.reorderPlaylistTrack(
+      playlistId: playlist.id,
+      oldIndex: oldIndex,
+      newIndex: newIndex,
+    );
+    if (updated != null) {
+      updatePlaylist(updated);
+      return true;
+    }
+    return false;
+  }
+
+  Future<bool> harmonize() async {
+    final updated =
+        await M3uPlaylistService.instance.harmonizePlaylistOrder(playlist.id);
+    if (updated != null) {
+      updatePlaylist(updated);
+      return true;
+    }
+    return false;
+  }
+
+  Future<int> removeDuplicates() async {
+    final before = tracks.length;
+    final updated =
+        await M3uPlaylistService.instance.removeDuplicates(playlist.id);
+    if (updated != null) {
+      updatePlaylist(updated);
+      return before - updated.tracks.length;
+    }
+    return 0;
+  }
+
+  Future<int> relinkMissing() async {
+    final res =
+        await M3uPlaylistService.instance.relinkMissingTracks(playlist.id);
+    if (res.playlist != null) {
+      updatePlaylist(res.playlist!);
+    }
+    return res.relinkedCount;
+  }
+
+  Future<void> refreshSmart() async {
+    if (!playlist.isSmart || playlist.smartSpec == null) return;
+    final freshTracks =
+        await M3uPlaylistService.instance.evaluateSmartSpec(playlist.smartSpec!);
+    updatePlaylist(playlist.copyWith(tracks: freshTracks));
   }
 }
 
@@ -298,7 +349,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
   Future<void> _renamePlaylist() async {
     final textController = TextEditingController(text: _currentPlaylist.name);
-    final confirm = await M3EDialog.show<bool>(
+    final confirm = await showSautiM3EDialog<bool>(
       context,
       dialog: M3EDialog(
         title: 'Rename Playlist',
@@ -343,6 +394,47 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           SnackBar(content: Text('Renamed playlist to "${_currentPlaylist.name}"')),
         );
       }
+    }
+  }
+
+  Future<void> _harmonizePlaylist() async {
+    final ok = await _controller.harmonize();
+    if (ok && mounted) {
+      widget.onPlaylistUpdated?.call();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Harmonized playlist order by Camelot Key & BPM.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _removeDuplicates() async {
+    final removed = await _controller.removeDuplicates();
+    if (mounted) {
+      if (removed > 0) widget.onPlaylistUpdated?.call();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(removed > 0
+              ? 'Removed $removed duplicate track(s).'
+              : 'No duplicate tracks found.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _relinkMissing() async {
+    final relinked = await _controller.relinkMissing();
+    if (mounted) {
+      if (relinked > 0) widget.onPlaylistUpdated?.call();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(relinked > 0
+              ? 'Relinked $relinked missing track(s).'
+              : 'No matching moved files found in library.'),
+        ),
+      );
     }
   }
 
@@ -405,7 +497,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   }
 
   Future<void> _deletePlaylist() async {
-    final confirm = await M3EDialog.show<bool>(
+    final confirm = await showSautiM3EDialog<bool>(
       context,
       dialog: M3EDialog(
         title: 'Delete Playlist',
@@ -487,6 +579,33 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 children: [
                   M3EMenuGroup.entries(
                     entries: [
+                      if (!_currentPlaylist.isSmart && _tracks.length >= 3)
+                        M3EMenuEntry(
+                          label: 'Harmonize (Camelot + BPM)',
+                          leading: Icon(Icons.auto_awesome,
+                              color: _primary, size: 20),
+                          onPressed: _harmonizePlaylist,
+                        ),
+                      if (_currentPlaylist.isSmart)
+                        M3EMenuEntry(
+                          label: 'Refresh Smart Rules',
+                          leading: Icon(Icons.refresh, color: _primary, size: 20),
+                          onPressed: () => _controller.refreshSmart(),
+                        ),
+                      if (!_currentPlaylist.isSmart)
+                        M3EMenuEntry(
+                          label: 'Remove Duplicates',
+                          leading: const Icon(Icons.filter_none,
+                              color: Colors.cyanAccent, size: 20),
+                          onPressed: _removeDuplicates,
+                        ),
+                      if (!_currentPlaylist.isSmart)
+                        M3EMenuEntry(
+                          label: 'Relink Missing Files',
+                          leading: const Icon(Icons.link,
+                              color: Colors.lightGreenAccent, size: 20),
+                          onPressed: _relinkMissing,
+                        ),
                       M3EMenuEntry(
                         label: 'Rename Playlist',
                         leading: Icon(Icons.edit_outlined,
@@ -536,25 +655,51 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         Expanded(
                           child: _tracks.isEmpty
                               ? _buildEmptyState()
-                              : ListView.builder(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: isDesktop ? 32 : 16,
-                                    vertical: 8,
-                                  ).copyWith(bottom: 120),
-                                  itemCount: _tracks.length,
-                                  itemBuilder: (context, index) {
-                                    final song = _tracks[index];
-                                    final isFirst = index == 0;
-                                    final isLast = index == _tracks.length - 1;
-                                    return _buildTrackRow(
-                                      index,
-                                      song,
-                                      isDesktop: isDesktop,
-                                      isFirst: isFirst,
-                                      isLast: isLast,
-                                    );
-                                  },
-                                ),
+                              : _currentPlaylist.isSmart
+                                  ? ListView.builder(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: isDesktop ? 32 : 16,
+                                        vertical: 8,
+                                      ).copyWith(bottom: 120),
+                                      itemCount: _tracks.length,
+                                      itemBuilder: (context, index) {
+                                        final song = _tracks[index];
+                                        return _buildTrackRow(
+                                          index,
+                                          song,
+                                          isDesktop: isDesktop,
+                                          isFirst: index == 0,
+                                          isLast: index == _tracks.length - 1,
+                                        );
+                                      },
+                                    )
+                                  : ReorderableListView.builder(
+                                      buildDefaultDragHandles: false,
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: isDesktop ? 32 : 16,
+                                        vertical: 8,
+                                      ).copyWith(bottom: 120),
+                                      itemCount: _tracks.length,
+                                      onReorderItem: (oldIndex, newIndex) async {
+                                        await _controller.reorderTrack(
+                                            oldIndex, newIndex);
+                                        widget.onPlaylistUpdated?.call();
+                                      },
+                                      itemBuilder: (context, index) {
+                                        final song = _tracks[index];
+                                        return ReorderableDragStartListener(
+                                          key: ValueKey('${song.path}#$index'),
+                                          index: index,
+                                          child: _buildTrackRow(
+                                            index,
+                                            song,
+                                            isDesktop: isDesktop,
+                                            isFirst: index == 0,
+                                            isLast: index == _tracks.length - 1,
+                                          ),
+                                        );
+                                      },
+                                    ),
                         ),
                       ],
                     );

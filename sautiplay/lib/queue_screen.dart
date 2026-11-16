@@ -3,13 +3,16 @@ import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'widgets/m3e_modal_helpers.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_music_visualizer/mini_music_visualizer.dart';
 import 'package:sautiflow/sautiflow.dart';
 
 import 'album_detail_screen.dart';
 import 'l10n/app_strings.dart';
+import 'models/local_song_item.dart';
 import 'services/app_theme_service.dart';
+import 'services/m3u_playlist_service.dart';
 import 'widgets/local_album_art.dart';
 import 'widgets/music_info_dialog.dart';
 
@@ -189,8 +192,73 @@ class _QueueScreenState extends State<QueueScreen>
     }
   }
 
+  Future<void> _saveQueueAsPlaylist(BuildContext context) async {
+    if (widget.queue.isEmpty) return;
+    final nameCtrl = TextEditingController(
+      text: 'Queue ${DateTime.now().month}/${DateTime.now().day}',
+    );
+    final confirm = await showSautiM3EDialog<bool>(
+      context,
+      dialog: M3EDialog(
+        title: 'Save Queue as Playlist',
+        topDivider: true,
+        bottomDivider: true,
+        content: Material(
+          color: Colors.transparent,
+          child: TextField(
+            controller: nameCtrl,
+            autofocus: true,
+            style: TextStyle(color: context.textPrimary),
+            decoration: InputDecoration(
+              labelText: 'Playlist Name',
+              filled: true,
+              fillColor: context.cardDark,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          M3EButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          M3EButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && nameCtrl.text.trim().isNotEmpty) {
+      final items = widget.queue
+          .map((t) => LocalSongItem.fallback(
+                t.videoId,
+                0,
+                DateTime.now(),
+                title: t.title,
+                artist: t.artist,
+                album: t.album ?? 'Unknown Album',
+              ))
+          .toList();
+      final pl = await M3uPlaylistService.instance.createPlaylist(
+        name: nameCtrl.text.trim(),
+        tracks: items,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text('Saved ${items.length} tracks to "${pl.name}".')),
+        );
+      }
+    }
+  }
+
   void _confirmClearQueue(BuildContext context) {
-    M3EDialog.show<void>(
+    showSautiM3EDialog<void>(
       context,
       dialog: M3EDialog(
         title: context.strings.clearQueueTitle,
@@ -264,6 +332,7 @@ class _QueueScreenState extends State<QueueScreen>
                 onToggleUpcomingOnly: _toggleUpcomingOnly,
                 onScrollToPlaying: () => _scrollToPlayingItem(animate: true),
                 onShuffleQueue: widget.onShuffleQueue,
+                onSaveAsPlaylist: () => _saveQueueAsPlaylist(context),
                 onClearQueue: widget.onClearQueue != null
                     ? () => _confirmClearQueue(context)
                     : null,
@@ -452,6 +521,7 @@ class _QueueToolbar extends StatelessWidget {
   final VoidCallback onToggleUpcomingOnly;
   final VoidCallback onScrollToPlaying;
   final VoidCallback? onShuffleQueue;
+  final VoidCallback? onSaveAsPlaylist;
   final VoidCallback? onClearQueue;
 
   const _QueueToolbar({
@@ -460,6 +530,7 @@ class _QueueToolbar extends StatelessWidget {
     required this.onToggleUpcomingOnly,
     required this.onScrollToPlaying,
     this.onShuffleQueue,
+    this.onSaveAsPlaylist,
     this.onClearQueue,
   });
 
@@ -499,6 +570,14 @@ class _QueueToolbar extends StatelessWidget {
                 label: context.strings.shuffle,
                 leading: const Icon(Icons.shuffle_rounded, size: 16),
                 onPressed: onShuffleQueue,
+              ),
+            ],
+            if (onSaveAsPlaylist != null) ...[
+              const SizedBox(width: 8),
+              M3EChip(
+                label: 'Save Playlist',
+                leading: const Icon(Icons.playlist_add_rounded, size: 16),
+                onPressed: onSaveAsPlaylist,
               ),
             ],
             if (onClearQueue != null) ...[

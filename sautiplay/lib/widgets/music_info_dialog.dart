@@ -1,7 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'm3e_modal_helpers.dart';
+import '../database/app_database.dart';
 import '../services/app_theme_service.dart';
+import '../services/metadata_intelligence_service.dart';
 import 'adaptive_marquee_text.dart';
 
 class MusicInfoDialog extends StatefulWidget {
@@ -11,6 +14,11 @@ class MusicInfoDialog extends StatefulWidget {
   final String genre;
   final String year;
   final String trackNumber;
+  final String albumArtist;
+  final String discNumber;
+  final String composer;
+  final String bpm;
+  final String musicalKey;
   final Uint8List? albumArt;
   final String sourceType; // 'local' or 'online' / 'stream'
   final String? videoId; // File path or Video ID / URL
@@ -28,6 +36,20 @@ class MusicInfoDialog extends StatefulWidget {
     required String year,
     required String trackNumber,
   })? onSaveTags;
+  final void Function({
+    required String title,
+    required String artist,
+    required String album,
+    required String genre,
+    required String year,
+    required String trackNumber,
+    required String albumArtist,
+    required String discNumber,
+    required String composer,
+    required String bpm,
+    required String musicalKey,
+  })? onSaveExtendedTags;
+  final VoidCallback? onUndoTags;
 
   const MusicInfoDialog({
     super.key,
@@ -37,6 +59,11 @@ class MusicInfoDialog extends StatefulWidget {
     this.genre = 'Unknown Genre',
     this.year = '',
     this.trackNumber = '',
+    this.albumArtist = '',
+    this.discNumber = '',
+    this.composer = '',
+    this.bpm = '',
+    this.musicalKey = '',
     this.albumArt,
     required this.sourceType,
     this.videoId,
@@ -47,6 +74,8 @@ class MusicInfoDialog extends StatefulWidget {
     this.fileSizeBytes = 0,
     required this.duration,
     this.onSaveTags,
+    this.onSaveExtendedTags,
+    this.onUndoTags,
   });
 
   static Future<void> show(
@@ -57,6 +86,11 @@ class MusicInfoDialog extends StatefulWidget {
     String genre = 'Unknown Genre',
     String year = '',
     String trackNumber = '',
+    String albumArtist = '',
+    String discNumber = '',
+    String composer = '',
+    String bpm = '',
+    String musicalKey = '',
     Uint8List? albumArt,
     required String sourceType,
     String? videoId,
@@ -74,6 +108,20 @@ class MusicInfoDialog extends StatefulWidget {
       required String year,
       required String trackNumber,
     })? onSaveTags,
+    void Function({
+      required String title,
+      required String artist,
+      required String album,
+      required String genre,
+      required String year,
+      required String trackNumber,
+      required String albumArtist,
+      required String discNumber,
+      required String composer,
+      required String bpm,
+      required String musicalKey,
+    })? onSaveExtendedTags,
+    VoidCallback? onUndoTags,
   }) async {
     final isMobile = MediaQuery.of(context).size.width < 600;
     final dialogWidget = MusicInfoDialog(
@@ -83,6 +131,11 @@ class MusicInfoDialog extends StatefulWidget {
       genre: genre,
       year: year,
       trackNumber: trackNumber,
+      albumArtist: albumArtist,
+      discNumber: discNumber,
+      composer: composer,
+      bpm: bpm,
+      musicalKey: musicalKey,
       albumArt: albumArt,
       sourceType: sourceType,
       videoId: videoId,
@@ -93,10 +146,12 @@ class MusicInfoDialog extends StatefulWidget {
       fileSizeBytes: fileSizeBytes,
       duration: duration,
       onSaveTags: onSaveTags,
+      onSaveExtendedTags: onSaveExtendedTags,
+      onUndoTags: onUndoTags,
     );
 
     if (isMobile) {
-      await M3EBottomSheet.show<void>(
+      await showSautiM3EBottomSheet<void>(
         context,
         builder: (ctx) => SafeArea(
           child: Padding(
@@ -106,7 +161,7 @@ class MusicInfoDialog extends StatefulWidget {
         ),
       );
     } else {
-      await M3EDialog.show<void>(
+      await showSautiM3EDialog<void>(
         context,
         dialog: dialogWidget,
       );
@@ -126,6 +181,14 @@ class _MusicInfoDialogState extends State<MusicInfoDialog> {
   late TextEditingController _genreController;
   late TextEditingController _yearController;
   late TextEditingController _trackNumController;
+  late TextEditingController _albumArtistController;
+  late TextEditingController _discNumController;
+  late TextEditingController _composerController;
+  late TextEditingController _bpmController;
+  late TextEditingController _musicalKeyController;
+
+  String? _inferenceBanner;
+  bool _hasUndoHistory = false;
 
   @override
   void initState() {
@@ -136,6 +199,21 @@ class _MusicInfoDialogState extends State<MusicInfoDialog> {
     _genreController = TextEditingController(text: widget.genre);
     _yearController = TextEditingController(text: widget.year);
     _trackNumController = TextEditingController(text: widget.trackNumber);
+    _albumArtistController = TextEditingController(text: widget.albumArtist);
+    _discNumController = TextEditingController(text: widget.discNumber);
+    _composerController = TextEditingController(text: widget.composer);
+    _bpmController = TextEditingController(text: widget.bpm);
+    _musicalKeyController = TextEditingController(text: widget.musicalKey);
+    _checkUndoHistory();
+  }
+
+  Future<void> _checkUndoHistory() async {
+    final path = widget.videoId;
+    if (path == null || widget.sourceType.toLowerCase() != 'local') return;
+    final has = await AppDatabase.instance.hasTagEditHistory(path);
+    if (mounted) {
+      setState(() => _hasUndoHistory = has);
+    }
   }
 
   @override
@@ -146,6 +224,11 @@ class _MusicInfoDialogState extends State<MusicInfoDialog> {
     _genreController.dispose();
     _yearController.dispose();
     _trackNumController.dispose();
+    _albumArtistController.dispose();
+    _discNumController.dispose();
+    _composerController.dispose();
+    _bpmController.dispose();
+    _musicalKeyController.dispose();
     super.dispose();
   }
 
@@ -186,7 +269,21 @@ Path/ID: ${widget.videoId ?? 'N/A'}
   }
 
   void _handleSaveTags() {
-    if (widget.onSaveTags != null) {
+    if (widget.onSaveExtendedTags != null) {
+      widget.onSaveExtendedTags!(
+        title: _titleController.text.trim(),
+        artist: _artistController.text.trim(),
+        album: _albumController.text.trim(),
+        genre: _genreController.text.trim(),
+        year: _yearController.text.trim(),
+        trackNumber: _trackNumController.text.trim(),
+        albumArtist: _albumArtistController.text.trim(),
+        discNumber: _discNumController.text.trim(),
+        composer: _composerController.text.trim(),
+        bpm: _bpmController.text.trim(),
+        musicalKey: _musicalKeyController.text.trim(),
+      );
+    } else if (widget.onSaveTags != null) {
       widget.onSaveTags!(
         title: _titleController.text.trim(),
         artist: _artistController.text.trim(),
@@ -197,6 +294,63 @@ Path/ID: ${widget.videoId ?? 'N/A'}
       );
     }
     Navigator.of(context).pop();
+  }
+
+  void _guessFromFilename() {
+    final path = widget.videoId;
+    if (path == null || path.isEmpty) return;
+    final inferred = MetadataIntelligenceService.instance.inferFromPath(path);
+    if (!inferred.hasAny) return;
+    setState(() {
+      if (inferred.title != null) _titleController.text = inferred.title!;
+      if (inferred.artist != null) _artistController.text = inferred.artist!;
+      if (inferred.album != null) _albumController.text = inferred.album!;
+      if (inferred.trackNumber != null) {
+        _trackNumController.text = inferred.trackNumber.toString();
+      }
+      if (inferred.discNumber != null) {
+        _discNumController.text = inferred.discNumber.toString();
+      }
+      if (inferred.year != null) {
+        _yearController.text = inferred.year.toString();
+      }
+      final pct = (inferred.confidence * 100).round();
+      _inferenceBanner =
+          'Inferred ($pct% confidence • ${inferred.matchedPattern}). Review & Save.';
+    });
+  }
+
+  void _cleanAndTitleCase() {
+    final svc = MetadataIntelligenceService.instance;
+    setState(() {
+      _titleController.text = svc.normalizeTitleCase(_titleController.text);
+      _artistController.text = svc.normalizeTitleCase(_artistController.text);
+      _albumController.text = svc.normalizeTitleCase(_albumController.text);
+      _inferenceBanner = 'Cleaned noise & applied smart title casing.';
+    });
+  }
+
+  Future<void> _handleUndoLastEdit() async {
+    final path = widget.videoId;
+    if (path == null) return;
+    final restored = await MetadataIntelligenceService.instance.undoLastEdit(path);
+    if (restored == null || !mounted) return;
+    setState(() {
+      _titleController.text = restored.title;
+      _artistController.text = restored.artist;
+      _albumController.text = restored.album;
+      _genreController.text = restored.genre;
+      _yearController.text = restored.year?.toString() ?? '';
+      _trackNumController.text = restored.trackNumber?.toString() ?? '';
+      _albumArtistController.text = restored.albumArtist ?? '';
+      _discNumController.text = restored.discNumber?.toString() ?? '';
+      _composerController.text = restored.composer ?? '';
+      _bpmController.text = restored.bpm?.toString() ?? '';
+      _musicalKeyController.text = restored.musicalKey ?? '';
+      _inferenceBanner = 'Reverted to previous tag snapshot.';
+    });
+    await _checkUndoHistory();
+    widget.onUndoTags?.call();
   }
 
   @override
@@ -490,9 +644,62 @@ Path/ID: ${widget.videoId ?? 'N/A'}
   }
 
   Widget _buildEditTagsTab() {
+    final primaryColor = AppThemeService.instance.currentData.primary;
+    final isLocal = widget.sourceType.toLowerCase() == 'local';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (isLocal) ...[
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ActionChip(
+                avatar: Icon(Icons.auto_fix_high, size: 16, color: primaryColor),
+                label: const Text('Guess from Path', style: TextStyle(fontSize: 12)),
+                onPressed: _guessFromFilename,
+              ),
+              ActionChip(
+                avatar: Icon(Icons.cleaning_services_outlined,
+                    size: 16, color: primaryColor),
+                label: const Text('Clean & Title Case',
+                    style: TextStyle(fontSize: 12)),
+                onPressed: _cleanAndTitleCase,
+              ),
+              if (_hasUndoHistory)
+                ActionChip(
+                  avatar: const Icon(Icons.undo, size: 16, color: Colors.amber),
+                  label: const Text('Undo Edit', style: TextStyle(fontSize: 12)),
+                  onPressed: _handleUndoLastEdit,
+                ),
+            ],
+          ),
+          if (_inferenceBanner != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: primaryColor.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: primaryColor.withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.auto_awesome, size: 15, color: primaryColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _inferenceBanner!,
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+        ],
         _buildTagTextField(
           controller: _titleController,
           label: 'Track Title',
@@ -503,6 +710,12 @@ Path/ID: ${widget.videoId ?? 'N/A'}
           controller: _artistController,
           label: 'Artist',
           icon: Icons.person,
+        ),
+        const SizedBox(height: 12),
+        _buildTagTextField(
+          controller: _albumArtistController,
+          label: 'Album Artist',
+          icon: Icons.group,
         ),
         const SizedBox(height: 12),
         _buildTagTextField(
@@ -532,11 +745,54 @@ Path/ID: ${widget.videoId ?? 'N/A'}
           ],
         ),
         const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildTagTextField(
+                controller: _trackNumController,
+                label: 'Track #',
+                icon: Icons.format_list_numbered,
+                keyboardType: TextInputType.number,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildTagTextField(
+                controller: _discNumController,
+                label: 'Disc #',
+                icon: Icons.disc_full,
+                keyboardType: TextInputType.number,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
         _buildTagTextField(
-          controller: _trackNumController,
-          label: 'Track Number',
-          icon: Icons.format_list_numbered,
-          keyboardType: TextInputType.number,
+          controller: _composerController,
+          label: 'Composer',
+          icon: Icons.music_note,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildTagTextField(
+                controller: _bpmController,
+                label: 'BPM',
+                icon: Icons.speed,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildTagTextField(
+                controller: _musicalKeyController,
+                label: 'Key (e.g. Am, C)',
+                icon: Icons.piano,
+              ),
+            ),
+          ],
         ),
       ],
     );

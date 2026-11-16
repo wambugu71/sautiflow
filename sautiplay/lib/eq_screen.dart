@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'widgets/m3e_modal_helpers.dart';
 import 'package:path/path.dart' as p;
 import 'package:sautiflow/sautiflow.dart';
 import 'database/preferences_store.dart';
@@ -4070,7 +4071,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _resetAll() {
-    M3EDialog.show<void>(
+    showSautiM3EDialog<void>(
       context,
       dialog: M3EDialog(
         title: context.strings.resetAllEffects,
@@ -4492,30 +4493,31 @@ class _EqScreenState extends State<EqScreen>
     ValueChanged<bool>? onToggle,
     required VoidCallback onTapDetail,
   }) {
+    final textMuted = context.textMuted;
     return M3EListItem(
       headline: title,
       supportingText: subtitle,
-      leading: /*M3EContainer(
-        shape,
-        width: 44,
-        height: 44,
-        color: isEnabled
-            ? primaryColor.withValues(alpha: 0.18)
-            : Colors.white.withValues(alpha: 0.05),
-        border: BorderSide(
+      leading: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
           color: isEnabled
-              ? primaryColor.withValues(alpha: 0.45)
-              : Colors.white.withValues(alpha: 0.1),
-          width: 1.2,
+              ? primaryColor.withValues(alpha: 0.14)
+              : context.textPrimary.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(
+            color: isEnabled
+                ? primaryColor.withValues(alpha: 0.35)
+                : context.outlineColor,
+          ),
         ),
-        child: */
-          Center(
-        child: Icon(
-          icon,
-          color: isEnabled ? primaryColor : Colors.white60,
-          size: 22,
+        child: Center(
+          child: Icon(
+            icon,
+            color: isEnabled ? primaryColor : textMuted,
+            size: 20,
+          ),
         ),
-        //  ),
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -4528,10 +4530,10 @@ class _EqScreenState extends State<EqScreen>
             ),
             const SizedBox(width: 6),
           ],
-          const Icon(
+          Icon(
             Icons.chevron_right_rounded,
-            color: Colors.white38,
-            size: 22,
+            color: textMuted.withValues(alpha: 0.65),
+            size: 20,
           ),
         ],
       ),
@@ -4563,12 +4565,19 @@ class _EqScreenState extends State<EqScreen>
               return Scaffold(
                 backgroundColor: bgDarkColor,
                 appBar: AppBar(
-                  backgroundColor: surfaceDarkerColor,
+                  backgroundColor: bgDarkColor,
                   elevation: 0,
                   scrolledUnderElevation: 0,
+                  bottom: PreferredSize(
+                    preferredSize: const Size.fromHeight(1),
+                    child: Divider(
+                      height: 1,
+                      color: context.outlineColor,
+                    ),
+                  ),
                   leading: M3EIconButton(
-                    icon: const Icon(Icons.keyboard_arrow_down,
-                        color: Colors.white, size: 20),
+                    icon: Icon(Icons.arrow_back_rounded,
+                        color: context.textPrimary, size: 20),
                     variant: M3EIconButtonVariant.standard,
                     onPressed: () {
                       _subScreenSetState = null;
@@ -4577,28 +4586,28 @@ class _EqScreenState extends State<EqScreen>
                   ),
                   title: Row(
                     children: [
-                      /* M3EContainer(
-                        shape,
-                        width: 32,
-                        height: 32,
-                        color: primaryColor.withValues(alpha: 0.18),
-                        border: BorderSide(
-                          color: primaryColor.withValues(alpha: 0.4),
-                          width: 1.0,
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: primaryColor.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(9),
+                          border: Border.all(
+                            color: primaryColor.withValues(alpha: 0.30),
+                          ),
                         ),
-                        child: */
-                      Center(
-                        child: Icon(icon, color: primaryColor, size: 16),
+                        child: Center(
+                          child: Icon(icon, color: primaryColor, size: 16),
+                        ),
                       ),
-                      // ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           title,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: context.textPrimary,
                             fontSize: 17,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w700,
                             letterSpacing: -0.2,
                           ),
                           overflow: TextOverflow.ellipsis,
@@ -4613,7 +4622,7 @@ class _EqScreenState extends State<EqScreen>
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 1000.0),
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                         physics: const BouncingScrollPhysics(),
                         child: contentBuilder(context),
                       ),
@@ -4683,93 +4692,6 @@ class _EqScreenState extends State<EqScreen>
                 ),
             slivers: [
               if (widget.headerSlivers != null) ...widget.headerSlivers!,
-              // Top Master Control Bar
-              /*  SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.only(
-                    left: 16.0, right: 16.0, top: 12.0, bottom: 6.0),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14.0, vertical: 8.0),
-                  decoration: BoxDecoration(
-                    color: surfaceDarkColor,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: _masterEqEnabled
-                          ? primaryColor.withValues(alpha: 0.35)
-                          : Colors.white.withValues(alpha: 0.08),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Center(
-                            child: Icon(
-                              Icons.equalizer_rounded,
-                              color: _masterEqEnabled
-                                  ? primaryColor
-                                  : Colors.white60,
-                              size: 18,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Master EQ & DSP',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: -0.2,
-                                ),
-                              ),
-                              Text(
-                                _masterEqEnabled
-                                    ? 'Audio engine active'
-                                    : 'DSP bypassed',
-                                style: TextStyle(
-                                  color: _masterEqEnabled
-                                      ? primaryColor.withValues(alpha: 0.9)
-                                      : Colors.white38,
-                                  fontSize: 11.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      Row(
-                        children: [
-                          const SizedBox(width: 6),
-                          M3EIconButton(
-                            icon: const Icon(Icons.refresh_rounded, size: 19),
-                            variant: M3EIconButtonVariant.tonal,
-                            tooltip: 'Reset All',
-                            onPressed: _resetAll,
-                          ),
-                          const SizedBox(width: 6),
-                          M3ESwitch(
-                            selectedIcon:
-                                Icon(Icons.check, color: primaryColor),
-                            value: _masterEqEnabled,
-                            onChanged: (val) {
-                              setState(() => _masterEqEnabled = val);
-                              widget.player.setMultibandEqEnabled(val);
-                              _saveEqState();
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-*/
               // Warning Banner (Dismissible)
               if (_showWarningBanner)
                 SliverToBoxAdapter(
@@ -4798,13 +4720,14 @@ class _EqScreenState extends State<EqScreen>
                               ),
                             ),
                             const SizedBox(width: 10),
-                            const Expanded(
+                            Expanded(
                               child: Text(
                                 'Extreme equalizer or filter boosts can cause clipping. Use limiter or preamp reduction if needed.',
                                 style: TextStyle(
-                                    color: Colors.white70,
+                                    color: context.textPrimary
+                                        .withValues(alpha: 0.80),
                                     fontSize: 11.5,
-                                    height: 1.3),
+                                    height: 1.35),
                               ),
                             ),
                             M3EIconButton(
@@ -5446,8 +5369,7 @@ class _EqScreenState extends State<EqScreen>
 
               // Section 5: Clarity & Dynamics
               SliverToBoxAdapter(
-                child:
-                    _buildSectionHeader('Clarity ', icon: Icons.auto_awesome),
+                child: _buildSectionHeader('Clarity', icon: Icons.auto_awesome),
               ),
               SliverToBoxAdapter(
                 child: Padding(
@@ -5741,7 +5663,7 @@ class _EqScreenState extends State<EqScreen>
                           title: 'Stereo Imager',
                           subtitle: _stereoWidenEnabled
                               ? '${_stereoWidenMode == 0 ? "Clean M/S" : _stereoWidenMode == 1 ? "Spatial" : "Blumlein"} (${_stereoWidenWidth.toStringAsFixed(1)}x)'
-                              : 'Stereo Imager',
+                              : 'Disabled',
                           isEnabled: _stereoWidenEnabled,
                           onToggle: (v) {
                             setState(() => _stereoWidenEnabled = v);
@@ -5995,7 +5917,7 @@ class _EqScreenState extends State<EqScreen>
   }) async {
     final controller =
         TextEditingController(text: currentValue.toStringAsFixed(2));
-    await M3EDialog.show<void>(
+    await showSautiM3EDialog<void>(
       context,
       dialog: M3EDialog(
         title: 'Enter $title',
@@ -6093,26 +6015,25 @@ class _EqScreenState extends State<EqScreen>
                 children: [
                   Text(
                     'Speed: ${_playbackRate.toStringAsFixed(2)}x',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: context.textPrimary,
                       fontSize: 14.5,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Pitch: ${_playbackPitch.toStringAsFixed(2)}x • ${_playbackPitchCorrection ? "Scaletempo ON" : "Resample Mode"}',
+                    'Pitch: ${_playbackPitch.toStringAsFixed(2)}x · ${_playbackPitchCorrection ? "Scaletempo ON" : "Resample Mode"}',
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.6),
+                      color: context.textMuted,
                       fontSize: 12,
                     ),
                   ),
                 ],
               ),
               M3EButton.icon(
-                icon: Icon(Icons.tune_rounded, size: 16, color: Colors.white),
-                label:
-                    Text('Adjust Speed', style: TextStyle(color: Colors.white)),
+                icon: const Icon(Icons.tune_rounded, size: 16),
+                label: const Text('Adjust Speed'),
                 onPressed: () async {
                   await showPlaybackSpeedModal(
                     context,
@@ -6136,19 +6057,8 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildGraphicEqSection() {
     return _CollapsibleSection(
-      icon: /*M3EContainer(
-        Shapes.clampShell,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child: */
-          Center(
+      icon: Center(
         child: Icon(SautiIcons.graphicEq, color: primaryColor, size: 20),
-        //  ),
       ),
       title: 'Graphic Equalizer',
       subtitle: '${_eqFrequencies.length}-Band Frequency',
@@ -7106,20 +7016,8 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildStereoEnhancementSection() {
     return _CollapsibleSection(
-      icon: /* M3EContainer(
-        Shapes.puffyDiamond,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child:*/
-          Center(
-        child:
-            Icon(SautiIcons.stereoWidth, color: primaryColor, size: 20),
-        //),
+      icon: Center(
+        child: Icon(SautiIcons.stereoWidth, color: primaryColor, size: 20),
       ),
       title: 'Stereo Enhancer',
       subtitle: 'Warped PFB M/S Widening',
@@ -7167,8 +7065,9 @@ class _EqScreenState extends State<EqScreen>
                       ? 'Stereo Widening (Center Subtraction)'
                       : 'Mono Center Extraction'),
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.65),
-                fontSize: 11,
+                color: context.textPrimary.withValues(alpha: 0.72),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
               ),
               textAlign: TextAlign.center,
             ),
@@ -12402,19 +12301,8 @@ class _EqScreenState extends State<EqScreen>
 
   Widget _buildLimiterSection() {
     return _CollapsibleSection(
-      icon: /* M3EContainer(
-        Shapes.square,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child:*/
-          Center(
+      icon: Center(
         child: Icon(SautiIcons.anticlippingLimiter, color: primaryColor, size: 20),
-        //),
       ),
       title: 'Soft Limiter',
       subtitle: 'Anti-clipping protection',
@@ -13017,8 +12905,9 @@ class _EqScreenState extends State<EqScreen>
             child: Text(
               'RMS mode: smooth musical leveling · Peak mode: aggressive punch & transient capture',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.65),
-                fontSize: 11,
+                color: context.textPrimary.withValues(alpha: 0.72),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
               ),
               textAlign: TextAlign.center,
             ),
@@ -14663,7 +14552,7 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
 
     final accentColor = widget.activeColor ?? primaryColor;
 
-    M3EDialog.show<void>(
+    showSautiM3EDialog<void>(
       context,
       dialog: M3EDialog(
         title: 'Adjust ${widget.label}',
@@ -15012,17 +14901,19 @@ class _CollapsibleSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final primaryColor = context.primaryColor;
     final cardColor = context.cardDark;
+    final textPrimary = context.textPrimary;
+    final textMuted = context.textMuted;
 
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.circular(16),
-        /* border: Border.all(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
           color: isEnabled
-              ? primaryColor.withValues(alpha: 0.35)
-              : Colors.white.withValues(alpha: 0.08),
-        ),*/
+              ? primaryColor.withValues(alpha: 0.30)
+              : context.outlineColor,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -15030,10 +14921,25 @@ class _CollapsibleSection extends StatelessWidget {
         children: [
           // Header Bar
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
             child: Row(
               children: [
-                icon,
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: isEnabled
+                        ? primaryColor.withValues(alpha: 0.14)
+                        : textPrimary.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isEnabled
+                          ? primaryColor.withValues(alpha: 0.32)
+                          : context.outlineColor,
+                    ),
+                  ),
+                  child: icon,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -15042,10 +14948,10 @@ class _CollapsibleSection extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: textPrimary,
                           fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w700,
                           letterSpacing: -0.2,
                         ),
                       ),
@@ -15054,8 +14960,8 @@ class _CollapsibleSection extends StatelessWidget {
                         subtitle,
                         style: TextStyle(
                           color: isEnabled
-                              ? primaryColor.withValues(alpha: 0.9)
-                              : Colors.white54,
+                              ? primaryColor.withValues(alpha: 0.90)
+                              : textMuted,
                           fontSize: 12,
                         ),
                       ),
@@ -15073,10 +14979,9 @@ class _CollapsibleSection extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(color: Colors.white12, height: 1),
-          // Directly display controls without any expander
+          Divider(color: context.outlineColor, height: 1),
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,

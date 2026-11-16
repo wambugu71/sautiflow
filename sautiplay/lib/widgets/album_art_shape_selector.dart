@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'm3e_modal_helpers.dart';
 
 import '../services/app_theme_service.dart';
 
@@ -584,7 +585,7 @@ class AlbumArtShapePickerSheet {
     BuildContext context, {
     Uint8List? sampleAlbumArt,
   }) async {
-    return M3EBottomSheet.show<Shapes>(
+    return showSautiM3EBottomSheet<Shapes>(
       context,
       builder: (sheetCtx) {
         return Material(

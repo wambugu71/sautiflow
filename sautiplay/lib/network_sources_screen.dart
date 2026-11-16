@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'widgets/m3e_modal_helpers.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -16,6 +17,8 @@ import 'services/dlna_renderer_service.dart';
 import 'services/dlna_service.dart';
 import 'services/ftp_service.dart';
 import 'widgets/cast_output_sheet.dart';
+import 'widgets/network/remote_browser_tab.dart';
+import 'widgets/network/subsonic_tab.dart';
 
 class NetworkSourcesScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -23,12 +26,14 @@ class NetworkSourcesScreen extends StatefulWidget {
       onPlayNetworkFile;
   final void Function(List<dynamic> entries, dynamic config, int initialIndex)?
       onPlayFtpFolder;
+  final PlayRemoteQueueCallback? onPlayRemoteQueue;
 
   const NetworkSourcesScreen({
     super.key,
     required this.player,
     this.onPlayNetworkFile,
     this.onPlayFtpFolder,
+    this.onPlayRemoteQueue,
   });
 
   @override
@@ -58,9 +63,9 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     super.initState();
     final initialTab = PreferencesStore.instance
         .getInt('network_sources_tab_index', defaultValue: 0)!
-        .clamp(0, 2);
+        .clamp(0, 6);
     _tabController =
-        TabController(length: 3, vsync: this, initialIndex: initialTab);
+        TabController(length: 7, vsync: this, initialIndex: initialTab);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         PreferencesStore.instance
@@ -225,19 +230,25 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
         backgroundColor: _bgDark,
         elevation: 0,
         title: const Text(
-          'Network Sources (FTP & DLNA)',
+          'Network Sources',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           indicatorColor: _primary,
           labelColor: _primary,
           unselectedLabelColor: _textDark,
           tabs: const [
             Tab(icon: Icon(Icons.cast_rounded), text: 'Chromecast'),
             Tab(icon: Icon(Icons.cast_connected_rounded), text: 'DLNA / UPnP'),
-            Tab(icon: Icon(Icons.folder_zip_rounded), text: 'FTP Remote'),
+            Tab(icon: Icon(Icons.album_rounded), text: 'Navidrome'),
+            Tab(icon: Icon(Icons.storage_rounded), text: 'SMB / NAS'),
+            Tab(icon: Icon(Icons.cloud_queue_rounded), text: 'WebDAV'),
+            Tab(icon: Icon(Icons.lock_outline_rounded), text: 'SFTP'),
+            Tab(icon: Icon(Icons.folder_zip_rounded), text: 'FTP'),
           ],
         ),
       ),
@@ -246,6 +257,19 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
         children: [
           _buildChromecastTab(),
           _buildDlnaTab(),
+          SubsonicTab(onPlayQueue: widget.onPlayRemoteQueue),
+          RemoteBrowserTab(
+            protocol: RemoteProtocolKind.smb,
+            onPlayQueue: widget.onPlayRemoteQueue,
+          ),
+          RemoteBrowserTab(
+            protocol: RemoteProtocolKind.webdav,
+            onPlayQueue: widget.onPlayRemoteQueue,
+          ),
+          RemoteBrowserTab(
+            protocol: RemoteProtocolKind.sftp,
+            onPlayQueue: widget.onPlayRemoteQueue,
+          ),
           _buildFtpTab(),
         ],
       ),
@@ -976,7 +1000,7 @@ class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
     final passCtrl = TextEditingController();
     bool isSecure = false;
 
-    M3EDialog.show<void>(
+    showSautiM3EDialog<void>(
       context,
       dialog: M3EDialog(
         title: 'Add FTP Server',

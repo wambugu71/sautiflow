@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'widgets/m3e_modal_helpers.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
@@ -17,6 +18,9 @@ import 'services/lazy_library_controller.dart';
 
 import 'package:sautiflow/sautiflow.dart';
 import 'services/m3u_playlist_service.dart';
+import 'services/metadata_intelligence_service.dart';
+import 'widgets/network/subsonic_tab.dart' show PlayRemoteQueueCallback;
+import 'widgets/smart_playlist_builder_sheet.dart';
 
 import 'album_detail_screen.dart';
 import 'artist_profile_screen.dart';
@@ -56,6 +60,7 @@ class LibraryScreen extends StatefulWidget {
       onPlayNetworkFile;
   final void Function(List<dynamic> entries, dynamic config, int initialIndex)?
       onPlayFtpFolder;
+  final PlayRemoteQueueCallback? onPlayRemoteQueue;
   final bool isNested;
   final int initialTabIndex;
 
@@ -70,6 +75,7 @@ class LibraryScreen extends StatefulWidget {
     this.player,
     this.onPlayNetworkFile,
     this.onPlayFtpFolder,
+    this.onPlayRemoteQueue,
     this.isNested = false,
     this.initialTabIndex = 0,
   });
@@ -591,7 +597,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
     final bool? confirm;
     if (isMobile) {
-      confirm = await M3EBottomSheet.show<bool>(
+      confirm = await showSautiM3EBottomSheet<bool>(
         context,
         builder: (ctx) => Padding(
           padding: EdgeInsets.only(
@@ -634,7 +640,7 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       );
     } else {
-      confirm = await M3EDialog.show<bool>(
+      confirm = await showSautiM3EDialog<bool>(
         context,
         dialog: M3EDialog(
           title: 'Import Stream URL',
@@ -725,7 +731,7 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _showM3uPlaylistOptions(SavedM3uPlaylist playlist) async {
-    await M3EBottomSheet.show<void>(
+    await showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => SafeArea(
         child: Padding(
@@ -742,6 +748,21 @@ class LibraryScreenState extends State<LibraryScreen>
                 onTap: () {
                   Navigator.of(ctx).pop();
                   _playM3uPlaylist(playlist);
+                },
+              ),
+              M3EListItem(
+                headline: playlist.isPinned ? 'Unpin Playlist' : 'Pin Playlist',
+                leading: Icon(
+                  playlist.isPinned
+                      ? Icons.push_pin_outlined
+                      : Icons.push_pin_rounded,
+                  color: AppThemeService.instance.currentData.primary,
+                ),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await M3uPlaylistService.instance
+                      .togglePinPlaylist(playlist.id);
+                  await _loadSavedM3uPlaylists();
                 },
               ),
               M3EListItem(
@@ -921,7 +942,7 @@ class LibraryScreenState extends State<LibraryScreen>
     final hasAllFiles = await FileDeletionHelper.hasAllFilesAccess();
     if (!mounted) return;
 
-    final confirm = await M3EDialog.show<bool>(
+    final confirm = await showSautiM3EDialog<bool>(
       context,
       dialog: M3EDialog(
         title: 'Delete $count Tracks',
@@ -1264,7 +1285,7 @@ class LibraryScreenState extends State<LibraryScreen>
     );
 
     if (isMobile) {
-      await M3EBottomSheet.show<void>(
+      await showSautiM3EBottomSheet<void>(
         context,
         builder: (ctx) => SafeArea(
           child: Padding(
@@ -1274,7 +1295,7 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       );
     } else {
-      await M3EDialog.show<void>(
+      await showSautiM3EDialog<void>(
         context,
         dialog: M3EDialog(
           title: 'Add to Playlist',
@@ -1299,7 +1320,7 @@ class LibraryScreenState extends State<LibraryScreen>
     final controller = TextEditingController(
       text: 'My Playlist ${_m3uPlaylists.length + 1}',
     );
-    final confirm = await M3EDialog.show<bool>(
+    final confirm = await showSautiM3EDialog<bool>(
       context,
       dialog: M3EDialog(
         title: 'Create Playlist',
@@ -1695,6 +1716,7 @@ class LibraryScreenState extends State<LibraryScreen>
           player: widget.player!,
           onPlayNetworkFile: widget.onPlayNetworkFile,
           onPlayFtpFolder: widget.onPlayFtpFolder,
+          onPlayRemoteQueue: widget.onPlayRemoteQueue,
         ),
       ),
     );
@@ -1868,7 +1890,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _removeFolder(int index) async {
     final folderName = _folders[index]['name'] as String;
-    final confirm = await M3EDialog.show<bool>(
+    final confirm = await showSautiM3EDialog<bool>(
       context,
       dialog: M3EDialog(
         title: 'Remove Folder?',
@@ -2117,6 +2139,11 @@ class LibraryScreenState extends State<LibraryScreen>
       genre: genre,
       year: year,
       trackNumber: trackNumber,
+      albumArtist: song.albumArtist ?? '',
+      discNumber: song.discNumber?.toString() ?? '',
+      composer: song.composer ?? '',
+      bpm: song.bpm?.toString() ?? '',
+      musicalKey: song.musicalKey ?? '',
       albumArt: albumArt,
       sourceType: 'local',
       videoId: song.path,
@@ -2126,30 +2153,37 @@ class LibraryScreenState extends State<LibraryScreen>
       bitDepth: fileInfo.formattedBitDepth,
       fileSizeBytes: song.sizeBytes,
       duration: duration,
-      onSaveTags: ({
+      onUndoTags: () async {
+        await _lazyController.invalidate();
+      },
+      onSaveExtendedTags: ({
         required String title,
         required String artist,
         required String album,
         required String genre,
         required String year,
         required String trackNumber,
+        required String albumArtist,
+        required String discNumber,
+        required String composer,
+        required String bpm,
+        required String musicalKey,
       }) async {
-        final updated = LocalSongItem.fallback(
-          song.path,
-          song.sizeBytes,
-          song.lastModified,
+        final updated = song.copyWith(
           title: title.isNotEmpty ? title : song.title,
           artist: artist.isNotEmpty ? artist : song.artist,
           album: album.isNotEmpty ? album : song.album,
           genre: genre.isNotEmpty ? genre : song.genre,
-          fileHash: song.fileHash,
-          startMs: song.startMs,
-          endMs: song.endMs,
           trackNumber: int.tryParse(trackNumber) ?? song.trackNumber,
-          cueFilePath: song.cueFilePath,
           year: int.tryParse(year) ?? song.year,
+          albumArtist: albumArtist.isNotEmpty ? albumArtist : song.albumArtist,
+          discNumber: int.tryParse(discNumber) ?? song.discNumber,
+          composer: composer.isNotEmpty ? composer : song.composer,
+          bpm: double.tryParse(bpm) ?? song.bpm,
+          musicalKey: musicalKey.isNotEmpty ? musicalKey : song.musicalKey,
         );
-        await AppDatabase.instance.upsertLocalTrack(updated);
+        await MetadataIntelligenceService.instance
+            .saveTagsWithHistory(updated);
         await _lazyController.invalidate();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2183,7 +2217,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _confirmAndDeleteSong(LocalSongItem song) async {
     if (song.isCueTrack) {
-      final confirm = await M3EDialog.show<bool>(
+      final confirm = await showSautiM3EDialog<bool>(
         context,
         dialog: M3EDialog(
           title: 'Remove CUE Track',
@@ -2221,7 +2255,7 @@ class LibraryScreenState extends State<LibraryScreen>
       return;
     }
 
-    final confirm = await M3EDialog.show<bool>(
+    final confirm = await showSautiM3EDialog<bool>(
       context,
       dialog: M3EDialog(
         title: 'Delete Song File',
@@ -3615,26 +3649,57 @@ class LibraryScreenState extends State<LibraryScreen>
                   );
                 },
               );
-            } else {
-              final pl = _m3uPlaylists[index - 2];
+            } else if (index == 2) {
               return _buildLibraryItem(
-                title: pl.name,
-                subtitle:
-                    '${pl.tracks.length} Songs • M3U ${pl.isNetwork ? 'Stream' : 'Playlist'}',
-                iconData: pl.isNetwork
-                    ? Icons.podcasts_rounded
-                    : Icons.queue_music_rounded,
-                iconGradient: pl.isNetwork
+                title: 'New Smart Playlist',
+                subtitle: 'Dynamic rules (Hi-Res, Unplayed, BPM, Needs Tagging)',
+                iconData: Icons.auto_awesome_rounded,
+                iconGradient: const LinearGradient(
+                  colors: [Color(0xFF7B1FA2), Color(0xFF4A148C)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                onTap: () async {
+                  final created =
+                      await SmartPlaylistBuilderSheet.show(context);
+                  if (created != null) {
+                    await _loadSavedM3uPlaylists();
+                  }
+                },
+                context: context,
+                isDesktop: isDesktop,
+                isFirst: isFirst,
+                isLast: isLast,
+              );
+            } else {
+              final pl = _m3uPlaylists[index - 3];
+              return _buildLibraryItem(
+                title: pl.isPinned ? '📌 ${pl.name}' : pl.name,
+                subtitle: pl.isSmart
+                    ? '${pl.tracks.length} Songs • Smart Playlist'
+                    : '${pl.tracks.length} Songs • M3U ${pl.isNetwork ? 'Stream' : 'Playlist'}',
+                iconData: pl.isSmart
+                    ? Icons.auto_awesome_rounded
+                    : pl.isNetwork
+                        ? Icons.podcasts_rounded
+                        : Icons.queue_music_rounded,
+                iconGradient: pl.isSmart
                     ? const LinearGradient(
-                        colors: [Color(0xFF00897B), Color(0xFF004D40)],
+                        colors: [Color(0xFF6A1B9A), Color(0xFF4527A0)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       )
-                    : const LinearGradient(
-                        colors: [Color(0xFF0288D1), Color(0xFF01579B)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
+                    : pl.isNetwork
+                        ? const LinearGradient(
+                            colors: [Color(0xFF00897B), Color(0xFF004D40)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : const LinearGradient(
+                            colors: [Color(0xFF0288D1), Color(0xFF01579B)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
                 onTap: () {
                   if (pl.isNetwork) {
                     _playM3uPlaylist(pl);
@@ -3658,7 +3723,7 @@ class LibraryScreenState extends State<LibraryScreen>
               );
             }
           },
-          childCount: 2 + _m3uPlaylists.length,
+          childCount: 3 + _m3uPlaylists.length,
         ),
       ),
     );
@@ -5618,7 +5683,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                       final controller = TextEditingController(
                         text: 'My Playlist ${playlists.length + 1}',
                       );
-                      final confirm = await M3EDialog.show<bool>(
+                      final confirm = await showSautiM3EDialog<bool>(
                         context,
                         dialog: M3EDialog(
                           title: 'Create Playlist',
@@ -5817,7 +5882,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
     );
 
     if (isMobile) {
-      await M3EBottomSheet.show<void>(
+      await showSautiM3EBottomSheet<void>(
         context,
         builder: (ctx) => SafeArea(
           child: Padding(
@@ -5827,7 +5892,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
         ),
       );
     } else {
-      await M3EDialog.show<void>(
+      await showSautiM3EDialog<void>(
         context,
         dialog: M3EDialog(
           title: 'Add to Playlist',

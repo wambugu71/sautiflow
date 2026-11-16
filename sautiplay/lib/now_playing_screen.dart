@@ -1,3 +1,4 @@
+import 'widgets/m3e_modal_helpers.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -1045,7 +1046,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _showMoreOptionsMenu(BuildContext context) {
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (sheetContext) {
         return Material(
@@ -2080,7 +2081,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     final initial = _hardwareSpecs ?? AudioHardwareInspector.currentSpecs;
 
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (sheetContext) {
         return Material(
@@ -4456,7 +4457,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   void _showAbRepeatSheet(BuildContext context, double maxMs) {
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) {
         double localA = _abPointAMs ?? 0;

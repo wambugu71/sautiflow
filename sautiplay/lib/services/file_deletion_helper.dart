@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import '../widgets/m3e_modal_helpers.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 import '../isolate_player.dart';
@@ -130,7 +131,7 @@ class FileDeletionHelper {
     // 2. If context is provided, explain to user before redirecting to settings
     if (context != null && context.mounted) {
       final theme = AppThemeService.instance.currentData;
-      final shouldRequest = await M3EDialog.show<bool>(
+      final shouldRequest = await showSautiM3EDialog<bool>(
         context,
         dialog: M3EDialog(
           title: 'Automatic Deletion Permission',

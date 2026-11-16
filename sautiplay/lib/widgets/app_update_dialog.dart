@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:material_ui/material_ui.dart';
 import 'package:material_3_expressive/components/buttons/enums/m3e_button_enums.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
+import 'm3e_modal_helpers.dart';
 
 import '../services/app_theme_service.dart';
 import '../services/app_update_service.dart';
@@ -23,7 +24,7 @@ class AppUpdateDialog extends StatelessWidget {
     if (_isShowing) return;
     _isShowing = true;
     try {
-      await M3EDialog.show<void>(
+      await showSautiM3EDialog<void>(
         context,
         barrierDismissible: true,
         dialog: const AppUpdateDialog(),

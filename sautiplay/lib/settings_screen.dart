@@ -1,3 +1,4 @@
+import 'widgets/m3e_modal_helpers.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -19,6 +20,7 @@ import 'widgets/app_m3e_widgets.dart';
 import 'widgets/sauti_icons.dart';
 import 'widgets/album_art_shape_selector.dart';
 import 'network_sources_screen.dart';
+import 'widgets/network/subsonic_tab.dart' show PlayRemoteQueueCallback;
 import 'services/app_state_service.dart';
 import 'services/app_theme_service.dart';
 import 'services/audio_hardware_inspector.dart';
@@ -80,6 +82,7 @@ class SettingsScreen extends StatefulWidget {
       onPlayNetworkFile;
   final void Function(List<dynamic> entries, dynamic config, int initialIndex)?
       onPlayFtpFolder;
+  final PlayRemoteQueueCallback? onPlayRemoteQueue;
   final VoidCallback? onTriggerShowcase;
 
   const SettingsScreen({
@@ -122,6 +125,7 @@ class SettingsScreen extends StatefulWidget {
     required this.onClearLogs,
     this.onPlayNetworkFile,
     this.onPlayFtpFolder,
+    this.onPlayRemoteQueue,
     this.onTriggerShowcase,
   });
 
@@ -187,10 +191,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // Neutron HiFi Engine Settings
   bool _use64BitProcessingEnabled = false;
-  bool _autoBitPerfectEnabled = true;
+  bool _autoBitPerfectEnabled = false;
 
   // DSD Audio Playback Settings
-  DsdOutputMode _dsdOutputMode = DsdOutputMode.auto;
+  DsdOutputMode _dsdOutputMode = DsdOutputMode.d2p;
   int _dsdD2pSampleRate = 0; // 0 = Auto (88.2 / 176.4 kHz)
   double _dsdGainBoostDb = 6.0;
   bool _nativeDsdSupported = false;
@@ -845,6 +849,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       onPlayNetworkFile:
                                           widget.onPlayNetworkFile,
                                       onPlayFtpFolder: widget.onPlayFtpFolder,
+                                      onPlayRemoteQueue:
+                                          widget.onPlayRemoteQueue,
                                     ),
                                   ),
                                 );
@@ -2186,53 +2192,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         value: _selectedBackend == AudioOutputBackend.usbDirect,
                         onChanged: (enabled) async {
-                          final target = enabled
-                              ? AudioOutputBackend.usbDirect
-                              : AudioOutputBackend.auto;
-                          int perm = -1;
                           if (enabled) {
-                            perm = await widget.player
+                            final perm = await widget.player
                                 .requestUsbDacPermission();
-                          }
-                          widget.player.setOutputBackend(target);
-                          await AppStateService.instance
-                              .saveOutputBackend(target.value);
-                          setState(() => _selectedBackend = target);
-                          setSubState(() {});
-                          await AudioHardwareInspector.inspectAsync(
-                              widget.player);
-                          if (!context.mounted) return;
-                          if (!enabled) {
+                            if (perm < 0 && !dacConnected) {
+                              if (!context.mounted) return;
+                              _showUsbSnackBar(
+                                context,
+                                icon: Icons.usb_off_rounded,
+                                accentColor: _textDark,
+                                message:
+                                    'No USB DAC detected — connect a USB DAC via OTG to enable USB Direct',
+                              );
+                              return;
+                            }
+                            widget.player
+                                .setOutputBackend(AudioOutputBackend.usbDirect);
+                            await AppStateService.instance.saveOutputBackend(
+                                AudioOutputBackend.usbDirect.value);
+                            setState(() =>
+                                _selectedBackend = AudioOutputBackend.usbDirect);
+                            setSubState(() {});
+                            await AudioHardwareInspector.inspectAsync(
+                                widget.player);
+                            if (!context.mounted) return;
+                            if (perm == 1) {
+                              _showUsbSnackBar(
+                                context,
+                                icon: Icons.verified_rounded,
+                                accentColor: Colors.greenAccent,
+                                message:
+                                    'USB Direct (libusb) active — Bit-perfect hardware lock engaged',
+                              );
+                            } else {
+                              _showUsbSnackBar(
+                                context,
+                                icon: Icons.usb_rounded,
+                                accentColor: Colors.amberAccent,
+                                message:
+                                    'Approve the Android USB DAC permission dialog to begin direct playback',
+                              );
+                            }
+                          } else {
+                            widget.player
+                                .setOutputBackend(AudioOutputBackend.auto);
+                            await AppStateService.instance.saveOutputBackend(
+                                AudioOutputBackend.auto.value);
+                            setState(
+                                () => _selectedBackend = AudioOutputBackend.auto);
+                            setSubState(() {});
+                            await AudioHardwareInspector.inspectAsync(
+                                widget.player);
+                            if (!context.mounted) return;
                             _showUsbSnackBar(
                               context,
                               icon: Icons.info_outline,
                               accentColor: _textDark,
                               message:
                                   'Switched back to Auto Android audio driver',
-                            );
-                          } else if (perm == 1) {
-                            _showUsbSnackBar(
-                              context,
-                              icon: Icons.verified_rounded,
-                              accentColor: Colors.greenAccent,
-                              message:
-                                  'USB Direct (libusb) active — Bit-perfect hardware lock engaged',
-                            );
-                          } else if (perm == 0) {
-                            _showUsbSnackBar(
-                              context,
-                              icon: Icons.usb_rounded,
-                              accentColor: Colors.amberAccent,
-                              message:
-                                  'Approve the Android USB DAC permission dialog to begin direct playback',
-                            );
-                          } else {
-                            _showUsbSnackBar(
-                              context,
-                              icon: Icons.usb_off_rounded,
-                              accentColor: _primary,
-                              message:
-                                  'USB Direct armed — Connect a USB DAC to engage libusb kernel bypass',
                             );
                           }
                         },
@@ -2313,6 +2330,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             : _primary,
                       ),
                       onTap: () async {
+                        final bool isPresetActive =
+                            widget.outputFormat == AudioFormat.s32 &&
+                                widget.outputSampleRate == 384000;
+                        if (isPresetActive) {
+                          setState(() => _dacValidBitDepth = 0);
+                          widget.onOutputFormatChanged(AudioFormat.f32);
+                          widget.player.setOutputFormat(AudioFormat.f32);
+                          widget.onOutputSampleRateChanged(0);
+                          widget.player.setOutputSampleRate(0);
+                          widget.player.setDacValidBitDepth(0);
+                          await AppStateService.instance
+                              .saveDacValidBitDepth(0);
+                          if (Platform.isAndroid &&
+                              _selectedBackend == AudioOutputBackend.usbDirect) {
+                            widget.player
+                                .setOutputBackend(AudioOutputBackend.auto);
+                            await AppStateService.instance.saveOutputBackend(
+                                AudioOutputBackend.auto.value);
+                            setState(() =>
+                                _selectedBackend = AudioOutputBackend.auto);
+                          } else if (!Platform.isAndroid) {
+                            widget.player.setExclusiveMode(false);
+                            widget.onExclusiveModeChanged(false);
+                          }
+                          await AudioHardwareInspector.inspectAsync(
+                              widget.player);
+                          setSubState(() {});
+                          if (!context.mounted) return;
+                          _showUsbSnackBar(
+                            context,
+                            icon: Icons.info_outline,
+                            accentColor: _textDark,
+                            message:
+                                'Deactivated 32-bit / 384.0 kHz preset — restored Native output',
+                          );
+                          return;
+                        }
+
+                        if (Platform.isAndroid) {
+                          final perm = await widget.player
+                              .requestUsbDacPermission();
+                          if (!dacConnected && perm < 0) {
+                            if (!context.mounted) return;
+                            _showUsbSnackBar(
+                              context,
+                              icon: Icons.usb_off_rounded,
+                              accentColor: _textDark,
+                              message:
+                                  'No USB DAC connected — plug in a USB DAC to use 32-bit / 384 kHz USB Direct',
+                            );
+                            return;
+                          }
+                        }
+
                         setState(() {
                           _autoBitPerfectEnabled = false;
                           _dacValidBitDepth = 32;
@@ -2328,7 +2399,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         await AppStateService.instance
                             .saveDacValidBitDepth(32);
                         if (Platform.isAndroid) {
-                          await widget.player.requestUsbDacPermission();
                           widget.player
                               .setOutputBackend(AudioOutputBackend.usbDirect);
                           await AppStateService.instance.saveOutputBackend(
@@ -2352,7 +2422,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       },
                     ),
-                    if (dacConnected || dacRates.isNotEmpty) ...[
+                    if (dacConnected && dacRates.isNotEmpty) ...[
                       const M3EDivider(),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
@@ -2360,9 +2430,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              dacConnected
-                                  ? 'DAC Sample Rate Quick Lock'
-                                  : 'Hi-Res USB DAC Sample Rates',
+                              'DAC Sample Rate Quick Lock',
                               style: TextStyle(
                                 color: _textPrimary,
                                 fontSize: 13.5,
@@ -2381,14 +2449,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   label: Text(_sampleRateLabel(rate)),
                                   selected: isSelected,
                                   onSelected: (_) async {
+                                    final nextRate = isSelected ? 0 : rate;
                                     setState(
                                         () => _autoBitPerfectEnabled = false);
                                     widget.player
                                         .setAutoSampleRateMatchEnabled(false);
                                     AppStateService.instance
                                         .saveAutoBitPerfectEnabled(false);
-                                    widget.onOutputSampleRateChanged(rate);
-                                    widget.player.setOutputSampleRate(rate);
+                                    widget.onOutputSampleRateChanged(nextRate);
+                                    widget.player.setOutputSampleRate(nextRate);
                                     await AudioHardwareInspector.inspectAsync(
                                         widget.player);
                                     setSubState(() {});
@@ -4896,7 +4965,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showChangelogBottomSheet() {
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => _buildModalBottomSheetLayout(
         title: 'Release Notes & Changelog',
@@ -5998,7 +6067,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final computedHeight =
         height ?? (132.0 + options.length * 84.0).clamp(280.0, screenHeight * 0.78);
 
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
@@ -6264,7 +6333,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     ];
 
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
@@ -6377,7 +6446,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           '$name uses precision audio filtering which increases CPU and battery usage.';
     }
 
-    M3EDialog.show<void>(
+    showSautiM3EDialog<void>(
       context,
       dialog: M3EDialog(
         contentPadding:
@@ -6416,7 +6485,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       (4096, '4096 points', 'Studio precision frequency analysis'),
       (8192, '8192 points', 'Maximum pitch resolution (Higher CPU)'),
     ];
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
@@ -6490,7 +6559,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'Calibrated for accurate decibel volume and SPL readings with minimal amplitude error.',
       ),
     ];
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
@@ -6625,7 +6694,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     ];
 
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
@@ -6706,7 +6775,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       (AudioFormat.u8, '8-Bit Integer', 'Legacy 8-bit PCM format'),
     ];
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
@@ -7021,6 +7090,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       int perm = -1;
       if (selected == AudioOutputBackend.usbDirect) {
         perm = await widget.player.requestUsbDacPermission();
+        if (perm < 0 && _liveHardwareSpecs?.isUsbDac != true) {
+          if (dlgCtx.mounted) Navigator.pop(dlgCtx);
+          if (context.mounted) {
+            _showUsbSnackBar(
+              context,
+              icon: Icons.usb_off_rounded,
+              accentColor: _textDark,
+              message:
+                  'No USB DAC detected — connect a USB DAC via OTG to enable USB Direct',
+            );
+          }
+          return;
+        }
       }
       widget.player.setOutputBackend(selected);
       await AppStateService.instance.saveOutputBackend(selected.value);
@@ -7059,7 +7141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
 
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
@@ -7120,7 +7202,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (dlgCtx.mounted) Navigator.pop(dlgCtx);
     }
 
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
@@ -7327,7 +7409,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     ];
 
-    M3EBottomSheet.show<void>(
+    showSautiM3EBottomSheet<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
@@ -7612,7 +7694,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     StateSetter setSubState,
   ) {
     final urlController = TextEditingController();
-    M3EDialog.show<void>(
+    showSautiM3EDialog<void>(
       context,
       dialog: M3EDialog(
         title: 'Download Presets from URL',
