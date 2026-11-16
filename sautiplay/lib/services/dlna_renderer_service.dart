@@ -12,7 +12,13 @@ import 'local_media_server.dart';
 /// Implemented by the app layer so this service stays UI/engine agnostic.
 abstract class DlnaRendererBridge {
   /// Replace current queue with [url] and start playing.
-  Future<void> loadUrl(String url, {String? title, String? artist});
+  Future<void> loadUrl(
+    String url, {
+    String? title,
+    String? artist,
+    String? album,
+    String? artworkUrl,
+  });
 
   void play();
   void pause();
@@ -67,6 +73,9 @@ class DlnaRendererService extends ChangeNotifier {
   String _transportState = 'NO_MEDIA_PRESENT';
   String _currentUri = '';
   String _currentTitle = '';
+  String _currentArtist = '';
+  String _currentAlbum = '';
+  String _currentArtworkUrl = '';
   double _volumePercent = 100;
   bool _muted = false;
   Duration _lastKnownPosition = Duration.zero;
@@ -80,6 +89,11 @@ class DlnaRendererService extends ChangeNotifier {
 
   bool get isRunning => _running;
   String get transportState => _transportState;
+  String get currentUri => _currentUri;
+  String get currentTitle => _currentTitle;
+  String get currentArtist => _currentArtist;
+  String get currentAlbum => _currentAlbum;
+  String get currentArtworkUrl => _currentArtworkUrl;
 
   Future<void> configure({required DlnaRendererBridge bridge}) async {
     this.bridge = bridge;
@@ -138,7 +152,8 @@ class DlnaRendererService extends ChangeNotifier {
         reuseAddress: true,
         reusePort: reusePort,
       );
-      _ssdpSocket!.joinMulticast(InternetAddress(_upnpMulticastV4));
+      await _joinMulticastAllInterfaces(
+          _ssdpSocket!, InternetAddress(_upnpMulticastV4));
       _ssdpSub = _ssdpSocket!.listen((event) {
         if (event != RawSocketEvent.read) return;
         while (true) {
@@ -281,6 +296,60 @@ class DlnaRendererService extends ChangeNotifier {
     }
   }
 
+  Future<List<NetworkInterface>> _ipv4MulticastInterfaces() async {
+    try {
+      final ifaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+        includeLinkLocal: false,
+      );
+      return ifaces.where((i) => i.addresses.isNotEmpty).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _joinMulticastAllInterfaces(
+      RawDatagramSocket socket, InternetAddress group) async {
+    final ifaces = await _ipv4MulticastInterfaces();
+    var joinedAny = false;
+    for (final iface in ifaces) {
+      try {
+        socket.joinMulticast(group, iface);
+        joinedAny = true;
+      } catch (e) {
+        debugPrint('[DlnaRenderer] joinMulticast(${iface.name}) failed: $e');
+      }
+    }
+    if (!joinedAny) {
+      socket.joinMulticast(group);
+    }
+  }
+
+  Future<void> _sendMulticastAllInterfaces(List<int> bytes) async {
+    final group = InternetAddress(_upnpMulticastV4);
+    final ifaces = await _ipv4MulticastInterfaces();
+    if (ifaces.isEmpty) {
+      try {
+        _ssdpSocket?.send(bytes, group, _ssdpPort);
+      } catch (_) {}
+      return;
+    }
+    for (final iface in ifaces) {
+      RawDatagramSocket? sender;
+      try {
+        sender = await RawDatagramSocket.bind(iface.addresses.first, 0);
+        sender.send(bytes, group, _ssdpPort);
+      } catch (_) {
+        try {
+          _ssdpSocket?.send(bytes, group, _ssdpPort);
+        } catch (_) {}
+      } finally {
+        sender?.close();
+      }
+    }
+  }
+
   Future<void> _sendAlive() async {
     for (var attempt = 0; attempt < 2; attempt++) {
       for (final target in _usnTargets) {
@@ -294,12 +363,7 @@ class DlnaRendererService extends ChangeNotifier {
           ..write('NTS: ssdp:alive\r\n')
           ..write('SERVER: $_serverSig\r\n')
           ..write('USN: $usn\r\n\r\n');
-        try {
-          _ssdpSocket?.send(
-              utf8.encode(msg.toString()),
-              InternetAddress(_upnpMulticastV4),
-              _ssdpPort);
-        } catch (_) {}
+        await _sendMulticastAllInterfaces(utf8.encode(msg.toString()));
       }
       if (attempt == 0) {
         await Future.delayed(const Duration(milliseconds: 300));
@@ -317,12 +381,7 @@ class DlnaRendererService extends ChangeNotifier {
           ..write('NT: $target\r\n')
           ..write('NTS: ssdp:byebye\r\n')
           ..write('USN: $usn\r\n\r\n');
-        try {
-          _ssdpSocket?.send(
-              utf8.encode(msg.toString()),
-              InternetAddress(_upnpMulticastV4),
-              _ssdpPort);
-        } catch (_) {}
+        await _sendMulticastAllInterfaces(utf8.encode(msg.toString()));
       }
       if (attempt == 0) {
         await Future.delayed(const Duration(milliseconds: 200));
@@ -562,17 +621,39 @@ class DlnaRendererService extends ChangeNotifier {
     switch (action) {
       case 'SetAVTransportURI':
         final uri = extractTag(body, 'CurrentURI');
-        final meta = extractTag(body, 'CurrentURIMetaData');
-        final title = meta == null ? null : extractTag(meta, 'title');
+        final rawMeta = extractTag(body, 'CurrentURIMetaData');
+        final meta = rawMeta == null ? null : xmlUnescape(rawMeta);
+        final rawTitle = meta == null ? null : extractTag(meta, 'title');
+        final rawArtist = meta == null
+            ? null
+            : (extractTag(meta, 'artist') ?? extractTag(meta, 'creator'));
+        final rawAlbum = meta == null ? null : extractTag(meta, 'album');
+        final rawArt = meta == null ? null : extractTag(meta, 'albumArtURI');
         if (uri != null && uri.isNotEmpty) {
           _currentUri = xmlUnescape(uri);
-          _currentTitle = title == null
+          final parsedTitle =
+              rawTitle == null ? '' : xmlUnescape(rawTitle).trim();
+          _currentTitle = parsedTitle.isEmpty
               ? _guessTitleFromUri(_currentUri)
-              : xmlUnescape(title);
+              : parsedTitle;
+          final parsedArtist =
+              rawArtist == null ? '' : xmlUnescape(rawArtist).trim();
+          _currentArtist = (parsedArtist.toLowerCase() == 'unknow' ||
+                  parsedArtist.isEmpty)
+              ? ''
+              : parsedArtist;
+          _currentAlbum =
+              rawAlbum == null ? '' : xmlUnescape(rawAlbum).trim();
+          _currentArtworkUrl =
+              rawArt == null ? '' : xmlUnescape(rawArt).trim();
           setTransportState('TRANSITIONING');
           await bridge?.loadUrl(
             _currentUri,
             title: _currentTitle,
+            artist: _currentArtist.isNotEmpty ? _currentArtist : null,
+            album: _currentAlbum.isNotEmpty ? _currentAlbum : null,
+            artworkUrl:
+                _currentArtworkUrl.isNotEmpty ? _currentArtworkUrl : null,
           );
           setTransportState('PLAYING');
         }
@@ -866,11 +947,23 @@ ${_scpdState('A_ARG_TYPE_ProtocolInfo', 'string')}
   }
 
   String didlFor(String title, String uri) {
+    final artistTag = _currentArtist.isNotEmpty
+        ? '<upnp:artist>${xmlEscape(_currentArtist)}</upnp:artist>'
+        : '';
+    final albumTag = _currentAlbum.isNotEmpty
+        ? '<upnp:album>${xmlEscape(_currentAlbum)}</upnp:album>'
+        : '';
+    final artTag = _currentArtworkUrl.isNotEmpty
+        ? '<upnp:albumArtURI>${xmlEscape(_currentArtworkUrl)}</upnp:albumArtURI>'
+        : '';
     return '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
         'xmlns:dc="http://purl.org/dc/elements/1.1/" '
         'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
         '<item id="0" parentID="-1" restricted="0">'
         '<dc:title>${xmlEscape(title)}</dc:title>'
+        '$artistTag'
+        '$albumTag'
+        '$artTag'
         '<upnp:class>object.item.audioItem.musicTrack</upnp:class>'
         '</item></DIDL-Lite>';
   }

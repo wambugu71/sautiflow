@@ -7,6 +7,9 @@ import 'package:sautiplay/isolate_player.dart';
 import 'package:sautiplay/services/app_state_service.dart';
 import 'package:sautiplay/services/app_theme_service.dart';
 import 'package:sautiplay/services/audio_hardware_inspector.dart';
+import 'package:sautiplay/services/chromecast_service.dart';
+import 'package:sautiplay/services/dlna_renderer_service.dart';
+import 'package:sautiplay/services/dlna_service.dart';
 import 'package:sautiplay/widgets/adaptive_marquee_text.dart';
 
 /// Shows the Developer & Audiophile Audio Engine Diagnostic Panel as a glassmorphic bottom sheet.
@@ -285,11 +288,33 @@ class _AudioEngineDiagnosticPanelState
         AudioHardwareInspector.currentSpecs ??
         AudioHardwareInspector.inspect(widget.player);
 
-    final String activeDeviceName = specs.isBluetooth
-        ? (specs.bluetoothDeviceName?.isNotEmpty == true
-            ? specs.bluetoothDeviceName!
-            : specs.deviceName)
-        : specs.deviceName;
+    final activeDlna = DlnaService.instance.activeRenderer;
+    final activeCast = ChromecastService.instance.activeDevice;
+    final dlnaRenderer = DlnaRendererService.instance;
+    final isCastingDlna = activeDlna != null;
+    final isCastingChromecast = activeCast != null && !isCastingDlna;
+    final isCastingOut = isCastingDlna || isCastingChromecast;
+    final isReceivingDlna = !isCastingOut &&
+        dlnaRenderer.isRunning &&
+        dlnaRenderer.currentUri.isNotEmpty &&
+        (dlnaRenderer.transportState == 'PLAYING' ||
+            dlnaRenderer.transportState == 'PAUSED_PLAYBACK' ||
+            dlnaRenderer.transportState == 'TRANSITIONING');
+
+    final String activeDeviceName = isCastingDlna
+        ? activeDlna.name
+        : isCastingChromecast
+            ? activeCast.friendlyName
+            : (specs.isBluetooth
+                ? (specs.bluetoothDeviceName?.isNotEmpty == true
+                    ? specs.bluetoothDeviceName!
+                    : specs.deviceName)
+                : specs.deviceName);
+    final String activeDeviceType = isCastingDlna
+        ? 'DLNA / UPnP Renderer'
+        : isCastingChromecast
+            ? 'Google Cast (Chromecast)'
+            : specs.deviceType;
 
     final String fileType = (t['fileType'] as String? ?? 'PCM').toUpperCase();
     final int bitrateKbps = t['bitrateKbps'] as int? ?? 0;
@@ -382,13 +407,20 @@ class _AudioEngineDiagnosticPanelState
         activeDsdMode != ActiveDsdMode.none && sourceDsdRate > 0;
     final bool isDsdPassthrough = activeDsdMode == ActiveDsdMode.dop ||
         activeDsdMode == ActiveDsdMode.nativeDsd;
-    final String dspPrecisionLabel = (specs.isDirectPcm || isDsdPassthrough)
-        ? 'Bypassed (Bit-Perfect)'
-        : (is64BitDsp
-            ? (dacFormatType == 'Int'
-                ? 'Float64 → $dacDepth-bit Int'
-                : 'Float64')
-            : 'Float32');
+    final castService = ChromecastService.instance;
+    final castMode = castService.audioMode;
+    final castCeiling = castService.maxSampleRate;
+    final String dspPrecisionLabel = isCastingOut
+        ? (castMode == CastAudioMode.bitPerfect
+            ? 'Bypassed (Bit-Perfect Cast)'
+            : 'Float64 → 24-bit WAV Tap (With DSP)')
+        : ((specs.isDirectPcm || isDsdPassthrough)
+            ? 'Bypassed (Bit-Perfect)'
+            : (is64BitDsp
+                ? (dacFormatType == 'Int'
+                    ? 'Float64 → $dacDepth-bit Int'
+                    : 'Float64')
+                : 'Float32'));
     final bool isExclusive =
         hw['isExclusiveMode'] as bool? ?? specs.isExclusiveMode;
     final String backend = hw['backendName'] as String? ?? specs.backendName;
@@ -434,11 +466,21 @@ class _AudioEngineDiagnosticPanelState
     final bool stereoWidenOn = t['stereoWidenEnabled'] == true;
     final bool stereoEnhanceOn = t['stereoEnhancementEnabled'] == true;
 
+    final String? castOutputLabel = isCastingDlna
+        ? 'DLNA Output (${activeDlna.name})'
+        : isCastingChromecast
+            ? 'Cast Output (${activeCast.friendlyName})'
+            : null;
+    final String? dlnaSourceLabel = isReceivingDlna
+        ? 'Source / DLNA Stream (${dlnaRenderer.friendlyName})'
+        : null;
+
     // Calculate node latencies across 7-Zone Studio Architecture
     final nodeLatencies = _calculatePerNodeLatencies(
       sampleRate: dspRate,
-      hwLatencyMs:
-          (t['deviceLatencyMs'] as num?)?.toDouble() ?? specs.latencyMs,
+      hwLatencyMs: isCastingOut
+          ? 0.0
+          : ((t['deviceLatencyMs'] as num?)?.toDouble() ?? specs.latencyMs),
       crossfeedAlgo: crossfeedAlgo,
       crossfeedDelayMs: (t['crossfeedDelayMs'] as num?)?.toDouble() ?? 0.40,
       limiterOn: limiterOn,
@@ -450,9 +492,11 @@ class _AudioEngineDiagnosticPanelState
       eqOn: eqOn,
       isSrcActive: (srcRate != dacRate),
       resampleLatencyMs: (t['resampleLatencyMs'] as num?)?.toDouble(),
-      deviceType: specs.deviceType,
+      deviceType: activeDeviceType,
       activeDsdMode: activeDsdMode,
       dsdGainBoostDb: dsdGainBoostDb,
+      castOutputLabel: castOutputLabel,
+      dlnaSourceLabel: dlnaSourceLabel,
     );
 
     // Sum DSP node latencies
@@ -550,9 +594,23 @@ class _AudioEngineDiagnosticPanelState
               const SizedBox(height: 12),
               _buildTelemetryRow('Device', activeDeviceName,
                   isValueActive: true, context: context),
-              _buildTelemetryRow('Device Type', specs.deviceType,
+              _buildTelemetryRow('Device Type', activeDeviceType,
                   isValueActive: true, context: context),
-              if (specs.bluetoothCodec != null)
+              if (isCastingOut)
+                _buildTelemetryRow(
+                  'Cast Pipeline',
+                  '${castMode == CastAudioMode.bitPerfect ? "Bit-Perfect" : "With DSP (24-bit WAV)"} • Max ${castCeiling.label}',
+                  isValueActive: true,
+                  context: context,
+                ),
+              if (isReceivingDlna)
+                _buildTelemetryRow(
+                  'DLNA Receiver',
+                  'Playing as "${dlnaRenderer.friendlyName}"',
+                  isValueActive: true,
+                  context: context,
+                ),
+              if (!isCastingOut && specs.bluetoothCodec != null)
                 _buildTelemetryRow(
                   'BT Codec',
                   specs.formattedBtCodec ?? specs.bluetoothCodec!,
@@ -609,23 +667,36 @@ class _AudioEngineDiagnosticPanelState
                   context: context),
               _buildTelemetryRow(
                   'Output',
-                  switch (activeDsdMode) {
-                    ActiveDsdMode.nativeDsd =>
-                      '${ActiveDsdMode.formatDsdRateName(sourceDsdRate)} / 1-bit Native DSD (${specs.deviceType})',
-                    ActiveDsdMode.dop =>
-                      '${(dacRate / 1000.0).toStringAsFixed(1)} kHz DoP Container (${specs.deviceType})',
-                    _ =>
-                      '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit $dacFormatType (${specs.deviceType})',
-                  },
+                  isCastingOut
+                      ? (castMode == CastAudioMode.bitPerfect
+                          ? '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit (${isCastingDlna ? "DLNA Bit-Perfect" : "Cast Bit-Perfect"})'
+                          : '${(ChromecastService.resolveCastTargetSampleRate(srcRate, castCeiling.hz) / 1000.0).toStringAsFixed(1)} kHz / 24-bit LPCM (${isCastingDlna ? "DLNA + DSP" : "Cast + DSP"})')
+                      : switch (activeDsdMode) {
+                          ActiveDsdMode.nativeDsd =>
+                            '${ActiveDsdMode.formatDsdRateName(sourceDsdRate)} / 1-bit Native DSD ($activeDeviceType)',
+                          ActiveDsdMode.dop =>
+                            '${(dacRate / 1000.0).toStringAsFixed(1)} kHz DoP Container ($activeDeviceType)',
+                          _ =>
+                            '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit $dacFormatType ($activeDeviceType)',
+                        },
                   context: context),
-              if (specs.socName != null && specs.socName!.isNotEmpty)
+              if (!isCastingOut &&
+                  specs.socName != null &&
+                  specs.socName!.isNotEmpty)
                 _buildTelemetryRow('SoC Processor', specs.socName!,
                     isValueActive: true, context: context),
-              if (specs.dspHardware != null && specs.dspHardware!.isNotEmpty)
+              if (!isCastingOut &&
+                  specs.dspHardware != null &&
+                  specs.dspHardware!.isNotEmpty)
                 _buildTelemetryRow('DSP Hardware', specs.dspHardware!,
                     isValueActive: true, context: context),
-              _buildTelemetryRow('Backend',
-                  '$backend (${specs.isDirectPcm ? "Hi-Res Bit-Perfect" : (isExclusive ? "Exclusive" : "Shared")})',
+              _buildTelemetryRow(
+                  'Backend',
+                  isCastingDlna
+                      ? 'DLNA / UPnP AVTransport (Local Media Server)'
+                      : isCastingChromecast
+                          ? 'Google Cast V2 TLS (Local Media Server)'
+                          : '$backend (${specs.isDirectPcm ? "Hi-Res Bit-Perfect" : (isExclusive ? "Exclusive" : "Shared")})',
                   context: context),
               _buildTelemetryRow(
                   'Buffer',
@@ -1383,18 +1454,21 @@ class _AudioEngineDiagnosticPanelState
     String? deviceType,
     ActiveDsdMode activeDsdMode = ActiveDsdMode.none,
     double dsdGainBoostDb = 6.0,
+    String? castOutputLabel,
+    String? dlnaSourceLabel,
   }) {
     final list = <_NodeLatencyInfo>[];
     int step = 1;
 
     // 1. Source / Decoder
-    final String sourceLabel = switch (activeDsdMode) {
-      ActiveDsdMode.nativeDsd => 'Source / Native DSD 1-Bit Stream',
-      ActiveDsdMode.dop => 'Source / DoP v1.1 Frame Packer',
-      ActiveDsdMode.d2p =>
-        'Source / D2P 128-Tap FIR (+${dsdGainBoostDb.toStringAsFixed(1)} dB)',
-      ActiveDsdMode.none => 'Source / Decoder',
-    };
+    final String sourceLabel = dlnaSourceLabel ??
+        switch (activeDsdMode) {
+          ActiveDsdMode.nativeDsd => 'Source / Native DSD 1-Bit Stream',
+          ActiveDsdMode.dop => 'Source / DoP v1.1 Frame Packer',
+          ActiveDsdMode.d2p =>
+            'Source / D2P 128-Tap FIR (+${dsdGainBoostDb.toStringAsFixed(1)} dB)',
+          ActiveDsdMode.none => 'Source / Decoder',
+        };
     list.add(_NodeLatencyInfo('${step++}.', sourceLabel, 0.0, 0.0));
 
     if (activeDsdMode == ActiveDsdMode.nativeDsd ||
@@ -1406,9 +1480,10 @@ class _AudioEngineDiagnosticPanelState
         0.0,
       ));
       final double hwSamples = hwLatencyMs * 0.001 * sampleRate;
-      final hwLabel = deviceType != null && deviceType.isNotEmpty
-          ? 'HW Output ($deviceType)'
-          : 'HW Output DAC';
+      final hwLabel = castOutputLabel ??
+          (deviceType != null && deviceType.isNotEmpty
+              ? 'HW Output ($deviceType)'
+              : 'HW Output DAC');
       list.add(_NodeLatencyInfo(
         '${step++}.',
         hwLabel,
@@ -1568,11 +1643,12 @@ class _AudioEngineDiagnosticPanelState
       ));
     }
 
-    // Hardware Output DAC
+    // Hardware Output DAC (or Cast / DLNA Output)
     final double hwSamples = hwLatencyMs * 0.001 * sampleRate;
-    final hwLabel = deviceType != null && deviceType.isNotEmpty
-        ? 'HW Output ($deviceType)'
-        : 'HW Output DAC';
+    final hwLabel = castOutputLabel ??
+        (deviceType != null && deviceType.isNotEmpty
+            ? 'HW Output ($deviceType)'
+            : 'HW Output DAC');
     list.add(_NodeLatencyInfo(
       '${step++}.',
       hwLabel,

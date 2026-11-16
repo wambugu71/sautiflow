@@ -1328,6 +1328,20 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         m_telemetry.state = isNetwork ? StreamState::Buffering : StreamState::Playing;
         m_telemetry.bitrate = m_fmtCtx->bit_rate > 0 ? m_fmtCtx->bit_rate : audioStream->codecpar->bit_rate;
+        m_telemetry.sampleRate = m_codecCtx->sample_rate > 0
+            ? m_codecCtx->sample_rate
+            : audioStream->codecpar->sample_rate;
+        m_telemetry.channels = m_codecCtx->ch_layout.nb_channels > 0
+            ? m_codecCtx->ch_layout.nb_channels
+            : audioStream->codecpar->ch_layout.nb_channels;
+        int bits = audioStream->codecpar->bits_per_raw_sample;
+        if (bits <= 0) bits = m_codecCtx->bits_per_raw_sample;
+        if (bits <= 0) {
+            const int bps = av_get_bytes_per_sample(m_codecCtx->sample_fmt);
+            if (bps > 0) bits = bps * 8;
+        }
+        if (bits <= 0) bits = audioStream->codecpar->bits_per_coded_sample;
+        m_telemetry.bitDepth = bits;
         double customDurSec = 0.0;
         if (m_customHttpReader) {
             customDurSec = static_cast<CustomHttpReaderBase*>(m_customHttpReader)->get_duration_sec();

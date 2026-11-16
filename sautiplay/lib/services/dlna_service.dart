@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:dlna_dart/dlna.dart';
+import 'package:dlna_dart/xmlParser.dart' show AudioMime, PlayType;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -145,12 +146,34 @@ class DlnaService extends ChangeNotifier {
     required DlnaDeviceInfo renderer,
     required String audioUrl,
     String title = 'Sautiplay Audio Stream',
+    String artist = '',
+    String album = '',
+    String? artworkUrl,
+    double? durationSeconds,
+    String? mimeType,
   }) async {
     try {
       final device = renderer.deviceRef;
-      debugPrint('[DlnaService] Casting to ${renderer.name}');
+      debugPrint('[DlnaService] Casting to ${renderer.name}: $title');
 
-      await device.setUrl(audioUrl, title: title);
+      // Stop any active transport first so renderers cleanly transition
+      // between Bit-Perfect pass-through and live DSP WAV streams.
+      try {
+        await device.stop();
+      } catch (_) {}
+
+      final playType = _resolveAudioMime(audioUrl, mimeType);
+      final durStr = _formatUpnpDuration(durationSeconds);
+
+      await device.setUrl(
+        audioUrl,
+        title: title,
+        artist: artist,
+        album: album,
+        artworkUrl: artworkUrl ?? '',
+        duration: durStr,
+        type: playType,
+      );
       await device.play();
 
       setActiveRenderer(renderer);
@@ -159,6 +182,38 @@ class DlnaService extends ChangeNotifier {
       debugPrint('[DlnaService] Failed to cast to ${renderer.name}: $e');
       return false;
     }
+  }
+
+  static PlayType _resolveAudioMime(String url, String? mimeType) {
+    final mime = (mimeType ?? '').toLowerCase();
+    final path = (Uri.tryParse(url)?.path ?? url).toLowerCase();
+    if (mime.contains('wav') || path.endsWith('.wav')) return AudioMime.wav;
+    if (mime.contains('flac') || path.endsWith('.flac')) return AudioMime.flac;
+    if (mime.contains('mpeg') || mime.contains('mp3') || path.endsWith('.mp3')) {
+      return AudioMime.mp3;
+    }
+    if (mime.contains('mp4') || path.endsWith('.m4a') || path.endsWith('.mp4')) {
+      return AudioMime.mp4;
+    }
+    if (mime.contains('aac') || path.endsWith('.aac')) return AudioMime.aac;
+    if (mime.contains('ogg') || path.endsWith('.ogg')) return AudioMime.ogg;
+    if (mime.contains('opus') || path.endsWith('.opus')) return AudioMime.opus;
+    if (mime.contains('aiff') || path.endsWith('.aif') || path.endsWith('.aiff')) {
+      return AudioMime.aiff;
+    }
+    if (mime.contains('dsf') || path.endsWith('.dsf')) return AudioMime.dsf;
+    if (mime.contains('wma') || path.endsWith('.wma')) return AudioMime.wma;
+    if (mime.contains('ape') || path.endsWith('.ape')) return AudioMime.xApe;
+    return AudioMime.any;
+  }
+
+  static String _formatUpnpDuration(double? seconds) {
+    if (seconds == null || !seconds.isFinite || seconds <= 0) return '';
+    final total = seconds.round();
+    final h = total ~/ 3600;
+    final m = (total % 3600) ~/ 60;
+    final s = total % 60;
+    return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   /// Sends Play command to active renderer.

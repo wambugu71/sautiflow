@@ -4478,7 +4478,8 @@ static inline bool dsd_backend_allows_dop(AudioEngineHandle *e)
     {
         return e->dopSupported.load(std::memory_order_acquire);
     }
-    return is_direct_hires_family_backend(cfgBk);
+    return is_direct_hires_family_backend(cfgBk) &&
+           (cfgBk == AE_BACKEND_DAP_HIRES || e->exclusiveModeEnabled.load(std::memory_order_acquire));
 #else
     return e->exclusiveModeEnabled.load(std::memory_order_acquire);
 #endif
@@ -13068,6 +13069,31 @@ extern "C"
         return 1;
     }
 
+    AE_API int ae_get_stream_audio_format(AudioEngineHandle *e,
+                                          int *out_sample_rate,
+                                          int *out_channels,
+                                          int *out_bit_depth)
+    {
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+        sautiflow::StreamTelemetry tel;
+        if (e != nullptr && e->currentDecoder != nullptr) {
+            tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+        } else {
+            tel = sautiflow::get_active_stream_telemetry();
+        }
+        if (out_sample_rate) *out_sample_rate = tel.sampleRate;
+        if (out_channels) *out_channels = tel.channels;
+        if (out_bit_depth) *out_bit_depth = tel.bitDepth;
+        return (tel.sampleRate > 0 || tel.bitDepth > 0) ? 1 : 0;
+#else
+        (void)e;
+        if (out_sample_rate) *out_sample_rate = 0;
+        if (out_channels) *out_channels = 0;
+        if (out_bit_depth) *out_bit_depth = 0;
+        return 0;
+#endif
+    }
+
     AE_API int ae_is_stream_live(AudioEngineHandle *e)
     {
         sautiflow::StreamTelemetry tel;
@@ -14535,8 +14561,7 @@ extern "C"
                 ? curSrcDsdChannels
                 : baseUserCh;
 
-            bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                                 e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
+            bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed);
 #if defined(_WIN32)
             if (is_direct_hires_family_backend(e->configuredBackend.load(std::memory_order_relaxed)))
             {
@@ -14545,17 +14570,39 @@ extern "C"
 #endif
             if (isDsdTrackRestart)
             {
+                bool hasDsdHwPath = wantExclusive;
+#if defined(__ANDROID__)
+                const int dsdCfgBk = e->configuredBackend.load(std::memory_order_relaxed);
+                hasDsdHwPath = hasDsdHwPath ||
+                               is_direct_hires_family_backend(dsdCfgBk) ||
+                               ((dsdCfgBk == AE_BACKEND_USB_DIRECT || dsdCfgBk == AE_BACKEND_DIRECT_HIRES) &&
+                                AndroidUsbDacSink::hasDeviceAvailable(e));
+#endif
                 if (desiredDsdMode == AE_DSD_MODE_NATIVE)
                 {
-                    newRate = curSrcDsdRate / 32;
-                    wantExclusive = true;
+                    if (hasDsdHwPath)
+                    {
+                        newRate = curSrcDsdRate / 32;
+                        wantExclusive = true;
+                    }
+                    else
+                    {
+                        desiredDsdMode = AE_DSD_MODE_D2P;
+                    }
                 }
                 else if (desiredDsdMode == AE_DSD_MODE_DOP)
                 {
-                    newRate = curSrcDsdRate / 16;
-                    wantExclusive = true;
+                    if (hasDsdHwPath)
+                    {
+                        newRate = curSrcDsdRate / 16;
+                        wantExclusive = true;
+                    }
+                    else
+                    {
+                        desiredDsdMode = AE_DSD_MODE_D2P;
+                    }
                 }
-                else if (desiredDsdMode == AE_DSD_MODE_D2P)
+                if (desiredDsdMode == AE_DSD_MODE_D2P)
                 {
                     if (castTapActive && e->outputSampleRate > 0)
                     {
@@ -15055,10 +15102,23 @@ extern "C"
                 const uint32_t castReqRate = (e->outputSampleRate > 0)
                                                  ? (uint32_t)e->outputSampleRate
                                                  : (uint32_t)e->userOutputSampleRate;
+                uint32_t effectiveUserRate = (uint32_t)e->userOutputSampleRate;
+#if defined(__ANDROID__)
+                const int actBkNow = e->activeBackend.load(std::memory_order_acquire);
+                const bool isSharedFallback = (actBkNow != AE_BACKEND_USB_DIRECT) &&
+                                              !is_direct_hires_family_backend(actBkNow) &&
+                                              !e->exclusiveModeEnabled.load(std::memory_order_relaxed);
+                // Do not force 384 kHz / hi-res USB DAC sample rates onto Android's shared mixer
+                // when no USB DAC / exclusive path is active (avoids 44.1k->384k->48k double SRC).
+                if (isSharedFallback && !castTapActive && actualRate > 0 && effectiveUserRate > actualRate)
+                {
+                    effectiveUserRate = 0;
+                }
+#endif
                 AudioRatePlan plan = calculateRatePlan(
                     srcRate,
                     actualRate,
-                    (uint32_t)e->userOutputSampleRate,
+                    effectiveUserRate,
                     e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
                     e->exclusiveModeEnabled.load(std::memory_order_relaxed),
                     castTapActive,

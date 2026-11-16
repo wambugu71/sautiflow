@@ -3144,6 +3144,36 @@ void _isolateEntry(_IsolateInitData initData) {
                     ? st.codecName.toUpperCase()
                     : 'STREAM';
                 bitrateKbps = st.bitrate;
+                final streamFmt = player.getStreamAudioFormat();
+                if (streamFmt.sampleRate > 0) inputRate = streamFmt.sampleRate;
+                if (streamFmt.channels > 0) inputChannels = streamFmt.channels;
+                if (streamFmt.bitDepth > 0) {
+                  inputBitDepth = streamFmt.bitDepth;
+                } else {
+                  final codecLower = st.codecName.toLowerCase();
+                  if (codecLower.contains('s24') ||
+                      codecLower.contains('pcm_s24')) {
+                    inputBitDepth = 24;
+                  } else if (codecLower.contains('s32') ||
+                      codecLower.contains('f32') ||
+                      codecLower.contains('pcm_s32')) {
+                    inputBitDepth = 32;
+                  } else if (codecLower.contains('s16') ||
+                      codecLower.contains('pcm_s16')) {
+                    inputBitDepth = 16;
+                  } else if ((codecLower.contains('wav') ||
+                          codecLower.contains('pcm')) &&
+                      st.bitrate > 0 &&
+                      inputRate > 0 &&
+                      inputChannels > 0) {
+                    final inferred =
+                        ((st.bitrate * 1000) / (inputRate * inputChannels))
+                            .round();
+                    if (inferred == 16 || inferred == 24 || inferred == 32) {
+                      inputBitDepth = inferred;
+                    }
+                  }
+                }
               }
             }
 

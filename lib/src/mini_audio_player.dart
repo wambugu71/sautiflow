@@ -321,6 +321,8 @@ class MiniAudioPlayer {
   bool isNetworkStreamingSupported() => _engine.isNetworkStreamingSupported();
   StreamTelemetry get streamTelemetry => _engine.getStreamTelemetry();
   StreamTelemetry getStreamTelemetry() => _engine.getStreamTelemetry();
+  ({int sampleRate, int channels, int bitDepth}) getStreamAudioFormat() =>
+      _engine.getStreamAudioFormat();
   bool isCurrentStreamLive() => _engine.isCurrentStreamLive();
   bool get isBuffering => _engine.getStreamTelemetry().isBuffering;
   bool get isLive => _engine.isCurrentStreamLive();

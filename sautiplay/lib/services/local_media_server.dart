@@ -397,6 +397,9 @@ class LocalMediaServer {
     _activeLiveCancel?.call();
     request.response.statusCode = HttpStatus.ok;
     request.response.bufferOutput = false;
+    // Provide the explicit RIFF/WAVE length so Dart's HttpServer does NOT use
+    // Transfer-Encoding: chunked (many DLNA renderers mute or stall on chunked WAV).
+    request.response.contentLength = header.length + 0x7FFFF000;
     request.response.headers.set(HttpHeaders.acceptRangesHeader, 'none');
 
     final enginePtr = ffi.Pointer<ffi.Void>.fromAddress(_liveEngineAddress);
@@ -462,8 +465,9 @@ class LocalMediaServer {
           request.response.add(silence20ms);
         } else {
           emptyTicks++;
-          // Keep HTTP socket alive if source stalls temporarily while playing.
-          if (emptyTicks >= 25) {
+          // Keep the live WAV stream flowing during brief engine restarts /
+          // rate switches so DLNA renderers and FFmpeg probers never starve.
+          if (emptyTicks >= 2) {
             emptyTicks = 0;
             request.response.add(silence20ms);
           }
@@ -515,6 +519,19 @@ class LocalMediaServer {
             return 0;
           }
         } else {
+          if (name.contains('vethernet') ||
+              name.contains('virtual') ||
+              name.contains('vmware') ||
+              name.contains('vbox') ||
+              name.contains('wsl') ||
+              name.contains('hyper-v') ||
+              name.contains('docker') ||
+              name.contains('tailscale') ||
+              name.contains('zerotier') ||
+              name.startsWith('tun') ||
+              name.startsWith('tap')) {
+            return 0;
+          }
           if (name.startsWith('eth') ||
               name.startsWith('en') ||
               name.contains('wi-fi') ||

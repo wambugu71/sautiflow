@@ -156,6 +156,10 @@ extern "C"
                                        char *out_icy_title, int icy_title_len,
                                        char *out_icy_artist, int icy_artist_len);
     AE_API int ae_is_stream_live(AudioEngineHandle *engine);
+    AE_API int ae_get_stream_audio_format(AudioEngineHandle *engine,
+                                          int *out_sample_rate,
+                                          int *out_channels,
+                                          int *out_bit_depth);
 
     AE_API void ae_set_loop_mode(AudioEngineHandle *engine, int loop_mode);
     AE_API void ae_set_shuffle_enabled(AudioEngineHandle *engine, int enabled);

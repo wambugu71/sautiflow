@@ -80,9 +80,21 @@ class DLNADevice {
   Future<String> setUrl(
     String url, {
     String title = "",
+    String artist = "",
+    String album = "",
+    String artworkUrl = "",
+    String duration = "",
     PlayType type = VideoMime.any,
   }) {
-    final data = XmlText.setPlayURLXml(url, title: title, type: type);
+    final data = XmlText.setPlayURLXml(
+      url,
+      title: title,
+      artist: artist,
+      album: album,
+      artworkUrl: artworkUrl,
+      duration: duration,
+      type: type,
+    );
     return request('SetAVTransportURI', Utf8Encoder().convert(data));
   }
 
@@ -233,6 +245,10 @@ class XmlText {
   static String setPlayURLXml(
     String url, {
     String title = "",
+    String artist = "",
+    String album = "",
+    String artworkUrl = "",
+    String duration = "",
     required PlayType type,
   }) {
     final time = DateTime.fromMillisecondsSinceEpoch(
@@ -249,27 +265,48 @@ class XmlText {
     }
     title = htmlEncode(title);
     url = htmlEncode(url);
+    final safeArtist = htmlEncode(artist.isNotEmpty ? artist : 'Unknown Artist');
+    final safeAlbum = album.isNotEmpty ? htmlEncode(album) : '';
+    final safeArt = artworkUrl.isNotEmpty ? htmlEncode(artworkUrl) : '';
+    final safeDur = duration.isNotEmpty ? htmlEncode(duration) : '';
+
     var oclass = 'object.item.videoItem';
     var res = '';
     if (type is AudioMime) {
-      oclass = 'object.item.audioItem';
+      oclass = 'object.item.audioItem.musicTrack';
     } else if (type is ImageMime) {
       oclass = 'object.item.imageItem';
     }
     if (type.protocolInfo.isNotEmpty) {
-      res = '<res protocolInfo="${type.protocolInfo}">$url</res>';
+      final durAttr = safeDur.isNotEmpty ? ' duration="$safeDur"' : '';
+      res = '<res protocolInfo="${type.protocolInfo}"$durAttr>$url</res>';
     }
+    final albumTag = safeAlbum.isNotEmpty ? '<upnp:album>$safeAlbum</upnp:album>' : '';
+    final artTag = safeArt.isNotEmpty ? '<upnp:albumArtURI>$safeArt</upnp:albumArtURI>' : '';
+    final didl =
+        '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" '
+        'xmlns:dlna="urn:schemas-dlna-org:metadata-1-0/">'
+        '<item id="id" parentID="0" restricted="0">'
+        '<dc:title>$title</dc:title>'
+        '<upnp:artist>$safeArtist</upnp:artist>'
+        '<dc:creator>$safeArtist</dc:creator>'
+        '$albumTag'
+        '$artTag'
+        '<dc:date>$time</dc:date>'
+        '<upnp:class>$oclass</upnp:class>'
+        '$res'
+        '</item>'
+        '</DIDL-Lite>';
+    final escapedDidl = htmlEncode(didl);
     return '''<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
     <s:Body>
         <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
             <InstanceID>0</InstanceID>
             <CurrentURI>$url</CurrentURI>
-            <CurrentURIMetaData>
-              <DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:dlna="urn:schemas-dlna-org:metadata-1-0/">
-                <item id="id" parentID="0" restricted="0"><dc:title>$title</dc:title><upnp:artist>unknow</upnp:artist><dc:date>$time</dc:date><upnp:class>$oclass</upnp:class>$res</item>
-              </DIDL-Lite>
-            </CurrentURIMetaData>
+            <CurrentURIMetaData>$escapedDidl</CurrentURIMetaData>
         </u:SetAVTransportURI>
     </s:Body>
 </s:Envelope>
@@ -599,6 +636,8 @@ class DLNAManager {
   Timer _sender = Timer(Duration(seconds: 2), () {});
   RawDatagramSocket? _socket_server;
   RawDatagramSocket? _socket_client;
+  final List<RawDatagramSocket> _extraClientSockets = [];
+  final List<StreamSubscription> _extraClientSubs = [];
   StreamSubscription? _clientSubscription;
   StreamSubscription? _serverSubscription;
   int _searchCount = 0;
@@ -633,23 +672,33 @@ class DLNAManager {
       }
     }
     if (_socket_server != null) {
-      // https://github.com/dart-lang/sdk/issues/42250 截止到 dart 2.13.4 仍存在问题,期待新版修复
-      // 修复IOS joinMulticast 的问题
-      if (Platform.isIOS) {
-        final List<NetworkInterface> interfaces = await NetworkInterface.list(
-          includeLinkLocal: false,
-          type: InternetAddress.anyIPv4.type,
-          includeLoopback: false,
-        );
-        for (final interface in interfaces) {
-          final value = Uint8List.fromList(
-            UPNP_AddressIPv4.rawAddress + interface.addresses[0].rawAddress,
-          );
-          _socket_server!.setRawOption(
-            RawSocketOption(RawSocketOption.levelIPv4, 12, value),
-          );
+      // Join SSDP multicast on every non-loopback IPv4 interface so multi-homed
+      // hosts (e.g. Windows with Hyper-V/WSL vEthernet + Wi-Fi) receive NOTIFYs.
+      final List<NetworkInterface> interfaces = await NetworkInterface.list(
+        includeLinkLocal: false,
+        type: InternetAddress.anyIPv4.type,
+        includeLoopback: false,
+      );
+      var joinedAny = false;
+      for (final interface in interfaces) {
+        if (interface.addresses.isEmpty) continue;
+        try {
+          if (Platform.isIOS) {
+            final value = Uint8List.fromList(
+              UPNP_AddressIPv4.rawAddress + interface.addresses[0].rawAddress,
+            );
+            _socket_server!.setRawOption(
+              RawSocketOption(RawSocketOption.levelIPv4, 12, value),
+            );
+          } else {
+            _socket_server!.joinMulticast(UPNP_AddressIPv4, interface);
+          }
+          joinedAny = true;
+        } catch (e) {
+          print('dlna: joinMulticast(${interface.name}) failed ($e)');
         }
-      } else {
+      }
+      if (!joinedAny && !Platform.isIOS) {
         try {
           _socket_server!.joinMulticast(UPNP_AddressIPv4);
         } catch (e) {
@@ -659,6 +708,38 @@ class DLNAManager {
     }
     _socket_client = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
     final socket_client = _socket_client!;
+
+    // Bind one client socket per non-loopback IPv4 interface so M-SEARCH goes
+    // out on Wi-Fi/Ethernet even when virtual adapters (vEthernet/WSL) exist,
+    // and unicast replies return to that same socket.
+    try {
+      final ifaces = await NetworkInterface.list(
+        includeLinkLocal: false,
+        type: InternetAddress.anyIPv4.type,
+        includeLoopback: false,
+      );
+      for (final iface in ifaces) {
+        if (iface.addresses.isEmpty) continue;
+        try {
+          final s = await RawDatagramSocket.bind(iface.addresses.first, 0);
+          _extraClientSockets.add(s);
+          _extraClientSubs.add(s.listen((RawSocketEvent event) {
+            if (event == RawSocketEvent.read) {
+              while (true) {
+                final datagram = s.receive();
+                if (datagram == null) break;
+                try {
+                  String message = String.fromCharCodes(datagram.data).trim();
+                  dm.onMessage(message);
+                } catch (e) {
+                  print(e);
+                }
+              }
+            }
+          }));
+        } catch (_) {}
+      }
+    } catch (_) {}
 
     _clientSubscription = _socket_client?.listen((RawSocketEvent event) {
       if (event == RawSocketEvent.read) {
@@ -728,6 +809,11 @@ class DLNAManager {
           'MX: ${_searchCount == 0 ? 1 : 3}\r\n' +
           'MAN: \"ssdp:discover\"\r\n\r\n';
       socket.send(msg.codeUnits, UPNP_AddressIPv4, UPNP_PORT);
+      for (final extra in _extraClientSockets) {
+        try {
+          extra.send(msg.codeUnits, UPNP_AddressIPv4, UPNP_PORT);
+        } catch (_) {}
+      }
       if (i < stList.length - 1) {
         await Future.delayed(Duration(milliseconds: 30));
       }
@@ -743,6 +829,14 @@ class DLNAManager {
     _serverSubscription = null;
     _socket_client?.close();
     _socket_client = null;
+    for (final sub in _extraClientSubs) {
+      sub.cancel();
+    }
+    _extraClientSubs.clear();
+    for (final s in _extraClientSockets) {
+      s.close();
+    }
+    _extraClientSockets.clear();
     _socket_server?.close();
     _socket_server = null;
     _deviceManager?.dispose();

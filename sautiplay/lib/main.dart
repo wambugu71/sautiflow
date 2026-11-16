@@ -300,8 +300,14 @@ class TrackMetadata {
   final double? replayGainTrack;
   final double? replayGainAlbum;
   final String? artistId;
+  final String? title;
+  final String? album;
   const TrackMetadata(this.artist, this.albumArt,
-      {this.replayGainTrack, this.replayGainAlbum, this.artistId});
+      {this.replayGainTrack,
+      this.replayGainAlbum,
+      this.artistId,
+      this.title,
+      this.album});
 }
 
 class PlayerShell extends StatefulWidget {
@@ -423,10 +429,14 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     final source = _playlist[idx];
     final meta = _metadata.value;
     final durSecs = _durationFromSource(source);
+    final castTitle = (meta.title != null && meta.title!.isNotEmpty)
+        ? meta.title!
+        : _cleanCastTitle(_nameFromSource(source));
     unawaited(_syncActiveCastOutput(
       source: source,
-      title: _nameFromSource(source),
+      title: castTitle,
       artist: meta.artist,
+      album: meta.album ?? '',
       artworkBytes: meta.albumArt,
       durationSeconds: durSecs != null && durSecs > 0 ? durSecs.toDouble() : null,
     ));
@@ -443,13 +453,17 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     final source = _playlist[idx];
     final meta = _metadata.value;
     final durSecs = _durationFromSource(source);
+    final castTitle = (meta.title != null && meta.title!.isNotEmpty)
+        ? meta.title!
+        : _cleanCastTitle(_nameFromSource(source));
     Future.delayed(const Duration(milliseconds: 80), () {
       if (!mounted) return;
       _player.flushCastPcmTap();
       unawaited(_syncActiveCastOutput(
         source: source,
-        title: _nameFromSource(source),
+        title: castTitle,
         artist: meta.artist,
+        album: meta.album ?? '',
         artworkBytes: meta.albumArt,
         durationSeconds:
             durSecs != null && durSecs > 0 ? durSecs.toDouble() : null,
@@ -473,17 +487,31 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     } else if (_outputSampleRate > 0) {
       _player.setOutputSampleRate(_outputSampleRate);
     } else {
-      final activeRate = AudioHardwareInspector.currentSpecs?.sampleRate;
-      if (activeRate != null && activeRate > 0) {
-        _player.setOutputSampleRate(activeRate);
+      _player.setOutputSampleRate(0);
+    }
+  }
+
+  static String _cleanCastTitle(String raw) {
+    final trimmed = raw.trim();
+    final dot = trimmed.lastIndexOf('.');
+    if (dot > 0 && trimmed.length - dot <= 6) {
+      final ext = trimmed.substring(dot + 1).toLowerCase();
+      const audioExts = {
+        'flac', 'wav', 'mp3', 'm4a', 'mp4', 'aac', 'ogg', 'opus',
+        'wv', 'ape', 'tak', 'mpc', 'aif', 'aiff', 'dsf', 'dff', 'wma',
+      };
+      if (audioExts.contains(ext)) {
+        return trimmed.substring(0, dot);
       }
     }
+    return trimmed;
   }
 
   Future<void> _syncActiveCastOutput({
     required AudioSource source,
     required String title,
     required String artist,
+    String album = '',
     Uint8List? artworkBytes,
     double? durationSeconds,
     bool force = false,
@@ -587,16 +615,23 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
           contentType: mime,
           title: title,
           artist: artist,
+          album: album.isNotEmpty ? album : null,
           artworkUrl: artworkUrl,
           durationSeconds: durationSeconds,
           isLiveStream: false,
           startPositionSeconds: math.max(0.0, _status.value.positionSeconds),
         );
       } else if (activeDlna != null) {
+        final mime = LocalMediaServer.mimeTypeForPathOrExt(stripped);
         await dlna.castAudioUrl(
           renderer: activeDlna,
           audioUrl: castUrl,
           title: title,
+          artist: artist,
+          album: album,
+          artworkUrl: artworkUrl,
+          durationSeconds: durationSeconds,
+          mimeType: mime,
         );
       }
       return;
@@ -614,6 +649,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _player.setCastPcmTap(enabled: true, bypassDsp: bypassDsp);
     _player.setOutputSampleRate(targetSr);
     _player.flushCastPcmTap();
+    // Give the player isolate a moment to arm the tap & apply targetSr
+    // before the renderer opens the live HTTP WAV stream.
+    await Future.delayed(const Duration(milliseconds: 60));
+    if (!mounted || gen != _castSyncGeneration) return;
 
     final liveUrl = await LocalMediaServer.instance.serveLive24BitWav(
       engineAddress: _player.engineAddress,
@@ -629,6 +668,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         contentType: 'audio/wav',
         title: title,
         artist: artist,
+        album: album.isNotEmpty ? album : null,
         artworkUrl: artworkUrl,
         isLiveStream: true,
       );
@@ -637,6 +677,11 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         renderer: activeDlna,
         audioUrl: liveUrl,
         title: title,
+        artist: artist,
+        album: album,
+        artworkUrl: artworkUrl,
+        durationSeconds: durationSeconds,
+        mimeType: 'audio/wav',
       );
     }
   }
@@ -840,10 +885,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _hardwareSubscription =
         AudioHardwareInspector.hardwareStream(_player).listen((specs) {
       if (!mounted) return;
-      // When engine output sample rate is set to Native (0), match active device hardware rate
-      if (_outputSampleRate == 0 && specs.sampleRate > 0 && !_wasCastOutputActive) {
-        _player.setOutputSampleRate(specs.sampleRate);
-      }
+      // If a USB DAC was detached while USB Direct was active, revert to Auto
+      // so the engine doesn't stay armed for an absent DAC.
     });
 
     ChromecastService.instance.addListener(_onCastOutputConfigChanged);
@@ -888,24 +931,40 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   }
 
   /// Plays a URL pushed from a DLNA controller (receiver mode).
-  void playDlnaCast(String url, String title, String artist) {
+  void playDlnaCast(
+    String url,
+    String title,
+    String artist, {
+    String? album,
+    String? artworkUrl,
+  }) {
     _playbackSessionId++;
     final session = _playbackSessionId;
-    final src = AudioSource.network(url, title: title, artist: artist);
+    final cleanTitle = _cleanCastTitle(title);
+    final src = AudioSource.network(url, title: cleanTitle, artist: artist);
+    final trackInfo = TrackInfo(
+      videoId: url,
+      title: cleanTitle,
+      artist: artist,
+      thumbnailUrl: artworkUrl,
+    );
+    _onlineTrackMetadata[src.uri] = trackInfo;
 
     if (!mounted || _playbackSessionId != session) return;
 
     setState(() {
       _currentUiQueue.clear();
-      _currentUiQueue.add(TrackInfo(
-        videoId: url,
-        title: title,
-        artist: artist,
-        thumbnailUrl: null,
-      ));
+      _currentUiQueue.add(trackInfo);
       _playlist.clear();
       _playlist.add(src);
     });
+
+    _metadata.value = TrackMetadata(
+      artist,
+      null,
+      title: cleanTitle,
+      album: album,
+    );
 
     _player.setAudioSources(
       _playlist,
@@ -1007,14 +1066,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
     // Apply basic engine settings
     _player.setOutputFormat(_outputFormat);
-    if (_outputSampleRate > 0) {
-      _player.setOutputSampleRate(_outputSampleRate);
-    } else {
-      final activeRate = AudioHardwareInspector.currentSpecs?.sampleRate;
-      if (activeRate != null && activeRate > 0) {
-        _player.setOutputSampleRate(activeRate);
-      }
-    }
+    _player.setOutputSampleRate(_outputSampleRate);
     if (engine.dacValidBitDepth > 0) {
       _player.setDacValidBitDepth(engine.dacValidBitDepth);
     }
@@ -1298,11 +1350,16 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         if (ChromecastService.instance.activeDevice != null ||
             DlnaService.instance.activeRenderer != null) {
           final durSecs = _durationFromSource(source) ?? 0;
+          final meta = _metadata.value;
+          final castTitle = (meta.title != null && meta.title!.isNotEmpty)
+              ? meta.title!
+              : _cleanCastTitle(title);
           await _syncActiveCastOutput(
             source: source,
-            title: title,
-            artist: _metadata.value.artist,
-            artworkBytes: _metadata.value.albumArt,
+            title: castTitle,
+            artist: meta.artist,
+            album: meta.album ?? '',
+            artworkBytes: meta.albumArt,
             durationSeconds: durSecs > 0 ? durSecs.toDouble() : null,
           );
         }
@@ -1561,6 +1618,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
   static Future<
           ({
+            String? title,
+            String? album,
             String? artist,
             Uint8List? albumArt,
             double? rgTrack,
@@ -1572,6 +1631,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         final metadata =
             NativeAudioMetadata.read(filePath, getImage: getImage);
         return (
+          title: metadata.title,
+          album: metadata.album,
           artist: metadata.artist,
           albumArt: metadata.pictures.isNotEmpty
               ? metadata.pictures.first.bytes
@@ -1581,6 +1642,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         );
       } catch (_) {
         return (
+          title: null,
+          album: null,
           artist: null,
           albumArt: null,
           rgTrack: null,
@@ -1731,6 +1794,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _lastMetadataSource = source;
 
     String artist = _subtitleFromSource(source);
+    String? title = source.title;
+    String? album;
     String? artistId;
     Uint8List? albumArt;
     double? rgTrack = source.replayGainTrackDb;
@@ -1740,6 +1805,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (_onlineTrackMetadata.containsKey(source.uri)) {
       final track = _onlineTrackMetadata[source.uri]!;
       artist = track.artist;
+      if (track.title.isNotEmpty) title = track.title;
       artistId = track.artistId;
       if (track.thumbnailUrl != null) {
         isOnlineTrackWithThumbnail = true;
@@ -1792,6 +1858,14 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
           try {
             final meta =
                 await _readLocalTrackMetadataOffload(filePath, getImage: true);
+            if ((title == null || title.isEmpty) &&
+                meta.title != null &&
+                meta.title!.isNotEmpty) {
+              title = meta.title!;
+            }
+            if (meta.album != null && meta.album!.isNotEmpty) {
+              album = meta.album!;
+            }
             if (!hasSourceArtist &&
                 meta.artist != null &&
                 meta.artist!.isNotEmpty) {
@@ -1856,7 +1930,11 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     }
 
     _metadata.value = TrackMetadata(artist, albumArt,
-        replayGainTrack: rgTrack, replayGainAlbum: rgAlbum, artistId: artistId);
+        replayGainTrack: rgTrack,
+        replayGainAlbum: rgAlbum,
+        artistId: artistId,
+        title: title,
+        album: album);
 
     final idx = _status.value.currentIndex;
     if (idx >= 0 && idx < _currentUiQueue.length) {
@@ -3786,11 +3864,6 @@ void _showNowPlayingScreen() {
                   outputSampleRate: _outputSampleRate,
                   onOutputSampleRateChanged: (v) {
                     setState(() => _outputSampleRate = v);
-                    if (v == 0) {
-                      final activeRate =
-                          AudioHardwareInspector.currentSpecs?.sampleRate ?? 48000;
-                      _player.setOutputSampleRate(activeRate);
-                    }
                     _saveEngineSettings();
                   },
                   outputChannels: _outputChannels,
@@ -3991,11 +4064,19 @@ class _SautiRendererBridge implements DlnaRendererBridge {
   _SautiRendererBridge(this.state);
 
   @override
-  Future<void> loadUrl(String url, {String? title, String? artist}) async {
+  Future<void> loadUrl(
+    String url, {
+    String? title,
+    String? artist,
+    String? album,
+    String? artworkUrl,
+  }) async {
     state.playDlnaCast(
       url,
       title ?? 'DLNA Cast',
       artist ?? 'DLNA',
+      album: album,
+      artworkUrl: artworkUrl,
     );
   }
 

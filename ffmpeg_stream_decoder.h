@@ -64,6 +64,7 @@ struct StreamTelemetry {
     int64_t bitrate{0};
     int sampleRate{0};
     int channels{0};
+    int bitDepth{0};
     char codecName[32]{0};
     char icyTitle[256]{0};
     char icyArtist[256]{0};

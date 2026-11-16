@@ -2868,6 +2868,17 @@ typedef _GetStreamTelemetryDart = int Function(
     int icyArtistLen);
 
 typedef _IsStreamLiveNative = ffi.Int32 Function(ffi.Pointer<ffi.Void> engine);
+
+typedef _GetStreamAudioFormatNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void> engine,
+    ffi.Pointer<ffi.Int32> outSampleRate,
+    ffi.Pointer<ffi.Int32> outChannels,
+    ffi.Pointer<ffi.Int32> outBitDepth);
+typedef _GetStreamAudioFormatDart = int Function(
+    ffi.Pointer<ffi.Void> engine,
+    ffi.Pointer<ffi.Int32> outSampleRate,
+    ffi.Pointer<ffi.Int32> outChannels,
+    ffi.Pointer<ffi.Int32> outBitDepth);
 typedef _IsStreamLiveDart = int Function(ffi.Pointer<ffi.Void> engine);
 
 typedef _SetAnalyzerEnabledNative = ffi.Void Function(
@@ -4188,6 +4199,13 @@ class AudioEngineFFI {
     }
 
     try {
+      _getStreamAudioFormat = _lib.lookupFunction<_GetStreamAudioFormatNative,
+          _GetStreamAudioFormatDart>('ae_get_stream_audio_format');
+    } catch (_) {
+      _getStreamAudioFormat = null;
+    }
+
+    try {
       _inspectFile = _lib.lookupFunction<_InspectFileNative, _InspectFileDart>(
         'ae_inspect_file',
       );
@@ -4524,6 +4542,7 @@ class AudioEngineFFI {
   _GetNetworkStreamingSupportDart? _getNetworkStreamingSupport;
   _GetStreamTelemetryDart? _getStreamTelemetry;
   _IsStreamLiveDart? _isStreamLive;
+  _GetStreamAudioFormatDart? _getStreamAudioFormat;
   _InspectFileDart? _inspectFile;
   _GetHardwareInfoDart? _getHardwareInfo;
   _GetDapInfoDart? _getDapInfo;
@@ -4723,6 +4742,34 @@ class AudioEngineFFI {
     final getter = _getNetworkStreamingSupport;
     if (getter == null) return false;
     return getter() != 0;
+  }
+
+  ({int sampleRate, int channels, int bitDepth}) getStreamAudioFormat() {
+    final getter = _getStreamAudioFormat;
+    if (getter == null || _engine == ffi.nullptr) {
+      return (sampleRate: 0, channels: 0, bitDepth: 0);
+    }
+    final srPtr = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    final chPtr = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    final bdPtr = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    try {
+      srPtr.value = 0;
+      chPtr.value = 0;
+      bdPtr.value = 0;
+      final ok = getter(_engine, srPtr, chPtr, bdPtr);
+      if (ok == 0) {
+        return (sampleRate: 0, channels: 0, bitDepth: 0);
+      }
+      return (
+        sampleRate: srPtr.value,
+        channels: chPtr.value,
+        bitDepth: bdPtr.value,
+      );
+    } finally {
+      _free(srPtr.cast<ffi.Void>());
+      _free(chPtr.cast<ffi.Void>());
+      _free(bdPtr.cast<ffi.Void>());
+    }
   }
 
   StreamTelemetry getStreamTelemetry() {
