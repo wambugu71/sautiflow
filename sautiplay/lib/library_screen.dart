@@ -11,7 +11,9 @@ import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
+import 'database/app_database.dart';
 import 'database/preferences_store.dart';
+import 'services/lazy_library_controller.dart';
 
 import 'package:sautiflow/sautiflow.dart';
 import 'services/m3u_playlist_service.dart';
@@ -136,7 +138,7 @@ class LibraryScreenState extends State<LibraryScreen>
   String get _categorySectionTitle {
     switch (_selectedCategory) {
       case LibraryCategory.tracks:
-        return 'Songs (${_filteredSongs.length})';
+        return 'Songs (${_lazyController.totalCount})';
       case LibraryCategory.albums:
         return 'Albums';
       case LibraryCategory.artists:
@@ -161,8 +163,10 @@ class LibraryScreenState extends State<LibraryScreen>
 
   // State
   List<Map<String, dynamic>> _folders = [];
-  List<LocalSongItem> _allSongs = [];
-  List<LocalSongItem> _filteredSongs = [];
+  late final LazyLibraryController _lazyController;
+  List<LocalSongItem> _groupedSongsCache = [];
+  List<LocalArtistSummary> _artistSummaries = [];
+  List<LocalAlbumSummary> _albumSummaries = [];
   List<SavedM3uPlaylist> _m3uPlaylists = [];
   bool _isLoading = true;
   bool _isScanning = false;
@@ -172,8 +176,7 @@ class LibraryScreenState extends State<LibraryScreen>
   late final ScrollController _scrollController;
   bool _showScrollHelper = false;
   StreamSubscription<PlayerStatus>? _playerStatusSub;
-  String? _currentlyPlayingPath;
-  List<LocalSongItem>? _lastPlayedTrackList;
+  List<String>? _lastPlayedPaths;
   TrackViewMode _trackViewMode = TrackViewMode.list;
   String _groupByOption = 'None';
   bool _isSelectionMode = false;
@@ -202,18 +205,18 @@ class LibraryScreenState extends State<LibraryScreen>
   @override
   void initState() {
     super.initState();
+    _lazyController = LazyLibraryController();
+    _lazyController.addListener(_onLazyControllerChanged);
     _scrollController = ScrollController();
     _scrollController.addListener(_onScroll);
     if (widget.player != null) {
       _playerStatusSub = widget.player!.statusStream.listen((status) {
         if (!mounted) return;
-        if (_lastPlayedTrackList != null &&
+        final paths = _lastPlayedPaths;
+        if (paths != null &&
             status.currentIndex >= 0 &&
-            status.currentIndex < _lastPlayedTrackList!.length) {
-          final currentPath = _lastPlayedTrackList![status.currentIndex].path;
-          if (_currentlyPlayingPath != currentPath) {
-            setState(() => _currentlyPlayingPath = currentPath);
-          }
+            status.currentIndex < paths.length) {
+          _lazyController.setActiveTrackPath(paths[status.currentIndex]);
         }
       });
     }
@@ -258,6 +261,36 @@ class LibraryScreenState extends State<LibraryScreen>
     CachedStreamService.instance.init();
   }
 
+  void _onLazyControllerChanged() {
+    _refreshSummaries();
+  }
+
+  Future<void> _refreshSummaries() async {
+    final db = AppDatabase.instance;
+    final query = _searchController.text;
+    final results = await Future.wait([
+      db.fetchArtistSummaries(query: query),
+      db.fetchAlbumSummaries(query: query),
+      if (_groupByOption != 'None')
+        db.fetchLocalTracksWindow(
+          offset: 0,
+          limit: _lazyController.totalCount > 0 ? _lazyController.totalCount : 1,
+          query: query,
+          sort: _currentSort,
+        )
+      else
+        Future<List<LocalSongItem>>.value(const []),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _artistSummaries = results[0] as List<LocalArtistSummary>;
+      _albumSummaries = results[1] as List<LocalAlbumSummary>;
+      if (_groupByOption != 'None') {
+        _groupedSongsCache = results[2] as List<LocalSongItem>;
+      }
+    });
+  }
+
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final isScrolledDown = _scrollController.offset > 350.0;
@@ -266,11 +299,13 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  void _scrollToPlayingTrack() {
-    if (!_scrollController.hasClients || _filteredSongs.isEmpty) return;
-    final playingIdx = _currentlyPlayingPath != null
-        ? _filteredSongs.indexWhere((s) => s.path == _currentlyPlayingPath)
+  Future<void> _scrollToPlayingTrack() async {
+    if (!_scrollController.hasClients || _lazyController.totalCount == 0) return;
+    final activePath = _lazyController.activeTrackPath.value;
+    final playingIdx = activePath != null
+        ? await _lazyController.findIndexOfPath(activePath)
         : -1;
+    if (!mounted || !_scrollController.hasClients) return;
     if (playingIdx < 0) {
       _scrollController.animateTo(
         0,
@@ -306,6 +341,8 @@ class LibraryScreenState extends State<LibraryScreen>
 
   @override
   void dispose() {
+    _lazyController.removeListener(_onLazyControllerChanged);
+    _lazyController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _playerStatusSub?.cancel();
@@ -826,9 +863,11 @@ class LibraryScreenState extends State<LibraryScreen>
     });
   }
 
-  void _selectAllTracks() {
+  Future<void> _selectAllTracks() async {
+    final paths = await _lazyController.fetchAllMatchingPaths();
+    if (!mounted) return;
     setState(() {
-      _selectedTrackPaths.addAll(_filteredSongs.map((s) => s.path));
+      _selectedTrackPaths.addAll(paths);
     });
   }
 
@@ -838,12 +877,11 @@ class LibraryScreenState extends State<LibraryScreen>
     });
   }
 
-  void _playSelectedTracks({bool shuffle = false}) {
+  Future<void> _playSelectedTracks({bool shuffle = false}) async {
     if (_selectedTrackPaths.isEmpty) return;
-    final paths = _filteredSongs
-        .where((s) => _selectedTrackPaths.contains(s.path))
-        .map((s) => s.path)
-        .toList();
+    final allPaths = await _lazyController.fetchAllMatchingPaths();
+    final paths =
+        allPaths.where((p) => _selectedTrackPaths.contains(p)).toList();
     if (shuffle) {
       paths.shuffle();
     }
@@ -851,11 +889,12 @@ class LibraryScreenState extends State<LibraryScreen>
     widget.onPlayFolder(paths, initialIndex: 0);
   }
 
-  void _queueSelectedTracks() {
+  Future<void> _queueSelectedTracks() async {
     if (_selectedTrackPaths.isEmpty) return;
-    final selectedSongs = _filteredSongs
-        .where((s) => _selectedTrackPaths.contains(s.path))
-        .toList();
+    final allSongs = await AppDatabase.instance.getAllLocalTracks();
+    final selectedSongs =
+        allSongs.where((s) => _selectedTrackPaths.contains(s.path)).toList();
+    if (!mounted) return;
 
     for (final song in selectedSongs) {
       final track = TrackInfo(
@@ -973,18 +1012,22 @@ class LibraryScreenState extends State<LibraryScreen>
           .map((p) => FileDeletionHelper.normalizeFilePath(p))
           .toSet();
 
+      final allSongs = await AppDatabase.instance.getAllLocalTracks();
+      final pathsToDelete = allSongs
+          .where((s) => normalizedDeleted
+              .contains(FileDeletionHelper.normalizeFilePath(s.path)))
+          .map((s) => s.path)
+          .toList();
+      await AppDatabase.instance.deleteLocalTracksByPaths(pathsToDelete);
+      await _lazyController.invalidate();
+
       setState(() {
-        _allSongs.removeWhere((s) =>
-            normalizedDeleted.contains(FileDeletionHelper.normalizeFilePath(s.path)));
-        _filteredSongs.removeWhere((s) =>
-            normalizedDeleted.contains(FileDeletionHelper.normalizeFilePath(s.path)));
         _selectedTrackPaths.removeWhere((p) =>
             normalizedDeleted.contains(FileDeletionHelper.normalizeFilePath(p)));
         _isSelectionMode = false;
         _selectedTrackPaths.clear();
       });
 
-      await _saveCachedSongs();
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1009,9 +1052,10 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void> _showAddToPlaylistSheet(
       {List<LocalSongItem>? explicitSongs}) async {
     final songsToAdd = explicitSongs ??
-        _filteredSongs
+        (await AppDatabase.instance.getAllLocalTracks())
             .where((s) => _selectedTrackPaths.contains(s.path))
             .toList();
+    if (!mounted) return;
 
     if (songsToAdd.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1326,38 +1370,47 @@ class LibraryScreenState extends State<LibraryScreen>
           .map((item) => jsonDecode(item) as Map<String, dynamic>)
           .toList();
 
-      final cachedSongsData = prefs.getStringList(_cachedSongsKey) ?? [];
-      final loadedSongs = <LocalSongItem>[];
-      for (final jsonStr in cachedSongsData) {
-        try {
-          final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-          loadedSongs.add(LocalSongItem.fromJson(map));
-        } catch (_) {}
+      final db = AppDatabase.instance;
+      var dbCount = await db.countLocalTracks();
+
+      // One-time migration from legacy JSON list in PreferencesStore -> Drift SQLite
+      if (dbCount == 0) {
+        final cachedSongsData = prefs.getStringList(_cachedSongsKey) ?? [];
+        if (cachedSongsData.isNotEmpty) {
+          final migratedSongs = <LocalSongItem>[];
+          for (final jsonStr in cachedSongsData) {
+            try {
+              final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+              migratedSongs.add(LocalSongItem.fromJson(map));
+            } catch (_) {}
+          }
+          if (migratedSongs.isNotEmpty) {
+            await db.replaceAllLocalTracks(migratedSongs);
+            dbCount = migratedSongs.length;
+          }
+          await prefs.remove(_cachedSongsKey);
+        }
       }
 
+      if (!mounted) return;
       setState(() {
         _folders = loadedFolders;
-        _allSongs = loadedSongs;
-        _isLoading = false; // Show cached songs immediately!
-        _applySearchAndSort();
+        _isLoading = false; // Show indexed tracks immediately!
       });
+
+      await _lazyController.refresh(
+        query: _searchController.text,
+        sort: _currentSort,
+      );
 
       // Run non-blocking delta scan in the background
       await _smartScanFolders(
-          showFullLoading: loadedSongs.isEmpty && loadedFolders.isNotEmpty);
+          showFullLoading: dbCount == 0 && loadedFolders.isNotEmpty);
     } catch (e) {
       debugPrint('Error loading folders: $e');
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _saveCachedSongs() async {
-    try {
-      final prefs = PreferencesStore.instance;
-      final strList = _allSongs.map((s) => jsonEncode(s.toJson())).toList();
-      await prefs.setStringList(_cachedSongsKey, strList);
-    } catch (e) {
-      debugPrint('Error saving cached songs: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -1416,16 +1469,16 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _smartScanFolders({bool showFullLoading = false}) async {
+    final db = AppDatabase.instance;
     if (_folders.isEmpty) {
+      await db.replaceAllLocalTracks(const []);
+      await _lazyController.invalidate();
       if (mounted) {
         setState(() {
-          _allSongs = [];
-          _filteredSongs = [];
           _isLoading = false;
           _isScanning = false;
         });
       }
-      await _saveCachedSongs();
       return;
     }
 
@@ -1438,8 +1491,9 @@ class LibraryScreenState extends State<LibraryScreen>
       });
     }
 
+    final existingSongs = await db.getAllLocalTracks();
     final existingSongsMap = <String, LocalSongItem>{
-      for (final song in _allSongs)
+      for (final song in existingSongs)
         CueVirtualPath.normalizedKey(song.path): song
     };
 
@@ -1580,22 +1634,21 @@ class LibraryScreenState extends State<LibraryScreen>
       }
     }
 
-    if (updatedSongs.length != _allSongs.length) {
+    if (updatedSongs.length != existingSongs.length) {
       changesDetected = true;
+    }
+
+    if (changesDetected) {
+      await db.replaceAllLocalTracks(updatedSongs);
+      await _saveFolders();
+      await _lazyController.invalidate();
     }
 
     if (mounted) {
       setState(() {
-        _allSongs = updatedSongs;
         _isLoading = false;
         _isScanning = false;
-        _applySearchAndSort();
       });
-    }
-
-    if (changesDetected) {
-      await _saveFolders();
-      await _saveCachedSongs();
     }
   }
 
@@ -1604,49 +1657,10 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   void _applySearchAndSort() {
-    var list = _allSongs.toList();
-    final query = _searchController.text.toLowerCase();
-
-    if (query.isNotEmpty) {
-      list = list.where((s) => s.title.toLowerCase().contains(query)).toList();
-    }
-
-    switch (_currentSort) {
-      case 'Name (A-Z)':
-        list.sort((a, b) => a.title.compareTo(b.title));
-        break;
-      case 'Name (Z-A)':
-        list.sort((a, b) => b.title.compareTo(a.title));
-        break;
-      case 'Date Added (New-Old)':
-        list.sort((a, b) => b.lastModified.compareTo(a.lastModified));
-        break;
-      case 'Date Added (Old-New)':
-        list.sort((a, b) => a.lastModified.compareTo(b.lastModified));
-        break;
-      case 'Size (Largest)':
-        list.sort((a, b) => b.sizeBytes.compareTo(a.sizeBytes));
-        break;
-      case 'Size (Smallest)':
-        list.sort((a, b) => a.sizeBytes.compareTo(b.sizeBytes));
-        break;
-      case 'File Extension (A-Z)':
-        final extMap = <String, String>{};
-        String getExt(String path) => extMap.putIfAbsent(
-            path, () => p.extension(CueVirtualPath.strip(path)).toLowerCase());
-        list.sort((a, b) => getExt(a.path).compareTo(getExt(b.path)));
-        break;
-      case 'File Extension (Z-A)':
-        final extMap = <String, String>{};
-        String getExt(String path) => extMap.putIfAbsent(
-            path, () => p.extension(CueVirtualPath.strip(path)).toLowerCase());
-        list.sort((a, b) => getExt(b.path).compareTo(getExt(a.path)));
-        break;
-    }
-
-    setState(() {
-      _filteredSongs = list;
-    });
+    _lazyController.refresh(
+      query: _searchController.text,
+      sort: _currentSort,
+    );
   }
 
   Future<void> _saveFolders() async {
@@ -1751,11 +1765,11 @@ class LibraryScreenState extends State<LibraryScreen>
       return;
     }
 
-    final prevCount = _allSongs.length;
+    final prevCount = _lazyController.totalLibraryCount;
     await _smartScanFolders(showFullLoading: false);
 
     if (mounted) {
-      final newCount = _allSongs.length;
+      final newCount = _lazyController.totalLibraryCount;
       final diff = newCount - prevCount;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1888,7 +1902,10 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _removeDuplicateSongs() async {
-    if (_allSongs.isEmpty && _folders.isEmpty) {
+    final db = AppDatabase.instance;
+    final allSongs = await db.getAllLocalTracks();
+    if (allSongs.isEmpty && _folders.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Library is empty.')),
       );
@@ -1899,7 +1916,7 @@ class LibraryScreenState extends State<LibraryScreen>
     final seenKeys = <String>{};
     int removedSongsCount = 0;
 
-    for (final song in _allSongs) {
+    for (final song in allSongs) {
       final canonicalPath = CueVirtualPath.normalizedKey(song.path);
       final baseKey = (song.fileHash != null && song.fileHash!.isNotEmpty)
           ? song.fileHash!
@@ -1936,13 +1953,15 @@ class LibraryScreenState extends State<LibraryScreen>
 
     final bool foldersChanged = uniqueFolders.length != _folders.length;
 
-    setState(() {
-      _allSongs = uniqueSongs;
-      _folders = uniqueFolders;
-      _applySearchAndSort();
-    });
-
-    await _saveCachedSongs();
+    if (removedSongsCount > 0) {
+      await db.replaceAllLocalTracks(uniqueSongs);
+      await _lazyController.invalidate();
+    }
+    if (mounted) {
+      setState(() {
+        _folders = uniqueFolders;
+      });
+    }
     if (foldersChanged) {
       await _saveFolders();
     }
@@ -1988,10 +2007,14 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _shufflePlayAll() async {
-    if (_allSongs.isEmpty) return;
+    final paths = await AppDatabase.instance.fetchLocalTrackPaths(
+      query: '',
+      sort: _currentSort,
+    );
+    if (paths.isEmpty) return;
 
-    final paths = _allSongs.map((e) => e.path).toList();
     paths.shuffle();
+    _lastPlayedPaths = paths;
     widget.onPlayFolder(paths);
   }
 
@@ -2111,28 +2134,23 @@ class LibraryScreenState extends State<LibraryScreen>
         required String year,
         required String trackNumber,
       }) async {
-        setState(() {
-          final targetIndex = _allSongs.indexWhere((s) => s.path == song.path);
-          if (targetIndex != -1) {
-            _allSongs[targetIndex] = LocalSongItem.fallback(
-              song.path,
-              song.sizeBytes,
-              song.lastModified,
-              title: title.isNotEmpty ? title : song.title,
-              artist: artist.isNotEmpty ? artist : song.artist,
-              album: album.isNotEmpty ? album : song.album,
-              genre: genre.isNotEmpty ? genre : song.genre,
-              fileHash: song.fileHash,
-              startMs: song.startMs,
-              endMs: song.endMs,
-              trackNumber: int.tryParse(trackNumber) ?? song.trackNumber,
-              cueFilePath: song.cueFilePath,
-              year: int.tryParse(year) ?? song.year,
-            );
-          }
-          _applySearchAndSort();
-        });
-        await _saveCachedSongs();
+        final updated = LocalSongItem.fallback(
+          song.path,
+          song.sizeBytes,
+          song.lastModified,
+          title: title.isNotEmpty ? title : song.title,
+          artist: artist.isNotEmpty ? artist : song.artist,
+          album: album.isNotEmpty ? album : song.album,
+          genre: genre.isNotEmpty ? genre : song.genre,
+          fileHash: song.fileHash,
+          startMs: song.startMs,
+          endMs: song.endMs,
+          trackNumber: int.tryParse(trackNumber) ?? song.trackNumber,
+          cueFilePath: song.cueFilePath,
+          year: int.tryParse(year) ?? song.year,
+        );
+        await AppDatabase.instance.upsertLocalTrack(updated);
+        await _lazyController.invalidate();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -2191,14 +2209,8 @@ class LibraryScreenState extends State<LibraryScreen>
       );
 
       if (confirm != true || !mounted) return;
-      final key = CueVirtualPath.normalizedKey(song.path);
-      setState(() {
-        _allSongs.removeWhere(
-            (s) => CueVirtualPath.normalizedKey(s.path) == key);
-        _filteredSongs.removeWhere(
-            (s) => CueVirtualPath.normalizedKey(s.path) == key);
-      });
-      await _saveCachedSongs();
+      await AppDatabase.instance.deleteLocalTracksByPaths([song.path]);
+      await _lazyController.invalidate();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -2251,14 +2263,9 @@ class LibraryScreenState extends State<LibraryScreen>
     if (!mounted) return;
 
     if (result.success) {
-      final normTarget = FileDeletionHelper.normalizeFilePath(song.path);
-      setState(() {
-        _allSongs.removeWhere((s) =>
-            FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
-        _filteredSongs.removeWhere((s) =>
-            FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
-      });
-      await _saveCachedSongs();
+      await AppDatabase.instance
+          .deleteLocalTracksByRealPath(CueVirtualPath.strip(song.path));
+      await _lazyController.invalidate();
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2280,23 +2287,14 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  void _onSongDeletedFromChild(LocalSongItem song) {
-    final cueKey = song.isCueTrack ? CueVirtualPath.normalizedKey(song.path) : null;
-    final normTarget = FileDeletionHelper.normalizeFilePath(song.path);
-    setState(() {
-      if (cueKey != null) {
-        _allSongs.removeWhere(
-            (s) => CueVirtualPath.normalizedKey(s.path) == cueKey);
-        _filteredSongs.removeWhere(
-            (s) => CueVirtualPath.normalizedKey(s.path) == cueKey);
-      } else {
-        _allSongs.removeWhere(
-            (s) => FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
-        _filteredSongs.removeWhere(
-            (s) => FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
-      }
-    });
-    _saveCachedSongs();
+  Future<void> _onSongDeletedFromChild(LocalSongItem song) async {
+    if (song.isCueTrack) {
+      await AppDatabase.instance.deleteLocalTracksByPaths([song.path]);
+    } else {
+      await AppDatabase.instance
+          .deleteLocalTracksByRealPath(CueVirtualPath.strip(song.path));
+    }
+    await _lazyController.invalidate();
   }
 
   @override
@@ -2481,10 +2479,15 @@ class LibraryScreenState extends State<LibraryScreen>
                                                       Icons.file_upload_rounded,
                                                       color: Colors.amberAccent,
                                                       size: 20),
-                                                  onPressed: () =>
-                                                      _exportPlaylistToM3u8(
-                                                          'SautiPlay_Library',
-                                                          _allSongs),
+                                                  onPressed: () async {
+                                                    final allSongs =
+                                                        await AppDatabase.instance
+                                                            .getAllLocalTracks();
+                                                    if (!mounted) return;
+                                                    await _exportPlaylistToM3u8(
+                                                        'SautiPlay_Library',
+                                                        allSongs);
+                                                  },
                                                 ),
                                               ],
                                             ),
@@ -2495,13 +2498,16 @@ class LibraryScreenState extends State<LibraryScreen>
                                     const SizedBox(height: 2),
 
                                     // Total local track count
-                                    Text(
-                                      '${_allSongs.length} local tracks',
-                                      style: TextStyle(
-                                        color: textDark,
-                                        fontSize: isDesktop ? 13.5 : 12.5,
-                                        fontWeight: FontWeight.w500,
-                                        letterSpacing: 0.1,
+                                    ListenableBuilder(
+                                      listenable: _lazyController,
+                                      builder: (context, _) => Text(
+                                        '${_lazyController.totalLibraryCount} local tracks',
+                                        style: TextStyle(
+                                          color: textDark,
+                                          fontSize: isDesktop ? 13.5 : 12.5,
+                                          fontWeight: FontWeight.w500,
+                                          letterSpacing: 0.1,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -2814,12 +2820,10 @@ class LibraryScreenState extends State<LibraryScreen>
                           opacity: _showScrollHelper ? 1.0 : 0.0,
                           child: IgnorePointer(
                             ignoring: !_showScrollHelper,
-                            child: Builder(
-                              builder: (context) {
-                                final playingIdx = _currentlyPlayingPath != null
-                                    ? _filteredSongs.indexWhere((s) =>
-                                        s.path == _currentlyPlayingPath)
-                                    : -1;
+                            child: ValueListenableBuilder<String?>(
+                              valueListenable: _lazyController.activeTrackPath,
+                              builder: (context, activePath, _) {
+                                final playingIdx = activePath != null ? 0 : -1;
 
                                 return Material(
                                   elevation: 6,
@@ -3158,7 +3162,7 @@ class LibraryScreenState extends State<LibraryScreen>
       {bool isDesktop = false}) {
     return _buildQuickAccessHeroCard(
       title: 'Shuffle All',
-      subtitle: '${_allSongs.length} Local Tracks',
+      subtitle: '${_lazyController.totalLibraryCount} Local Tracks',
       icon: Icons.shuffle_rounded,
       gradient: LinearGradient(
         colors: [primaryColor, const Color(0xFF0288D1)],
@@ -3348,8 +3352,8 @@ class LibraryScreenState extends State<LibraryScreen>
   Widget _buildSelectionActionBar(Color primaryColor,
       {bool isDesktop = false}) {
     final selectedCount = _selectedTrackPaths.length;
-    final allSelected = selectedCount == _filteredSongs.length &&
-        _filteredSongs.isNotEmpty;
+    final allSelected = selectedCount == _lazyController.totalCount &&
+        _lazyController.totalCount > 0;
 
     return Container(
       padding: EdgeInsets.symmetric(
@@ -3735,17 +3739,22 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Widget _buildDownloadsTabSliver(Color primaryColor, Color textDark,
       {bool isDesktop = false}) {
-    return _filteredSongs.isEmpty && !_isLoading
-        ? SliverFillRemaining(
-            hasScrollBody: false,
-            child: _buildEmptyState(textDark,
-                message: 'No songs found',
-                subMessage: _searchController.text.isNotEmpty
-                    ? 'No matches for your search.'
-                    : 'Add local folders using the (+) menu to view your songs here.',
-                isDesktop: isDesktop),
-          )
-        : _buildTrackViewSliver(isDesktop: isDesktop);
+    return ListenableBuilder(
+      listenable: _lazyController,
+      builder: (context, _) {
+        return _lazyController.totalCount == 0 && !_isLoading
+            ? SliverFillRemaining(
+                hasScrollBody: false,
+                child: _buildEmptyState(textDark,
+                    message: 'No songs found',
+                    subMessage: _searchController.text.isNotEmpty
+                        ? 'No matches for your search.'
+                        : 'Add local folders using the (+) menu to view your songs here.',
+                    isDesktop: isDesktop),
+              )
+            : _buildTrackViewSliver(isDesktop: isDesktop);
+      },
+    );
   }
 
   bool _hasValidArtist(String? artist) {
@@ -3769,10 +3778,39 @@ class LibraryScreenState extends State<LibraryScreen>
         a != 'none';
   }
 
+  Future<void> _playTrackAtIndex(LocalSongItem song, int index) async {
+    _lazyController.setActiveTrackPath(song.path);
+    final paths = await _lazyController.fetchAllMatchingPaths();
+    _lastPlayedPaths = paths;
+    widget.onPlayFolder(paths, initialIndex: index);
+  }
+
+  Widget _buildTrackPlaceholder({required double height, bool isGrid = false}) {
+    final bg = _surfaceDark.withValues(alpha: 0.5);
+    if (isGrid) {
+      return Container(
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(16),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3.0),
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTrackViewSliver({bool isDesktop = false}) {
     if (_groupByOption != 'None') {
       final Map<String, List<LocalSongItem>> groupedMap = {};
-      for (final song in _filteredSongs) {
+      for (final song in _groupedSongsCache) {
         String? key;
         if (_groupByOption == 'Album') {
           if (_hasValidAlbum(song.album)) {
@@ -3799,7 +3837,7 @@ class LibraryScreenState extends State<LibraryScreen>
           child: _buildEmptyState(
             _textDark,
             message: 'No grouped tracks found',
-            subMessage: _filteredSongs.isNotEmpty
+            subMessage: _lazyController.totalCount > 0
                 ? 'None of the tracks have valid $_groupByOption tags.'
                 : 'Add local folders in Playlists to view tracks here.',
             isDesktop: isDesktop,
@@ -3914,11 +3952,9 @@ class LibraryScreenState extends State<LibraryScreen>
                     isFirst: isFirst,
                     isLast: isLast,
                     onTap: () {
-                      setState(() {
-                        _currentlyPlayingPath = song.path;
-                        _lastPlayedTrackList = List.from(songs);
-                      });
+                      _lazyController.setActiveTrackPath(song.path);
                       final paths = songs.map((e) => e.path).toList();
+                      _lastPlayedPaths = paths;
                       widget.onPlayFolder(paths, initialIndex: i);
                     },
                     onOptionSelected: (option) =>
@@ -3938,125 +3974,141 @@ class LibraryScreenState extends State<LibraryScreen>
       );
     }
 
-    if (_trackViewMode == TrackViewMode.compact) {
-      return SliverPadding(
-        padding: EdgeInsets.symmetric(
-          horizontal: isDesktop ? 32 : 16,
-          vertical: 8,
-        ),
-        sliver: SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final song = _filteredSongs[index];
-              final isFirst = index == 0;
-              final isLast = index == _filteredSongs.length - 1;
-              return _buildCompactSongItem(
-                song,
-                index,
-                isDesktop: isDesktop,
-                isFirst: isFirst,
-                isLast: isLast,
-                isSelectionMode: _isSelectionMode,
-                isSelected: _selectedTrackPaths.contains(song.path),
-                onSelectionChanged: (_) => _toggleTrackSelection(song.path),
-              );
-            },
-            childCount: _filteredSongs.length,
-            addAutomaticKeepAlives: false,
-            addRepaintBoundaries: true,
-          ),
-        ),
-      );
-    } else if (_trackViewMode == TrackViewMode.grid) {
-      return SliverPadding(
-        padding: EdgeInsets.fromLTRB(
-          isDesktop ? 32 : 16,
-          8,
-          isDesktop ? 32 : 16,
-          8,
-        ),
-        sliver: SliverGrid(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: isDesktop ? 4 : 2,
-            childAspectRatio: 0.78,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-          ),
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final song = _filteredSongs[index];
-              return _buildGridSongItem(
-                song,
-                index,
-                isDesktop: isDesktop,
-                isSelectionMode: _isSelectionMode,
-                isSelected: _selectedTrackPaths.contains(song.path),
-                onSelectionChanged: (_) => _toggleTrackSelection(song.path),
-              );
-            },
-            childCount: _filteredSongs.length,
-            addAutomaticKeepAlives: false,
-            addRepaintBoundaries: true,
-          ),
-        ),
-      );
-    } else {
-      // Standard Virtualized ListView with connected M3E rounded card style
-      return SliverPadding(
-        padding: EdgeInsets.symmetric(
-          horizontal: isDesktop ? 32 : 16,
-          vertical: 8,
-        ),
-        sliver: SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final song = _filteredSongs[index];
-              final isFirst = index == 0;
-              final isLast = index == _filteredSongs.length - 1;
+    return ListenableBuilder(
+      listenable: _lazyController,
+      builder: (context, _) {
+        final itemCount = _lazyController.totalCount;
+        if (_trackViewMode == TrackViewMode.compact) {
+          return SliverPadding(
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 32 : 16,
+              vertical: 8,
+            ),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final song = _lazyController.getItem(index);
+                  if (song == null) {
+                    return _buildTrackPlaceholder(height: 55.0);
+                  }
+                  final isFirst = index == 0;
+                  final isLast = index == itemCount - 1;
+                  return _buildCompactSongItem(
+                    song,
+                    index,
+                    isDesktop: isDesktop,
+                    isFirst: isFirst,
+                    isLast: isLast,
+                    isSelectionMode: _isSelectionMode,
+                    isSelected: _selectedTrackPaths.contains(song.path),
+                    onSelectionChanged: (_) => _toggleTrackSelection(song.path),
+                  );
+                },
+                childCount: itemCount,
+                addAutomaticKeepAlives: false,
+                addRepaintBoundaries: true,
+              ),
+            ),
+          );
+        } else if (_trackViewMode == TrackViewMode.grid) {
+          return SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              isDesktop ? 32 : 16,
+              8,
+              isDesktop ? 32 : 16,
+              8,
+            ),
+            sliver: SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: isDesktop ? 4 : 2,
+                childAspectRatio: 0.78,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final song = _lazyController.getItem(index);
+                  if (song == null) {
+                    return _buildTrackPlaceholder(height: 180.0, isGrid: true);
+                  }
+                  return _buildGridSongItem(
+                    song,
+                    index,
+                    isDesktop: isDesktop,
+                    isSelectionMode: _isSelectionMode,
+                    isSelected: _selectedTrackPaths.contains(song.path),
+                    onSelectionChanged: (_) => _toggleTrackSelection(song.path),
+                  );
+                },
+                childCount: itemCount,
+                addAutomaticKeepAlives: false,
+                addRepaintBoundaries: true,
+              ),
+            ),
+          );
+        } else {
+          // Standard Virtualized ListView with connected M3E rounded card style
+          return SliverPadding(
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 32 : 16,
+              vertical: 8,
+            ),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final song = _lazyController.getItem(index);
+                  if (song == null) {
+                    return _buildTrackPlaceholder(height: isDesktop ? 82.0 : 68.0);
+                  }
+                  final isFirst = index == 0;
+                  final isLast = index == itemCount - 1;
 
-              return _buildLibraryItem(
-                title: song.title,
-                subtitle:
-                    '${song.artist != "Unknown Artist" ? song.artist : "Local File"} • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
-                customIcon: LocalAlbumArt(
-                    path: song.path,
-                    size: isDesktop ? 60 : 48,
-                    shape: Shapes.pill),
-                isFirst: isFirst,
-                isLast: isLast,
-                isSelectionMode: _isSelectionMode,
-                isSelected: _selectedTrackPaths.contains(song.path),
-                onSelectionChanged: (_) => _toggleTrackSelection(song.path),
-                onTap: () {
-                  if (_isSelectionMode) {
-                    _toggleTrackSelection(song.path);
-                  } else {
-                    setState(() {
-                      _currentlyPlayingPath = song.path;
-                      _lastPlayedTrackList = List.from(_filteredSongs);
-                    });
-                    final paths = _filteredSongs.map((e) => e.path).toList();
-                    widget.onPlayFolder(paths, initialIndex: index);
-                  }
+                  return ValueListenableBuilder<String?>(
+                    valueListenable: _lazyController.activeTrackPath,
+                    builder: (context, activePath, _) {
+                      final isActive = activePath == song.path;
+                      return _buildLibraryItem(
+                        title: song.title,
+                        subtitle:
+                            '${song.artist != "Unknown Artist" ? song.artist : "Local File"} • ${(song.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
+                        customIcon: LocalAlbumArt(
+                            path: song.path,
+                            size: isDesktop ? 60 : 48,
+                            shape: Shapes.pill),
+                        isFirst: isFirst,
+                        isLast: isLast,
+                        isSelectionMode: _isSelectionMode,
+                        isSelected: isActive || _selectedTrackPaths.contains(song.path),
+                        onSelectionChanged: (_) => _toggleTrackSelection(song.path),
+                        onTap: () {
+                          if (_isSelectionMode) {
+                            _toggleTrackSelection(song.path);
+                          } else {
+                            _playTrackAtIndex(song, index);
+                          }
+                        },
+                        onLongPress: () {
+                          if (!_isSelectionMode) {
+                            _toggleSelectionMode(true);
+                          }
+                          _toggleTrackSelection(song.path);
+                        },
+                        onOptionSelected: (option) => _handleSongOption(song, option),
+                        context: context,
+                        isDesktop: isDesktop,
+                      );
+                    },
+                  );
                 },
-                onLongPress: () {
-                  if (!_isSelectionMode) {
-                    _toggleSelectionMode(true);
-                  }
-                  _toggleTrackSelection(song.path);
-                },
-                onOptionSelected: (option) => _handleSongOption(song, option),
-                context: context,
-                isDesktop: isDesktop,
-              );
-            },
-            childCount: _filteredSongs.length,
-            addAutomaticKeepAlives: false,
-            addRepaintBoundaries: true,
-          ),
-        ),
-      );
-    }
+                childCount: itemCount,
+                addAutomaticKeepAlives: false,
+                addRepaintBoundaries: true,
+              ),
+            ),
+          );
+        }
+      },
+    );
   }
 
   Widget _buildCompactSongItem(
@@ -4101,12 +4153,7 @@ class LibraryScreenState extends State<LibraryScreen>
             if (isSelectionMode) {
               _toggleTrackSelection(song.path);
             } else {
-              setState(() {
-                _currentlyPlayingPath = song.path;
-                _lastPlayedTrackList = List.from(_filteredSongs);
-              });
-              final paths = _filteredSongs.map((e) => e.path).toList();
-              widget.onPlayFolder(paths, initialIndex: index);
+              _playTrackAtIndex(song, index);
             }
           },
           onLongPress: () {
@@ -4217,12 +4264,7 @@ class LibraryScreenState extends State<LibraryScreen>
             if (isSelectionMode) {
               _toggleTrackSelection(song.path);
             } else {
-              setState(() {
-                _currentlyPlayingPath = song.path;
-                _lastPlayedTrackList = List.from(_filteredSongs);
-              });
-              final paths = _filteredSongs.map((e) => e.path).toList();
-              widget.onPlayFolder(paths, initialIndex: index);
+              _playTrackAtIndex(song, index);
             }
           },
           onLongPress: () {
@@ -4391,21 +4433,9 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Widget _buildArtistsTabSliver(Color primaryColor, Color textDark,
       {bool isDesktop = false}) {
-    final Map<String, List<LocalSongItem>> artistMap = {};
-    for (final song in _allSongs) {
-      if (_hasValidArtist(song.artist)) {
-        artistMap.putIfAbsent(song.artist.trim(), () => []).add(song);
-      }
-    }
+    final summaries = _artistSummaries;
 
-    final query = _searchController.text.trim().toLowerCase();
-    final artistKeys = artistMap.keys.where((a) {
-      if (query.isEmpty) return true;
-      return a.toLowerCase().contains(query);
-    }).toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-    if (artistKeys.isEmpty && !_isLoading) {
+    if (summaries.isEmpty && !_isLoading) {
       return SliverFillRemaining(
         hasScrollBody: false,
         child: _buildEmptyState(
@@ -4427,16 +4457,16 @@ class LibraryScreenState extends State<LibraryScreen>
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate(
           (context, index) {
-            final artistName = artistKeys[index];
-            final songs = artistMap[artistName] ?? [];
-            final sampleSongPath = songs.isNotEmpty ? songs.first.path : null;
+            final summary = summaries[index];
+            final artistName = summary.artist;
+            final sampleSongPath = summary.samplePath;
             final isFirst = index == 0;
-            final isLast = index == artistKeys.length - 1;
+            final isLast = index == summaries.length - 1;
 
             return _buildLibraryItem(
               title: artistName,
               subtitle:
-                  '${songs.length} Song${songs.length == 1 ? '' : 's'} • Artist',
+                  '${summary.trackCount} Song${summary.trackCount == 1 ? '' : 's'} • Artist',
               iconData: Icons.person_rounded,
               isArtist: true,
               isFirst: isFirst,
@@ -4448,7 +4478,10 @@ class LibraryScreenState extends State<LibraryScreen>
                       shape: Shapes.circle,
                     )
                   : null,
-              onTap: () {
+              onTap: () async {
+                final songs =
+                    await AppDatabase.instance.fetchTracksForArtist(artistName);
+                if (!context.mounted) return;
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => LocalGroupDetailScreen(
@@ -4469,7 +4502,7 @@ class LibraryScreenState extends State<LibraryScreen>
               isDesktop: isDesktop,
             );
           },
-          childCount: artistKeys.length,
+          childCount: summaries.length,
         ),
       ),
     );
@@ -4480,13 +4513,6 @@ class LibraryScreenState extends State<LibraryScreen>
     return ValueListenableBuilder<List<CachedStreamItem>>(
       valueListenable: CachedStreamService.instance.cachedStreamsNotifier,
       builder: (context, cachedItems, _) {
-        final Map<String, List<LocalSongItem>> localAlbumMap = {};
-        for (final song in _allSongs) {
-          if (_hasValidAlbum(song.album)) {
-            localAlbumMap.putIfAbsent(song.album.trim(), () => []).add(song);
-          }
-        }
-
         final Map<String, List<CachedStreamItem>> cachedAlbumMap = {};
         for (final item in cachedItems) {
           if (item.album != null && item.album!.trim().isNotEmpty) {
@@ -4549,22 +4575,21 @@ class LibraryScreenState extends State<LibraryScreen>
           ));
         });
 
-        // Add local albums
-        localAlbumMap.forEach((albumName, songs) {
+        // Add local albums from SQL-aggregated summaries
+        for (final summary in _albumSummaries) {
+          final albumName = summary.album;
           final alreadyInCached = cachedAlbumMap.containsKey(albumName);
           final artistName =
-              songs.isNotEmpty && _hasValidArtist(songs.first.artist)
-                  ? songs.first.artist
-                  : '';
+              _hasValidArtist(summary.artist) ? summary.artist : '';
           albumEntries.add(_LibraryAlbumEntry(
             title: alreadyInCached ? '$albumName (Local)' : albumName,
+            rawAlbumName: albumName,
             artist: artistName,
-            trackCount: songs.length,
+            trackCount: summary.trackCount,
             isCached: false,
-            localSongs: songs,
-            samplePath: songs.isNotEmpty ? songs.first.path : null,
+            samplePath: summary.samplePath,
           ));
-        });
+        }
 
         final query = _searchController.text.trim().toLowerCase();
         final filteredAlbums = albumEntries.where((a) {
@@ -4670,18 +4695,21 @@ class LibraryScreenState extends State<LibraryScreen>
                           size: isDesktop ? 30 : 26,
                         ),
                         tooltip: 'Play Album',
-                        onPressed: () {
+                        onPressed: () async {
                           if (entry.isCached &&
                               entry.cachedTracks != null &&
                               entry.cachedTracks!.isNotEmpty &&
                               widget.onPlayCachedStreams != null) {
                             widget.onPlayCachedStreams!(entry.cachedTracks!,
                                 initialIndex: 0);
-                          } else if (entry.localSongs != null &&
-                              entry.localSongs!.isNotEmpty) {
-                            final paths =
-                                entry.localSongs!.map((e) => e.path).toList();
-                            widget.onPlayFolder(paths, initialIndex: 0);
+                          } else {
+                            final songs = entry.localSongs ??
+                                await AppDatabase.instance.fetchTracksForAlbum(
+                                    entry.rawAlbumName ?? entry.title);
+                            if (songs.isNotEmpty) {
+                              final paths = songs.map((e) => e.path).toList();
+                              widget.onPlayFolder(paths, initialIndex: 0);
+                            }
                           }
                         },
                       ),
@@ -4693,13 +4721,17 @@ class LibraryScreenState extends State<LibraryScreen>
                       ),
                     ],
                   ),
-                  onTap: () {
+                  onTap: () async {
+                    final songs = entry.localSongs ??
+                        await AppDatabase.instance.fetchTracksForAlbum(
+                            entry.rawAlbumName ?? entry.title);
+                    if (!context.mounted) return;
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => LocalGroupDetailScreen(
                           groupTitle: entry.title,
                           groupType: 'Album',
-                          songs: entry.localSongs ?? [],
+                          songs: songs,
                           cachedTracks: entry.cachedTracks,
                           onPlayCachedStreams: widget.onPlayCachedStreams,
                           onPlayFolder: widget.onPlayFolder,
@@ -4901,6 +4933,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
 class _LibraryAlbumEntry {
   final String title;
+  final String? rawAlbumName;
   final String artist;
   final int trackCount;
   final bool isCached;
@@ -4912,6 +4945,7 @@ class _LibraryAlbumEntry {
 
   const _LibraryAlbumEntry({
     required this.title,
+    this.rawAlbumName,
     required this.artist,
     required this.trackCount,
     this.isCached = false,

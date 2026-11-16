@@ -1531,6 +1531,771 @@ class CachedStreamEntriesCompanion extends UpdateCompanion<CachedStreamEntry> {
   }
 }
 
+class $LocalTrackEntriesTable extends LocalTrackEntries
+    with TableInfo<$LocalTrackEntriesTable, LocalTrackEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $LocalTrackEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _pathMeta = const VerificationMeta('path');
+  @override
+  late final GeneratedColumn<String> path = GeneratedColumn<String>(
+      'path', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _realFilePathMeta =
+      const VerificationMeta('realFilePath');
+  @override
+  late final GeneratedColumn<String> realFilePath = GeneratedColumn<String>(
+      'real_file_path', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _folderNameMeta =
+      const VerificationMeta('folderName');
+  @override
+  late final GeneratedColumn<String> folderName = GeneratedColumn<String>(
+      'folder_name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+      'title', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _artistMeta = const VerificationMeta('artist');
+  @override
+  late final GeneratedColumn<String> artist = GeneratedColumn<String>(
+      'artist', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('Unknown Artist'));
+  static const VerificationMeta _albumMeta = const VerificationMeta('album');
+  @override
+  late final GeneratedColumn<String> album = GeneratedColumn<String>(
+      'album', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('Unknown Album'));
+  static const VerificationMeta _genreMeta = const VerificationMeta('genre');
+  @override
+  late final GeneratedColumn<String> genre = GeneratedColumn<String>(
+      'genre', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('Unknown Genre'));
+  static const VerificationMeta _extensionMeta =
+      const VerificationMeta('extension');
+  @override
+  late final GeneratedColumn<String> extension = GeneratedColumn<String>(
+      'extension', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(''));
+  static const VerificationMeta _sizeBytesMeta =
+      const VerificationMeta('sizeBytes');
+  @override
+  late final GeneratedColumn<int> sizeBytes = GeneratedColumn<int>(
+      'size_bytes', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _lastModifiedMsMeta =
+      const VerificationMeta('lastModifiedMs');
+  @override
+  late final GeneratedColumn<int> lastModifiedMs = GeneratedColumn<int>(
+      'last_modified_ms', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _fileHashMeta =
+      const VerificationMeta('fileHash');
+  @override
+  late final GeneratedColumn<String> fileHash = GeneratedColumn<String>(
+      'file_hash', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _startMsMeta =
+      const VerificationMeta('startMs');
+  @override
+  late final GeneratedColumn<int> startMs = GeneratedColumn<int>(
+      'start_ms', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _endMsMeta = const VerificationMeta('endMs');
+  @override
+  late final GeneratedColumn<int> endMs = GeneratedColumn<int>(
+      'end_ms', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _trackNumberMeta =
+      const VerificationMeta('trackNumber');
+  @override
+  late final GeneratedColumn<int> trackNumber = GeneratedColumn<int>(
+      'track_number', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _cueFilePathMeta =
+      const VerificationMeta('cueFilePath');
+  @override
+  late final GeneratedColumn<String> cueFilePath = GeneratedColumn<String>(
+      'cue_file_path', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _yearMeta = const VerificationMeta('year');
+  @override
+  late final GeneratedColumn<int> year = GeneratedColumn<int>(
+      'year', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns => [
+        path,
+        realFilePath,
+        folderName,
+        title,
+        artist,
+        album,
+        genre,
+        extension,
+        sizeBytes,
+        lastModifiedMs,
+        fileHash,
+        startMs,
+        endMs,
+        trackNumber,
+        cueFilePath,
+        year
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'local_tracks';
+  @override
+  VerificationContext validateIntegrity(Insertable<LocalTrackEntry> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('path')) {
+      context.handle(
+          _pathMeta, path.isAcceptableOrUnknown(data['path']!, _pathMeta));
+    } else if (isInserting) {
+      context.missing(_pathMeta);
+    }
+    if (data.containsKey('real_file_path')) {
+      context.handle(
+          _realFilePathMeta,
+          realFilePath.isAcceptableOrUnknown(
+              data['real_file_path']!, _realFilePathMeta));
+    } else if (isInserting) {
+      context.missing(_realFilePathMeta);
+    }
+    if (data.containsKey('folder_name')) {
+      context.handle(
+          _folderNameMeta,
+          folderName.isAcceptableOrUnknown(
+              data['folder_name']!, _folderNameMeta));
+    } else if (isInserting) {
+      context.missing(_folderNameMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+          _titleMeta, title.isAcceptableOrUnknown(data['title']!, _titleMeta));
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('artist')) {
+      context.handle(_artistMeta,
+          artist.isAcceptableOrUnknown(data['artist']!, _artistMeta));
+    }
+    if (data.containsKey('album')) {
+      context.handle(
+          _albumMeta, album.isAcceptableOrUnknown(data['album']!, _albumMeta));
+    }
+    if (data.containsKey('genre')) {
+      context.handle(
+          _genreMeta, genre.isAcceptableOrUnknown(data['genre']!, _genreMeta));
+    }
+    if (data.containsKey('extension')) {
+      context.handle(_extensionMeta,
+          extension.isAcceptableOrUnknown(data['extension']!, _extensionMeta));
+    }
+    if (data.containsKey('size_bytes')) {
+      context.handle(_sizeBytesMeta,
+          sizeBytes.isAcceptableOrUnknown(data['size_bytes']!, _sizeBytesMeta));
+    }
+    if (data.containsKey('last_modified_ms')) {
+      context.handle(
+          _lastModifiedMsMeta,
+          lastModifiedMs.isAcceptableOrUnknown(
+              data['last_modified_ms']!, _lastModifiedMsMeta));
+    } else if (isInserting) {
+      context.missing(_lastModifiedMsMeta);
+    }
+    if (data.containsKey('file_hash')) {
+      context.handle(_fileHashMeta,
+          fileHash.isAcceptableOrUnknown(data['file_hash']!, _fileHashMeta));
+    }
+    if (data.containsKey('start_ms')) {
+      context.handle(_startMsMeta,
+          startMs.isAcceptableOrUnknown(data['start_ms']!, _startMsMeta));
+    }
+    if (data.containsKey('end_ms')) {
+      context.handle(
+          _endMsMeta, endMs.isAcceptableOrUnknown(data['end_ms']!, _endMsMeta));
+    }
+    if (data.containsKey('track_number')) {
+      context.handle(
+          _trackNumberMeta,
+          trackNumber.isAcceptableOrUnknown(
+              data['track_number']!, _trackNumberMeta));
+    }
+    if (data.containsKey('cue_file_path')) {
+      context.handle(
+          _cueFilePathMeta,
+          cueFilePath.isAcceptableOrUnknown(
+              data['cue_file_path']!, _cueFilePathMeta));
+    }
+    if (data.containsKey('year')) {
+      context.handle(
+          _yearMeta, year.isAcceptableOrUnknown(data['year']!, _yearMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {path};
+  @override
+  LocalTrackEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LocalTrackEntry(
+      path: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}path'])!,
+      realFilePath: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}real_file_path'])!,
+      folderName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}folder_name'])!,
+      title: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}title'])!,
+      artist: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}artist'])!,
+      album: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}album'])!,
+      genre: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}genre'])!,
+      extension: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}extension'])!,
+      sizeBytes: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}size_bytes'])!,
+      lastModifiedMs: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}last_modified_ms'])!,
+      fileHash: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}file_hash']),
+      startMs: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}start_ms']),
+      endMs: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}end_ms']),
+      trackNumber: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}track_number']),
+      cueFilePath: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}cue_file_path']),
+      year: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}year']),
+    );
+  }
+
+  @override
+  $LocalTrackEntriesTable createAlias(String alias) {
+    return $LocalTrackEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class LocalTrackEntry extends DataClass implements Insertable<LocalTrackEntry> {
+  /// Canonical path (including CUE virtual path if applicable).
+  final String path;
+
+  /// Physical file path on disk (without CUE virtual suffix).
+  final String realFilePath;
+
+  /// Immediate parent directory name for folder grouping.
+  final String folderName;
+  final String title;
+  final String artist;
+  final String album;
+  final String genre;
+
+  /// Lowercase file extension (e.g. '.flac', '.mp3').
+  final String extension;
+  final int sizeBytes;
+  final int lastModifiedMs;
+  final String? fileHash;
+  final int? startMs;
+  final int? endMs;
+  final int? trackNumber;
+  final String? cueFilePath;
+  final int? year;
+  const LocalTrackEntry(
+      {required this.path,
+      required this.realFilePath,
+      required this.folderName,
+      required this.title,
+      required this.artist,
+      required this.album,
+      required this.genre,
+      required this.extension,
+      required this.sizeBytes,
+      required this.lastModifiedMs,
+      this.fileHash,
+      this.startMs,
+      this.endMs,
+      this.trackNumber,
+      this.cueFilePath,
+      this.year});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['path'] = Variable<String>(path);
+    map['real_file_path'] = Variable<String>(realFilePath);
+    map['folder_name'] = Variable<String>(folderName);
+    map['title'] = Variable<String>(title);
+    map['artist'] = Variable<String>(artist);
+    map['album'] = Variable<String>(album);
+    map['genre'] = Variable<String>(genre);
+    map['extension'] = Variable<String>(extension);
+    map['size_bytes'] = Variable<int>(sizeBytes);
+    map['last_modified_ms'] = Variable<int>(lastModifiedMs);
+    if (!nullToAbsent || fileHash != null) {
+      map['file_hash'] = Variable<String>(fileHash);
+    }
+    if (!nullToAbsent || startMs != null) {
+      map['start_ms'] = Variable<int>(startMs);
+    }
+    if (!nullToAbsent || endMs != null) {
+      map['end_ms'] = Variable<int>(endMs);
+    }
+    if (!nullToAbsent || trackNumber != null) {
+      map['track_number'] = Variable<int>(trackNumber);
+    }
+    if (!nullToAbsent || cueFilePath != null) {
+      map['cue_file_path'] = Variable<String>(cueFilePath);
+    }
+    if (!nullToAbsent || year != null) {
+      map['year'] = Variable<int>(year);
+    }
+    return map;
+  }
+
+  LocalTrackEntriesCompanion toCompanion(bool nullToAbsent) {
+    return LocalTrackEntriesCompanion(
+      path: Value(path),
+      realFilePath: Value(realFilePath),
+      folderName: Value(folderName),
+      title: Value(title),
+      artist: Value(artist),
+      album: Value(album),
+      genre: Value(genre),
+      extension: Value(extension),
+      sizeBytes: Value(sizeBytes),
+      lastModifiedMs: Value(lastModifiedMs),
+      fileHash: fileHash == null && nullToAbsent
+          ? const Value.absent()
+          : Value(fileHash),
+      startMs: startMs == null && nullToAbsent
+          ? const Value.absent()
+          : Value(startMs),
+      endMs:
+          endMs == null && nullToAbsent ? const Value.absent() : Value(endMs),
+      trackNumber: trackNumber == null && nullToAbsent
+          ? const Value.absent()
+          : Value(trackNumber),
+      cueFilePath: cueFilePath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cueFilePath),
+      year: year == null && nullToAbsent ? const Value.absent() : Value(year),
+    );
+  }
+
+  factory LocalTrackEntry.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LocalTrackEntry(
+      path: serializer.fromJson<String>(json['path']),
+      realFilePath: serializer.fromJson<String>(json['realFilePath']),
+      folderName: serializer.fromJson<String>(json['folderName']),
+      title: serializer.fromJson<String>(json['title']),
+      artist: serializer.fromJson<String>(json['artist']),
+      album: serializer.fromJson<String>(json['album']),
+      genre: serializer.fromJson<String>(json['genre']),
+      extension: serializer.fromJson<String>(json['extension']),
+      sizeBytes: serializer.fromJson<int>(json['sizeBytes']),
+      lastModifiedMs: serializer.fromJson<int>(json['lastModifiedMs']),
+      fileHash: serializer.fromJson<String?>(json['fileHash']),
+      startMs: serializer.fromJson<int?>(json['startMs']),
+      endMs: serializer.fromJson<int?>(json['endMs']),
+      trackNumber: serializer.fromJson<int?>(json['trackNumber']),
+      cueFilePath: serializer.fromJson<String?>(json['cueFilePath']),
+      year: serializer.fromJson<int?>(json['year']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'path': serializer.toJson<String>(path),
+      'realFilePath': serializer.toJson<String>(realFilePath),
+      'folderName': serializer.toJson<String>(folderName),
+      'title': serializer.toJson<String>(title),
+      'artist': serializer.toJson<String>(artist),
+      'album': serializer.toJson<String>(album),
+      'genre': serializer.toJson<String>(genre),
+      'extension': serializer.toJson<String>(extension),
+      'sizeBytes': serializer.toJson<int>(sizeBytes),
+      'lastModifiedMs': serializer.toJson<int>(lastModifiedMs),
+      'fileHash': serializer.toJson<String?>(fileHash),
+      'startMs': serializer.toJson<int?>(startMs),
+      'endMs': serializer.toJson<int?>(endMs),
+      'trackNumber': serializer.toJson<int?>(trackNumber),
+      'cueFilePath': serializer.toJson<String?>(cueFilePath),
+      'year': serializer.toJson<int?>(year),
+    };
+  }
+
+  LocalTrackEntry copyWith(
+          {String? path,
+          String? realFilePath,
+          String? folderName,
+          String? title,
+          String? artist,
+          String? album,
+          String? genre,
+          String? extension,
+          int? sizeBytes,
+          int? lastModifiedMs,
+          Value<String?> fileHash = const Value.absent(),
+          Value<int?> startMs = const Value.absent(),
+          Value<int?> endMs = const Value.absent(),
+          Value<int?> trackNumber = const Value.absent(),
+          Value<String?> cueFilePath = const Value.absent(),
+          Value<int?> year = const Value.absent()}) =>
+      LocalTrackEntry(
+        path: path ?? this.path,
+        realFilePath: realFilePath ?? this.realFilePath,
+        folderName: folderName ?? this.folderName,
+        title: title ?? this.title,
+        artist: artist ?? this.artist,
+        album: album ?? this.album,
+        genre: genre ?? this.genre,
+        extension: extension ?? this.extension,
+        sizeBytes: sizeBytes ?? this.sizeBytes,
+        lastModifiedMs: lastModifiedMs ?? this.lastModifiedMs,
+        fileHash: fileHash.present ? fileHash.value : this.fileHash,
+        startMs: startMs.present ? startMs.value : this.startMs,
+        endMs: endMs.present ? endMs.value : this.endMs,
+        trackNumber: trackNumber.present ? trackNumber.value : this.trackNumber,
+        cueFilePath: cueFilePath.present ? cueFilePath.value : this.cueFilePath,
+        year: year.present ? year.value : this.year,
+      );
+  LocalTrackEntry copyWithCompanion(LocalTrackEntriesCompanion data) {
+    return LocalTrackEntry(
+      path: data.path.present ? data.path.value : this.path,
+      realFilePath: data.realFilePath.present
+          ? data.realFilePath.value
+          : this.realFilePath,
+      folderName:
+          data.folderName.present ? data.folderName.value : this.folderName,
+      title: data.title.present ? data.title.value : this.title,
+      artist: data.artist.present ? data.artist.value : this.artist,
+      album: data.album.present ? data.album.value : this.album,
+      genre: data.genre.present ? data.genre.value : this.genre,
+      extension: data.extension.present ? data.extension.value : this.extension,
+      sizeBytes: data.sizeBytes.present ? data.sizeBytes.value : this.sizeBytes,
+      lastModifiedMs: data.lastModifiedMs.present
+          ? data.lastModifiedMs.value
+          : this.lastModifiedMs,
+      fileHash: data.fileHash.present ? data.fileHash.value : this.fileHash,
+      startMs: data.startMs.present ? data.startMs.value : this.startMs,
+      endMs: data.endMs.present ? data.endMs.value : this.endMs,
+      trackNumber:
+          data.trackNumber.present ? data.trackNumber.value : this.trackNumber,
+      cueFilePath:
+          data.cueFilePath.present ? data.cueFilePath.value : this.cueFilePath,
+      year: data.year.present ? data.year.value : this.year,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LocalTrackEntry(')
+          ..write('path: $path, ')
+          ..write('realFilePath: $realFilePath, ')
+          ..write('folderName: $folderName, ')
+          ..write('title: $title, ')
+          ..write('artist: $artist, ')
+          ..write('album: $album, ')
+          ..write('genre: $genre, ')
+          ..write('extension: $extension, ')
+          ..write('sizeBytes: $sizeBytes, ')
+          ..write('lastModifiedMs: $lastModifiedMs, ')
+          ..write('fileHash: $fileHash, ')
+          ..write('startMs: $startMs, ')
+          ..write('endMs: $endMs, ')
+          ..write('trackNumber: $trackNumber, ')
+          ..write('cueFilePath: $cueFilePath, ')
+          ..write('year: $year')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      path,
+      realFilePath,
+      folderName,
+      title,
+      artist,
+      album,
+      genre,
+      extension,
+      sizeBytes,
+      lastModifiedMs,
+      fileHash,
+      startMs,
+      endMs,
+      trackNumber,
+      cueFilePath,
+      year);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LocalTrackEntry &&
+          other.path == this.path &&
+          other.realFilePath == this.realFilePath &&
+          other.folderName == this.folderName &&
+          other.title == this.title &&
+          other.artist == this.artist &&
+          other.album == this.album &&
+          other.genre == this.genre &&
+          other.extension == this.extension &&
+          other.sizeBytes == this.sizeBytes &&
+          other.lastModifiedMs == this.lastModifiedMs &&
+          other.fileHash == this.fileHash &&
+          other.startMs == this.startMs &&
+          other.endMs == this.endMs &&
+          other.trackNumber == this.trackNumber &&
+          other.cueFilePath == this.cueFilePath &&
+          other.year == this.year);
+}
+
+class LocalTrackEntriesCompanion extends UpdateCompanion<LocalTrackEntry> {
+  final Value<String> path;
+  final Value<String> realFilePath;
+  final Value<String> folderName;
+  final Value<String> title;
+  final Value<String> artist;
+  final Value<String> album;
+  final Value<String> genre;
+  final Value<String> extension;
+  final Value<int> sizeBytes;
+  final Value<int> lastModifiedMs;
+  final Value<String?> fileHash;
+  final Value<int?> startMs;
+  final Value<int?> endMs;
+  final Value<int?> trackNumber;
+  final Value<String?> cueFilePath;
+  final Value<int?> year;
+  final Value<int> rowid;
+  const LocalTrackEntriesCompanion({
+    this.path = const Value.absent(),
+    this.realFilePath = const Value.absent(),
+    this.folderName = const Value.absent(),
+    this.title = const Value.absent(),
+    this.artist = const Value.absent(),
+    this.album = const Value.absent(),
+    this.genre = const Value.absent(),
+    this.extension = const Value.absent(),
+    this.sizeBytes = const Value.absent(),
+    this.lastModifiedMs = const Value.absent(),
+    this.fileHash = const Value.absent(),
+    this.startMs = const Value.absent(),
+    this.endMs = const Value.absent(),
+    this.trackNumber = const Value.absent(),
+    this.cueFilePath = const Value.absent(),
+    this.year = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  LocalTrackEntriesCompanion.insert({
+    required String path,
+    required String realFilePath,
+    required String folderName,
+    required String title,
+    this.artist = const Value.absent(),
+    this.album = const Value.absent(),
+    this.genre = const Value.absent(),
+    this.extension = const Value.absent(),
+    this.sizeBytes = const Value.absent(),
+    required int lastModifiedMs,
+    this.fileHash = const Value.absent(),
+    this.startMs = const Value.absent(),
+    this.endMs = const Value.absent(),
+    this.trackNumber = const Value.absent(),
+    this.cueFilePath = const Value.absent(),
+    this.year = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : path = Value(path),
+        realFilePath = Value(realFilePath),
+        folderName = Value(folderName),
+        title = Value(title),
+        lastModifiedMs = Value(lastModifiedMs);
+  static Insertable<LocalTrackEntry> custom({
+    Expression<String>? path,
+    Expression<String>? realFilePath,
+    Expression<String>? folderName,
+    Expression<String>? title,
+    Expression<String>? artist,
+    Expression<String>? album,
+    Expression<String>? genre,
+    Expression<String>? extension,
+    Expression<int>? sizeBytes,
+    Expression<int>? lastModifiedMs,
+    Expression<String>? fileHash,
+    Expression<int>? startMs,
+    Expression<int>? endMs,
+    Expression<int>? trackNumber,
+    Expression<String>? cueFilePath,
+    Expression<int>? year,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (path != null) 'path': path,
+      if (realFilePath != null) 'real_file_path': realFilePath,
+      if (folderName != null) 'folder_name': folderName,
+      if (title != null) 'title': title,
+      if (artist != null) 'artist': artist,
+      if (album != null) 'album': album,
+      if (genre != null) 'genre': genre,
+      if (extension != null) 'extension': extension,
+      if (sizeBytes != null) 'size_bytes': sizeBytes,
+      if (lastModifiedMs != null) 'last_modified_ms': lastModifiedMs,
+      if (fileHash != null) 'file_hash': fileHash,
+      if (startMs != null) 'start_ms': startMs,
+      if (endMs != null) 'end_ms': endMs,
+      if (trackNumber != null) 'track_number': trackNumber,
+      if (cueFilePath != null) 'cue_file_path': cueFilePath,
+      if (year != null) 'year': year,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  LocalTrackEntriesCompanion copyWith(
+      {Value<String>? path,
+      Value<String>? realFilePath,
+      Value<String>? folderName,
+      Value<String>? title,
+      Value<String>? artist,
+      Value<String>? album,
+      Value<String>? genre,
+      Value<String>? extension,
+      Value<int>? sizeBytes,
+      Value<int>? lastModifiedMs,
+      Value<String?>? fileHash,
+      Value<int?>? startMs,
+      Value<int?>? endMs,
+      Value<int?>? trackNumber,
+      Value<String?>? cueFilePath,
+      Value<int?>? year,
+      Value<int>? rowid}) {
+    return LocalTrackEntriesCompanion(
+      path: path ?? this.path,
+      realFilePath: realFilePath ?? this.realFilePath,
+      folderName: folderName ?? this.folderName,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      album: album ?? this.album,
+      genre: genre ?? this.genre,
+      extension: extension ?? this.extension,
+      sizeBytes: sizeBytes ?? this.sizeBytes,
+      lastModifiedMs: lastModifiedMs ?? this.lastModifiedMs,
+      fileHash: fileHash ?? this.fileHash,
+      startMs: startMs ?? this.startMs,
+      endMs: endMs ?? this.endMs,
+      trackNumber: trackNumber ?? this.trackNumber,
+      cueFilePath: cueFilePath ?? this.cueFilePath,
+      year: year ?? this.year,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (path.present) {
+      map['path'] = Variable<String>(path.value);
+    }
+    if (realFilePath.present) {
+      map['real_file_path'] = Variable<String>(realFilePath.value);
+    }
+    if (folderName.present) {
+      map['folder_name'] = Variable<String>(folderName.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (artist.present) {
+      map['artist'] = Variable<String>(artist.value);
+    }
+    if (album.present) {
+      map['album'] = Variable<String>(album.value);
+    }
+    if (genre.present) {
+      map['genre'] = Variable<String>(genre.value);
+    }
+    if (extension.present) {
+      map['extension'] = Variable<String>(extension.value);
+    }
+    if (sizeBytes.present) {
+      map['size_bytes'] = Variable<int>(sizeBytes.value);
+    }
+    if (lastModifiedMs.present) {
+      map['last_modified_ms'] = Variable<int>(lastModifiedMs.value);
+    }
+    if (fileHash.present) {
+      map['file_hash'] = Variable<String>(fileHash.value);
+    }
+    if (startMs.present) {
+      map['start_ms'] = Variable<int>(startMs.value);
+    }
+    if (endMs.present) {
+      map['end_ms'] = Variable<int>(endMs.value);
+    }
+    if (trackNumber.present) {
+      map['track_number'] = Variable<int>(trackNumber.value);
+    }
+    if (cueFilePath.present) {
+      map['cue_file_path'] = Variable<String>(cueFilePath.value);
+    }
+    if (year.present) {
+      map['year'] = Variable<int>(year.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LocalTrackEntriesCompanion(')
+          ..write('path: $path, ')
+          ..write('realFilePath: $realFilePath, ')
+          ..write('folderName: $folderName, ')
+          ..write('title: $title, ')
+          ..write('artist: $artist, ')
+          ..write('album: $album, ')
+          ..write('genre: $genre, ')
+          ..write('extension: $extension, ')
+          ..write('sizeBytes: $sizeBytes, ')
+          ..write('lastModifiedMs: $lastModifiedMs, ')
+          ..write('fileHash: $fileHash, ')
+          ..write('startMs: $startMs, ')
+          ..write('endMs: $endMs, ')
+          ..write('trackNumber: $trackNumber, ')
+          ..write('cueFilePath: $cueFilePath, ')
+          ..write('year: $year, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -1541,6 +2306,22 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $RecentlyPlayedEntriesTable(this);
   late final $CachedStreamEntriesTable cachedStreamEntries =
       $CachedStreamEntriesTable(this);
+  late final $LocalTrackEntriesTable localTrackEntries =
+      $LocalTrackEntriesTable(this);
+  late final Index idxLocalTracksTitle = Index('idx_local_tracks_title',
+      'CREATE INDEX idx_local_tracks_title ON local_tracks (title)');
+  late final Index idxLocalTracksArtist = Index('idx_local_tracks_artist',
+      'CREATE INDEX idx_local_tracks_artist ON local_tracks (artist)');
+  late final Index idxLocalTracksAlbum = Index('idx_local_tracks_album',
+      'CREATE INDEX idx_local_tracks_album ON local_tracks (album)');
+  late final Index idxLocalTracksModified = Index('idx_local_tracks_modified',
+      'CREATE INDEX idx_local_tracks_modified ON local_tracks (last_modified_ms)');
+  late final Index idxLocalTracksSize = Index('idx_local_tracks_size',
+      'CREATE INDEX idx_local_tracks_size ON local_tracks (size_bytes)');
+  late final Index idxLocalTracksExt = Index('idx_local_tracks_ext',
+      'CREATE INDEX idx_local_tracks_ext ON local_tracks (extension)');
+  late final Index idxLocalTracksRealPath = Index('idx_local_tracks_real_path',
+      'CREATE INDEX idx_local_tracks_real_path ON local_tracks (real_file_path)');
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -1549,7 +2330,15 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         appPreferences,
         likedSongEntries,
         recentlyPlayedEntries,
-        cachedStreamEntries
+        cachedStreamEntries,
+        localTrackEntries,
+        idxLocalTracksTitle,
+        idxLocalTracksArtist,
+        idxLocalTracksAlbum,
+        idxLocalTracksModified,
+        idxLocalTracksSize,
+        idxLocalTracksExt,
+        idxLocalTracksRealPath
       ];
 }
 
@@ -2361,6 +3150,349 @@ typedef $$CachedStreamEntriesTableProcessedTableManager = ProcessedTableManager<
     ),
     CachedStreamEntry,
     PrefetchHooks Function()>;
+typedef $$LocalTrackEntriesTableCreateCompanionBuilder
+    = LocalTrackEntriesCompanion Function({
+  required String path,
+  required String realFilePath,
+  required String folderName,
+  required String title,
+  Value<String> artist,
+  Value<String> album,
+  Value<String> genre,
+  Value<String> extension,
+  Value<int> sizeBytes,
+  required int lastModifiedMs,
+  Value<String?> fileHash,
+  Value<int?> startMs,
+  Value<int?> endMs,
+  Value<int?> trackNumber,
+  Value<String?> cueFilePath,
+  Value<int?> year,
+  Value<int> rowid,
+});
+typedef $$LocalTrackEntriesTableUpdateCompanionBuilder
+    = LocalTrackEntriesCompanion Function({
+  Value<String> path,
+  Value<String> realFilePath,
+  Value<String> folderName,
+  Value<String> title,
+  Value<String> artist,
+  Value<String> album,
+  Value<String> genre,
+  Value<String> extension,
+  Value<int> sizeBytes,
+  Value<int> lastModifiedMs,
+  Value<String?> fileHash,
+  Value<int?> startMs,
+  Value<int?> endMs,
+  Value<int?> trackNumber,
+  Value<String?> cueFilePath,
+  Value<int?> year,
+  Value<int> rowid,
+});
+
+class $$LocalTrackEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $LocalTrackEntriesTable> {
+  $$LocalTrackEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get path => $composableBuilder(
+      column: $table.path, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get realFilePath => $composableBuilder(
+      column: $table.realFilePath, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get folderName => $composableBuilder(
+      column: $table.folderName, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get artist => $composableBuilder(
+      column: $table.artist, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get album => $composableBuilder(
+      column: $table.album, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get genre => $composableBuilder(
+      column: $table.genre, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get extension => $composableBuilder(
+      column: $table.extension, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get sizeBytes => $composableBuilder(
+      column: $table.sizeBytes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get lastModifiedMs => $composableBuilder(
+      column: $table.lastModifiedMs,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get fileHash => $composableBuilder(
+      column: $table.fileHash, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get startMs => $composableBuilder(
+      column: $table.startMs, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get endMs => $composableBuilder(
+      column: $table.endMs, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get trackNumber => $composableBuilder(
+      column: $table.trackNumber, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get cueFilePath => $composableBuilder(
+      column: $table.cueFilePath, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get year => $composableBuilder(
+      column: $table.year, builder: (column) => ColumnFilters(column));
+}
+
+class $$LocalTrackEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $LocalTrackEntriesTable> {
+  $$LocalTrackEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get path => $composableBuilder(
+      column: $table.path, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get realFilePath => $composableBuilder(
+      column: $table.realFilePath,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get folderName => $composableBuilder(
+      column: $table.folderName, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get artist => $composableBuilder(
+      column: $table.artist, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get album => $composableBuilder(
+      column: $table.album, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get genre => $composableBuilder(
+      column: $table.genre, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get extension => $composableBuilder(
+      column: $table.extension, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get sizeBytes => $composableBuilder(
+      column: $table.sizeBytes, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get lastModifiedMs => $composableBuilder(
+      column: $table.lastModifiedMs,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get fileHash => $composableBuilder(
+      column: $table.fileHash, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get startMs => $composableBuilder(
+      column: $table.startMs, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get endMs => $composableBuilder(
+      column: $table.endMs, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get trackNumber => $composableBuilder(
+      column: $table.trackNumber, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get cueFilePath => $composableBuilder(
+      column: $table.cueFilePath, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get year => $composableBuilder(
+      column: $table.year, builder: (column) => ColumnOrderings(column));
+}
+
+class $$LocalTrackEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $LocalTrackEntriesTable> {
+  $$LocalTrackEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get path =>
+      $composableBuilder(column: $table.path, builder: (column) => column);
+
+  GeneratedColumn<String> get realFilePath => $composableBuilder(
+      column: $table.realFilePath, builder: (column) => column);
+
+  GeneratedColumn<String> get folderName => $composableBuilder(
+      column: $table.folderName, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get artist =>
+      $composableBuilder(column: $table.artist, builder: (column) => column);
+
+  GeneratedColumn<String> get album =>
+      $composableBuilder(column: $table.album, builder: (column) => column);
+
+  GeneratedColumn<String> get genre =>
+      $composableBuilder(column: $table.genre, builder: (column) => column);
+
+  GeneratedColumn<String> get extension =>
+      $composableBuilder(column: $table.extension, builder: (column) => column);
+
+  GeneratedColumn<int> get sizeBytes =>
+      $composableBuilder(column: $table.sizeBytes, builder: (column) => column);
+
+  GeneratedColumn<int> get lastModifiedMs => $composableBuilder(
+      column: $table.lastModifiedMs, builder: (column) => column);
+
+  GeneratedColumn<String> get fileHash =>
+      $composableBuilder(column: $table.fileHash, builder: (column) => column);
+
+  GeneratedColumn<int> get startMs =>
+      $composableBuilder(column: $table.startMs, builder: (column) => column);
+
+  GeneratedColumn<int> get endMs =>
+      $composableBuilder(column: $table.endMs, builder: (column) => column);
+
+  GeneratedColumn<int> get trackNumber => $composableBuilder(
+      column: $table.trackNumber, builder: (column) => column);
+
+  GeneratedColumn<String> get cueFilePath => $composableBuilder(
+      column: $table.cueFilePath, builder: (column) => column);
+
+  GeneratedColumn<int> get year =>
+      $composableBuilder(column: $table.year, builder: (column) => column);
+}
+
+class $$LocalTrackEntriesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $LocalTrackEntriesTable,
+    LocalTrackEntry,
+    $$LocalTrackEntriesTableFilterComposer,
+    $$LocalTrackEntriesTableOrderingComposer,
+    $$LocalTrackEntriesTableAnnotationComposer,
+    $$LocalTrackEntriesTableCreateCompanionBuilder,
+    $$LocalTrackEntriesTableUpdateCompanionBuilder,
+    (
+      LocalTrackEntry,
+      BaseReferences<_$AppDatabase, $LocalTrackEntriesTable, LocalTrackEntry>
+    ),
+    LocalTrackEntry,
+    PrefetchHooks Function()> {
+  $$LocalTrackEntriesTableTableManager(
+      _$AppDatabase db, $LocalTrackEntriesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$LocalTrackEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$LocalTrackEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$LocalTrackEntriesTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> path = const Value.absent(),
+            Value<String> realFilePath = const Value.absent(),
+            Value<String> folderName = const Value.absent(),
+            Value<String> title = const Value.absent(),
+            Value<String> artist = const Value.absent(),
+            Value<String> album = const Value.absent(),
+            Value<String> genre = const Value.absent(),
+            Value<String> extension = const Value.absent(),
+            Value<int> sizeBytes = const Value.absent(),
+            Value<int> lastModifiedMs = const Value.absent(),
+            Value<String?> fileHash = const Value.absent(),
+            Value<int?> startMs = const Value.absent(),
+            Value<int?> endMs = const Value.absent(),
+            Value<int?> trackNumber = const Value.absent(),
+            Value<String?> cueFilePath = const Value.absent(),
+            Value<int?> year = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              LocalTrackEntriesCompanion(
+            path: path,
+            realFilePath: realFilePath,
+            folderName: folderName,
+            title: title,
+            artist: artist,
+            album: album,
+            genre: genre,
+            extension: extension,
+            sizeBytes: sizeBytes,
+            lastModifiedMs: lastModifiedMs,
+            fileHash: fileHash,
+            startMs: startMs,
+            endMs: endMs,
+            trackNumber: trackNumber,
+            cueFilePath: cueFilePath,
+            year: year,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String path,
+            required String realFilePath,
+            required String folderName,
+            required String title,
+            Value<String> artist = const Value.absent(),
+            Value<String> album = const Value.absent(),
+            Value<String> genre = const Value.absent(),
+            Value<String> extension = const Value.absent(),
+            Value<int> sizeBytes = const Value.absent(),
+            required int lastModifiedMs,
+            Value<String?> fileHash = const Value.absent(),
+            Value<int?> startMs = const Value.absent(),
+            Value<int?> endMs = const Value.absent(),
+            Value<int?> trackNumber = const Value.absent(),
+            Value<String?> cueFilePath = const Value.absent(),
+            Value<int?> year = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              LocalTrackEntriesCompanion.insert(
+            path: path,
+            realFilePath: realFilePath,
+            folderName: folderName,
+            title: title,
+            artist: artist,
+            album: album,
+            genre: genre,
+            extension: extension,
+            sizeBytes: sizeBytes,
+            lastModifiedMs: lastModifiedMs,
+            fileHash: fileHash,
+            startMs: startMs,
+            endMs: endMs,
+            trackNumber: trackNumber,
+            cueFilePath: cueFilePath,
+            year: year,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$LocalTrackEntriesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $LocalTrackEntriesTable,
+    LocalTrackEntry,
+    $$LocalTrackEntriesTableFilterComposer,
+    $$LocalTrackEntriesTableOrderingComposer,
+    $$LocalTrackEntriesTableAnnotationComposer,
+    $$LocalTrackEntriesTableCreateCompanionBuilder,
+    $$LocalTrackEntriesTableUpdateCompanionBuilder,
+    (
+      LocalTrackEntry,
+      BaseReferences<_$AppDatabase, $LocalTrackEntriesTable, LocalTrackEntry>
+    ),
+    LocalTrackEntry,
+    PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -2373,4 +3505,6 @@ class $AppDatabaseManager {
       $$RecentlyPlayedEntriesTableTableManager(_db, _db.recentlyPlayedEntries);
   $$CachedStreamEntriesTableTableManager get cachedStreamEntries =>
       $$CachedStreamEntriesTableTableManager(_db, _db.cachedStreamEntries);
+  $$LocalTrackEntriesTableTableManager get localTrackEntries =>
+      $$LocalTrackEntriesTableTableManager(_db, _db.localTrackEntries);
 }
