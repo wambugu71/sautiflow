@@ -223,7 +223,9 @@ class _QueueScreenState extends State<QueueScreen>
         track.videoId.contains('\\') ||
         track.videoId.endsWith('.mp3') ||
         track.videoId.endsWith('.flac') ||
-        track.videoId.endsWith('.m4a');
+        track.videoId.endsWith('.m4a') ||
+        track.videoId.toLowerCase().endsWith('.dsf') ||
+        track.videoId.toLowerCase().endsWith('.dff');
 
     MusicInfoDialog.show(
       context,
@@ -762,7 +764,9 @@ class _QueueTrackArtwork extends StatelessWidget {
         track.videoId.contains('\\') ||
         track.videoId.endsWith('.mp3') ||
         track.videoId.endsWith('.flac') ||
-        track.videoId.endsWith('.m4a');
+        track.videoId.endsWith('.m4a') ||
+        track.videoId.toLowerCase().endsWith('.dsf') ||
+        track.videoId.toLowerCase().endsWith('.dff');
 
     return Container(
       width: 44,

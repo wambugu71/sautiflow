@@ -47,8 +47,9 @@ class AudioFileInfo {
 
 class AudioFileInspector {
   static Future<AudioFileInfo> inspectNative(IsolateAudioPlayer player, String filePath) async {
+    final realPath = CueVirtualPath.strip(filePath);
     try {
-      final nativeMap = await player.inspectFile(filePath);
+      final nativeMap = await player.inspectFile(realPath);
       if (nativeMap != null) {
         final sr = (nativeMap['sampleRate'] as int?) ?? 44100;
         final bd = (nativeMap['bitDepth'] as int?) ?? 16;
@@ -69,11 +70,12 @@ class AudioFileInspector {
     } catch (e) {
       debugPrint('[AudioFileInspector] Native inspect error: $e');
     }
-    return inspect(filePath);
+    return inspect(realPath);
   }
 
   static Future<AudioFileInfo> inspect(String filePath) async {
-    final file = File(filePath);
+    final realPath = CueVirtualPath.strip(filePath);
+    final file = File(realPath);
     if (!file.existsSync()) {
       return const AudioFileInfo(
         sampleRate: 44100,
@@ -85,7 +87,7 @@ class AudioFileInspector {
     }
 
     try {
-      final ext = filePath.split('.').last.toLowerCase();
+      final ext = realPath.split('.').last.toLowerCase();
       final raf = file.openSync();
       try {
         final fileSize = file.lengthSync();
@@ -114,6 +116,16 @@ class AudioFileInspector {
 
         if (ext == 'aiff' || ext == 'aif') {
           final info = _parseAiff(bytes);
+          if (info != null) return info;
+        }
+
+        if (ext == 'dsf' || _startsWithBytes(bytes, [68, 83, 68, 32])) {
+          final info = _parseDsf(bytes, fileSize);
+          if (info != null) return info;
+        }
+
+        if (ext == 'dff' || _startsWithBytes(bytes, [70, 82, 77, 56])) {
+          final info = _parseDff(bytes, fileSize);
           if (info != null) return info;
         }
       } finally {
@@ -363,6 +375,127 @@ class AudioFileInspector {
       channels: channels > 0 ? channels : 2,
       bitrateKbps: 0,
       codec: 'AIFF',
+    );
+  }
+
+  // ── DSF (Sony DSD) Parser ────────────────────────────────────────────────
+  static AudioFileInfo? _parseDsf(Uint8List bytes, int fileSizeBytes) {
+    if (bytes.length < 92 || !_startsWithBytes(bytes, [68, 83, 68, 32])) {
+      return null;
+    }
+    final bd = ByteData.sublistView(bytes);
+    final dsdChunkSize = bd.getUint64(4, Endian.little);
+    if (dsdChunkSize < 28 || dsdChunkSize + 52 > bytes.length) return null;
+    final fmtOff = dsdChunkSize.toInt();
+    if (bytes[fmtOff] != 102 ||
+        bytes[fmtOff + 1] != 109 ||
+        bytes[fmtOff + 2] != 116 ||
+        bytes[fmtOff + 3] != 32) {
+      return null;
+    }
+    final formatId = bd.getUint32(fmtOff + 16, Endian.little);
+    if (formatId != 0) return null;
+
+    final channels = bd.getUint32(fmtOff + 24, Endian.little);
+    final sampleRate = bd.getUint32(fmtOff + 28, Endian.little);
+    final sampleCount = bd.getUint64(fmtOff + 36, Endian.little);
+    if (sampleRate < 1000000 || channels <= 0 || channels > 8) return null;
+
+    int bitrateKbps = 0;
+    if (sampleCount > 0 && fileSizeBytes > 0) {
+      final durationSecs = sampleCount / sampleRate;
+      if (durationSecs > 0) {
+        bitrateKbps = ((fileSizeBytes * 8) / durationSecs / 1000).round();
+      }
+    }
+
+    return AudioFileInfo(
+      sampleRate: sampleRate,
+      bitDepth: 1,
+      channels: channels,
+      bitrateKbps: bitrateKbps,
+      codec: 'DSF',
+    );
+  }
+
+  // ── DFF (Philips DSDIFF) Parser ──────────────────────────────────────────
+  static AudioFileInfo? _parseDff(Uint8List bytes, int fileSizeBytes) {
+    if (bytes.length < 28 ||
+        !_startsWithBytes(bytes, [70, 82, 77, 56]) ||
+        bytes[12] != 68 ||
+        bytes[13] != 83 ||
+        bytes[14] != 68 ||
+        bytes[15] != 32) {
+      return null;
+    }
+    final bd = ByteData.sublistView(bytes);
+    int sampleRate = 0;
+    int channels = 0;
+    int dataBytes = 0;
+    bool isDst = false;
+
+    int pos = 16;
+    while (pos + 12 <= bytes.length) {
+      final tag = String.fromCharCodes(bytes.sublist(pos, pos + 4));
+      final ckSize = bd.getUint64(pos + 4, Endian.big);
+      final dataPos = pos + 12;
+
+      if (tag == 'PROP' && dataPos + 4 <= bytes.length) {
+        final propType =
+            String.fromCharCodes(bytes.sublist(dataPos, dataPos + 4));
+        if (propType == 'SND ') {
+          final propEnd = math.min(bytes.length, dataPos + ckSize.toInt());
+          int subPos = dataPos + 4;
+          while (subPos + 12 <= propEnd) {
+            final subTag =
+                String.fromCharCodes(bytes.sublist(subPos, subPos + 4));
+            final subSize = bd.getUint64(subPos + 4, Endian.big).toInt();
+            final subData = subPos + 12;
+            if (subTag == 'FS  ' && subData + 4 <= bytes.length) {
+              sampleRate = bd.getUint32(subData, Endian.big);
+            } else if (subTag == 'CHNL' && subData + 2 <= bytes.length) {
+              channels = bd.getUint16(subData, Endian.big);
+            } else if (subTag == 'CMPR' && subData + 4 <= bytes.length) {
+              final cmpr =
+                  String.fromCharCodes(bytes.sublist(subData, subData + 4));
+              if (cmpr == 'DST ') isDst = true;
+            }
+            if (subSize < 0) break;
+            final adv = 12 + subSize + (subSize & 1);
+            if (adv <= 0) break;
+            subPos += adv;
+          }
+        }
+      } else if (tag == 'DSD ') {
+        dataBytes = ckSize.toInt();
+        break;
+      } else if (tag == 'DST ') {
+        isDst = true;
+        break;
+      }
+
+      if (ckSize < 0) break;
+      final adv = 12 + ckSize.toInt() + (ckSize.toInt() & 1);
+      if (adv <= 12 && ckSize == 0) break;
+      pos += adv;
+    }
+
+    if (sampleRate < 1000000 || channels <= 0 || channels > 8) return null;
+
+    int bitrateKbps = 0;
+    if (dataBytes > 0 && fileSizeBytes > 0) {
+      final durationSecs = (dataBytes * 8) / (sampleRate * channels);
+      if (durationSecs > 0) {
+        bitrateKbps = ((fileSizeBytes * 8) / durationSecs / 1000).round();
+      }
+    }
+
+    return AudioFileInfo(
+      sampleRate: sampleRate,
+      bitDepth: 1,
+      channels: channels,
+      bitrateKbps: bitrateKbps,
+      codec: isDst ? 'DFF (DST)' : 'DFF',
     );
   }
 

@@ -8,6 +8,7 @@ class AudioDiagnosticsBadgeRow extends StatelessWidget {
   final String? bitDepth;
   final String? sampleRate;
   final bool isBitPerfect;
+  final String? dsdBadgeLabel;
   final VoidCallback? onOpenDiagnostics;
   final Color? color;
   final Color? bitPerfectColor;
@@ -19,6 +20,7 @@ class AudioDiagnosticsBadgeRow extends StatelessWidget {
     this.bitDepth,
     this.sampleRate,
     this.isBitPerfect = false,
+    this.dsdBadgeLabel,
     this.onOpenDiagnostics,
     this.color,
     this.bitPerfectColor,
@@ -185,6 +187,36 @@ class AudioDiagnosticsBadgeRow extends StatelessWidget {
           'assets/icons/audio_badges/bit_perfect_check_32.svg',
           height: height,
           colorFilter: ColorFilter.mode(bpColor, BlendMode.srcIn),
+        ),
+      );
+    }
+
+    if (dsdBadgeLabel != null && dsdBadgeLabel!.isNotEmpty) {
+      badgeWidgets.add(const SizedBox(width: 4));
+      badgeWidgets.add(
+        Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: height * 0.28,
+            vertical: height * 0.05,
+          ),
+          decoration: BoxDecoration(
+            color: bpColor.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: bpColor.withValues(alpha: 0.45),
+              width: 0.7,
+            ),
+          ),
+          child: Text(
+            dsdBadgeLabel!,
+            style: TextStyle(
+              color: bpColor,
+              fontSize: (height * 0.48).clamp(8.0, 12.0),
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+              height: 1.1,
+            ),
+          ),
         ),
       );
     }

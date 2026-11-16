@@ -35,6 +35,7 @@
 #include <samplerate.h>
 #include "CDSPResampler.h"
 #include "ffmpeg_stream_decoder.h"
+#include "dsd_processor.h"
 #include "dsp/clarity_dsp.h"
 #include "dsp/dialog_enhancer_dsp.h"
 #include "dsp/dynamic_bass_dsp.h"
@@ -3840,6 +3841,20 @@ struct AudioEngineHandle
     std::atomic<int> ditherMode{0}; // AE_DITHER_MODE_NONE
     std::atomic<int> dacValidBitDepth{24}; // Valid DAC bit depth (default 24 for S32 / 24-in-32; 16 for S16; 32 for true 32-bit)
     std::atomic<bool> dacValidBitDepthExplicit{false};
+
+    // DSD playback configuration & active runtime telemetry
+    std::atomic<int> dsdOutputMode{AE_DSD_MODE_AUTO}; // User setting: 0=Auto, 1=D2P, 2=DoP, 3=Native
+    std::atomic<int> activeDsdMode{0};                // Runtime active: 0=None(PCM), 1=D2P, 2=DoP, 3=Native
+    std::atomic<int> hwActiveDsdMode{0};              // Hardware sink mode: 0=PCM/D2P, 2=DoP, 3=Native DSD
+    std::atomic<int> sourceDsdRate{0};                // Native 1-bit DSD rate of active track
+    std::atomic<int> dsdD2pSampleRate{0};             // Preferred D2P target rate (0=auto)
+    std::atomic<float> dsdGainBoostDb{6.0f};          // +0.0..+6.0 dB Scarlet Book boost
+    std::atomic<bool> nativeDsdSupported{false};      // Active USB DAC supports Native DSD (RAW_DATA)
+    std::atomic<bool> dopSupported{false};            // Active hardware supports DoP (>=176.4kHz, >=24-bit)
+    std::atomic<int> cachedManualUsbFd{-1};           // Lock-free mirror of manualUsbFd
+    std::atomic<bool> reevalDsdOnRestart{false};      // Re-resolve DSD mode during manual mode change
+    std::atomic<bool> pendingAutoRateConsumeInFlight{false}; // Avoid clobbering userOutputSampleRate on auto/DSD restart
+    bool dopCallbackMarkerToggle = false;             // Alternates 0x05/0xFA DoP silence markers
     std::atomic<bool> phaseInvertLeft{false};
     std::atomic<bool> phaseInvertRight{false};
     std::atomic<bool> lrSwapEnabled{false};
@@ -4404,6 +4419,153 @@ struct AudioEngineHandle
 extern "C"
 {
     static void restart_and_apply_config(AudioEngineHandle *e);
+}
+
+static inline bool dsd_backend_allows_dop(AudioEngineHandle *e)
+{
+    if (!e) return false;
+#if defined(__ANDROID__)
+    const int usbFd = e->cachedManualUsbFd.load(std::memory_order_acquire);
+    const int actBk = e->activeBackend.load(std::memory_order_acquire);
+    const int cfgBk = e->configuredBackend.load(std::memory_order_acquire);
+    if (usbFd >= 0 && (actBk == AE_BACKEND_USB_DIRECT || cfgBk == AE_BACKEND_USB_DIRECT || cfgBk == AE_BACKEND_DIRECT_HIRES))
+    {
+        return e->dopSupported.load(std::memory_order_acquire);
+    }
+    return (cfgBk == AE_BACKEND_DIRECT_HIRES);
+#else
+    return e->exclusiveModeEnabled.load(std::memory_order_acquire);
+#endif
+}
+
+static inline bool dsd_backend_allows_native(AudioEngineHandle *e)
+{
+    if (!e) return false;
+#if defined(__ANDROID__)
+    const int usbFd = e->cachedManualUsbFd.load(std::memory_order_acquire);
+    const int actBk = e->activeBackend.load(std::memory_order_acquire);
+    const int cfgBk = e->configuredBackend.load(std::memory_order_acquire);
+    if (usbFd >= 0 && (actBk == AE_BACKEND_USB_DIRECT || cfgBk == AE_BACKEND_USB_DIRECT || cfgBk == AE_BACKEND_DIRECT_HIRES))
+    {
+        return e->nativeDsdSupported.load(std::memory_order_acquire);
+    }
+    return false;
+#else
+    return false;
+#endif
+}
+
+static inline int resolve_effective_dsd_mode(
+    AudioEngineHandle *e,
+    const sautiflow::dsd::DsdFileHeader &hdr,
+    ma_format *outDopFormat = nullptr
+)
+{
+    ma_format dopFmt = (e && e->outputFormat == AE_FORMAT_S24) ? ma_format_s24 : ma_format_s32;
+    if (outDopFormat) *outDopFormat = dopFmt;
+    if (!e || !hdr.valid || hdr.dsdSampleRate < 2822400u)
+    {
+        return AE_DSD_MODE_D2P;
+    }
+
+    const int pref = e->dsdOutputMode.load(std::memory_order_acquire);
+    if (pref == AE_DSD_MODE_D2P)
+    {
+        return AE_DSD_MODE_D2P;
+    }
+
+    if ((pref == AE_DSD_MODE_AUTO || pref == AE_DSD_MODE_NATIVE) && dsd_backend_allows_native(e))
+    {
+        return AE_DSD_MODE_NATIVE;
+    }
+
+    if ((pref == AE_DSD_MODE_AUTO || pref == AE_DSD_MODE_DOP || pref == AE_DSD_MODE_NATIVE) &&
+        dsd_backend_allows_dop(e))
+    {
+        return AE_DSD_MODE_DOP;
+    }
+
+    return AE_DSD_MODE_D2P;
+}
+
+static inline void fill_output_silence(
+    AudioEngineHandle *e,
+    void *pOutput,
+    ma_uint32 frameCount,
+    ma_format fmt,
+    ma_uint32 channels
+)
+{
+    if (!pOutput || frameCount == 0 || channels == 0) return;
+    const int actDsd = e ? e->activeDsdMode.load(std::memory_order_acquire) : 0;
+    if (actDsd == AE_DSD_MODE_NATIVE)
+    {
+        const size_t bps = ma_get_bytes_per_sample(fmt);
+        sautiflow::dsd::fill_native_dsd_silence(pOutput, static_cast<size_t>(frameCount) * channels * (bps > 0 ? bps : 4u));
+        return;
+    }
+    if (actDsd == AE_DSD_MODE_DOP && e != nullptr)
+    {
+        sautiflow::dsd::fill_dop_silence_frames(pOutput, frameCount, channels, fmt, e->dopCallbackMarkerToggle);
+        return;
+    }
+    const size_t bps = ma_get_bytes_per_sample(fmt);
+    std::memset(pOutput, (fmt == ma_format_u8) ? 0x80 : 0x00, static_cast<size_t>(frameCount) * channels * (bps > 0 ? bps : 4u));
+}
+
+static inline bool dsd_requires_hw_restart(AudioEngineHandle *e, int effectiveRate, ma_format decFmt)
+{
+    if (!e) return false;
+    const int actDsd = e->activeDsdMode.load(std::memory_order_acquire);
+    const int hwDsd = e->hwActiveDsdMode.load(std::memory_order_acquire);
+    const int targetHwBitMode = (actDsd == AE_DSD_MODE_DOP || actDsd == AE_DSD_MODE_NATIVE) ? actDsd : 0;
+    if (targetHwBitMode != hwDsd)
+    {
+        return true;
+    }
+    if (targetHwBitMode != 0)
+    {
+        if ((effectiveRate > 0 && static_cast<uint32_t>(effectiveRate) != e->device.sampleRate) ||
+            (decFmt != ma_format_unknown && decFmt != e->device.playback.format))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static inline void sync_active_dsd_from_decoder(AudioEngineHandle *e, ma_decoder *dec)
+{
+    if (!e) return;
+    AEDsdOutputMode dsdMode = AE_DSD_MODE_D2P;
+    uint32_t srcDsdRate = 0;
+    uint32_t outRate = 0;
+    ma_format outFmt = ma_format_unknown;
+    if (dec != nullptr &&
+        sautiflow::dsd::query_dsd_decoder_info(dec, &dsdMode, &srcDsdRate, &outRate, &outFmt, nullptr))
+    {
+        e->activeDsdMode.store(static_cast<int>(dsdMode), std::memory_order_release);
+        e->sourceDsdRate.store(static_cast<int>(srcDsdRate), std::memory_order_release);
+        if (outRate > 0) e->sourceSampleRate = static_cast<int>(outRate);
+        if (outFmt != ma_format_unknown) e->sourceFormat = outFmt;
+        if (dsd_requires_hw_restart(e, static_cast<int>(outRate), outFmt))
+        {
+            const int req = (outRate > 0) ? static_cast<int>(outRate) : (e->outputSampleRate > 0 ? e->outputSampleRate : 48000);
+            e->pendingAutoSampleRateMatchRate.store(req, std::memory_order_release);
+        }
+    }
+    else
+    {
+        e->activeDsdMode.store(0, std::memory_order_release);
+        e->sourceDsdRate.store(0, std::memory_order_release);
+        if (e->hwActiveDsdMode.load(std::memory_order_acquire) != 0)
+        {
+            const int req = (dec && dec->outputSampleRate > 0)
+                ? static_cast<int>(dec->outputSampleRate)
+                : (e->outputSampleRate > 0 ? e->outputSampleRate : 48000);
+            e->pendingAutoSampleRateMatchRate.store(req, std::memory_order_release);
+        }
+    }
 }
 
 static void sync_dac_valid_bit_depth(AudioEngineHandle *e)
@@ -5076,7 +5238,9 @@ static bool load_decoder_for_path(
     NetworkStreamState **outStream
 #endif
     ,
-    bool isPreload = false
+    bool isPreload = false,
+    int forceDsdMode = -1,
+    ma_format forceDopFormat = ma_format_unknown
 )
 {
     if (e == nullptr || outDecoder == nullptr || outLength == nullptr)
@@ -5120,18 +5284,60 @@ static bool load_decoder_for_path(
 
 #if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
     static ma_decoding_backend_vtable *pDecoders[] = {
+        &sautiflow::dsd::g_ma_decoding_backend_vtable_dsd,
         &g_ma_decoding_backend_vtable_ffmpeg
     };
 
     sautiflow::FFmpegDecoderInitConfig ffmpegInitCfg{ (int)targetRate, (int)outCh };
     cfg.pCustomBackendUserData = &ffmpegInitCfg;
     cfg.ppCustomBackendVTables = pDecoders;
-    cfg.customBackendCount = 1;
+    cfg.customBackendCount = 2;
 #else
+    static ma_decoding_backend_vtable *pDecoders[] = {
+        &sautiflow::dsd::g_ma_decoding_backend_vtable_dsd
+    };
     cfg.pCustomBackendUserData = nullptr;
-    cfg.ppCustomBackendVTables = nullptr;
-    cfg.customBackendCount = 0;
+    cfg.ppCustomBackendVTables = pDecoders;
+    cfg.customBackendCount = 1;
 #endif
+
+    {
+        auto &dsdOpts = sautiflow::dsd::tls_dsd_open_options();
+        dsdOpts = sautiflow::dsd::DsdOpenOptions{};
+        if (!isNetwork && sautiflow::dsd::is_dsd_file_path(path))
+        {
+            sautiflow::dsd::DsdFileHeader dsdHdr = sautiflow::dsd::parse_dsd_file_header_utf8(path.c_str());
+            if (dsdHdr.valid)
+            {
+                ma_format dopFmt = ma_format_s32;
+                int effMode = resolve_effective_dsd_mode(e, dsdHdr, &dopFmt);
+                if (forceDsdMode >= 0)
+                {
+                    effMode = forceDsdMode;
+                }
+                if (forceDopFormat == ma_format_s24 || forceDopFormat == ma_format_s32)
+                {
+                    dopFmt = forceDopFormat;
+                }
+                dsdOpts.mode = static_cast<AEDsdOutputMode>(effMode);
+                dsdOpts.requestedD2pRate = static_cast<uint32_t>(e ? e->dsdD2pSampleRate.load(std::memory_order_relaxed) : 0);
+                dsdOpts.dopFormat = dopFmt;
+                dsdOpts.d2pGainBoostDb = e ? e->dsdGainBoostDb.load(std::memory_order_relaxed) : 6.0f;
+                if (effMode == AE_DSD_MODE_DOP || effMode == AE_DSD_MODE_NATIVE)
+                {
+                    cfg = ma_decoder_config_init(ma_format_unknown, 0, 0);
+                    cfg.ppCustomBackendVTables = pDecoders;
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+                    cfg.pCustomBackendUserData = &ffmpegInitCfg;
+                    cfg.customBackendCount = 2;
+#else
+                    cfg.pCustomBackendUserData = nullptr;
+                    cfg.customBackendCount = 1;
+#endif
+                }
+            }
+        }
+    }
     // Build a 200-point seek table for local files so seeking on 1-hour+ mixtapes is instant (<1ms).
     // Keep 0 for network URLs to prevent socket scanning overhead over HTTP.
     cfg.seekPointCount = is_network_url(path) ? 0 : 200;
@@ -5208,6 +5414,22 @@ static bool load_decoder_for_path(
         e->sourceFormat = nativeFmt;
         e->sourceChannels = (int)nativeCh;
         e->sourceSampleRate = (nativeRate > 0) ? (int)nativeRate : (int)tmp->outputSampleRate;
+        AEDsdOutputMode qDsdMode = AE_DSD_MODE_D2P;
+        uint32_t qSrcDsdRate = 0;
+        uint32_t qDsdOutRate = 0;
+        ma_format qDsdOutFmt = ma_format_unknown;
+        if (sautiflow::dsd::query_dsd_decoder_info(tmp, &qDsdMode, &qSrcDsdRate, &qDsdOutRate, &qDsdOutFmt, nullptr))
+        {
+            e->activeDsdMode.store(static_cast<int>(qDsdMode), std::memory_order_release);
+            e->sourceDsdRate.store(static_cast<int>(qSrcDsdRate), std::memory_order_release);
+            if (qDsdOutRate > 0) e->sourceSampleRate = static_cast<int>(qDsdOutRate);
+            if (qDsdOutFmt != ma_format_unknown) e->sourceFormat = qDsdOutFmt;
+        }
+        else
+        {
+            e->activeDsdMode.store(0, std::memory_order_release);
+            e->sourceDsdRate.store(0, std::memory_order_release);
+        }
         if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
             !e->userOutputFormatExplicit.load(std::memory_order_relaxed) &&
             e->outputFormat == AE_FORMAT_F32 &&
@@ -5533,6 +5755,28 @@ static void apply_initial_track_loudness(AudioEngineHandle *e, ma_decoder *decod
         float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
         std::string art, tit, alb;
         bool hasTags = sautiflow::read_file_tags_ffmpeg(path.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
+        if (!hasTags && sautiflow::dsd::is_dsd_file_path(path))
+        {
+            sautiflow::dsd::DsdMetadata dsdMeta = sautiflow::dsd::read_dsd_file_metadata_utf8(path.c_str());
+            if (dsdMeta.hasReplayGainTrack || dsdMeta.hasReplayGainAlbum)
+            {
+                trackGain = dsdMeta.replayGainTrackDb;
+                trackPeak = dsdMeta.replayGainTrackPeak;
+                albumGain = dsdMeta.replayGainAlbumDb;
+                albumPeak = dsdMeta.replayGainAlbumPeak;
+                hasTags = true;
+            }
+        }
+        {
+            AEDsdOutputMode dsdModeTmp = AE_DSD_MODE_D2P;
+            if (sautiflow::dsd::query_dsd_decoder_info(decoder, &dsdModeTmp) &&
+                (dsdModeTmp == AE_DSD_MODE_DOP || dsdModeTmp == AE_DSD_MODE_NATIVE))
+            {
+                e->currentTrackNormalizerGain.store(1.0f, std::memory_order_relaxed);
+                e->currentTrackReplayGain.store(1.0f, std::memory_order_relaxed);
+                return;
+            }
+        }
         if (hasTags && (trackGain != 0.0f || albumGain != 0.0f))
         {
             const float gainDb = (trackGain != 0.0f) ? trackGain : albumGain;
@@ -5698,12 +5942,32 @@ static void worker_loop(AudioEngineHandle *e)
                 (void)ma_decoder_get_data_format(newCurrent, &nativeFmt, &nativeCh, &nativeRateVal, nullptr, 0);
                 const int effectiveNativeRate = (nativeRateVal > 0) ? (int)nativeRateVal : (int)newCurrent->outputSampleRate;
 
+                int dsdAwareNativeRate = effectiveNativeRate;
+                {
+                    AEDsdOutputMode qm = AE_DSD_MODE_D2P;
+                    uint32_t qRate = 0;
+                    ma_format qFmt = ma_format_unknown;
+                    if (sautiflow::dsd::query_dsd_decoder_info(newCurrent, &qm, nullptr, &qRate, &qFmt, nullptr))
+                    {
+                        if (qRate > 0) dsdAwareNativeRate = static_cast<int>(qRate);
+                        if (qFmt != ma_format_unknown) nativeFmt = qFmt;
+                    }
+                }
+
                 bool needRestart = false;
+                if (dsd_requires_hw_restart(e, dsdAwareNativeRate, nativeFmt))
+                {
+                    if (dsdAwareNativeRate > 0)
+                    {
+                        e->outputSampleRate = dsdAwareNativeRate;
+                    }
+                    needRestart = true;
+                }
                 if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
                 {
-                    if (effectiveNativeRate > 0 && effectiveNativeRate != e->outputSampleRate)
+                    if (dsdAwareNativeRate > 0 && dsdAwareNativeRate != e->outputSampleRate)
                     {
-                        e->outputSampleRate = effectiveNativeRate;
+                        e->outputSampleRate = dsdAwareNativeRate;
                         needRestart = true;
                     }
                 }
@@ -5966,8 +6230,34 @@ static void worker_loop(AudioEngineHandle *e)
                     float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
                     std::string art, tit, alb;
                     bool hasTags = sautiflow::read_file_tags_ffmpeg(nextPath.c_str(), art, tit, alb, trackGain, albumGain, trackPeak, albumPeak);
+                    if (!hasTags && sautiflow::dsd::is_dsd_file_path(nextPath))
+                    {
+                        sautiflow::dsd::DsdMetadata dsdMeta = sautiflow::dsd::read_dsd_file_metadata_utf8(nextPath.c_str());
+                        if (dsdMeta.hasReplayGainTrack || dsdMeta.hasReplayGainAlbum)
+                        {
+                            trackGain = dsdMeta.replayGainTrackDb;
+                            trackPeak = dsdMeta.replayGainTrackPeak;
+                            albumGain = dsdMeta.replayGainAlbumDb;
+                            albumPeak = dsdMeta.replayGainAlbumPeak;
+                            hasTags = true;
+                        }
+                    }
+                    bool skipDsdBitPerfectLufs = false;
+                    {
+                        AEDsdOutputMode dsdModeTmp = AE_DSD_MODE_D2P;
+                        if (sautiflow::dsd::query_dsd_decoder_info(decoded, &dsdModeTmp) &&
+                            (dsdModeTmp == AE_DSD_MODE_DOP || dsdModeTmp == AE_DSD_MODE_NATIVE))
+                        {
+                            skipDsdBitPerfectLufs = true;
+                        }
+                    }
                     const float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
-                    if (hasTags && (trackGain != 0.0f || albumGain != 0.0f))
+                    if (skipDsdBitPerfectLufs)
+                    {
+                        e->nextTrackReplayGain.store(1.0f, std::memory_order_relaxed);
+                        e->nextTrackNormalizerGain.store(1.0f, std::memory_order_relaxed);
+                    }
+                    else if (hasTags && (trackGain != 0.0f || albumGain != 0.0f))
                     {
                         const float gainDb = (trackGain != 0.0f) ? trackGain : albumGain;
                         float peak = (trackGain != 0.0f) ? trackPeak : albumPeak;
@@ -6311,6 +6601,26 @@ static bool evaluate_direct_pcm_eligibility(AudioEngineHandle *e)
 {
     if (e == nullptr)
         return false;
+    if (!e->hasCurrent || e->currentDecoder == nullptr)
+        return false;
+    if (e->isPushStreamMode)
+        return false;
+
+    const int actDsdMode = e->activeDsdMode.load(std::memory_order_acquire);
+    if (actDsdMode == AE_DSD_MODE_DOP || actDsdMode == AE_DSD_MODE_NATIVE)
+    {
+        const int decRate = (int)e->currentDecoder->outputSampleRate;
+        const int hwRate = (e->device.sampleRate > 0) ? (int)e->device.sampleRate : e->outputSampleRate;
+        const int decCh = (int)e->currentDecoder->outputChannels;
+        const int hwCh = (e->channels > 0) ? e->channels : 2;
+        const ma_format decFmt = e->currentDecoder->outputFormat;
+        const ma_format hwFmt = e->device.playback.format;
+        const bool expectedDsdFmt = (actDsdMode == AE_DSD_MODE_NATIVE)
+            ? (decFmt == ma_format_s32 && hwFmt == ma_format_s32)
+            : ((decFmt == ma_format_s24 || decFmt == ma_format_s32) && decFmt == hwFmt);
+        return expectedDsdFmt && decRate > 0 && decRate == hwRate && decCh > 0 && decCh == hwCh;
+    }
+
     if (!e->exclusiveModeEnabled.load(std::memory_order_relaxed))
         return false;
     if (!e->hasCurrent || e->currentDecoder == nullptr)
@@ -6539,6 +6849,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 #endif
                             e->currentLengthFrames = e->nextLengthFrames;
                             e->currentIndex = e->nextIndex;
+                            sync_active_dsd_from_decoder(e, e->currentDecoder);
                             e->fadingOutTrackBpm.store(e->currentTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -6985,6 +7296,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->currentLengthFrames = e->nextLengthFrames;
                             e->currentIndex = e->nextIndex;
                             reset_playback_position(e, 0);
+                            sync_active_dsd_from_decoder(e, e->currentDecoder);
 
                             if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
                             {
@@ -7401,6 +7713,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->hasCurrent = true;
                     reset_playback_position(e, 0);
                     e->abRepeatEnabled.store(false, std::memory_order_release);
+                    sync_active_dsd_from_decoder(e, e->currentDecoder);
 
                     if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
                     {
@@ -7636,7 +7949,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
     if (e->rateTransitionInProgress.load(std::memory_order_acquire))
     {
         const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-        std::memset(pOutput, 0, outBytes);
+        (void)outBytes;
+        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
         return;
     }
 
@@ -7668,7 +7982,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
     if (!e->isPlaying.load(std::memory_order_relaxed))
     {
         const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-        std::memset(pOutput, 0, outBytes);
+        (void)outBytes;
+        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
         return;
     }
 
@@ -7677,7 +7992,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
     if (startTime != -1ULL && absTime < startTime)
     {
         const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-        std::memset(pOutput, 0, outBytes);
+        (void)outBytes;
+        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
         e->engineAbsoluteTime.fetch_add(frameCount, std::memory_order_relaxed);
         return;
     }
@@ -7688,13 +8004,34 @@ static void decode_producer_loop(AudioEngineHandle *e)
         const size_t bytesNeeded = (size_t)frameCount * bpf;
         if (e->ringBufferFlushing.load(std::memory_order_relaxed))
         {
-            std::memset(pOutput, 0, bytesNeeded);
+            fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
             return;
         }
         size_t bytesRead = e->pcmDirectRingBuffer.read(reinterpret_cast<uint8_t *>(pOutput), bytesNeeded);
         if (bytesRead < bytesNeeded)
         {
-            std::memset(reinterpret_cast<uint8_t *>(pOutput) + bytesRead, 0, bytesNeeded - bytesRead);
+            const size_t framesDone = (bpf > 0) ? (bytesRead / bpf) : 0;
+            const size_t validBytes = framesDone * bpf;
+            if (validBytes < bytesNeeded && bpf > 0)
+            {
+                // Pad partial trailing frame (if any) and remaining frames with DSD/DoP silence
+                if (bytesRead > validBytes)
+                {
+                    const int actDsd = e->activeDsdMode.load(std::memory_order_acquire);
+                    uint8_t fillB = (actDsd == AE_DSD_MODE_NATIVE || actDsd == AE_DSD_MODE_DOP) ? sautiflow::dsd::kDsdSilenceByte : 0x00;
+                    std::memset(reinterpret_cast<uint8_t *>(pOutput) + bytesRead, fillB, (validBytes + bpf) - bytesRead);
+                }
+                const ma_uint32 startFrame = static_cast<ma_uint32>((bytesRead > validBytes) ? (framesDone + 1) : framesDone);
+                if (startFrame < frameCount)
+                {
+                    fill_output_silence(
+                        e,
+                        reinterpret_cast<uint8_t *>(pOutput) + static_cast<size_t>(startFrame) * bpf,
+                        frameCount - startFrame,
+                        pDevice->playback.format,
+                        pDevice->playback.channels);
+                }
+            }
         }
         if (bpf > 0)
         {
@@ -7724,7 +8061,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
         if (!deviceResamplerLock.owns_lock())
         {
             const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-            std::memset(pOutput, 0, outBytes);
+            (void)outBytes;
+        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
             return;
         }
     }
@@ -9900,6 +10238,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
         int sampleRate = 48000;
         int channels = 2;
         AEAudioFormat wireFormat = AE_FORMAT_S24;
+        bool isNativeDsdMode = false;
+        bool isDopMode = false;
+        bool hasNativeDsdCap = false;
+        bool hasDopCap = false;
+        bool usbDopMarkerToggle = false;
         int bitDepth = 24;
         int bytesPerSample = 3;
         int bytesPerFrame = 6;
@@ -9931,8 +10274,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
             return jniHasUsbAudioDevice();
         }
 
-        bool init(AudioEngineHandle *e, int targetSampleRate, int targetChannels)
+        bool init(AudioEngineHandle *e, int targetSampleRate, int targetChannels, bool wantNativeDsd = false, bool wantDop = false)
         {
+            isNativeDsdMode = false;
+            isDopMode = false;
+            usbDopMarkerToggle = false;
             release();
             if (!e) return false;
             engine = e;
@@ -10019,18 +10365,42 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
             }
 
+            hasNativeDsdCap = sautiflow::usb::profile_supports_native_dsd(profile);
+            hasDopCap = sautiflow::usb::profile_supports_dop(profile, pUac2Rates);
+            e->nativeDsdSupported.store(hasNativeDsdCap, std::memory_order_release);
+            e->dopSupported.store(hasDopCap, std::memory_order_release);
+
             bool explicitFmt = e->userOutputFormatExplicit.load(std::memory_order_relaxed);
+            const AEAudioFormat usbPrefFmt = wantNativeDsd
+                ? AE_FORMAT_S32
+                : (wantDop ? ((e->outputFormat == AE_FORMAT_S24) ? AE_FORMAT_S24 : AE_FORMAT_S32) : e->outputFormat);
+            const bool usbExplicitFmt = (wantNativeDsd || wantDop) ? true : explicitFmt;
             sautiflow::usb::UsbSelectedConfig selected = sautiflow::usb::select_best_uac_alt_setting(
                 profile,
                 targetSampleRate,
                 targetChannels,
-                e->outputFormat,
-                explicitFmt,
-                pUac2Rates);
+                usbPrefFmt,
+                usbExplicitFmt,
+                pUac2Rates,
+                wantNativeDsd);
 
             if (!selected.found)
             {
                 engine_log("AndroidUsbDacSink: select_best_uac_alt_setting returned no candidate");
+                release();
+                return false;
+            }
+            if (wantNativeDsd && (!selected.alt.isNativeDsd || selected.alt.subslotSize != 4 || selected.alt.bitResolution < 32 || selected.sampleRate != targetSampleRate))
+            {
+                engine_log("AndroidUsbDacSink: DAC rejected Native DSD carrier rate=%d (got rate=%d, raw=%d, subslot=%d, bits=%d)",
+                           targetSampleRate, selected.sampleRate, selected.alt.isNativeDsd ? 1 : 0, selected.alt.subslotSize, selected.alt.bitResolution);
+                release();
+                return false;
+            }
+            if (wantDop && (selected.alt.isNativeDsd || selected.alt.isFloat || selected.alt.bitResolution < 24 || selected.sampleRate != targetSampleRate))
+            {
+                engine_log("AndroidUsbDacSink: DAC rejected DoP carrier rate=%d (got rate=%d, float=%d, bits=%d)",
+                           targetSampleRate, selected.sampleRate, selected.alt.isFloat ? 1 : 0, selected.alt.bitResolution);
                 release();
                 return false;
             }
@@ -10049,6 +10419,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
             sampleRate = selected.sampleRate;
             channels = static_cast<int>(activeAlt.channels);
             wireFormat = sautiflow::usb::uac_alt_to_ae_format(activeAlt);
+            isNativeDsdMode = wantNativeDsd;
+            isDopMode = wantDop;
             bytesPerSample = static_cast<int>(activeAlt.subslotSize);
             bytesPerFrame = std::max(1, channels * bytesPerSample);
             bitDepth = (activeAlt.bitResolution > 0) ? static_cast<int>(activeAlt.bitResolution) : (bytesPerSample * 8);
@@ -10110,7 +10482,25 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     release();
                     return false;
                 }
-                outBuffers[i].assign(urbBufBytes, (wireFormat == AE_FORMAT_U8) ? 0x80 : 0x00);
+                if (isNativeDsdMode)
+                {
+                    outBuffers[i].assign(urbBufBytes, sautiflow::dsd::kDsdSilenceByte);
+                }
+                else if (isDopMode)
+                {
+                    outBuffers[i].resize(urbBufBytes);
+                    const uint32_t frameBytes = std::max<uint32_t>(1u, static_cast<uint32_t>(activeAlt.channels) * static_cast<uint32_t>(activeAlt.subslotSize));
+                    sautiflow::dsd::fill_dop_silence_frames(
+                        outBuffers[i].data(),
+                        urbBufBytes / frameBytes,
+                        activeAlt.channels,
+                        sautiflow::usb::ae_to_ma_format_usb(wireFormat),
+                        usbDopMarkerToggle);
+                }
+                else
+                {
+                    outBuffers[i].assign(urbBufBytes, (wireFormat == AE_FORMAT_U8) ? 0x80 : 0x00);
+                }
             }
 
             if (activeAlt.epFeedbackInAddr != 0)
@@ -10183,7 +10573,23 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 if (totalBytes > 0)
                 {
-                    std::memset(outBuffers[idx].data(), (wireFormat == AE_FORMAT_U8) ? 0x80 : 0x00, totalBytes);
+                    if (isNativeDsdMode)
+                    {
+                        sautiflow::dsd::fill_native_dsd_silence(outBuffers[idx].data(), totalBytes);
+                    }
+                    else if (isDopMode)
+                    {
+                        sautiflow::dsd::fill_dop_silence_frames(
+                            outBuffers[idx].data(),
+                            static_cast<uint64_t>(totalFrames),
+                            static_cast<uint32_t>(channels),
+                            sautiflow::usb::ae_to_ma_format_usb(wireFormat),
+                            usbDopMarkerToggle);
+                    }
+                    else
+                    {
+                        std::memset(outBuffers[idx].data(), (wireFormat == AE_FORMAT_U8) ? 0x80 : 0x00, totalBytes);
+                    }
                 }
             }
             else
@@ -10609,7 +11015,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 std::vector<int> candidates;
                 const AEAudioFormat reqFmt = (this->engine != nullptr) ? this->engine->outputFormat : AE_FORMAT_F32;
                 const bool explicitFmt = (this->engine != nullptr) && this->engine->userOutputFormatExplicit.load(std::memory_order_relaxed);
-                if (explicitFmt)
+                const bool wantDopTrack = wantDirect && (this->engine != nullptr) &&
+                                          (this->engine->activeDsdMode.load(std::memory_order_acquire) == AE_DSD_MODE_DOP);
+                if (wantDopTrack)
+                {
+                    candidates = (reqFmt == AE_FORMAT_S24)
+                        ? std::vector<int>{21 /* 24-bit packed */, 22 /* 32-bit int */}
+                        : std::vector<int>{22 /* 32-bit int */, 21 /* 24-bit packed */};
+                }
+                else if (explicitFmt)
                 {
                     switch (reqFmt)
                     {
@@ -10655,6 +11069,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
 
                 int chosenEncoding = candidates[0];
+                bool directSupportedFound = false;
                 if (wantDirect && isDirectMethod)
                 {
                     for (int cand : candidates)
@@ -10673,9 +11088,16 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         if (sup == JNI_TRUE)
                         {
                             chosenEncoding = cand;
+                            directSupportedFound = true;
                             break;
                         }
                     }
+                }
+                if (wantDopTrack && !directSupportedFound)
+                {
+                    engine_log("AndroidAudioTrackSink: Direct playback not supported for DoP rate=%d -> fallback", sampleRate);
+                    env->DeleteLocalRef(attrObj);
+                    break;
                 }
 
                 jmethodID getMinBuf = env->GetStaticMethodID(trackClass, "getMinBufferSize", "(III)I");
@@ -10899,6 +11321,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
             while (isRunning.load(std::memory_order_relaxed))
             {
+                const bool isDopDirect = (engine->activeDsdMode.load(std::memory_order_acquire) == AE_DSD_MODE_DOP) &&
+                                         engine->isDirectPcmActive.load(std::memory_order_acquire) &&
+                                         (encoding == 21 || encoding == 22);
+                if (isDopDirect)
+                {
+                    data_callback(&engine->device, directBufferAddress, nullptr, (ma_uint32)framesPerBuffer);
+                }
+                else
+                {
                 std::memset(renderBuffer.data(), 0, totalSamples * sizeof(float));
                 data_callback(&engine->device, renderBuffer.data(), nullptr, (ma_uint32)framesPerBuffer);
 
@@ -10921,6 +11352,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 else
                 {
                     std::memcpy(directBufferAddress, renderBuffer.data(), totalSamples * sizeof(float));
+                }
                 }
 
                 // CRITICAL FIX: Reset the java.nio.ByteBuffer position to 0 before every write!
@@ -11716,12 +12148,32 @@ extern "C"
             (void)ma_decoder_get_data_format(newCurrent, &nativeFmt, &nativeCh, &nativeRateVal, nullptr, 0);
             const int effectiveNativeRate = (nativeRateVal > 0) ? (int)nativeRateVal : (int)newCurrent->outputSampleRate;
 
+            int dsdAwareNativeRate = effectiveNativeRate;
+            {
+                AEDsdOutputMode qm = AE_DSD_MODE_D2P;
+                uint32_t qRate = 0;
+                ma_format qFmt = ma_format_unknown;
+                if (sautiflow::dsd::query_dsd_decoder_info(newCurrent, &qm, nullptr, &qRate, &qFmt, nullptr))
+                {
+                    if (qRate > 0) dsdAwareNativeRate = static_cast<int>(qRate);
+                    if (qFmt != ma_format_unknown) nativeFmt = qFmt;
+                }
+            }
+
             bool needRestart = false;
+            if (dsd_requires_hw_restart(e, dsdAwareNativeRate, nativeFmt))
+            {
+                if (dsdAwareNativeRate > 0)
+                {
+                    e->outputSampleRate = dsdAwareNativeRate;
+                }
+                needRestart = true;
+            }
             if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
             {
-                if (effectiveNativeRate > 0 && effectiveNativeRate != e->outputSampleRate)
+                if (dsdAwareNativeRate > 0 && dsdAwareNativeRate != e->outputSampleRate)
                 {
-                    e->outputSampleRate = effectiveNativeRate;
+                    e->outputSampleRate = dsdAwareNativeRate;
                     needRestart = true;
                 }
             }
@@ -11873,6 +12325,18 @@ extern "C"
             {
                 return false;
             }
+            {
+                AEDsdOutputMode nMode = AE_DSD_MODE_D2P;
+                uint32_t nRate = 0;
+                ma_format nFmt = ma_format_unknown;
+                const bool nextIsDsd = sautiflow::dsd::query_dsd_decoder_info(e->nextDecoder, &nMode, nullptr, &nRate, &nFmt, nullptr);
+                const int targetBitMode = (nextIsDsd && (nMode == AE_DSD_MODE_DOP || nMode == AE_DSD_MODE_NATIVE)) ? static_cast<int>(nMode) : 0;
+                if (targetBitMode != e->hwActiveDsdMode.load(std::memory_order_acquire) ||
+                    (targetBitMode != 0 && (static_cast<uint32_t>(nRate) != e->device.sampleRate || nFmt != e->device.playback.format)))
+                {
+                    return false;
+                }
+            }
             if (e->hasCurrent && e->currentDecoder != nullptr)
             {
                 uninit_decoder_slot(
@@ -11892,6 +12356,7 @@ extern "C"
             e->currentLengthFrames = e->nextLengthFrames;
             e->currentIndex = idx;
             e->hasCurrent = true;
+            sync_active_dsd_from_decoder(e, e->currentDecoder);
             e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
             e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
             e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
@@ -13604,6 +14069,36 @@ extern "C"
             int targetOutputRate = e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed)
                                    ? e->outputSampleRate
                                    : e->userOutputSampleRate;
+            int curSrcDsdRate = e->sourceDsdRate.load(std::memory_order_acquire);
+            int desiredDsdMode = e->activeDsdMode.load(std::memory_order_acquire);
+            const bool reevalDsd = e->reevalDsdOnRestart.exchange(false, std::memory_order_acq_rel);
+            {
+                std::string trackPathSnap;
+                {
+                    std::lock_guard<std::mutex> pl(e->playlistMutex);
+                    if (e->currentIndex >= 0 && e->currentIndex < (int)e->playlist.size())
+                    {
+                        trackPathSnap = e->playlist[e->currentIndex];
+                    }
+                }
+                if (!trackPathSnap.empty() && sautiflow::dsd::is_dsd_file_path(trackPathSnap) &&
+                    (reevalDsd || desiredDsdMode == 0 || curSrcDsdRate == 0))
+                {
+                    sautiflow::dsd::DsdFileHeader hdr = sautiflow::dsd::parse_dsd_file_header_utf8(trackPathSnap.c_str());
+                    if (hdr.valid)
+                    {
+                        curSrcDsdRate = static_cast<int>(hdr.dsdSampleRate);
+                        desiredDsdMode = resolve_effective_dsd_mode(e, hdr);
+                    }
+                }
+            }
+            const bool isDsdTrackRestart = (curSrcDsdRate >= 2822400 && desiredDsdMode > 0);
+            const uint32_t d2pFallbackRate = isDsdTrackRestart
+                ? sautiflow::dsd::default_d2p_rate_for_dsd(
+                      static_cast<uint32_t>(curSrcDsdRate),
+                      static_cast<uint32_t>(e->dsdD2pSampleRate.load(std::memory_order_relaxed)))
+                : 0u;
+
             int newRate = targetOutputRate > 0 ? targetOutputRate : 0;
             int newCh = e->outputChannels > 0 ? e->outputChannels : 2;
 
@@ -13615,6 +14110,30 @@ extern "C"
                 wantExclusive = true;
             }
 #endif
+            if (isDsdTrackRestart)
+            {
+                if (desiredDsdMode == AE_DSD_MODE_NATIVE)
+                {
+                    newRate = curSrcDsdRate / 32;
+                    wantExclusive = true;
+                }
+                else if (desiredDsdMode == AE_DSD_MODE_DOP)
+                {
+                    newRate = curSrcDsdRate / 16;
+                    wantExclusive = true;
+                }
+                else if (desiredDsdMode == AE_DSD_MODE_D2P)
+                {
+                    if (e->userOutputSampleRate > 0)
+                    {
+                        newRate = e->userOutputSampleRate;
+                    }
+                    else if (wantExclusive || e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
+                    {
+                        newRate = static_cast<int>(d2pFallbackRate);
+                    }
+                }
+            }
 
             // Exclusive mode requires an explicit sample rate (never 0)
             if (wantExclusive && newRate == 0)
@@ -13669,6 +14188,19 @@ extern "C"
                 cfg.periods = 3;
             }
 
+            const ma_format origCfgFmt = cfg.playback.format;
+            if (isDsdTrackRestart)
+            {
+                if (desiredDsdMode == AE_DSD_MODE_NATIVE)
+                {
+                    cfg.playback.format = ma_format_s32;
+                }
+                else if (desiredDsdMode == AE_DSD_MODE_DOP)
+                {
+                    cfg.playback.format = (e->outputFormat == AE_FORMAT_S24) ? ma_format_s24 : ma_format_s32;
+                }
+            }
+
             engine_log("DEVICE INIT REQUESTED:\n  requestedRate=%u\n  shareMode=%s\n  exclusive=%s",
                        cfg.sampleRate,
                        wantExclusive ? "exclusive" : "shared",
@@ -13686,12 +14218,59 @@ extern "C"
                     e->pUsbDacSink = new AndroidUsbDacSink();
                 }
                 auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink);
-                int usbTargetRate = (e->userOutputSampleRate > 0)
-                                        ? e->userOutputSampleRate
-                                        : ((e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit);
-                if (usbSink->init(e, usbTargetRate, newCh))
+                if (isDsdTrackRestart)
                 {
-                    initOk = true;
+                    if (desiredDsdMode == AE_DSD_MODE_NATIVE)
+                    {
+                        const int natRate = curSrcDsdRate / 32;
+                        if (usbSink->init(e, natRate, newCh, /*wantNativeDsd=*/true, /*wantDop=*/false))
+                        {
+                            initOk = true;
+                        }
+                        else
+                        {
+                            engine_log("USB DAC declined Native DSD @ %d Hz; cascading to DoP...", natRate);
+                            desiredDsdMode = AE_DSD_MODE_DOP;
+                        }
+                    }
+                    if (!initOk && desiredDsdMode == AE_DSD_MODE_DOP)
+                    {
+                        const int dopRate = curSrcDsdRate / 16;
+                        if (usbSink->init(e, dopRate, newCh, /*wantNativeDsd=*/false, /*wantDop=*/true))
+                        {
+                            initOk = true;
+                        }
+                        else
+                        {
+                            engine_log("USB DAC declined DoP @ %d Hz; cascading cleanly to D2P...", dopRate);
+                            desiredDsdMode = AE_DSD_MODE_D2P;
+                        }
+                    }
+                    if (!initOk && desiredDsdMode == AE_DSD_MODE_D2P)
+                    {
+                        int d2pUsbRate = (e->userOutputSampleRate > 0)
+                            ? e->userOutputSampleRate
+                            : static_cast<int>(d2pFallbackRate);
+                        e->sourceSampleRate = static_cast<int>(d2pFallbackRate);
+                        if (usbSink->init(e, d2pUsbRate, newCh, false, false))
+                        {
+                            initOk = true;
+                        }
+                    }
+                }
+                else
+                {
+                    int usbTargetRate = (e->userOutputSampleRate > 0)
+                                            ? e->userOutputSampleRate
+                                            : ((e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit);
+                    if (usbSink->init(e, usbTargetRate, newCh, false, false))
+                    {
+                        initOk = true;
+                    }
+                }
+
+                if (initOk)
+                {
                     e->activeBackend.store(AE_BACKEND_USB_DIRECT, std::memory_order_release);
                     engine_log("USB Direct DAC sink initialized successfully (rate=%d, ch=%d, bits=%d)",
                                usbSink->sampleRate, usbSink->channels, usbSink->bitDepth);
@@ -13710,23 +14289,85 @@ extern "C"
                 }
                 auto *sink = reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink);
                 bool wantDirect = (targetBackend == AE_BACKEND_DIRECT_HIRES);
-                int targetRate = (wantDirect && e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit;
 
-                // AudioTrack sink internally consumes float PCM from data_callback and converts to S24 packed if required
-                e->device.playback.format = ma_format_f32;
-                e->device.playback.channels = (ma_uint32)newCh;
-                e->device.sampleRate = (ma_uint32)targetRate;
-                e->device.pUserData = e;
-
-                if (sink->init(e, targetRate, newCh, wantDirect))
+                if (isDsdTrackRestart)
                 {
-                    initOk = true;
-                    e->activeBackend.store(targetBackend, std::memory_order_release);
-                    engine_log("AudioTrack sink initialized successfully (direct=%s, rate=%d)", wantDirect ? "true" : "false", targetRate);
+                    if (desiredDsdMode == AE_DSD_MODE_NATIVE)
+                    {
+                        desiredDsdMode = wantDirect ? AE_DSD_MODE_DOP : AE_DSD_MODE_D2P;
+                    }
+                    if (desiredDsdMode == AE_DSD_MODE_DOP && !wantDirect)
+                    {
+                        desiredDsdMode = AE_DSD_MODE_D2P;
+                    }
+                    if (desiredDsdMode == AE_DSD_MODE_DOP)
+                    {
+                        const int dopRate = curSrcDsdRate / 16;
+                        e->activeDsdMode.store(AE_DSD_MODE_DOP, std::memory_order_release);
+                        e->device.playback.format = ma_format_s32;
+                        e->device.playback.channels = (ma_uint32)newCh;
+                        e->device.sampleRate = (ma_uint32)dopRate;
+                        e->device.pUserData = e;
+                        if (sink->init(e, dopRate, newCh, true) &&
+                            (sink->encoding == 21 || sink->encoding == 22) &&
+                            sink->sampleRate == dopRate)
+                        {
+                            initOk = true;
+                            e->device.playback.format = (sink->encoding == 21) ? ma_format_s24 : ma_format_s32;
+                            e->device.sampleRate = (ma_uint32)sink->sampleRate;
+                            e->activeBackend.store(targetBackend, std::memory_order_release);
+                            engine_log("AudioTrack DoP sink initialized (rate=%d, enc=%d)", sink->sampleRate, sink->encoding);
+                        }
+                        else
+                        {
+                            sink->release();
+                            engine_log("AudioTrack DoP declined @ %d Hz -> cascading safely to D2P...", dopRate);
+                            desiredDsdMode = AE_DSD_MODE_D2P;
+                        }
+                    }
+                    if (!initOk && desiredDsdMode == AE_DSD_MODE_D2P)
+                    {
+                        e->activeDsdMode.store(AE_DSD_MODE_D2P, std::memory_order_release);
+                        e->sourceSampleRate = static_cast<int>(d2pFallbackRate);
+                        int targetRate = (e->userOutputSampleRate > 0)
+                            ? e->userOutputSampleRate
+                            : (wantDirect ? static_cast<int>(d2pFallbackRate) : srForFilterInit);
+                        e->device.playback.format = ma_format_f32;
+                        e->device.playback.channels = (ma_uint32)newCh;
+                        e->device.sampleRate = (ma_uint32)targetRate;
+                        e->device.pUserData = e;
+                        if (sink->init(e, targetRate, newCh, wantDirect))
+                        {
+                            initOk = true;
+                            e->activeBackend.store(targetBackend, std::memory_order_release);
+                            engine_log("AudioTrack D2P sink initialized (direct=%s, rate=%d)", wantDirect ? "true" : "false", targetRate);
+                        }
+                        else
+                        {
+                            engine_log("AudioTrack sink init failed; falling back to default miniaudio device...");
+                        }
+                    }
                 }
                 else
                 {
-                    engine_log("AudioTrack sink init failed; falling back to default miniaudio device...");
+                    int targetRate = (wantDirect && e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit;
+
+                    // AudioTrack sink internally consumes float PCM from data_callback and converts to S24 packed if required
+                    e->device.playback.format = ma_format_f32;
+                    e->device.playback.channels = (ma_uint32)newCh;
+                    e->device.sampleRate = (ma_uint32)targetRate;
+                    e->device.pUserData = e;
+
+                    if (sink->init(e, targetRate, newCh, wantDirect))
+                    {
+                        initOk = true;
+                        e->activeBackend.store(targetBackend, std::memory_order_release);
+                        engine_log("AudioTrack sink initialized successfully (direct=%s, rate=%d)", wantDirect ? "true" : "false", targetRate);
+                    }
+                    else
+                    {
+                        engine_log("AudioTrack sink init failed; falling back to default miniaudio device...");
+                    }
                 }
             }
 #endif
@@ -13746,6 +14387,31 @@ extern "C"
                     }
                 }
 #endif
+                if (isDsdTrackRestart && (desiredDsdMode == AE_DSD_MODE_NATIVE || desiredDsdMode == AE_DSD_MODE_DOP))
+                {
+                    if (desiredDsdMode == AE_DSD_MODE_NATIVE)
+                    {
+                        desiredDsdMode = AE_DSD_MODE_DOP;
+                        cfg.sampleRate = static_cast<ma_uint32>(curSrcDsdRate / 16);
+                        cfg.playback.format = (e->outputFormat == AE_FORMAT_S24) ? ma_format_s24 : ma_format_s32;
+                    }
+                    bool allowMiniaudioDop = false;
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+                    allowMiniaudioDop = wantExclusive && e->exclusiveModeEnabled.load(std::memory_order_relaxed);
+#endif
+                    if (desiredDsdMode == AE_DSD_MODE_DOP && !allowMiniaudioDop)
+                    {
+                        engine_log("miniaudio backend does not support DoP in current mode -> cascading safely to D2P");
+                        desiredDsdMode = AE_DSD_MODE_D2P;
+                        cfg.playback.format = origCfgFmt;
+                        newRate = (e->userOutputSampleRate > 0)
+                            ? e->userOutputSampleRate
+                            : (wantExclusive ? static_cast<int>(d2pFallbackRate) : targetOutputRate);
+                        cfg.sampleRate = static_cast<ma_uint32>(newRate > 0 ? newRate : 0);
+                        e->sampleRate = (newRate > 0) ? newRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+                    }
+                }
+
                 if (wantExclusive)
                 {
 #if defined(__APPLE__)
@@ -13768,13 +14434,55 @@ extern "C"
 
                     if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
                     {
-                        initOk = true;
-                        engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
+                        if (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP &&
+                            (e->device.sampleRate != cfg.sampleRate ||
+                             (e->device.playback.format != ma_format_s24 && e->device.playback.format != ma_format_s32)))
+                        {
+                            engine_log("Exclusive DoP opened with mismatched rate/fmt (%u Hz, fmt=%d) -> tearing down!",
+                                       e->device.sampleRate, (int)e->device.playback.format);
+                            ma_device_uninit(&e->device);
+                            initOk = false;
+                        }
+                        else
+                        {
+                            initOk = true;
+                            engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
+                        }
                     }
-                    else
+                    else if (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP)
+                    {
+                        // Retry alternate DoP bit container (S32 <-> S24) before falling back to D2P
+                        cfg.playback.format = (cfg.playback.format == ma_format_s32) ? ma_format_s24 : ma_format_s32;
+                        if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
+                        {
+                            if (e->device.sampleRate == cfg.sampleRate &&
+                                (e->device.playback.format == ma_format_s24 || e->device.playback.format == ma_format_s32))
+                            {
+                                initOk = true;
+                                engine_log("Exclusive DoP initialized on alternate container fmt=%d @ %u Hz.",
+                                           (int)e->device.playback.format, e->device.sampleRate);
+                            }
+                            else
+                            {
+                                ma_device_uninit(&e->device);
+                                initOk = false;
+                            }
+                        }
+                    }
+                    if (!initOk)
                     {
                         engine_log("Hardware declined Exclusive Mode config at %u Hz. Falling back to Shared Mode...", cfg.sampleRate);
                     }
+                }
+
+                if (!initOk && isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP)
+                {
+                    engine_log("Exclusive DoP unavailable @ %u Hz -> cascading safely to D2P before Shared fallback!", cfg.sampleRate);
+                    desiredDsdMode = AE_DSD_MODE_D2P;
+                    cfg.playback.format = origCfgFmt;
+                    newRate = (e->userOutputSampleRate > 0) ? e->userOutputSampleRate : static_cast<int>(d2pFallbackRate);
+                    cfg.sampleRate = static_cast<ma_uint32>(newRate > 0 ? newRate : 0);
+                    e->sampleRate = (newRate > 0) ? newRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
                 }
 
                 if (!initOk)
@@ -13836,6 +14544,33 @@ extern "C"
                 set_last_error(e, "Failed to re-initialize audio output device.");
                 e->rateTransitionInProgress.store(false, std::memory_order_release);
                 return;
+            }
+
+            if (isDsdTrackRestart)
+            {
+                if ((desiredDsdMode == AE_DSD_MODE_DOP || desiredDsdMode == AE_DSD_MODE_NATIVE) &&
+                    (e->device.playback.format != ma_format_s24 && e->device.playback.format != ma_format_s32))
+                {
+                    desiredDsdMode = AE_DSD_MODE_D2P;
+                }
+                e->activeDsdMode.store(desiredDsdMode, std::memory_order_release);
+                e->hwActiveDsdMode.store(
+                    (desiredDsdMode == AE_DSD_MODE_DOP || desiredDsdMode == AE_DSD_MODE_NATIVE) ? desiredDsdMode : 0,
+                    std::memory_order_release);
+                if (desiredDsdMode == AE_DSD_MODE_D2P)
+                {
+                    e->sourceSampleRate = static_cast<int>(d2pFallbackRate);
+                    e->sourceFormat = ma_format_f32;
+                }
+                else
+                {
+                    e->sourceSampleRate = static_cast<int>(e->device.sampleRate);
+                    e->sourceFormat = e->device.playback.format;
+                }
+            }
+            else
+            {
+                e->hwActiveDsdMode.store(0, std::memory_order_release);
             }
 
             engine_log("DEVICE INIT RESULT:\n  actualRate=%u", e->device.sampleRate);
@@ -13958,9 +14693,9 @@ extern "C"
                     ma_uint64 newLen = 0;
     #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     NetworkStreamState *newSt = nullptr;
-                    if (load_decoder_for_path(e, path, &newDec, &newLen, &newSt))
+                    if (load_decoder_for_path(e, path, &newDec, &newLen, &newSt, false, isDsdTrackRestart ? desiredDsdMode : -1, (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP) ? e->device.playback.format : ma_format_unknown))
     #else
-                    if (load_decoder_for_path(e, path, &newDec, &newLen))
+                    if (load_decoder_for_path(e, path, &newDec, &newLen, false, isDsdTrackRestart ? desiredDsdMode : -1, (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP) ? e->device.playback.format : ma_format_unknown))
     #endif
                     {
                         engine_log("NEW DECODER CREATED:\n  outputRate=%u", newDec->outputSampleRate);
@@ -14316,13 +15051,34 @@ extern "C"
         {
             std::lock_guard<std::mutex> lk(engine->manualUsbMutex);
             engine->manualUsbFd = fd;
+            engine->cachedManualUsbFd.store(fd, std::memory_order_release);
             if (raw_descriptors != nullptr && raw_desc_len > 0)
             {
                 engine->manualUsbDescriptors.assign(raw_descriptors, raw_descriptors + raw_desc_len);
+                if (fd >= 0)
+                {
+                    const sautiflow::usb::UsbAudioDeviceProfile prof =
+                        sautiflow::usb::parse_uac_descriptors(raw_descriptors, static_cast<size_t>(raw_desc_len));
+                    engine->nativeDsdSupported.store(
+                        sautiflow::usb::profile_supports_native_dsd(prof), std::memory_order_release);
+                    engine->dopSupported.store(
+                        sautiflow::usb::profile_supports_dop(prof), std::memory_order_release);
+                }
+                else
+                {
+                    engine->nativeDsdSupported.store(false, std::memory_order_release);
+                    engine->dopSupported.store(false, std::memory_order_release);
+                }
             }
             else
             {
                 engine->manualUsbDescriptors.clear();
+                engine->nativeDsdSupported.store(false, std::memory_order_release);
+                engine->dopSupported.store(false, std::memory_order_release);
+            }
+            if (fd >= 0 && engine->sourceDsdRate.load(std::memory_order_acquire) > 0)
+            {
+                engine->reevalDsdOnRestart.store(true, std::memory_order_release);
             }
             engine->manualUsbDeviceName = (device_name != nullptr) ? device_name : "";
         }
@@ -14377,11 +15133,15 @@ extern "C"
     {
         if (!engine || sample_rate < 0)
             return;
-        if (!engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
+        const bool fromAutoConsume = engine->pendingAutoRateConsumeInFlight.exchange(false, std::memory_order_acq_rel);
+        if (!fromAutoConsume && !engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
         {
             engine->userOutputSampleRate = sample_rate;
         }
-        if (engine->outputSampleRate == sample_rate)
+        const int actDsd = engine->activeDsdMode.load(std::memory_order_acquire);
+        const int hwDsd = engine->hwActiveDsdMode.load(std::memory_order_acquire);
+        const int targetBitMode = (actDsd == AE_DSD_MODE_DOP || actDsd == AE_DSD_MODE_NATIVE) ? actDsd : 0;
+        if (engine->outputSampleRate == sample_rate && targetBitMode == hwDsd)
             return;
             
         // Fix: Do not use restart_device_rate_only because it does not recreate the decoder.
@@ -14607,9 +15367,18 @@ extern "C"
         }
         // Atomically read and clear the pending rate
         int pending = engine->pendingAutoSampleRateMatchRate.exchange(0, std::memory_order_acq_rel);
-        if (pending > 0 && pending != engine->outputSampleRate)
+        const int actDsd = engine->activeDsdMode.load(std::memory_order_acquire);
+        const int hwDsd = engine->hwActiveDsdMode.load(std::memory_order_acquire);
+        const int targetBitMode = (actDsd == AE_DSD_MODE_DOP || actDsd == AE_DSD_MODE_NATIVE) ? actDsd : 0;
+        if (pending > 0 && (pending != engine->outputSampleRate || targetBitMode != hwDsd))
         {
-            engine_log("ae_consume_pending_rate_change: Applying deferred Auto Sample-Rate Match rate = %d Hz", pending);
+            if (targetBitMode != hwDsd)
+            {
+                engine->reevalDsdOnRestart.store(true, std::memory_order_release);
+            }
+            engine->pendingAutoRateConsumeInFlight.store(true, std::memory_order_release);
+            engine_log("ae_consume_pending_rate_change: Applying deferred Auto Sample-Rate Match rate = %d Hz (dsd %d -> hw %d)",
+                       pending, targetBitMode, hwDsd);
             return pending;
         }
         return 0;
@@ -16833,6 +17602,34 @@ extern "C"
         }
 
         // 3. Binary header inspection for exact native parameters
+        // A0. Fast exact DSD header inspection (.dsf / .dff)
+        if (sautiflow::dsd::is_dsd_file_path(file_path))
+        {
+            const sautiflow::dsd::DsdFileHeader dsdHdr = sautiflow::dsd::parse_dsd_file_header_utf8(file_path);
+            if (dsdHdr.valid)
+            {
+                info.sample_rate = static_cast<int>(dsdHdr.dsdSampleRate);
+                info.bit_depth = 1;
+                info.channels = static_cast<int>(dsdHdr.channels > 0 ? dsdHdr.channels : 2);
+                info.is_float = 0;
+                info.duration_secs = dsdHdr.durationSeconds();
+                if (dsdHdr.fileSize > 0)
+                {
+                    info.file_size_bytes = static_cast<int64_t>(dsdHdr.fileSize);
+                }
+                std::snprintf(
+                    info.format_name,
+                    sizeof(info.format_name),
+                    "%s",
+                    (dsdHdr.container == sautiflow::dsd::DsdContainerType::Dff) ? "DFF" : "DSF");
+                if (info.duration_secs > 0.0 && info.file_size_bytes > 0)
+                {
+                    info.bitrate_kbps = static_cast<int>(((info.file_size_bytes * 8.0) / info.duration_secs) / 1000.0);
+                }
+                return info;
+            }
+        }
+
         // A. FLAC header check
         int flacOffset = -1;
         for (size_t i = 0; i + 4 <= readBytes; i++)
@@ -17581,6 +18378,7 @@ extern "C"
             std::strncpy(info.soc_name, "Host CPU", sizeof(info.soc_name) - 1);
             info.is_direct_pcm = 0;
 #endif
+            engine->dopSupported.store(engine->exclusiveModeEnabled.load(std::memory_order_relaxed), std::memory_order_release);
 #else
             query_android_hardware_info(&info);
             if (activeBk == AE_BACKEND_USB_DIRECT && engine->pUsbDacSink != nullptr)
@@ -17608,6 +18406,31 @@ extern "C"
                 info.is_direct_pcm = 1;
             }
 #endif
+            {
+                const int hwDsd = engine->hwActiveDsdMode.load(std::memory_order_acquire);
+                const int actDsd = engine->activeDsdMode.load(std::memory_order_acquire);
+                const char *dsdSuffix = nullptr;
+                if (hwDsd == AE_DSD_MODE_NATIVE)
+                {
+                    dsdSuffix = " [Native DSD]";
+                }
+                else if (hwDsd == AE_DSD_MODE_DOP)
+                {
+                    dsdSuffix = " [DoP v1.1]";
+                }
+                else if (actDsd == AE_DSD_MODE_D2P)
+                {
+                    dsdSuffix = " [D2P]";
+                }
+                if (dsdSuffix != nullptr)
+                {
+                    const size_t curLen = std::strlen(info.dsp_hardware);
+                    if (curLen + 1 < sizeof(info.dsp_hardware))
+                    {
+                        std::strncat(info.dsp_hardware, dsdSuffix, sizeof(info.dsp_hardware) - curLen - 1);
+                    }
+                }
+            }
         }
         catch (...)
         {
@@ -17859,7 +18682,32 @@ extern "C"
         if (!filePath) return 0;
         std::string artist, title, album;
         float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
-        bool ok = sautiflow::read_file_tags_ffmpeg(filePath, artist, title, album, trackGain, albumGain, trackPeak, albumPeak);
+        bool ok = false;
+        if (sautiflow::dsd::is_dsd_file_path(filePath))
+        {
+            const sautiflow::dsd::DsdMetadata meta = sautiflow::dsd::read_dsd_file_metadata_utf8(filePath);
+            if (meta.valid)
+            {
+                artist = meta.artist;
+                title = meta.title;
+                album = meta.album;
+                if (meta.hasReplayGainTrack)
+                {
+                    trackGain = meta.replayGainTrackDb;
+                    trackPeak = meta.replayGainTrackPeak;
+                }
+                if (meta.hasReplayGainAlbum)
+                {
+                    albumGain = meta.replayGainAlbumDb;
+                    albumPeak = meta.replayGainAlbumPeak;
+                }
+                ok = true;
+            }
+        }
+        if (!ok)
+        {
+            ok = sautiflow::read_file_tags_ffmpeg(filePath, artist, title, album, trackGain, albumGain, trackPeak, albumPeak);
+        }
         if (outTrackGainDb) *outTrackGainDb = trackGain;
         if (outAlbumGainDb) *outAlbumGainDb = albumGain;
         if (outTrackPeak) *outTrackPeak = trackPeak;
@@ -17895,14 +18743,58 @@ extern "C"
         float trackGain = 0.0f, albumGain = 0.0f, trackPeak = 1.0f, albumPeak = 1.0f;
         std::vector<uint8_t> picBytes;
 
-        bool ok = sautiflow::read_file_metadata_ffmpeg(
-            filePath,
-            getPicture != 0,
-            artist, title, album, genre, year,
-            trackNumber, durationSecs, sampleRate, channels, bitrateKbps, codec,
-            trackGain, albumGain, trackPeak, albumPeak,
-            (getPicture != 0) ? &picBytes : nullptr
-        );
+        bool ok = false;
+        if (sautiflow::dsd::is_dsd_file_path(filePath))
+        {
+            const sautiflow::dsd::DsdFileHeader hdr = sautiflow::dsd::parse_dsd_file_header_utf8(filePath);
+            if (hdr.valid)
+            {
+                const sautiflow::dsd::DsdMetadata meta = sautiflow::dsd::read_dsd_file_metadata_utf8(filePath);
+                codec = (hdr.container == sautiflow::dsd::DsdContainerType::Dff) ? "DFF" : "DSF";
+                sampleRate = static_cast<int>(hdr.dsdSampleRate);
+                channels = static_cast<int>(hdr.channels > 0 ? hdr.channels : 2);
+                durationSecs = hdr.durationSeconds();
+                if (durationSecs > 0.0 && hdr.fileSize > 0)
+                {
+                    bitrateKbps = static_cast<int>(((static_cast<double>(hdr.fileSize) * 8.0) / durationSecs) / 1000.0);
+                }
+                if (meta.valid)
+                {
+                    artist = meta.artist;
+                    title = meta.title;
+                    album = meta.album;
+                    genre = meta.genre;
+                    year = meta.year;
+                    trackNumber = meta.trackNumber;
+                    if (meta.hasReplayGainTrack)
+                    {
+                        trackGain = meta.replayGainTrackDb;
+                        trackPeak = meta.replayGainTrackPeak;
+                    }
+                    if (meta.hasReplayGainAlbum)
+                    {
+                        albumGain = meta.replayGainAlbumDb;
+                        albumPeak = meta.replayGainAlbumPeak;
+                    }
+                    if (getPicture != 0 && !meta.pictureData.empty())
+                    {
+                        picBytes = meta.pictureData;
+                    }
+                }
+                ok = true;
+            }
+        }
+        if (!ok)
+        {
+            ok = sautiflow::read_file_metadata_ffmpeg(
+                filePath,
+                getPicture != 0,
+                artist, title, album, genre, year,
+                trackNumber, durationSecs, sampleRate, channels, bitrateKbps, codec,
+                trackGain, albumGain, trackPeak, albumPeak,
+                (getPicture != 0) ? &picBytes : nullptr
+            );
+        }
 
         if (ok) {
             std::strncpy(outMetadata->artist, artist.c_str(), sizeof(outMetadata->artist) - 1);
@@ -17938,6 +18830,100 @@ extern "C"
         if (pictureData) {
             std::free(pictureData);
         }
+    }
+
+    // =========================================================================
+    // DSD (D2P / DoP v1.1 / Native DSD) C API
+    // =========================================================================
+
+    AE_API void ae_set_dsd_output_mode(AudioEngineHandle *engine, int mode)
+    {
+        if (!engine)
+            return;
+        if (mode < AE_DSD_MODE_AUTO || mode > AE_DSD_MODE_NATIVE)
+        {
+            mode = AE_DSD_MODE_AUTO;
+        }
+        const int prev = engine->dsdOutputMode.exchange(mode, std::memory_order_acq_rel);
+        if (prev != mode && engine->sourceDsdRate.load(std::memory_order_acquire) > 0)
+        {
+            engine->reevalDsdOnRestart.store(true, std::memory_order_release);
+            restart_and_apply_config(engine);
+        }
+    }
+
+    AE_API int ae_get_dsd_output_mode(AudioEngineHandle *engine)
+    {
+        return engine ? engine->dsdOutputMode.load(std::memory_order_acquire) : AE_DSD_MODE_AUTO;
+    }
+
+    AE_API int ae_get_active_dsd_mode(AudioEngineHandle *engine)
+    {
+        return engine ? engine->activeDsdMode.load(std::memory_order_acquire) : 0;
+    }
+
+    AE_API int ae_get_source_dsd_rate(AudioEngineHandle *engine)
+    {
+        return engine ? engine->sourceDsdRate.load(std::memory_order_acquire) : 0;
+    }
+
+    AE_API void ae_set_dsd_d2p_sample_rate(AudioEngineHandle *engine, int sample_rate)
+    {
+        if (!engine || sample_rate < 0)
+            return;
+        const int prev = engine->dsdD2pSampleRate.exchange(sample_rate, std::memory_order_acq_rel);
+        if (prev != sample_rate && engine->activeDsdMode.load(std::memory_order_acquire) == AE_DSD_MODE_D2P)
+        {
+            engine->reevalDsdOnRestart.store(true, std::memory_order_release);
+            restart_and_apply_config(engine);
+        }
+    }
+
+    AE_API int ae_get_dsd_d2p_sample_rate(AudioEngineHandle *engine)
+    {
+        return engine ? engine->dsdD2pSampleRate.load(std::memory_order_acquire) : 0;
+    }
+
+    AE_API void ae_set_dsd_gain_boost_db(AudioEngineHandle *engine, float gain_db)
+    {
+        if (!engine)
+            return;
+        const float clamped = clampf(gain_db, 0.0f, 6.0f);
+        engine->dsdGainBoostDb.store(clamped, std::memory_order_release);
+        std::lock_guard<std::mutex> decLock(engine->decoderMutex);
+        if (engine->hasCurrent && engine->currentDecoder != nullptr)
+        {
+            sautiflow::dsd::set_dsd_decoder_gain_boost_db(engine->currentDecoder, clamped);
+        }
+        if (engine->hasNext && engine->nextDecoder != nullptr)
+        {
+            sautiflow::dsd::set_dsd_decoder_gain_boost_db(engine->nextDecoder, clamped);
+        }
+    }
+
+    AE_API float ae_get_dsd_gain_boost_db(AudioEngineHandle *engine)
+    {
+        return engine ? engine->dsdGainBoostDb.load(std::memory_order_acquire) : 6.0f;
+    }
+
+    AE_API int ae_is_native_dsd_supported(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+        return engine->nativeDsdSupported.load(std::memory_order_acquire) ? 1 : 0;
+    }
+
+    AE_API int ae_is_dop_supported(AudioEngineHandle *engine)
+    {
+        if (!engine)
+            return 0;
+#if !defined(__ANDROID__)
+        if (engine->exclusiveModeEnabled.load(std::memory_order_acquire))
+        {
+            return 1;
+        }
+#endif
+        return engine->dopSupported.load(std::memory_order_acquire) ? 1 : 0;
     }
 
 } // extern "C"

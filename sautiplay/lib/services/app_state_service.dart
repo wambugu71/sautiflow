@@ -1210,6 +1210,9 @@ class AppStateService {
   static const _kSpectrumStyle = 'sp_spectrum_style';
   static const _kOutputBackend = 'sp_output_backend';
   static const _kDacValidBitDepth = 'sp_dac_valid_bit_depth';
+  static const _kDsdOutputMode = 'sp_dsd_output_mode';
+  static const _kDsdD2pSampleRate = 'sp_dsd_d2p_sample_rate';
+  static const _kDsdGainBoostDb = 'sp_dsd_gain_boost_db';
 
   Future<void> saveEngineSettings({
     required int outputFormatIndex,
@@ -1230,6 +1233,9 @@ class AppStateService {
     required String spectrumStyle,
     int? outputBackend,
     int? dacValidBitDepth,
+    int? dsdOutputMode,
+    int? dsdD2pSampleRate,
+    double? dsdGainBoostDb,
   }) async {
     final prefs = PreferencesStore.instance;
     await prefs.setInt(_kOutputFormat, outputFormatIndex);
@@ -1254,6 +1260,15 @@ class AppStateService {
     if (dacValidBitDepth != null) {
       await prefs.setInt(_kDacValidBitDepth, dacValidBitDepth);
     }
+    if (dsdOutputMode != null) {
+      await prefs.setInt(_kDsdOutputMode, dsdOutputMode.clamp(0, 3));
+    }
+    if (dsdD2pSampleRate != null) {
+      await prefs.setInt(_kDsdD2pSampleRate, dsdD2pSampleRate);
+    }
+    if (dsdGainBoostDb != null) {
+      await prefs.setDouble(_kDsdGainBoostDb, dsdGainBoostDb.clamp(0.0, 6.0));
+    }
     audioProcessingSettingsChanged.add(null);
   }
 
@@ -1270,6 +1285,29 @@ class AppStateService {
     final prefs = PreferencesStore.instance;
     const allowed = {0, 16, 24, 32};
     await prefs.setInt(_kDacValidBitDepth, allowed.contains(bits) ? bits : 0);
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  /// Saves the configured DSD output mode (`0=Auto, 1=D2P, 2=DoP, 3=Native`).
+  Future<void> saveDsdOutputMode(int modeValue) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setInt(_kDsdOutputMode, modeValue.clamp(0, 3));
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  /// Saves the configured D2P target PCM sample rate (`0=Auto`, or 88200..384000).
+  Future<void> saveDsdD2pSampleRate(int sampleRate) async {
+    final prefs = PreferencesStore.instance;
+    const allowed = {0, 88200, 96000, 176400, 192000, 352800, 384000};
+    await prefs.setInt(
+        _kDsdD2pSampleRate, allowed.contains(sampleRate) ? sampleRate : 0);
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  /// Saves the Scarlet Book D2P gain boost (`0.0..6.0` dB).
+  Future<void> saveDsdGainBoostDb(double gainDb) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setDouble(_kDsdGainBoostDb, gainDb.clamp(0.0, 6.0));
     audioProcessingSettingsChanged.add(null);
   }
 
@@ -1301,6 +1339,9 @@ class AppStateService {
         String spectrumStyle,
         int outputBackend,
         int dacValidBitDepth,
+        int dsdOutputMode,
+        int dsdD2pSampleRate,
+        double dsdGainBoostDb,
       })> loadEngineSettings() async {
     final prefs = PreferencesStore.instance;
     final rawRate = prefs.getInt(_kSampleRate) ?? 0;
@@ -1308,6 +1349,10 @@ class AppStateService {
     final rawBackend = prefs.getInt(_kOutputBackend) ?? 0;
     final rawDacBits = prefs.getInt(_kDacValidBitDepth) ?? 0;
     const allowedDacBits = {0, 16, 24, 32};
+    final rawDsdMode = prefs.getInt(_kDsdOutputMode) ?? 0;
+    final rawD2pRate = prefs.getInt(_kDsdD2pSampleRate) ?? 0;
+    const allowedD2pRates = {0, 88200, 96000, 176400, 192000, 352800, 384000};
+    final rawDsdBoost = prefs.getDouble(_kDsdGainBoostDb) ?? 6.0;
     return (
       outputFormatIndex: prefs.getInt(_kOutputFormat) ?? 0, // 0 = f32
       sampleRate: safeRate,
@@ -1327,6 +1372,10 @@ class AppStateService {
       spectrumStyle: prefs.getString(_kSpectrumStyle) ?? 'minimal',
       outputBackend: rawBackend.clamp(0, 5),
       dacValidBitDepth: allowedDacBits.contains(rawDacBits) ? rawDacBits : 0,
+      dsdOutputMode: rawDsdMode.clamp(0, 3),
+      dsdD2pSampleRate:
+          allowedD2pRates.contains(rawD2pRate) ? rawD2pRate : 0,
+      dsdGainBoostDb: rawDsdBoost.clamp(0.0, 6.0),
     );
   }
 

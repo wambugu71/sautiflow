@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sautiflow/sautiflow.dart';
 
 /// Service for extracting, caching, and persisting normalized amplitude waveform peaks [0.08 - 1.0]
 /// for audio files and streams to render dynamic waveform seek bars at 60-120Hz.
@@ -79,11 +80,14 @@ class WaveformExtractorService {
 
   /// Fast heuristic to check if a path points to a local filesystem file.
   bool _isLocalFile(String path) {
-    if (path.isEmpty) return false;
-    if (path.startsWith('http://') || path.startsWith('https://')) return false;
-    return path.startsWith('/') ||
-        path.contains(Platform.pathSeparator) ||
-        RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(path);
+    final cleanPath = CueVirtualPath.strip(path);
+    if (cleanPath.isEmpty) return false;
+    if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+      return false;
+    }
+    return cleanPath.startsWith('/') ||
+        cleanPath.contains(Platform.pathSeparator) ||
+        RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(cleanPath);
   }
 
   /// Synchronously retrieve peaks:
@@ -155,14 +159,19 @@ class WaveformExtractorService {
       return _generateDeterministicPeaks(path, numBars);
     }
 
+    if (CueVirtualPath.isVirtual(path)) {
+      return _generateDeterministicPeaks(path, numBars);
+    }
+
     try {
-      final file = File(path);
+      final realPath = CueVirtualPath.strip(path);
+      final file = File(realPath);
       if (!await file.exists()) {
         return _generateDeterministicPeaks(path, numBars);
       }
       // Run optimized extraction in lightweight worker isolate
       return await Isolate.run(
-        () => _extractFilePeaks(_PeakExtractionParam(path: path, numBars: numBars)),
+        () => _extractFilePeaks(_PeakExtractionParam(path: realPath, numBars: numBars)),
       );
     } catch (e) {
       debugPrint('[WaveformExtractorService] Error extracting peaks for $path: $e');

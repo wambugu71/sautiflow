@@ -74,7 +74,7 @@ Future<Uint8List?> _downscaleArtwork(Uint8List? rawBytes, {int targetDimension =
 /// Worker function executed in a background Isolate to prevent UI thread frame drops.
 Uint8List? _readRawArtWorker(String path) {
   try {
-    final file = File(path);
+    final file = File(CueVirtualPath.strip(path));
     if (!file.existsSync()) return null;
 
     // 1. Try reading embedded ID3 / FLAC / MP4 image
@@ -108,15 +108,16 @@ Uint8List? _readRawArtWorker(String path) {
 }
 
 Future<Uint8List?> _extractArtTask(String path) async {
+  final realPath = CueVirtualPath.strip(path);
   try {
-    final dirPath = File(path).parent.path;
+    final dirPath = File(realPath).parent.path;
     if (_directoryArtAttempted.containsKey(dirPath)) {
       final cachedDirArt = _directoryArtCache[dirPath];
       if (cachedDirArt != null) return cachedDirArt;
     }
 
     // Run file I/O and ID3 extraction on background worker isolate
-    final rawBytes = await Isolate.run(() => _readRawArtWorker(path));
+    final rawBytes = await Isolate.run(() => _readRawArtWorker(realPath));
     if (rawBytes == null) {
       _directoryArtAttempted[dirPath] = true;
       _cacheDirectoryArt(dirPath, null);
@@ -230,9 +231,10 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
 
   void _loadAlbumArt() {
     if (!mounted) return;
+    final realPath = CueVirtualPath.strip(widget.path);
 
-    if (_albumArtAttempted.containsKey(widget.path)) {
-      final cachedBytes = _albumArtCache[widget.path];
+    if (_albumArtAttempted.containsKey(realPath)) {
+      final cachedBytes = _albumArtCache[realPath];
       setState(() {
         _imageData = cachedBytes;
         _isLoading = false;
@@ -248,13 +250,13 @@ class _LocalAlbumArtState extends State<LocalAlbumArt> {
     });
 
     final completer = Completer<Uint8List?>();
-    final request = _ArtRequest(widget.path, completer);
+    final request = _ArtRequest(realPath, completer);
     _activeRequest = request;
 
-    if (_waitingCompleters.containsKey(widget.path)) {
-      _waitingCompleters[widget.path]!.add(completer);
+    if (_waitingCompleters.containsKey(realPath)) {
+      _waitingCompleters[realPath]!.add(completer);
     } else {
-      _waitingCompleters[widget.path] = [];
+      _waitingCompleters[realPath] = [];
       _queue.add(request);
       _drainQueue();
     }

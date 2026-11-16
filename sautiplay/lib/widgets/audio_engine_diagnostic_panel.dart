@@ -369,7 +369,20 @@ class _AudioEngineDiagnosticPanelState
     final bool is64BitDsp = (t['is64BitProcessing'] == true) ||
         (procFmtCode == 64) ||
         (outFmtCode != null && outFmtCode >= 1 && outFmtCode <= 4);
-    final String dspPrecisionLabel = specs.isDirectPcm
+    final int activeDsdModeInt = t['activeDsdMode'] as int? ?? 0;
+    final int sourceDsdRate = t['sourceDsdRate'] as int? ?? 0;
+    final int dsdOutModeInt = t['dsdOutputMode'] as int? ?? 0;
+    final double dsdGainBoostDb =
+        (t['dsdGainBoostDb'] as num?)?.toDouble() ?? 6.0;
+    final bool nativeDsdSup = t['isNativeDsdSupported'] == true;
+    final bool dopSup = t['isDopSupported'] == true;
+    final ActiveDsdMode activeDsdMode =
+        ActiveDsdMode.fromValue(activeDsdModeInt);
+    final bool isDsdActive =
+        activeDsdMode != ActiveDsdMode.none && sourceDsdRate > 0;
+    final bool isDsdPassthrough = activeDsdMode == ActiveDsdMode.dop ||
+        activeDsdMode == ActiveDsdMode.nativeDsd;
+    final String dspPrecisionLabel = (specs.isDirectPcm || isDsdPassthrough)
         ? 'Bypassed (Bit-Perfect)'
         : (is64BitDsp
             ? (dacFormatType == 'Int'
@@ -438,13 +451,15 @@ class _AudioEngineDiagnosticPanelState
       isSrcActive: (srcRate != dacRate),
       resampleLatencyMs: (t['resampleLatencyMs'] as num?)?.toDouble(),
       deviceType: specs.deviceType,
+      activeDsdMode: activeDsdMode,
+      dsdGainBoostDb: dsdGainBoostDb,
     );
 
     // Sum DSP node latencies
     double sumDspMs = 0.0;
     double sumDspSamples = 0.0;
     for (final n in nodeLatencies) {
-      if (n.nodeName != 'Source / Decoder' && !n.isHardware) {
+      if (!n.nodeName.startsWith('Source /') && !n.isHardware) {
         sumDspMs += n.latencyMs;
         sumDspSamples += n.latencySamples;
       }
@@ -554,17 +569,54 @@ class _AudioEngineDiagnosticPanelState
                     isValueActive: true, context: context),
               _buildTelemetryRow('ReplayGain', replayGainDisplay,
                   isValueActive: hasReplayGain, context: context),
-              _buildTelemetryRow('Source',
-                  '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit PCM',
+              _buildTelemetryRow(
+                  'Source',
+                  isDsdActive
+                      ? '${ActiveDsdMode.formatDsdRateName(sourceDsdRate)} (${(sourceDsdRate / 1000000.0).toStringAsFixed(4)} MHz / 1-bit SDM)'
+                      : '${(srcRate / 1000.0).toStringAsFixed(1)} kHz / $srcDepth-bit PCM',
+                  isValueActive: isDsdActive,
                   context: context),
-              _buildTelemetryRow('Decoder',
-                  '${(srcRate / 1000.0).toStringAsFixed(1)} kHz PCM',
+              _buildTelemetryRow(
+                  'Decoder',
+                  isDsdActive
+                      ? switch (activeDsdMode) {
+                          ActiveDsdMode.nativeDsd =>
+                            'Native DSD 1-Bit Stream',
+                          ActiveDsdMode.dop =>
+                            'DoP v1.1 Frame Packer (0x05/0xFA)',
+                          ActiveDsdMode.d2p =>
+                            '128-Tap Blackman-Harris D2P Decimator (+${dsdGainBoostDb.toStringAsFixed(1)} dB)',
+                          ActiveDsdMode.none =>
+                            '${(srcRate / 1000.0).toStringAsFixed(1)} kHz PCM',
+                        }
+                      : '${(srcRate / 1000.0).toStringAsFixed(1)} kHz PCM',
+                  isValueActive: isDsdActive,
                   context: context),
+              if (isDsdActive) ...[
+                _buildTelemetryRow(
+                    'DSD Output',
+                    '${activeDsdMode.shortLabel} (Pref: ${DsdOutputMode.fromValue(dsdOutModeInt).displayName})',
+                    isValueActive: true,
+                    context: context),
+                _buildTelemetryRow(
+                    'DAC DSD Support',
+                    'Native: ${nativeDsdSup ? "Supported" : "No"} • DoP v1.1: ${dopSup ? "Supported" : "No"}',
+                    isValueActive: nativeDsdSup || dopSup,
+                    context: context),
+              ],
               _buildTelemetryRow('DSP',
                   '${(dspRate / 1000.0).toStringAsFixed(1)} kHz $dspPrecisionLabel ($dspChannels ch)',
                   context: context),
-              _buildTelemetryRow('Output',
-                  '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit $dacFormatType (${specs.deviceType})',
+              _buildTelemetryRow(
+                  'Output',
+                  switch (activeDsdMode) {
+                    ActiveDsdMode.nativeDsd =>
+                      '${ActiveDsdMode.formatDsdRateName(sourceDsdRate)} / 1-bit Native DSD (${specs.deviceType})',
+                    ActiveDsdMode.dop =>
+                      '${(dacRate / 1000.0).toStringAsFixed(1)} kHz DoP Container (${specs.deviceType})',
+                    _ =>
+                      '${(dacRate / 1000.0).toStringAsFixed(1)} kHz / $dacDepth-bit $dacFormatType (${specs.deviceType})',
+                  },
                   context: context),
               if (specs.socName != null && specs.socName!.isNotEmpty)
                 _buildTelemetryRow('SoC Processor', specs.socName!,
@@ -1329,12 +1381,43 @@ class _AudioEngineDiagnosticPanelState
     required bool isSrcActive,
     double? resampleLatencyMs,
     String? deviceType,
+    ActiveDsdMode activeDsdMode = ActiveDsdMode.none,
+    double dsdGainBoostDb = 6.0,
   }) {
     final list = <_NodeLatencyInfo>[];
     int step = 1;
 
     // 1. Source / Decoder
-    list.add(_NodeLatencyInfo('${step++}.', 'Source / Decoder', 0.0, 0.0));
+    final String sourceLabel = switch (activeDsdMode) {
+      ActiveDsdMode.nativeDsd => 'Source / Native DSD 1-Bit Stream',
+      ActiveDsdMode.dop => 'Source / DoP v1.1 Frame Packer',
+      ActiveDsdMode.d2p =>
+        'Source / D2P 128-Tap FIR (+${dsdGainBoostDb.toStringAsFixed(1)} dB)',
+      ActiveDsdMode.none => 'Source / Decoder',
+    };
+    list.add(_NodeLatencyInfo('${step++}.', sourceLabel, 0.0, 0.0));
+
+    if (activeDsdMode == ActiveDsdMode.nativeDsd ||
+        activeDsdMode == ActiveDsdMode.dop) {
+      list.add(_NodeLatencyInfo(
+        '${step++}.',
+        '7-Zone DSP & SRC (Bit-Perfect DSD Bypass)',
+        0.0,
+        0.0,
+      ));
+      final double hwSamples = hwLatencyMs * 0.001 * sampleRate;
+      final hwLabel = deviceType != null && deviceType.isNotEmpty
+          ? 'HW Output ($deviceType)'
+          : 'HW Output DAC';
+      list.add(_NodeLatencyInfo(
+        '${step++}.',
+        hwLabel,
+        hwLatencyMs,
+        hwSamples,
+        isHardware: true,
+      ));
+      return list;
+    }
 
     // Zone 1: Restorative Filtering (Subsonic HPF, Studio Noise Gate, Downward Expander)
     list.add(_NodeLatencyInfo(

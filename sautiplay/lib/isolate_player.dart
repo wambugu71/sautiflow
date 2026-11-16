@@ -35,15 +35,26 @@ class IsolateAudioPlayer {
   bool _loudnessNormalizerEnabled = true;
   LoopMode _loopMode = LoopMode.off;
 
+  String _loudnessCacheKey(AudioSource src) {
+    final base = src.uri.toString();
+    if (!src.isClipped) return base;
+    final startMs = src.clipStart?.inMilliseconds ?? 0;
+    final track = src.trackNumber ?? 0;
+    return '$base#cueTrack=$track&startMs=$startMs';
+  }
+
   void _prearmTrackLoudnessForIndex(int targetIndex) {
     if (!_loudnessNormalizerEnabled) return;
     if (targetIndex < 0 || targetIndex >= _sources.length) return;
     final src = _sources[targetIndex];
-    final uriStr = src.uri.toString();
-    final cached = AppStateService.instance.getTrackLoudness(uriStr);
+    final cacheKey = _loudnessCacheKey(src);
+    final cached = AppStateService.instance.getTrackLoudness(cacheKey);
     if (cached != null) {
       final gainDb = (_loudnessTargetLUFS - cached.lufs).clamp(-24.0, 6.0);
       setCurrentTrackLoudness(gainDb, cached.peak);
+    } else if (src.replayGainTrackDb != null || src.replayGainAlbumDb != null) {
+      final rg = (src.replayGainTrackDb ?? src.replayGainAlbumDb!).clamp(-24.0, 6.0);
+      setCurrentTrackLoudness(rg, 1.0);
     } else {
       // Neutral unity gain for unmeasured tracks until real-time meter locks in
       setCurrentTrackLoudness(0.0, 1.0);
@@ -65,11 +76,19 @@ class IsolateAudioPlayer {
 
     if (nextIdx >= 0 && nextIdx < _sources.length) {
       final nextSrc = _sources[nextIdx];
-      final uriStr = nextSrc.uri.toString();
-      final cached = AppStateService.instance.getTrackLoudness(uriStr);
+      final cacheKey = _loudnessCacheKey(nextSrc);
+      final cached = AppStateService.instance.getTrackLoudness(cacheKey);
       if (cached != null) {
         final gainDb = (_loudnessTargetLUFS - cached.lufs).clamp(-24.0, 6.0);
         setNextReplayGainWithPeak(gainDb, cached.peak);
+      } else if (nextSrc.replayGainTrackDb != null ||
+          nextSrc.replayGainAlbumDb != null) {
+        final rg =
+            (nextSrc.replayGainTrackDb ?? nextSrc.replayGainAlbumDb!).clamp(
+          -24.0,
+          6.0,
+        );
+        setNextReplayGainWithPeak(rg, 1.0);
       } else {
         setNextReplayGainWithPeak(0.0, 1.0);
       }
@@ -368,6 +387,12 @@ class IsolateAudioPlayer {
   void addAudioSource(AudioSource source) {
     _sources.add(source);
     _send({'cmd': 'addAudioSource', 'source': source});
+  }
+
+  void insertAudioSource(int index, AudioSource source) {
+    final safeIdx = index.clamp(0, _sources.length);
+    _sources.insert(safeIdx, source);
+    _send({'cmd': 'insertAudioSource', 'index': safeIdx, 'source': source});
   }
 
   void seekTo(Duration position, {int? index}) {
@@ -745,6 +770,22 @@ class IsolateAudioPlayer {
 
   void setAutoBitPerfectEnabled(bool enabled) =>
       setAutoSampleRateMatchEnabled(enabled);
+
+  // --- DSD Playback Configuration & Telemetry ---
+
+  void setDsdOutputMode(DsdOutputMode mode) =>
+      _send({'cmd': 'setDsdOutputMode', 'mode': mode.value});
+
+  void setDsdD2pSampleRate(int sampleRate) =>
+      _send({'cmd': 'setDsdD2pSampleRate', 'sampleRate': sampleRate});
+
+  void setDsdGainBoostDb(double gainDb) =>
+      _send({'cmd': 'setDsdGainBoostDb', 'gainDb': gainDb});
+
+  Future<Map<String, dynamic>> getDsdState() async {
+    final response = await _request('getDsdState');
+    return (response as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+  }
 
   // --- Limiter & Clipping Detection ---
 
@@ -1974,9 +2015,12 @@ void _isolateEntry(_IsolateInitData initData) {
           final qt = player.getQualityTelemetry();
           if (qt.integratedLUFS > -60.0 && qt.integratedLUFS < 0.0) {
             final src = isolateSources[status.currentIndex];
+            final key = src.isClipped
+                ? '${src.uri}#cueTrack=${src.trackNumber ?? 0}&startMs=${src.clipStart?.inMilliseconds ?? 0}'
+                : src.uri.toString();
             initData.sendPort.send({
               'type': 'trackLoudnessMeasured',
-              'uri': src.uri.toString(),
+              'uri': key,
               'lufs': qt.integratedLUFS,
               'peak': qt.truePeakDBTP,
             });
@@ -2104,6 +2148,16 @@ void _isolateEntry(_IsolateInitData initData) {
             player.addAudioSource(src);
           } catch (e) {
             initData.sendPort.send('[log]Error adding source: $e');
+          }
+          break;
+        case 'insertAudioSource':
+          try {
+            final idx = (message['index'] as int).clamp(0, isolateSources.length);
+            final src = message['source'] as AudioSource;
+            isolateSources.insert(idx, src);
+            player.insertAudioSource(idx, src);
+          } catch (e) {
+            initData.sendPort.send('[log]Error inserting source: $e');
           }
           break;
         case 'seekTo':
@@ -2768,6 +2822,36 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setAutoBitPerfectEnabled':
           player.setAutoSampleRateMatchEnabled(message['enabled'] == true);
           break;
+        case 'setDsdOutputMode':
+          player.setDsdOutputMode(
+            DsdOutputMode.fromValue((message['mode'] as num?)?.toInt() ?? 0),
+          );
+          break;
+        case 'setDsdD2pSampleRate':
+          player.setDsdD2pSampleRate(
+            (message['sampleRate'] as num?)?.toInt() ?? 0,
+          );
+          break;
+        case 'setDsdGainBoostDb':
+          player.setDsdGainBoostDb(
+            (message['gainDb'] as num?)?.toDouble() ?? 6.0,
+          );
+          break;
+        case 'getDsdState':
+          try {
+            sendResponse(message, {
+              'dsdOutputMode': player.getDsdOutputMode().value,
+              'activeDsdMode': player.getActiveDsdMode().value,
+              'sourceDsdRate': player.getSourceDsdRate(),
+              'dsdD2pSampleRate': player.getDsdD2pSampleRate(),
+              'dsdGainBoostDb': player.getDsdGainBoostDb(),
+              'isNativeDsdSupported': player.isNativeDsdSupported(),
+              'isDopSupported': player.isDopSupported(),
+            });
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
         case 'getExclusiveMode':
           try {
             sendResponse(message, player.getExclusiveMode());
@@ -2938,6 +3022,8 @@ void _isolateEntry(_IsolateInitData initData) {
                       rgAlbumPeak = meta.albumPeak;
                     }
                   }
+                  rgTrack = src.replayGainTrackDb ?? rgTrack;
+                  rgAlbum = src.replayGainAlbumDb ?? rgAlbum;
                 }
               } else {
                 fileType = st.codecName.isNotEmpty
@@ -2968,6 +3054,13 @@ void _isolateEntry(_IsolateInitData initData) {
                   ps.processingFormat == 64 ||
                   (ps.outputFormat >= 1 && ps.outputFormat <= 4),
               'dacValidBitDepth': player.getDacValidBitDepth(),
+              'dsdOutputMode': player.getDsdOutputMode().value,
+              'activeDsdMode': player.getActiveDsdMode().value,
+              'sourceDsdRate': player.getSourceDsdRate(),
+              'dsdD2pSampleRate': player.getDsdD2pSampleRate(),
+              'dsdGainBoostDb': player.getDsdGainBoostDb(),
+              'isNativeDsdSupported': player.isNativeDsdSupported(),
+              'isDopSupported': player.isDopSupported(),
               'outputFormat': ps.outputFormat,
               'outputSampleRate': ps.outputSampleRate,
               'outputChannels': ps.outputChannels,

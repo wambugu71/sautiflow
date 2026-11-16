@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sautiflow/sautiflow.dart';
 
 /// Represents a distinct storage volume (Internal Storage, SD Card, Desktop drive).
 class StorageVolume {
@@ -40,6 +41,8 @@ class AudioFileEntry {
   final DateTime lastModified;
   final String title;
   final String artist;
+  final String? subtitle;
+  final int? trackNumber;
 
   const AudioFileEntry({
     required this.path,
@@ -49,7 +52,12 @@ class AudioFileEntry {
     required this.lastModified,
     required this.title,
     required this.artist,
+    this.subtitle,
+    this.trackNumber,
   });
+
+  String get realPath => CueVirtualPath.strip(path);
+  bool get isCueTrack => CueVirtualPath.isVirtual(path);
 
   String get formattedSize {
     if (sizeBytes <= 0) return '0 B';
@@ -311,6 +319,127 @@ class StorageVolumeService {
     return volumes;
   }
 
+  static bool isCueFile(String filePath) =>
+      p.extension(filePath).toLowerCase() == '.cue';
+
+  static String _canonicalPathKey(String filePath) {
+    final canonical = p.canonicalize(CueVirtualPath.strip(filePath));
+    return Platform.isWindows ? canonical.toLowerCase() : canonical;
+  }
+
+  /// Expands external `.cue` sidecars and embedded CUE sheets in [files] and returns
+  /// the generated virtual entries plus the set of canonical raw audio file keys to suppress.
+  static Future<({
+    List<AudioFileEntry> cueEntries,
+    Set<String> suppressedMasterKeys,
+  })> _expandCueFilesInDirectory(List<File> files) async {
+    final cueEntries = <AudioFileEntry>[];
+    final suppressedKeys = <String>{};
+    final statCache = <String, FileStat>{};
+
+    Future<FileStat?> getStat(String path) async {
+      final key = _canonicalPathKey(path);
+      if (statCache.containsKey(key)) return statCache[key];
+      try {
+        final f = File(path);
+        if (!await f.exists()) return null;
+        final st = await f.stat();
+        statCache[key] = st;
+        return st;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    Future<void> addSheetTracks(CueSheet sheet) async {
+      final validTracks = sheet.allTracks
+          .where((t) => File(t.filePath).existsSync())
+          .toList();
+      if (validTracks.isEmpty) return;
+
+      // Group count per master file for proportional virtual track sizes
+      final countByMaster = <String, int>{};
+      for (final t in validTracks) {
+        final masterKey = _canonicalPathKey(t.filePath);
+        suppressedKeys.add(masterKey);
+        countByMaster[masterKey] = (countByMaster[masterKey] ?? 0) + 1;
+      }
+
+      for (final t in validTracks) {
+        final canonicalMaster = p.canonicalize(t.filePath);
+        final masterKey = _canonicalPathKey(canonicalMaster);
+        final st = await getStat(canonicalMaster);
+        final masterSize = st?.size ?? 0;
+        final trackCount = countByMaster[masterKey] ?? 1;
+        final extLabel = p
+            .extension(canonicalMaster)
+            .replaceFirst('.', '')
+            .toUpperCase();
+        final trackPrefix = t.trackNumber.toString().padLeft(2, '0');
+        final dur = t.duration;
+        final durLabel = dur != null
+            ? '${dur.inMinutes}:${(dur.inSeconds % 60).toString().padLeft(2, '0')}'
+            : null;
+        final virtualPath = CueVirtualPath.encode(
+          realFilePath: canonicalMaster,
+          trackNumber: t.trackNumber,
+          startMs: t.startMs,
+          endMs: t.endMs,
+          title: t.title,
+          artist: t.effectiveArtist,
+          album: t.effectiveAlbum,
+          genre: t.genre,
+          year: t.year,
+          replayGainTrackDb: t.replayGainTrackDb,
+          replayGainAlbumDb: t.replayGainAlbumDb,
+          cueFilePath: sheet.cueFilePath,
+        );
+
+        cueEntries.add(
+          AudioFileEntry(
+            path: virtualPath,
+            name: '$trackPrefix. ${t.title}',
+            extension: extLabel.isNotEmpty ? extLabel : 'CUE',
+            sizeBytes: trackCount > 0 ? (masterSize ~/ trackCount) : masterSize,
+            lastModified: st?.modified ?? DateTime.now(),
+            title: '$trackPrefix. ${t.title}',
+            artist: t.effectiveArtist,
+            subtitle: [
+              t.effectiveArtist,
+              if (durLabel != null) durLabel,
+              'CUE',
+            ].join(' • '),
+            trackNumber: t.trackNumber,
+          ),
+        );
+      }
+    }
+
+    // 1. Parse external .cue sidecar files first
+    for (final f in files) {
+      if (isCueFile(f.path)) {
+        final sheet = await CueParser.parseFile(f.path);
+        if (sheet != null && sheet.allTracks.isNotEmpty) {
+          await addSheetTracks(sheet);
+        }
+      }
+    }
+
+    // 2. Check lossless master containers for embedded CUE sheets if not already expanded
+    for (final f in files) {
+      final ext = p.extension(f.path).toLowerCase();
+      if (ext != '.flac' && ext != '.wv' && ext != '.ape') continue;
+      final key = _canonicalPathKey(f.path);
+      if (suppressedKeys.contains(key)) continue;
+      final sheet = CueParser.extractEmbeddedCueSync(f.path);
+      if (sheet != null && sheet.allTracks.length >= 2) {
+        await addSheetTracks(sheet);
+      }
+    }
+
+    return (cueEntries: cueEntries, suppressedMasterKeys: suppressedKeys);
+  }
+
   /// Lists only the immediate contents of [dirPath] without deep recursion.
   /// Blazing fast: ensures zero frame drops even with tens of thousands of files on SD card.
   Future<FolderContents> listDirectoryContents(
@@ -336,7 +465,8 @@ class StorageVolumeService {
     }
 
     final subdirectories = <FolderEntry>[];
-    final audioFiles = <AudioFileEntry>[];
+    final regularFiles = <File>[];
+    final regularAudioEntries = <AudioFileEntry>[];
 
     try {
       await for (final entity in targetDir.list(followLinks: false).handleError((e) {
@@ -356,7 +486,7 @@ class StorageVolumeService {
             for (final child in children) {
               if (child is File) {
                 final ext = p.extension(child.path).toLowerCase();
-                if (supportedAudioExtensions.contains(ext)) {
+                if (supportedAudioExtensions.contains(ext) || ext == '.cue') {
                   directAudioCount++;
                 }
               }
@@ -371,6 +501,7 @@ class StorageVolumeService {
             audioCount: directAudioCount,
           ));
         } else if (entity is File) {
+          regularFiles.add(entity);
           final ext = p.extension(entityPath).toLowerCase();
           if (supportedAudioExtensions.contains(ext)) {
             int size = 0;
@@ -383,7 +514,7 @@ class StorageVolumeService {
 
             final title = p.basenameWithoutExtension(entityPath);
 
-            audioFiles.add(AudioFileEntry(
+            regularAudioEntries.add(AudioFileEntry(
               path: p.canonicalize(entityPath),
               name: baseName,
               extension: ext.replaceFirst('.', '').toUpperCase(),
@@ -399,9 +530,24 @@ class StorageVolumeService {
       debugPrint('[StorageVolumeService] Error reading directory $canonicalPath: $e');
     }
 
-    // Sort: Subdirectories alphabetically first, then audio files alphabetically
+    final expanded = await _expandCueFilesInDirectory(regularFiles);
+    final audioFiles = <AudioFileEntry>[
+      ...expanded.cueEntries,
+      ...regularAudioEntries.where(
+        (entry) => !expanded.suppressedMasterKeys.contains(_canonicalPathKey(entry.path)),
+      ),
+    ];
+
+    // Sort: Subdirectories alphabetically first; CUE tracks keep track order per master file
     subdirectories.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    audioFiles.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    audioFiles.sort((a, b) {
+      if (a.isCueTrack &&
+          b.isCueTrack &&
+          _canonicalPathKey(a.realPath) == _canonicalPathKey(b.realPath)) {
+        return (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0);
+      }
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
 
     final parent = p.dirname(canonicalPath);
     final parentPath = (parent != canonicalPath && parent.isNotEmpty) ? parent : null;
@@ -441,6 +587,7 @@ class StorageVolumeService {
       }
 
       try {
+        final dirFiles = <File>[];
         await for (final entity in currentDir.list(followLinks: false).handleError((e) {
           debugPrint('[StorageVolumeService] Error traversing ${currentDir.path}: $e');
         })) {
@@ -451,15 +598,28 @@ class StorageVolumeService {
                 dirsToScan.add(entity);
               }
             } else if (entity is File) {
-              final ext = p.extension(entity.path).toLowerCase();
-              if (supportedAudioExtensions.contains(ext)) {
-                final canonical = p.canonicalize(entity.path);
-                if (seenPaths.add(canonical.toLowerCase())) {
-                  audioFiles.add(canonical);
-                }
-              }
+              dirFiles.add(entity);
             }
           } catch (_) {}
+        }
+
+        final expanded = await _expandCueFilesInDirectory(dirFiles);
+        for (final entry in expanded.cueEntries) {
+          if (seenPaths.add(entry.path.toLowerCase())) {
+            audioFiles.add(entry.path);
+          }
+        }
+        for (final file in dirFiles) {
+          final ext = p.extension(file.path).toLowerCase();
+          if (supportedAudioExtensions.contains(ext)) {
+            final canonical = p.canonicalize(file.path);
+            if (expanded.suppressedMasterKeys.contains(_canonicalPathKey(canonical))) {
+              continue;
+            }
+            if (seenPaths.add(canonical.toLowerCase())) {
+              audioFiles.add(canonical);
+            }
+          }
         }
       } catch (_) {}
     }

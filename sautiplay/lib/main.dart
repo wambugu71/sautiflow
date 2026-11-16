@@ -786,6 +786,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
     _player.set64BitProcessingEnabled(is64Bit);
     _player.setAutoSampleRateMatchEnabled(autoBp);
+    _player.setDsdOutputMode(DsdOutputMode.fromValue(engine.dsdOutputMode));
+    _player.setDsdD2pSampleRate(engine.dsdD2pSampleRate);
+    _player.setDsdGainBoostDb(engine.dsdGainBoostDb);
     _player.setLoudnessCrossfadeEnabled(engine.loudnessCrossfadeEnabled);
     _player.setLoudnessNormalizerEnabled(loudnessSaved.enabled);
     _player.setLoudnessNormalizerTarget(loudnessSaved.targetLUFS);
@@ -844,9 +847,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       final sources = <AudioSource>[];
       for (final t in tracks) {
         if (_isLocalTrack(t)) {
-          final file = File(t.videoId);
-          if (file.existsSync()) {
-            sources.add(AudioSource.uri(file.uri));
+          final src = _localSourceFromTrack(t);
+          if (src != null) {
+            sources.add(src);
           }
         } else {
           final cached =
@@ -979,7 +982,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (idx < 0 || idx >= _playlist.length) return;
 
     final source = _playlist[idx];
-    final sourceUri = source.uri.toString();
+    final sourceUri = source.isClipped
+        ? '${source.uri}#${source.clipStart?.inMilliseconds ?? 0}-${source.clipEnd?.inMilliseconds ?? -1}'
+        : source.uri.toString();
     final title = _nameFromSource(source);
 
     final overrideDuration = _durationFromSource(source);
@@ -1024,7 +1029,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
           if (source.uri.scheme == 'file') {
             final path = _safeFilePathFromUri(source.uri);
             if (path != null) {
-              castUrl = await LocalMediaServer.instance.serveFile(path);
+              castUrl = await LocalMediaServer.instance
+                  .serveFile(CueVirtualPath.strip(path));
             }
           } else {
             castUrl = source.uri.toString();
@@ -1064,6 +1070,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         String currentTrackId = title;
         if (_onlineTrackMetadata.containsKey(source.uri)) {
           currentTrackId = _onlineTrackMetadata[source.uri]!.videoId;
+        } else if (idx >= 0 &&
+            idx < _currentUiQueue.length &&
+            _sourceMatchesTrack(source, _currentUiQueue[idx])) {
+          currentTrackId = _currentUiQueue[idx].videoId;
         } else if (source.uri.scheme == 'file') {
           final path = _safeFilePathFromUri(source.uri);
           if (path != null) currentTrackId = path;
@@ -1106,6 +1116,12 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
           videoIdToSave = _onlineTrackMetadata[source.uri]!.videoId;
           thumbnailUrlToSave = _onlineTrackMetadata[source.uri]!.thumbnailUrl;
           artistIdToSave = _onlineTrackMetadata[source.uri]!.artistId;
+        } else if (idx >= 0 &&
+            idx < _currentUiQueue.length &&
+            _sourceMatchesTrack(source, _currentUiQueue[idx])) {
+          videoIdToSave = _currentUiQueue[idx].videoId;
+          thumbnailUrlToSave = _currentUiQueue[idx].thumbnailUrl;
+          artistIdToSave = _currentUiQueue[idx].artistId;
         } else if (source.uri.scheme == 'file') {
           final path = _safeFilePathFromUri(source.uri);
           if (path != null) videoIdToSave = path;
@@ -1158,6 +1174,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     String currentTrackId = '';
     if (_onlineTrackMetadata.containsKey(source.uri)) {
       currentTrackId = _onlineTrackMetadata[source.uri]!.videoId;
+    } else if (idx >= 0 &&
+        idx < _currentUiQueue.length &&
+        _sourceMatchesTrack(source, _currentUiQueue[idx])) {
+      currentTrackId = _currentUiQueue[idx].videoId;
     } else if (source.uri.scheme == 'file') {
       final path = _safeFilePathFromUri(source.uri);
       if (path != null) currentTrackId = path;
@@ -1182,6 +1202,17 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       trackId = info.videoId;
       title = info.title;
       artist = info.artist;
+      artistId = info.artistId;
+      thumbUrl = info.thumbnailUrl;
+    } else if (idx >= 0 &&
+        idx < _currentUiQueue.length &&
+        _sourceMatchesTrack(source, _currentUiQueue[idx])) {
+      final info = _currentUiQueue[idx];
+      trackId = info.videoId;
+      if (info.title.isNotEmpty) title = info.title;
+      if (info.artist.isNotEmpty && info.artist != 'Local File') {
+        artist = info.artist;
+      }
       artistId = info.artistId;
       thumbUrl = info.thumbnailUrl;
     } else if (source.uri.scheme == 'file') {
@@ -1315,7 +1346,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     }
 
     final loudnessNorm = await AppStateService.instance.loadLoudnessNormalizer();
-    final cached = AppStateService.instance.getTrackLoudness(nextSource.uri.toString());
+    final loudnessKey = nextSource.isClipped
+        ? '${nextSource.uri}#${nextSource.clipStart?.inMilliseconds ?? 0}-${nextSource.clipEnd?.inMilliseconds ?? 0}'
+        : nextSource.uri.toString();
+    final cached = AppStateService.instance.getTrackLoudness(loudnessKey);
 
     final rgState = await AppStateService.instance.loadReplayGainSettings();
 
@@ -1329,20 +1363,35 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         filePath = str;
       }
     }
+    if (filePath != null) {
+      filePath = CueVirtualPath.strip(filePath);
+    }
 
     double rgDb = 0.0;
     double trackPeak = 1.0;
-    if (filePath != null && rgState.mode != ReplayGainMode.none) {
+    if (rgState.mode != ReplayGainMode.none &&
+        (filePath != null ||
+            nextSource.replayGainTrackDb != null ||
+            nextSource.replayGainAlbumDb != null)) {
       try {
-        final tags = await _player.readFileTags(filePath);
-        double? rgTrack = (tags != null && tags['trackGain'] != null && (tags['trackGain'] as num) != 0.0)
-            ? (tags['trackGain'] as num).toDouble()
-            : null;
-        double? rgAlbum = (tags != null && tags['albumGain'] != null && (tags['albumGain'] as num) != 0.0)
-            ? (tags['albumGain'] as num).toDouble()
-            : null;
+        double? rgTrack = nextSource.replayGainTrackDb;
+        double? rgAlbum = nextSource.replayGainAlbumDb;
 
-        if (rgTrack == null && rgAlbum == null) {
+        if (filePath != null && rgTrack == null && rgAlbum == null) {
+          final tags = await _player.readFileTags(filePath);
+          if (tags != null &&
+              tags['trackGain'] != null &&
+              (tags['trackGain'] as num) != 0.0) {
+            rgTrack = (tags['trackGain'] as num).toDouble();
+          }
+          if (tags != null &&
+              tags['albumGain'] != null &&
+              (tags['albumGain'] as num) != 0.0) {
+            rgAlbum = (tags['albumGain'] as num).toDouble();
+          }
+        }
+
+        if (filePath != null && rgTrack == null && rgAlbum == null) {
           final meta =
               await _readLocalTrackMetadataOffload(filePath, getImage: false);
           rgTrack = meta.rgTrack;
@@ -1394,7 +1443,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
               nextArt = _thumbnailCache[thumbUrl];
             }
           } else if (nextSource.uri.scheme == 'file') {
-            final path = _safeFilePathFromUri(nextSource.uri);
+            final rawPath = _safeFilePathFromUri(nextSource.uri);
+            final path = rawPath != null ? CueVirtualPath.strip(rawPath) : null;
             if (path != null) {
               final meta =
                   await _readLocalTrackMetadataOffload(path, getImage: true);
@@ -1422,8 +1472,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     String artist = _subtitleFromSource(source);
     String? artistId;
     Uint8List? albumArt;
-    double? rgTrack;
-    double? rgAlbum;
+    double? rgTrack = source.replayGainTrackDb;
+    double? rgAlbum = source.replayGainAlbumDb;
     bool isOnlineTrackWithThumbnail = false;
 
     if (_onlineTrackMetadata.containsKey(source.uri)) {
@@ -1475,25 +1525,31 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         }
 
         if (filePath != null) {
+          filePath = CueVirtualPath.strip(filePath);
+          final hasSourceArtist =
+              source.artist != null && source.artist!.isNotEmpty;
           try {
             final meta =
                 await _readLocalTrackMetadataOffload(filePath, getImage: true);
-            if (meta.artist != null && meta.artist!.isNotEmpty) {
+            if (!hasSourceArtist &&
+                meta.artist != null &&
+                meta.artist!.isNotEmpty) {
               artist = meta.artist!;
             }
             albumArt = meta.albumArt;
-            rgTrack = meta.rgTrack;
-            rgAlbum = meta.rgAlbum;
+            rgTrack ??= meta.rgTrack;
+            rgAlbum ??= meta.rgAlbum;
 
             // Fallback only if offload was unable to retrieve artist or replaygain
-            if (artist.isEmpty ||
-                artist == _subtitleFromSource(source) ||
+            if ((!hasSourceArtist &&
+                    (artist.isEmpty || artist == _subtitleFromSource(source))) ||
                 (rgTrack == null && rgAlbum == null)) {
               try {
                 final tags = await _player.readFileTags(filePath);
                 if (tags != null) {
                   final artStr = tags['artist'] as String?;
-                  if (artStr != null &&
+                  if (!hasSourceArtist &&
+                      artStr != null &&
                       artStr.isNotEmpty &&
                       (artist.isEmpty || artist == _subtitleFromSource(source))) {
                     artist = artStr;
@@ -1554,6 +1610,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
           artistId: currentTrack.artistId ?? artistId,
           thumbnailUrl: currentTrack.thumbnailUrl,
           durationSeconds: currentTrack.durationSeconds,
+          startMs: currentTrack.startMs,
+          endMs: currentTrack.endMs,
+          cueFilePath: currentTrack.cueFilePath,
         );
         if (mounted) setState(() {});
       }
@@ -1602,7 +1661,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     final uniquePaths = <String>[];
     final seenPaths = <String>{};
     for (final path in paths) {
-      final key = p.canonicalize(path).toLowerCase();
+      final key = CueVirtualPath.normalizedKey(path);
       if (seenPaths.add(key)) {
         uniquePaths.add(path);
       }
@@ -1612,7 +1671,32 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     final uiQueue = <TrackInfo>[];
 
     for (int i = 0; i < uniquePaths.length; i++) {
-      final file = File(uniquePaths[i]);
+      final rawPath = uniquePaths[i];
+      if (CueVirtualPath.isVirtual(rawPath)) {
+        final info = CueVirtualPath.parse(rawPath);
+        final realFile = File(CueVirtualPath.strip(rawPath));
+        if (realFile.existsSync()) {
+          final src = AudioSource.file(rawPath);
+          sources.add(src);
+          uiQueue.add(TrackInfo(
+            videoId: rawPath,
+            title: info?.title ?? p.basename(realFile.path),
+            artist: (info != null && info.artist.isNotEmpty)
+                ? info.artist
+                : 'Local File',
+            thumbnailUrl: null,
+            durationSeconds: info?.duration?.inSeconds ?? 0,
+            startMs: info?.startMs,
+            endMs: info?.endMs,
+            cueFilePath: info?.cueFilePath,
+          ));
+        } else if (i < initialIndex) {
+          initialIndex--;
+        }
+        continue;
+      }
+
+      final file = File(rawPath);
       final uri = file.absolute.uri;
       final src = await _materializeSource(uri);
 
@@ -1922,9 +2006,62 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         track.videoId.startsWith('https://')) {
       return false;
     }
-    return track.videoId.contains(r'\') ||
-        track.videoId.contains('/') ||
-        File(track.videoId).existsSync();
+    final realPath = CueVirtualPath.strip(track.videoId);
+    return realPath.contains(r'\') ||
+        realPath.contains('/') ||
+        File(realPath).existsSync();
+  }
+
+  AudioSource? _localSourceFromTrack(TrackInfo track) {
+    final realPath = CueVirtualPath.strip(track.videoId);
+    final file = File(realPath);
+    if (!file.existsSync()) return null;
+    final durSecs = track.durationSeconds;
+    if (CueVirtualPath.isVirtual(track.videoId) || track.startMs != null) {
+      return AudioSource.file(
+        track.videoId,
+        title: track.title.isNotEmpty ? track.title : null,
+        artist: (track.artist.isNotEmpty && track.artist != 'Local File')
+            ? track.artist
+            : null,
+        duration: (durSecs != null && durSecs > 0)
+            ? Duration(seconds: durSecs)
+            : null,
+        clipStart: track.startMs != null
+            ? Duration(milliseconds: track.startMs!)
+            : null,
+        clipEnd:
+            track.endMs != null ? Duration(milliseconds: track.endMs!) : null,
+      );
+    }
+    return AudioSource.uri(
+      file.uri,
+      title: track.title.isNotEmpty ? track.title : null,
+      artist: (track.artist.isNotEmpty && track.artist != 'Local File')
+          ? track.artist
+          : null,
+      duration:
+          (durSecs != null && durSecs > 0) ? Duration(seconds: durSecs) : null,
+    );
+  }
+
+  bool _sourceMatchesTrack(AudioSource src, TrackInfo track) {
+    if (_onlineTrackMetadata.containsKey(src.uri)) {
+      return _onlineTrackMetadata[src.uri]?.videoId == track.videoId;
+    }
+    if (src.uri.scheme == 'file') {
+      final path = _safeFilePathFromUri(src.uri);
+      if (path == null) return false;
+      final trackRealPath = CueVirtualPath.strip(track.videoId);
+      if (!_pathsMatch(path, trackRealPath)) return false;
+      final cueInfo = CueVirtualPath.parse(track.videoId);
+      final trackStartMs = track.startMs ?? cueInfo?.startMs;
+      if (trackStartMs != null || src.isClipped) {
+        return (src.clipStart?.inMilliseconds ?? 0) == (trackStartMs ?? 0);
+      }
+      return true;
+    }
+    return false;
   }
 
   bool _pathsMatch(String a, String b) {
@@ -1940,8 +2077,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       final curTrack = _onlineTrackMetadata[currentSource.uri]!;
       queueIdx = _currentUiQueue.indexWhere((t) => t.videoId == curTrack.videoId);
     } else if (currentSource.uri.scheme == 'file') {
-      final path = _safeFilePathFromUri(currentSource.uri);
-      queueIdx = _currentUiQueue.indexWhere((t) => path != null && _pathsMatch(path, t.videoId));
+      queueIdx = _currentUiQueue.indexWhere((t) => _sourceMatchesTrack(currentSource, t));
     }
 
     if (queueIdx != -1 && queueIdx + 1 < _currentUiQueue.length) {
@@ -1960,29 +2096,18 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     final session = sessionId ?? _playbackSessionId;
     if (!mounted || _playbackSessionId != session) return false;
 
-    final alreadyInPlaylist = _playlist.any((src) {
-      if (_onlineTrackMetadata.containsKey(src.uri)) {
-        return _onlineTrackMetadata[src.uri]?.videoId == track.videoId;
-      } else if (src.uri.scheme == 'file') {
-        final path = _safeFilePathFromUri(src.uri);
-        return path != null && _pathsMatch(path, track.videoId);
-      }
-      return false;
-    });
+    final alreadyInPlaylist = _playlist.any((src) => _sourceMatchesTrack(src, track));
     if (alreadyInPlaylist) return true;
 
     // Handle genuine local tracks (e.g. from local folder or restored local queue)
     if (_isLocalTrack(track)) {
-      final file = File(track.videoId);
-      if (file.existsSync()) {
-        final fileSrc = AudioSource.uri(file.uri);
-        if (mounted && _playbackSessionId == session) {
-          setState(() {
-            _playlist.add(fileSrc);
-          });
-          _player.addAudioSource(fileSrc);
-          return true;
-        }
+      final fileSrc = _localSourceFromTrack(track);
+      if (fileSrc != null && mounted && _playbackSessionId == session) {
+        setState(() {
+          _playlist.add(fileSrc);
+        });
+        _player.addAudioSource(fileSrc);
+        return true;
       }
       return false;
     }
@@ -2105,16 +2230,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     bool isNetworkDown = false;
     try {
       if (_isLocalTrack(firstTrack)) {
-        final file = File(firstTrack.videoId);
-        if (file.existsSync()) {
-          final src = AudioSource.uri(file.uri);
-          final alreadyIn = _playlist.any((s) {
-            if (s.uri.scheme == 'file') {
-              final path = _safeFilePathFromUri(s.uri);
-              return path != null && _pathsMatch(path, firstTrack.videoId);
-            }
-            return false;
-          });
+        final src = _localSourceFromTrack(firstTrack);
+        if (src != null) {
+          final alreadyIn =
+              _playlist.any((s) => _sourceMatchesTrack(s, firstTrack));
           if (!alreadyIn) {
             setState(() {
               _playlist.add(src);
@@ -2191,16 +2310,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         if (!mounted || _playbackSessionId != session) break;
         try {
           if (_isLocalTrack(track)) {
-            final file = File(track.videoId);
-            if (file.existsSync()) {
-              final src = AudioSource.uri(file.uri);
-              final alreadyIn = _playlist.any((s) {
-                if (s.uri.scheme == 'file') {
-                  final path = _safeFilePathFromUri(s.uri);
-                  return path != null && _pathsMatch(path, track.videoId);
-                }
-                return false;
-              });
+            final src = _localSourceFromTrack(track);
+            if (src != null) {
+              final alreadyIn =
+                  _playlist.any((s) => _sourceMatchesTrack(s, track));
               if (!alreadyIn) {
                 setState(() {
                   _playlist.add(src);
@@ -2286,14 +2399,14 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     final AudioSource firstSource;
 
     if (_isLocalTrack(tappedTrack)) {
-      final file = File(tappedTrack.videoId);
-      if (!file.existsSync()) {
+      final src = _localSourceFromTrack(tappedTrack);
+      if (src == null) {
         _logs.insert(0, '[local] File not found: ${tappedTrack.videoId}');
         _showOfflineSnackBar(
             message: 'Local file not found: "${tappedTrack.title}"');
         return;
       }
-      firstSource = AudioSource.uri(file.uri);
+      firstSource = src;
     } else {
       _logs.insert(0,
           '[stream] Resolving ${tracks.length} tracks (starting at #${initialIndex + 1})...');
@@ -2425,15 +2538,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
       // If it's already in the playlist, just jump to it
       // We assume the playlist order roughly matches the queue order of resolved tracks
-      final existingIndex = _playlist.indexWhere((src) {
-        if (_onlineTrackMetadata.containsKey(src.uri)) {
-          return _onlineTrackMetadata[src.uri]?.videoId == targetTrack.videoId;
-        } else if (src.uri.scheme == 'file') {
-          final path = _safeFilePathFromUri(src.uri);
-          return path != null && _pathsMatch(path, targetTrack.videoId);
-        }
-        return false;
-      });
+      final existingIndex =
+          _playlist.indexWhere((src) => _sourceMatchesTrack(src, targetTrack));
 
       if (existingIndex != -1) {
         // Track is already resolved and in the playlist. Jump without rebuilding
@@ -2445,21 +2551,18 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         bool resolved = false;
         try {
           if (_isLocalTrack(targetTrack)) {
-            final file = File(targetTrack.videoId);
-            if (file.existsSync()) {
-              final src = AudioSource.uri(file.uri);
-              if (mounted && _playbackSessionId == session) {
-                setState(() {
-                  _playlist.add(src);
-                });
-                _player.setAudioSources(
-                  _playlist,
-                  initialIndex: _playlist.length - 1,
-                  initialPosition: Duration.zero,
-                  useLazyPreparation: true,
-                );
-                resolved = true;
-              }
+            final src = _localSourceFromTrack(targetTrack);
+            if (src != null && mounted && _playbackSessionId == session) {
+              setState(() {
+                _playlist.add(src);
+              });
+              _player.setAudioSources(
+                _playlist,
+                initialIndex: _playlist.length - 1,
+                initialPosition: Duration.zero,
+                useLazyPreparation: true,
+              );
+              resolved = true;
             }
           } else {
             final cached =
@@ -2546,15 +2649,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       _currentUiQueue.insert(newIndex, item);
 
       // Attempt to reorder _playlist to match if the items are resolved
-      final resolvedOldIndex = _playlist.indexWhere((src) {
-        if (_onlineTrackMetadata.containsKey(src.uri)) {
-          return _onlineTrackMetadata[src.uri]?.videoId == item.videoId;
-        } else if (src.uri.scheme == 'file') {
-          final path = _safeFilePathFromUri(src.uri);
-          return path != null && path == item.videoId;
-        }
-        return false;
-      });
+      final resolvedOldIndex =
+          _playlist.indexWhere((src) => _sourceMatchesTrack(src, item));
       if (resolvedOldIndex != -1) {
         // Find the resolved new index based on the nearest resolved neighbor
         // This is complex, so for simplicity we just reorder the UI queue and
@@ -2566,15 +2662,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         // Simple reconstruction of `_playlist` based on `_currentUiQueue` order
         final newPlaylist = <AudioSource>[];
         for (final track in _currentUiQueue) {
-          final existingSrc = _playlist.firstWhere((src) {
-            if (_onlineTrackMetadata.containsKey(src.uri)) {
-              return _onlineTrackMetadata[src.uri]?.videoId == track.videoId;
-            } else if (src.uri.scheme == 'file') {
-              final path = _safeFilePathFromUri(src.uri);
-              return path != null && path == track.videoId;
-            }
-            return false;
-          }, orElse: () => AudioSource.uri(Uri()) // Dummy that won't match
+          final existingSrc = _playlist.firstWhere(
+              (src) => _sourceMatchesTrack(src, track),
+              orElse: () => AudioSource.uri(Uri()) // Dummy that won't match
               );
           if (existingSrc.uri.toString().isNotEmpty) {
             newPlaylist.add(existingSrc);
@@ -2603,15 +2693,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     setState(() {
       final removedTrack = _currentUiQueue.removeAt(index);
 
-      int playlistIndex = _playlist.indexWhere((src) {
-        if (_onlineTrackMetadata.containsKey(src.uri)) {
-          return _onlineTrackMetadata[src.uri]?.videoId == removedTrack.videoId;
-        } else if (src.uri.scheme == 'file') {
-          final path = _safeFilePathFromUri(src.uri);
-          return path != null && path == removedTrack.videoId;
-        }
-        return false;
-      });
+      int playlistIndex = _playlist
+          .indexWhere((src) => _sourceMatchesTrack(src, removedTrack));
 
       if (playlistIndex != -1) {
         _playlist.removeAt(playlistIndex);
@@ -2685,15 +2768,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         newPlaylist.add(currentSource);
       }
       for (final track in remainingTracks) {
-        final existingSrc = _playlist.firstWhere((src) {
-          if (_onlineTrackMetadata.containsKey(src.uri)) {
-            return _onlineTrackMetadata[src.uri]?.videoId == track.videoId;
-          } else if (src.uri.scheme == 'file') {
-            final path = _safeFilePathFromUri(src.uri);
-            return path != null && path == track.videoId;
-          }
-          return false;
-        }, orElse: () => AudioSource.uri(Uri()));
+        final existingSrc = _playlist.firstWhere(
+            (src) => _sourceMatchesTrack(src, track),
+            orElse: () => AudioSource.uri(Uri()));
         if (existingSrc.uri.toString().isNotEmpty) {
           newPlaylist.add(existingSrc);
         }
@@ -2717,19 +2794,24 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
   Future<void> _queueNextTrack(TrackInfo track) async {
     _isFtpDownloading = false;
-    final uri = track.videoId.startsWith('http')
-        ? Uri.parse(track.videoId)
-        : Uri.file(track.videoId, windows: Platform.isWindows);
-
-    final src = await _materializeSource(uri);
+    final AudioSource? src;
+    if (_isLocalTrack(track)) {
+      src = _localSourceFromTrack(track);
+    } else {
+      final uri = track.videoId.startsWith('http')
+          ? Uri.parse(track.videoId)
+          : Uri.file(track.videoId, windows: Platform.isWindows);
+      src = await _materializeSource(uri);
+    }
     if (src == null) {
       _logs.insert(
           0, '[queue] Failed to materialize source for: ${track.title}');
       return;
     }
+    final resolvedSrc = src;
 
-    if (src.uri.scheme != 'file') {
-      _onlineTrackMetadata[src.uri] = track;
+    if (resolvedSrc.uri.scheme != 'file') {
+      _onlineTrackMetadata[resolvedSrc.uri] = track;
     }
 
     final currentIdx = _status.value.currentIndex;
@@ -2740,10 +2822,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     setState(() {
       if (insertIdx >= _currentUiQueue.length) {
         _currentUiQueue.add(track);
-        _playlist.add(src);
+        _playlist.add(resolvedSrc);
       } else {
         _currentUiQueue.insert(insertIdx, track);
-        _playlist.insert(insertIdx, src);
+        _playlist.insert(insertIdx, resolvedSrc);
       }
     });
 
@@ -2759,11 +2841,17 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   }
 
   Future<void> _handleDeletedTrack(String filePath) async {
-    final normTarget = FileDeletionHelper.normalizeFilePath(filePath);
+    final normTarget = CueVirtualPath.normalizedKey(filePath);
+    final isVirtualTarget = CueVirtualPath.isVirtual(filePath);
     final currentIdx = _status.value.currentIndex;
     final isCurrentPlaying = currentIdx >= 0 &&
         currentIdx < _currentUiQueue.length &&
-        FileDeletionHelper.normalizeFilePath(_currentUiQueue[currentIdx].videoId) == normTarget;
+        (isVirtualTarget
+            ? CueVirtualPath.normalizedKey(_currentUiQueue[currentIdx].videoId) ==
+                normTarget
+            : FileDeletionHelper.normalizeFilePath(
+                    CueVirtualPath.strip(_currentUiQueue[currentIdx].videoId)) ==
+                FileDeletionHelper.normalizeFilePath(filePath));
 
     if (isCurrentPlaying) {
       if (_currentUiQueue.length > 1) {
@@ -2774,12 +2862,27 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     }
 
     setState(() {
-      _currentUiQueue.removeWhere(
-          (t) => FileDeletionHelper.normalizeFilePath(t.videoId) == normTarget);
+      final removedTracks = <TrackInfo>[];
+      _currentUiQueue.removeWhere((t) {
+        final matches = isVirtualTarget
+            ? CueVirtualPath.normalizedKey(t.videoId) == normTarget
+            : FileDeletionHelper.normalizeFilePath(
+                    CueVirtualPath.strip(t.videoId)) ==
+                FileDeletionHelper.normalizeFilePath(filePath);
+        if (matches) {
+          removedTracks.add(t);
+        }
+        return matches;
+      });
       _playlist.removeWhere((src) {
-        if (src.uri.scheme == 'file') {
+        if (removedTracks.any((t) => _sourceMatchesTrack(src, t))) {
+          return true;
+        }
+        if (!isVirtualTarget && src.uri.scheme == 'file') {
           final p = _safeFilePathFromUri(src.uri);
-          return p != null && FileDeletionHelper.normalizeFilePath(p) == normTarget;
+          return p != null &&
+              FileDeletionHelper.normalizeFilePath(CueVirtualPath.strip(p)) ==
+                  FileDeletionHelper.normalizeFilePath(filePath);
         }
         return false;
       });
@@ -2927,6 +3030,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (_onlineTrackMetadata.containsKey(source.uri)) {
       return _onlineTrackMetadata[source.uri]!.title;
     }
+    if (source.title != null && source.title!.isNotEmpty) {
+      return source.title!;
+    }
     final uri = source.uri;
     if (uri.scheme == 'file') {
       final p = _safeFilePathFromUri(uri);
@@ -2948,6 +3054,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (_onlineTrackMetadata.containsKey(source.uri)) {
       return _onlineTrackMetadata[source.uri]!.artist;
     }
+    if (source.artist != null && source.artist!.isNotEmpty) {
+      return source.artist!;
+    }
     final uri = source.uri;
     if (uri.scheme == 'file') {
       final p = _safeFilePathFromUri(uri);
@@ -2967,6 +3076,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     if (_onlineTrackMetadata.containsKey(source.uri)) {
       return _onlineTrackMetadata[source.uri]!.durationSeconds;
     }
+    if (source.duration != null && source.duration!.inSeconds > 0) {
+      return source.duration!.inSeconds;
+    }
     return null;
   }
 
@@ -2974,13 +3086,19 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     final status = _status.value;
     final idx = status.currentIndex;
     if (idx < 0 || idx >= _playlist.length) return 'AUDIO';
-    final name = _nameFromSource(_playlist[idx]).toLowerCase();
+    final src = _playlist[idx];
+    final pathForExt = _safeFilePathFromUri(src.uri) ?? _nameFromSource(src);
+    final name = pathForExt.toLowerCase();
     if (name.endsWith('.flac')) return 'FLAC';
+    if (name.endsWith('.dsf')) return 'DSF';
+    if (name.endsWith('.dff')) return 'DFF';
     if (name.endsWith('.wav')) return 'WAV';
     if (name.endsWith('.ogg')) return 'OGG';
     if (name.endsWith('.m4a')) return 'AAC';
     if (name.endsWith('.aac')) return 'AAC';
     if (name.endsWith('.mp3')) return 'MP3';
+    if (name.endsWith('.wv')) return 'WV';
+    if (name.endsWith('.ape')) return 'APE';
     // Try to extract extension
     final dotIdx = name.lastIndexOf('.');
     if (dotIdx > 0 && dotIdx < name.length - 1) {

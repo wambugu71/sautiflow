@@ -1037,6 +1037,28 @@ extern "C"
     // Frees the pictureData buffer allocated by ae_read_file_metadata.
     AE_API void ae_free_metadata_picture(uint8_t *pictureData);
 
+#ifndef AE_DSD_OUTPUT_MODE_DEFINED
+#define AE_DSD_OUTPUT_MODE_DEFINED
+    typedef enum AEDsdOutputMode {
+        AE_DSD_MODE_AUTO = 0,   // Prefer Native DSD -> DoP -> D2P
+        AE_DSD_MODE_D2P = 1,    // Convert DSD to high-res PCM float (supports full DSP)
+        AE_DSD_MODE_DOP = 2,    // DSD over PCM v1.1 (0x05/0xFA markers)
+        AE_DSD_MODE_NATIVE = 3  // Raw 1-bit Native DSD (USB Audio Class 2.0)
+    } AEDsdOutputMode;
+#endif
+
+    // DSD Playback Configuration & Telemetry
+    AE_API void ae_set_dsd_output_mode(AudioEngineHandle *engine, int mode);
+    AE_API int ae_get_dsd_output_mode(AudioEngineHandle *engine);
+    AE_API int ae_get_active_dsd_mode(AudioEngineHandle *engine);
+    AE_API int ae_get_source_dsd_rate(AudioEngineHandle *engine);
+    AE_API void ae_set_dsd_d2p_sample_rate(AudioEngineHandle *engine, int sample_rate);
+    AE_API int ae_get_dsd_d2p_sample_rate(AudioEngineHandle *engine);
+    AE_API void ae_set_dsd_gain_boost_db(AudioEngineHandle *engine, float gain_db);
+    AE_API float ae_get_dsd_gain_boost_db(AudioEngineHandle *engine);
+    AE_API int ae_is_native_dsd_supported(AudioEngineHandle *engine);
+    AE_API int ae_is_dop_supported(AudioEngineHandle *engine);
+
 #ifdef __cplusplus
 }
 #endif

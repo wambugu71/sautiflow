@@ -190,6 +190,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _use64BitProcessingEnabled = false;
   bool _autoBitPerfectEnabled = true;
 
+  // DSD Audio Playback Settings
+  DsdOutputMode _dsdOutputMode = DsdOutputMode.auto;
+  int _dsdD2pSampleRate = 0; // 0 = Auto (88.2 / 176.4 kHz)
+  double _dsdGainBoostDb = 6.0;
+  bool _nativeDsdSupported = false;
+  bool _dopSupported = false;
+
   // Loudness-Aware Crossfade
   bool _loudnessCrossfadeEnabled = true;
 
@@ -471,6 +478,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoBitPerfectEnabled = autoBp;
       _loudnessCrossfadeEnabled = loudnessCf;
       _dacValidBitDepth = engineSettings.dacValidBitDepth;
+      _dsdOutputMode = DsdOutputMode.fromValue(engineSettings.dsdOutputMode);
+      _dsdD2pSampleRate = engineSettings.dsdD2pSampleRate;
+      _dsdGainBoostDb = engineSettings.dsdGainBoostDb;
       if (Platform.isAndroid && engineSettings.outputBackend > 0) {
         _selectedBackend =
             AudioOutputBackend.fromInt(engineSettings.outputBackend);
@@ -509,6 +519,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     widget.player.set64BitProcessingEnabled(is64Bit);
     widget.player.setAutoSampleRateMatchEnabled(autoBp);
     widget.player.setLoudnessCrossfadeEnabled(loudnessCf);
+    widget.player.setDsdOutputMode(
+        DsdOutputMode.fromValue(engineSettings.dsdOutputMode));
+    widget.player.setDsdD2pSampleRate(engineSettings.dsdD2pSampleRate);
+    widget.player.setDsdGainBoostDb(engineSettings.dsdGainBoostDb);
+    widget.player.getDsdState().then((dsdState) {
+      if (!mounted) return;
+      setState(() {
+        _nativeDsdSupported = dsdState['isNativeDsdSupported'] == true;
+        _dopSupported = dsdState['isDopSupported'] == true;
+      });
+    });
     widget.player.setLoudnessNormalizerEnabled(loudnessNorm.enabled);
     widget.player.setLoudnessNormalizerTarget(loudnessNorm.targetLUFS);
     widget.player.setLookaheadLimiterEnabled(lookaheadLim.enabled);
@@ -2023,6 +2044,146 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ],
+              ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('DSD AUDIO PLAYBACK'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                AppSettingsTile(
+                  title: 'DSD Output Mode',
+                  subtitle: _dsdOutputMode.displayName,
+                  leading: _buildLeadingIcon(Icons.album_rounded),
+                  trailing: AppStatusBadge(
+                    text: switch (_dsdOutputMode) {
+                      DsdOutputMode.auto => 'AUTO',
+                      DsdOutputMode.d2p => 'D2P',
+                      DsdOutputMode.dop => 'DoP v1.1',
+                      DsdOutputMode.nativeDsd => 'NATIVE DSD',
+                    },
+                    color: _primary,
+                  ),
+                  onTap: () => _showDsdOutputModeDialog(
+                      onDone: () => setSubState(() {})),
+                ),
+                const M3EDivider(),
+                AppSettingsValueTile(
+                  headline: 'D2P Target Sample Rate',
+                  supportingText:
+                      'Output PCM sample rate when using DSD-to-PCM decimation',
+                  value: _dsdD2pSampleRate <= 0
+                      ? 'Auto'
+                      : '${(_dsdD2pSampleRate / 1000.0).toStringAsFixed(1)} kHz',
+                  leading: _buildLeadingIcon(SautiIcons.samplerate),
+                  onTap: () =>
+                      _showDsdD2pRateDialog(onDone: () => setSubState(() {})),
+                ),
+                const M3EDivider(),
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _buildLeadingIcon(Icons.volume_up_rounded),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'DSD-to-PCM Scarlet Book Boost',
+                                  style: TextStyle(
+                                      color: _textPrimary,
+                                      fontWeight: FontWeight.w500),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Compensates -6 dB SACD modulation headroom in D2P mode',
+                                  style:
+                                      TextStyle(color: _textDark, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: M3ESlider(
+                              min: 0.0,
+                              max: 6.0,
+                              divisions: 12,
+                              value: _dsdGainBoostDb.clamp(0.0, 6.0),
+                              onChanged: (val) {
+                                final rounded =
+                                    double.parse(val.toStringAsFixed(1));
+                                setState(() => _dsdGainBoostDb = rounded);
+                                widget.player.setDsdGainBoostDb(rounded);
+                                setSubState(() {});
+                              },
+                              onChangeEnd: (val) {
+                                final rounded =
+                                    double.parse(val.toStringAsFixed(1));
+                                AppStateService.instance
+                                    .saveDsdGainBoostDb(rounded);
+                              },
+                            ),
+                          ),
+                          SizedBox(
+                            width: 56,
+                            child: Text(
+                              '+${_dsdGainBoostDb.toStringAsFixed(1)}\u202fdB',
+                              textAlign: TextAlign.end,
+                              style: TextStyle(
+                                color: _dsdGainBoostDb > 0.0
+                                    ? _primary
+                                    : _textDark,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const M3EDivider(),
+                AppSettingsTile(
+                  title: 'DAC DSD Capabilities',
+                  subtitle:
+                      'Native DSD: ${_nativeDsdSupported ? "Supported" : "Not Detected"} • DoP v1.1: ${_dopSupported ? "Supported" : "PCM Fallback"}',
+                  leading: _buildLeadingIcon(
+                    Icons.surround_sound_rounded,
+                    (_nativeDsdSupported || _dopSupported)
+                        ? Colors.greenAccent
+                        : _textDark,
+                  ),
+                  trailing: AppStatusBadge(
+                    text: _nativeDsdSupported
+                        ? 'NATIVE DSD'
+                        : (_dopSupported ? 'DoP v1.1' : 'D2P ONLY'),
+                    color: _nativeDsdSupported || _dopSupported
+                        ? Colors.greenAccent
+                        : _textDark,
+                  ),
+                  onTap: () async {
+                    final dsdState = await widget.player.getDsdState();
+                    if (!mounted) return;
+                    setState(() {
+                      _nativeDsdSupported =
+                          dsdState['isNativeDsdSupported'] == true;
+                      _dopSupported = dsdState['isDopSupported'] == true;
+                    });
+                    setSubState(() {});
+                  },
+                ),
               ],
             ),
             const SizedBox(height: 20),
@@ -6980,6 +7141,163 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (_) {
                     setDlgState(() {});
                     selectBits(bits, ctx);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDsdOutputModeDialog({VoidCallback? onDone}) {
+    final options = [
+      (
+        DsdOutputMode.auto,
+        'Auto (Native → DoP → D2P)',
+        'Tries 1-bit Native DSD first, falls back to DoP v1.1, then high-precision D2P'
+      ),
+      (
+        DsdOutputMode.nativeDsd,
+        'Native DSD (1-bit Raw)',
+        'Pure bit-perfect 1-bit DSD stream via USB UAC2 RAW_DATA (bypasses mixer & DSP)'
+      ),
+      (
+        DsdOutputMode.dop,
+        'DoP v1.1 (DSD over PCM)',
+        'Encapsulates 1-bit DSD inside 24/32-bit PCM frames with 0x05/0xFA markers'
+      ),
+      (
+        DsdOutputMode.d2p,
+        'D2P (DSD-to-PCM)',
+        '128-tap Blackman-Harris FIR decimation for universal DAC & 7-Zone DSP compatibility'
+      ),
+    ];
+
+    Future<void> selectMode(DsdOutputMode mode, BuildContext dlgCtx) async {
+      setState(() => _dsdOutputMode = mode);
+      widget.player.setDsdOutputMode(mode);
+      await AppStateService.instance.saveDsdOutputMode(mode.value);
+      final dsdState = await widget.player.getDsdState();
+      if (mounted) {
+        setState(() {
+          _nativeDsdSupported = dsdState['isNativeDsdSupported'] == true;
+          _dopSupported = dsdState['isDopSupported'] == true;
+        });
+      }
+      onDone?.call();
+      if (dlgCtx.mounted) Navigator.pop(dlgCtx);
+    }
+
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'DSD Output Mode',
+          subtitle: 'Select direct 1-bit DSD, DoP encapsulation, or D2P FIR',
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (index) {
+              setDlgState(() {});
+              selectMode(options[index].$1, ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = options[index];
+              final mode = item.$1;
+              final isSelected = mode == _dsdOutputMode;
+              return M3EListItem(
+                headline: item.$2,
+                supportingText: item.$3,
+                selected: isSelected,
+                trailing: M3ERadio<DsdOutputMode>(
+                  value: mode,
+                  groupValue: _dsdOutputMode,
+                  onChanged: (_) {
+                    setDlgState(() {});
+                    selectMode(mode, ctx);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDsdD2pRateDialog({VoidCallback? onDone}) {
+    final options = [
+      (
+        0,
+        'Auto (88.2 / 176.4 kHz)',
+        'Automatically picks integer-ratio decimation rate matching your DAC'
+      ),
+      (
+        88200,
+        '88.2 kHz (Recommended)',
+        'Exact 32× decimation from DSD64 with ultra-low ultrasonic noise'
+      ),
+      (
+        176400,
+        '176.4 kHz',
+        'Exact 16× decimation from DSD64 / 32× from DSD128 for extended HF headroom'
+      ),
+      (
+        352800,
+        '352.8 kHz (DXD)',
+        'Pure studio DXD master rate (8× from DSD64 / 16× from DSD128)'
+      ),
+    ];
+
+    Future<void> selectRate(int rate, BuildContext dlgCtx) async {
+      setState(() => _dsdD2pSampleRate = rate);
+      widget.player.setDsdD2pSampleRate(rate);
+      await AppStateService.instance.saveDsdD2pSampleRate(rate);
+      onDone?.call();
+      if (dlgCtx.mounted) Navigator.pop(dlgCtx);
+    }
+
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'D2P Target Sample Rate',
+          subtitle: 'PCM sample rate used by the 128-tap DSD decimator',
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (index) {
+              setDlgState(() {});
+              selectRate(options[index].$1, ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = options[index];
+              final rate = item.$1;
+              final isSelected = rate == _dsdD2pSampleRate;
+              return M3EListItem(
+                headline: item.$2,
+                supportingText: item.$3,
+                selected: isSelected,
+                trailing: M3ERadio<int>(
+                  value: rate,
+                  groupValue: _dsdD2pSampleRate,
+                  onChanged: (_) {
+                    setDlgState(() {});
+                    selectRate(rate, ctx);
                   },
                 ),
               );

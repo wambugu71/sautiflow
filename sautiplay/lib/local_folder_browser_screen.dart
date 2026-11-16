@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:path/path.dart' as p;
+import 'package:sautiflow/sautiflow.dart';
 
 import 'album_detail_screen.dart'; // For TrackInfo
 import 'isolate_player.dart';
@@ -243,14 +244,22 @@ class _LocalFolderBrowserScreenState extends State<LocalFolderBrowserScreen> {
 
   void _queueTrack(AudioFileEntry audio) {
     if (widget.onQueueTrack != null) {
+      final cue = CueVirtualPath.parse(audio.path);
       widget.onQueueTrack!(TrackInfo(
         videoId: audio.path,
-        title: audio.title,
-        artist: audio.artist != 'Unknown Artist' ? audio.artist : 'Local File',
+        title: cue?.title ?? audio.title,
+        artist: cue?.artist ??
+            (audio.artist != 'Unknown Artist' ? audio.artist : 'Local File'),
+        album: cue?.album,
+        trackNumber: cue?.trackNumber ?? audio.trackNumber,
+        durationSeconds: cue?.duration?.inSeconds,
+        startMs: cue?.startMs,
+        endMs: cue?.endMs,
+        cueFilePath: cue?.cueFilePath,
       ));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Queued "${audio.title}"'),
+          content: Text('Queued "${cue?.title ?? audio.title}"'),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -785,7 +794,7 @@ class _LocalFolderBrowserScreenState extends State<LocalFolderBrowserScreen> {
         ),
         child: Center(
           child: Text(
-            audio.extension,
+            audio.isCueTrack ? 'CUE' : audio.extension,
             style: TextStyle(
               color: _primary,
               fontSize: 10,
@@ -805,7 +814,9 @@ class _LocalFolderBrowserScreenState extends State<LocalFolderBrowserScreen> {
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: Text(
-        '${audio.extension} • ${audio.formattedSize}',
+        audio.subtitle != null && audio.subtitle!.isNotEmpty
+            ? '${audio.subtitle} • ${audio.extension}'
+            : '${audio.extension} • ${audio.formattedSize}',
         style: TextStyle(color: _textDark, fontSize: 12),
       ),
       trailing: IconButton(

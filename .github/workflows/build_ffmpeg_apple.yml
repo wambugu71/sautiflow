@@ -75,8 +75,8 @@ jobs:
               --enable-version3 \
               --enable-securetransport \
               --enable-protocol=file,pipe,http,https,tcp,tls,crypto,data,cache,subfile,concat,hls \
-              --enable-demuxer=aac,mp3,ogg,flac,wav,mov,matroska,hls,mpegts,concat \
-              --enable-decoder=aac,aac_latm,mp3,mp3float,opus,vorbis,flac,alac,ac3,eac3 \
+              --enable-demuxer=aac,mp3,ogg,flac,wav,mov,matroska,hls,mpegts,concat,dsf,iff \
+              --enable-decoder=aac,aac_latm,mp3,mp3float,opus,vorbis,flac,alac,ac3,eac3,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar \
               --enable-parser=aac,mpegaudio,opus,vorbis,flac \
               --enable-swresample \
               --enable-small \

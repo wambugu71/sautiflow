@@ -24,6 +24,9 @@ class TrackInfo {
   final String? albumId;
   final String? albumArtist;
   final int? trackNumber;
+  final int? startMs;
+  final int? endMs;
+  final String? cueFilePath;
 
   TrackInfo({
     required this.videoId,
@@ -36,6 +39,9 @@ class TrackInfo {
     this.albumId,
     this.albumArtist,
     this.trackNumber,
+    this.startMs,
+    this.endMs,
+    this.cueFilePath,
   });
 
   TrackInfo copyWith({
@@ -49,6 +55,9 @@ class TrackInfo {
     String? albumId,
     String? albumArtist,
     int? trackNumber,
+    int? startMs,
+    int? endMs,
+    String? cueFilePath,
   }) {
     return TrackInfo(
       videoId: videoId ?? this.videoId,
@@ -61,6 +70,9 @@ class TrackInfo {
       albumId: albumId ?? this.albumId,
       albumArtist: albumArtist ?? this.albumArtist,
       trackNumber: trackNumber ?? this.trackNumber,
+      startMs: startMs ?? this.startMs,
+      endMs: endMs ?? this.endMs,
+      cueFilePath: cueFilePath ?? this.cueFilePath,
     );
   }
 
@@ -77,6 +89,9 @@ class TrackInfo {
       albumId: json['albumId'] as String?,
       albumArtist: json['albumArtist'] as String?,
       trackNumber: json['trackNumber'] as int?,
+      startMs: json['startMs'] as int?,
+      endMs: json['endMs'] as int?,
+      cueFilePath: json['cueFilePath'] as String?,
     );
   }
 
@@ -93,6 +108,9 @@ class TrackInfo {
       if (albumId != null) 'albumId': albumId,
       if (albumArtist != null) 'albumArtist': albumArtist,
       if (trackNumber != null) 'trackNumber': trackNumber,
+      if (startMs != null) 'startMs': startMs,
+      if (endMs != null) 'endMs': endMs,
+      if (cueFilePath != null) 'cueFilePath': cueFilePath,
     };
   }
 

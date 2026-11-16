@@ -147,6 +147,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _channels = '...';
   String? _detectedCodec;
   int _bitrateKbps = 0;
+  String? _dsdBadgeLabel;
 
   String? _customTitle;
   String? _customArtist;
@@ -694,6 +695,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       if (cleanPath != null && cleanPath.startsWith('file://')) {
         cleanPath = Uri.tryParse(cleanPath)?.toFilePath();
       }
+      final cueInfo = cleanPath != null ? CueVirtualPath.parse(cleanPath) : null;
+      if (cleanPath != null) {
+        cleanPath = CueVirtualPath.strip(cleanPath);
+      }
 
       if (cleanPath != null) {
         try {
@@ -708,19 +713,45 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             codecStr = info.codec;
             bitrate = info.bitrateKbps;
 
+            bool hasCueAlbum = false;
+            bool hasCueGenre = false;
+            bool hasCueYear = false;
+            bool hasCueTrackNum = false;
+            if (cueInfo != null) {
+              if (cueInfo.album.isNotEmpty) {
+                _customAlbum = cueInfo.album;
+                hasCueAlbum = true;
+              }
+              if (cueInfo.genre != null && cueInfo.genre!.isNotEmpty) {
+                _customGenre = cueInfo.genre!;
+                hasCueGenre = true;
+              }
+              if (cueInfo.year != null) {
+                _customYear = cueInfo.year.toString();
+                hasCueYear = true;
+              }
+              if (cueInfo.trackNumber > 0) {
+                _customTrackNum = cueInfo.trackNumber.toString();
+                hasCueTrackNum = true;
+              }
+            }
+
             try {
               final metadata = readMetadata(file, getImage: false);
-              if (metadata.album != null && metadata.album!.isNotEmpty) {
+              if (!hasCueAlbum &&
+                  metadata.album != null &&
+                  metadata.album!.isNotEmpty) {
                 _customAlbum = metadata.album!;
               }
-              if (metadata.genres.isNotEmpty &&
+              if (!hasCueGenre &&
+                  metadata.genres.isNotEmpty &&
                   metadata.genres.first.isNotEmpty) {
                 _customGenre = metadata.genres.first;
               }
-              if (metadata.year != null) {
+              if (!hasCueYear && metadata.year != null) {
                 _customYear = metadata.year.toString();
               }
-              if (metadata.trackNumber != null) {
+              if (!hasCueTrackNum && metadata.trackNumber != null) {
                 _customTrackNum = metadata.trackNumber.toString();
               }
               if (bitrate <= 0 && metadata.bitrate > 0) {
@@ -750,6 +781,22 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           _formatPipelineFormatCode(pipelineState.outputFormat);
       depthStr ??= activeOutDepth;
 
+      final dsdState = await widget.player.getDsdState();
+      final int activeDsdModeInt = dsdState['activeDsdMode'] as int? ?? 0;
+      final int sourceDsdRate = dsdState['sourceDsdRate'] as int? ?? 0;
+      final ActiveDsdMode activeDsdMode =
+          ActiveDsdMode.fromValue(activeDsdModeInt);
+      String? dsdBadgeLabel;
+      if (activeDsdMode != ActiveDsdMode.none) {
+        final String dsdRateLabel = sourceDsdRate > 0
+            ? ' ${ActiveDsdMode.formatDsdRateName(sourceDsdRate)}'
+            : '';
+        dsdBadgeLabel = '${activeDsdMode.shortLabel}$dsdRateLabel';
+        if (sourceDsdRate > 0) {
+          sampleRateStr = ActiveDsdMode.formatDsdRateName(sourceDsdRate);
+        }
+      }
+
       if (mounted) {
         setState(() {
           final int rate = props['sampleRate'] as int? ?? 44100;
@@ -761,6 +808,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           _outputBitDepth = activeOutDepth;
           _detectedCodec = codecStr;
           _bitrateKbps = bitrate;
+          _dsdBadgeLabel = dsdBadgeLabel;
         });
       }
     } catch (e) {
@@ -800,7 +848,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         'opus',
         'alac',
         'aiff',
-        'dsd'
+        'dsd',
+        'dsf',
+        'dff'
       ]) {
         if (v.endsWith('.$ext')) return ext;
       }
@@ -817,7 +867,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       'opus',
       'alac',
       'aiff',
-      'dsd'
+      'dsd',
+      'dsf',
+      'dff'
     ]) {
       if (vid.endsWith('.$ext')) return ext;
     }
@@ -3169,6 +3221,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                           bitDepth: _outputBitDepth.isNotEmpty ? _outputBitDepth : _originalBitDepth,
                                                           sampleRate: _sampleRate,
                                                           isBitPerfect: _hardwareSpecs?.isExclusiveMode == true,
+                                                          dsdBadgeLabel: _dsdBadgeLabel,
                                                           color: primaryColor,
                                                           onOpenDiagnostics: () => showAudioEngineDiagnosticPanel(
                                                             context,
@@ -3779,6 +3832,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   bitDepth: _outputBitDepth.isNotEmpty ? _outputBitDepth : _originalBitDepth,
                                                   sampleRate: _sampleRate,
                                                   isBitPerfect: _hardwareSpecs?.isExclusiveMode == true,
+                                                  dsdBadgeLabel: _dsdBadgeLabel,
                                                   color: primaryColor,
                                                   onOpenDiagnostics: () => showAudioEngineDiagnosticPanel(
                                                     context,

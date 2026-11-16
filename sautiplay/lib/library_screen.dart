@@ -404,6 +404,99 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  Future<void> _importCueFile() async {
+    final hasPerm = await _requestPermissions();
+    if (!hasPerm) return;
+
+    String? path;
+    try {
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        const typeGroup = XTypeGroup(
+          label: 'CUE Sheets',
+          extensions: <String>['cue'],
+        );
+        final XFile? file =
+            await openFile(acceptedTypeGroups: <XTypeGroup>[typeGroup]);
+        path = file?.path;
+      } else {
+        final result = await FilePicker.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['cue'],
+        );
+        if (result != null && result.files.isNotEmpty) {
+          path = result.files.single.path;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error picking CUE file: $e');
+    }
+
+    if (path == null || path.isEmpty) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final sheet = await CueParser.parseFile(path);
+      final validTracks = sheet?.allTracks
+              .where((t) => File(t.filePath).existsSync())
+              .toList() ??
+          [];
+      if (sheet == null || validTracks.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'No valid audio tracks found in "${p.basename(path)}". Ensure the referenced audio file is in the same folder.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final cueDir = p.canonicalize(File(path).parent.path);
+      final alreadyCovered = _folders.any((f) {
+        final fp = p.canonicalize(f['path'] as String);
+        return fp.toLowerCase() == cueDir.toLowerCase() ||
+            p.isWithin(fp, cueDir);
+      });
+
+      if (!alreadyCovered) {
+        final audioPaths = await _scanForAudioFiles(cueDir);
+        _folders.add({
+          'path': cueDir,
+          'name': p.basename(cueDir),
+          'count': audioPaths.length,
+        });
+        await _saveFolders();
+        await _updateAllSongs();
+      } else {
+        await _smartScanFolders(showFullLoading: false);
+      }
+
+      if (mounted) {
+        final albumLabel = (sheet.title != null && sheet.title!.isNotEmpty)
+            ? sheet.title!
+            : p.basenameWithoutExtension(path);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Imported CUE sheet "$albumLabel" (${validTracks.length} tracks)',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to import CUE file: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _importM3uUrlDialog() async {
     final urlController = TextEditingController();
     final nameController = TextEditingController();
@@ -1347,11 +1440,13 @@ class LibraryScreenState extends State<LibraryScreen>
 
     final existingSongsMap = <String, LocalSongItem>{
       for (final song in _allSongs)
-        p.canonicalize(song.path).toLowerCase(): song
+        CueVirtualPath.normalizedKey(song.path): song
     };
 
     final updatedSongs = <LocalSongItem>[];
     final seenSongHashes = <String>{};
+    final statCache = <String, FileStat>{};
+    final hashCache = <String, String>{};
     bool changesDetected = false;
     int newSongsScanned = 0;
 
@@ -1365,31 +1460,47 @@ class LibraryScreenState extends State<LibraryScreen>
       }
 
       for (final path in audioPaths) {
-        final canonicalPath = p.canonicalize(path);
-        final key = canonicalPath.toLowerCase();
+        final canonicalPath = CueVirtualPath.canonicalize(path);
+        final realPath = CueVirtualPath.strip(canonicalPath);
+        final realKey = CueVirtualPath.normalizedKey(realPath);
+        final key = CueVirtualPath.normalizedKey(canonicalPath);
+        final cueInfo = CueVirtualPath.parse(canonicalPath);
 
         try {
-          final file = File(canonicalPath);
-          final stat = await file.stat();
+          final file = File(realPath);
+          final stat = statCache[realKey] ?? await file.stat();
+          statCache[realKey] = stat;
           final existing = existingSongsMap[key];
 
-          String? hash = existing?.fileHash;
-          if (hash == null || hash.isEmpty) {
+          String hash = existing?.fileHash ?? hashCache[realKey] ?? '';
+          if (hash.isEmpty) {
             hash = await _computeFastFileHash(file, stat.size);
           }
+          if (hash.isNotEmpty) {
+            hashCache[realKey] = hash;
+          }
 
-          final dedupeKey = hash.isNotEmpty ? hash : key;
+          final baseKey = hash.isNotEmpty ? hash : realKey;
+          final dedupeKey = cueInfo != null
+              ? '$baseKey#cue_${cueInfo.trackNumber}_${cueInfo.startMs}'
+              : (hash.isNotEmpty ? hash : key);
 
-          // Ensure each physical file content is added to updatedSongs ONLY ONCE by hash
+          // Ensure each physical track or virtual CUE slice is added ONLY ONCE
           if (!seenSongHashes.add(dedupeKey)) {
             continue;
           }
 
-          // Re-use cached metadata if file size and modified timestamp match
-          if (existing != null &&
-              existing.sizeBytes == stat.size &&
+          final isUnchanged = existing != null &&
               existing.lastModified.millisecondsSinceEpoch ==
-                  stat.modified.millisecondsSinceEpoch) {
+                  stat.modified.millisecondsSinceEpoch &&
+              (cueInfo != null
+                  ? (existing.startMs == cueInfo.startMs &&
+                      existing.endMs == cueInfo.endMs &&
+                      existing.trackNumber == cueInfo.trackNumber)
+                  : existing.sizeBytes == stat.size);
+
+          // Re-use cached metadata if file size/timestamps match
+          if (isUnchanged) {
             updatedSongs.add(existing.fileHash == hash
                 ? existing
                 : LocalSongItem.fallback(
@@ -1401,6 +1512,11 @@ class LibraryScreenState extends State<LibraryScreen>
                     album: existing.album,
                     genre: existing.genre,
                     fileHash: hash,
+                    startMs: existing.startMs,
+                    endMs: existing.endMs,
+                    trackNumber: existing.trackNumber,
+                    cueFilePath: existing.cueFilePath,
+                    year: existing.year,
                   ));
           } else {
             changesDetected = true;
@@ -1411,23 +1527,51 @@ class LibraryScreenState extends State<LibraryScreen>
               });
             }
 
-            final metaMap =
-                await _readMetadataInBackground(canonicalPath);
-            final metaTitle = metaMap['title'];
-            final metaArtist = metaMap['artist'];
-            final metaAlbum = metaMap['album'];
-            final metaGenre = metaMap['genre'];
+            if (cueInfo != null) {
+              String? metaAlbum =
+                  cueInfo.album != 'Unknown Album' ? cueInfo.album : null;
+              String? metaArtist =
+                  cueInfo.artist != 'Unknown Artist' ? cueInfo.artist : null;
+              String? metaGenre = cueInfo.genre;
+              if (metaAlbum == null || metaArtist == null || metaGenre == null) {
+                final metaMap = await _readMetadataInBackground(realPath);
+                metaAlbum ??= metaMap['album'];
+                metaArtist ??= metaMap['artist'];
+                metaGenre ??= metaMap['genre'];
+              }
+              updatedSongs.add(LocalSongItem.fallback(
+                canonicalPath,
+                stat.size,
+                stat.modified,
+                title: cueInfo.title,
+                artist: metaArtist ?? cueInfo.artist,
+                album: metaAlbum ?? cueInfo.album,
+                genre: metaGenre ?? 'Unknown Genre',
+                fileHash: hash,
+                startMs: cueInfo.startMs,
+                endMs: cueInfo.endMs,
+                trackNumber: cueInfo.trackNumber,
+                cueFilePath: cueInfo.cueFilePath,
+                year: cueInfo.year,
+              ));
+            } else {
+              final metaMap = await _readMetadataInBackground(realPath);
+              final metaTitle = metaMap['title'];
+              final metaArtist = metaMap['artist'];
+              final metaAlbum = metaMap['album'];
+              final metaGenre = metaMap['genre'];
 
-            updatedSongs.add(LocalSongItem.fallback(
-              canonicalPath,
-              stat.size,
-              stat.modified,
-              title: metaTitle,
-              artist: metaArtist,
-              album: metaAlbum,
-              genre: metaGenre,
-              fileHash: hash,
-            ));
+              updatedSongs.add(LocalSongItem.fallback(
+                canonicalPath,
+                stat.size,
+                stat.modified,
+                title: metaTitle,
+                artist: metaArtist,
+                album: metaAlbum,
+                genre: metaGenre,
+                fileHash: hash,
+              ));
+            }
           }
         } catch (_) {
           updatedSongs
@@ -1488,14 +1632,14 @@ class LibraryScreenState extends State<LibraryScreen>
         break;
       case 'File Extension (A-Z)':
         final extMap = <String, String>{};
-        String getExt(String path) =>
-            extMap.putIfAbsent(path, () => p.extension(path).toLowerCase());
+        String getExt(String path) => extMap.putIfAbsent(
+            path, () => p.extension(CueVirtualPath.strip(path)).toLowerCase());
         list.sort((a, b) => getExt(a.path).compareTo(getExt(b.path)));
         break;
       case 'File Extension (Z-A)':
         final extMap = <String, String>{};
-        String getExt(String path) =>
-            extMap.putIfAbsent(path, () => p.extension(path).toLowerCase());
+        String getExt(String path) => extMap.putIfAbsent(
+            path, () => p.extension(CueVirtualPath.strip(path)).toLowerCase());
         list.sort((a, b) => getExt(b.path).compareTo(getExt(a.path)));
         break;
     }
@@ -1520,70 +1664,7 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<List<String>> _scanForAudioFiles(String dirPath) async {
-    final audioFiles = <String>[];
-    final seenPaths = <String>{};
-    final rootDir = Directory(dirPath);
-    if (!await rootDir.exists()) return audioFiles;
-
-    const allowedExtensions = {
-      '.mp3',
-      '.m4a',
-      '.wav',
-      '.flac',
-      '.aac',
-      '.ogg',
-      '.opus',
-      '.wma',
-      '.alac',
-      '.aiff',
-      '.aif',
-      '.ape',
-      '.wv',
-      '.m4b',
-      '.m4p',
-    };
-
-    final dirsToScan = <Directory>[rootDir];
-    final visitedDirs = <String>{};
-
-    while (dirsToScan.isNotEmpty) {
-      final currentDir = dirsToScan.removeLast();
-      final canonicalDirPath = p.canonicalize(currentDir.path).toLowerCase();
-      if (!visitedDirs.add(canonicalDirPath)) {
-        continue;
-      }
-
-      try {
-        await for (final entity
-            in currentDir.list(followLinks: false).handleError((e) {
-          debugPrint('Error listing entry in ${currentDir.path}: $e');
-        })) {
-          try {
-            if (entity is Directory) {
-              final dirName = p.basename(entity.path);
-              // Skip hidden directories (e.g. .git, .thumbnails, .trashed, .cache)
-              if (!dirName.startsWith('.')) {
-                dirsToScan.add(entity);
-              }
-            } else if (entity is File) {
-              final ext = p.extension(entity.path).toLowerCase();
-              if (allowedExtensions.contains(ext)) {
-                final canonicalPath = p.canonicalize(entity.path);
-                if (seenPaths.add(canonicalPath.toLowerCase())) {
-                  audioFiles.add(canonicalPath);
-                }
-              }
-            }
-          } catch (e) {
-            debugPrint('Error processing entity ${entity.path}: $e');
-          }
-        }
-      } catch (e) {
-        debugPrint('Error accessing directory ${currentDir.path}: $e');
-      }
-    }
-
-    return audioFiles;
+    return StorageVolumeService.scanAudioFilesRecursively(dirPath);
   }
 
   void _navigateToNetworkSources() {
@@ -1819,12 +1900,15 @@ class LibraryScreenState extends State<LibraryScreen>
     int removedSongsCount = 0;
 
     for (final song in _allSongs) {
-      final canonicalPath = p.canonicalize(song.path).toLowerCase();
-      final key = (song.fileHash != null && song.fileHash!.isNotEmpty)
+      final canonicalPath = CueVirtualPath.normalizedKey(song.path);
+      final baseKey = (song.fileHash != null && song.fileHash!.isNotEmpty)
           ? song.fileHash!
           : (canonicalPath.isNotEmpty
               ? canonicalPath
               : '${song.title.toLowerCase()}_${song.artist.toLowerCase()}_${song.sizeBytes}');
+      final key = song.isCueTrack
+          ? '$baseKey#cue_${song.trackNumber ?? 0}_${song.startMs ?? 0}'
+          : baseKey;
 
       if (seenKeys.add(key)) {
         uniqueSongs.add(song);
@@ -1893,7 +1977,7 @@ class LibraryScreenState extends State<LibraryScreen>
     final uniquePaths = <String>[];
     final seen = <String>{};
     for (final path in audioPaths) {
-      final key = p.canonicalize(path).toLowerCase();
+      final key = CueVirtualPath.normalizedKey(path);
       if (seen.add(key)) {
         uniquePaths.add(path);
       }
@@ -1936,6 +2020,12 @@ class LibraryScreenState extends State<LibraryScreen>
       videoId: song.path,
       title: song.title,
       artist: song.artist != 'Unknown Artist' ? song.artist : 'Local File',
+      album: song.album != 'Unknown Album' ? song.album : null,
+      trackNumber: song.trackNumber,
+      durationSeconds: song.durationMs != null ? (song.durationMs! ~/ 1000) : null,
+      startMs: song.startMs,
+      endMs: song.endMs,
+      cueFilePath: song.cueFilePath,
       thumbnailUrl: null,
     );
     if (widget.onQueueTrack != null) {
@@ -1954,33 +2044,43 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _showSongInfo(LocalSongItem song) async {
-    final file = File(song.path);
+    final file = File(song.realFilePath);
     String artist = song.artist;
     String title = song.title;
-    String album = 'Unknown Album';
-    String genre = 'Unknown Genre';
-    String year = '';
-    String trackNumber = '';
+    String album = song.album;
+    String genre = song.genre;
+    String year = song.year != null ? song.year.toString() : '';
+    String trackNumber =
+        song.trackNumber != null ? song.trackNumber.toString() : '';
     Uint8List? albumArt;
-    Duration duration = Duration.zero;
+    Duration duration = song.durationMs != null
+        ? Duration(milliseconds: song.durationMs!)
+        : Duration.zero;
 
-    final fileInfo = await AudioFileInspector.inspect(song.path);
+    final fileInfo = await AudioFileInspector.inspect(song.realFilePath);
 
     try {
       if (file.existsSync()) {
         final meta = NativeAudioMetadata.read(file.path, getImage: true);
-        if (meta.title != null && meta.title!.isNotEmpty) title = meta.title!;
-        if (meta.artist != null && meta.artist!.isNotEmpty) {
-          artist = meta.artist!;
+        if (!song.isCueTrack) {
+          if (meta.title != null && meta.title!.isNotEmpty) title = meta.title!;
+          if (meta.artist != null && meta.artist!.isNotEmpty) {
+            artist = meta.artist!;
+          }
+          if (meta.album != null && meta.album!.isNotEmpty) album = meta.album!;
+          if (meta.genres.isNotEmpty && meta.genres.first.isNotEmpty) {
+            genre = meta.genres.first;
+          }
+          if (meta.year != null) year = meta.year.toString();
+          if (meta.trackNumber != null) trackNumber = meta.trackNumber.toString();
+          if (meta.duration > Duration.zero) duration = meta.duration;
+        } else if (duration == Duration.zero &&
+            meta.duration > Duration.zero &&
+            song.startMs != null) {
+          final rem = meta.duration - Duration(milliseconds: song.startMs!);
+          if (rem > Duration.zero) duration = rem;
         }
-        if (meta.album != null && meta.album!.isNotEmpty) album = meta.album!;
-        if (meta.genres.isNotEmpty && meta.genres.first.isNotEmpty) {
-          genre = meta.genres.first;
-        }
-        if (meta.year != null) year = meta.year.toString();
-        if (meta.trackNumber != null) trackNumber = meta.trackNumber.toString();
         if (meta.pictures.isNotEmpty) albumArt = meta.pictures.first.bytes;
-        if (meta.duration > Duration.zero) duration = meta.duration;
       }
     } catch (_) {}
 
@@ -2023,6 +2123,11 @@ class LibraryScreenState extends State<LibraryScreen>
               album: album.isNotEmpty ? album : song.album,
               genre: genre.isNotEmpty ? genre : song.genre,
               fileHash: song.fileHash,
+              startMs: song.startMs,
+              endMs: song.endMs,
+              trackNumber: int.tryParse(trackNumber) ?? song.trackNumber,
+              cueFilePath: song.cueFilePath,
+              year: int.tryParse(year) ?? song.year,
             );
           }
           _applySearchAndSort();
@@ -2040,7 +2145,7 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _shareSong(LocalSongItem song) async {
-    final file = File(song.path);
+    final file = File(song.realFilePath);
     if (!file.existsSync()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Audio file does not exist on disk.')),
@@ -2048,7 +2153,7 @@ class LibraryScreenState extends State<LibraryScreen>
       return;
     }
     try {
-      final xfile = XFile(song.path);
+      final xfile = XFile(song.realFilePath);
       await Share.shareXFiles([xfile], text: song.title);
     } catch (e) {
       if (!mounted) return;
@@ -2059,6 +2164,51 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _confirmAndDeleteSong(LocalSongItem song) async {
+    if (song.isCueTrack) {
+      final confirm = await M3EDialog.show<bool>(
+        context,
+        dialog: M3EDialog(
+          title: 'Remove CUE Track',
+          topDivider: true,
+          bottomDivider: true,
+          content: Text(
+            '"${song.title}" is part of a CUE sheet image file (${p.basename(song.realFilePath)}).\n\nRemove this virtual track from your library? The master audio file on storage will NOT be deleted.',
+            style: TextStyle(
+                color: AppThemeService.instance.currentData.textDark,
+                fontSize: 14),
+          ),
+          actions: [
+            M3EButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            M3EButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Remove Track'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm != true || !mounted) return;
+      final key = CueVirtualPath.normalizedKey(song.path);
+      setState(() {
+        _allSongs.removeWhere(
+            (s) => CueVirtualPath.normalizedKey(s.path) == key);
+        _filteredSongs.removeWhere(
+            (s) => CueVirtualPath.normalizedKey(s.path) == key);
+      });
+      await _saveCachedSongs();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed CUE track "${song.title}" from library.'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     final confirm = await M3EDialog.show<bool>(
       context,
       dialog: M3EDialog(
@@ -2131,12 +2281,20 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   void _onSongDeletedFromChild(LocalSongItem song) {
+    final cueKey = song.isCueTrack ? CueVirtualPath.normalizedKey(song.path) : null;
     final normTarget = FileDeletionHelper.normalizeFilePath(song.path);
     setState(() {
-      _allSongs.removeWhere(
-          (s) => FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
-      _filteredSongs.removeWhere(
-          (s) => FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
+      if (cueKey != null) {
+        _allSongs.removeWhere(
+            (s) => CueVirtualPath.normalizedKey(s.path) == cueKey);
+        _filteredSongs.removeWhere(
+            (s) => CueVirtualPath.normalizedKey(s.path) == cueKey);
+      } else {
+        _allSongs.removeWhere(
+            (s) => FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
+        _filteredSongs.removeWhere(
+            (s) => FileDeletionHelper.normalizeFilePath(s.path) == normTarget);
+      }
     });
     _saveCachedSongs();
   }
@@ -2273,6 +2431,16 @@ class LibraryScreenState extends State<LibraryScreen>
                                                       color: Colors.cyanAccent,
                                                       size: 20),
                                                   onPressed: _importM3uFile,
+                                                ),
+                                                M3EMenuEntry(
+                                                  label:
+                                                      'Import CUE Sheet (.cue)',
+                                                  leading: const Icon(
+                                                      Icons.album_rounded,
+                                                      color: Colors
+                                                          .purpleAccent,
+                                                      size: 20),
+                                                  onPressed: _importCueFile,
                                                 ),
                                                 M3EMenuEntry(
                                                   label:
@@ -3615,7 +3783,7 @@ class LibraryScreenState extends State<LibraryScreen>
             key = song.artist.trim();
           }
         } else if (_groupByOption == 'Folder') {
-          key = p.basename(p.dirname(song.path));
+          key = p.basename(p.dirname(song.realFilePath));
         }
         if (key != null && key.isNotEmpty) {
           groupedMap.putIfAbsent(key, () => []).add(song);
@@ -4797,6 +4965,22 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
   void initState() {
     super.initState();
     _groupSongs = List.from(widget.songs);
+    if (widget.cachedTracks == null &&
+        _groupSongs.any((s) => s.trackNumber != null)) {
+      _groupSongs.sort((a, b) {
+        final at = a.trackNumber;
+        final bt = b.trackNumber;
+        if (at != null && bt != null) {
+          final cmp = at.compareTo(bt);
+          if (cmp != 0) return cmp;
+        } else if (at != null) {
+          return -1;
+        } else if (bt != null) {
+          return 1;
+        }
+        return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+      });
+    }
   }
 
   @override
@@ -5036,7 +5220,9 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           Text(
-                                            song.title,
+                                            song.trackNumber != null
+                                                ? '${song.trackNumber!.toString().padLeft(2, '0')}. ${song.title}'
+                                                : song.title,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
@@ -5047,7 +5233,9 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                                           ),
                                           const SizedBox(height: 2),
                                           Text(
-                                            '${song.artist} • ${song.album}',
+                                            song.isCueTrack
+                                                ? '${song.artist} • ${song.album} • CUE'
+                                                : '${song.artist} • ${song.album}',
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
@@ -5087,6 +5275,13 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
             videoId: song.path,
             title: song.title,
             artist: song.artist,
+            album: song.album != 'Unknown Album' ? song.album : null,
+            trackNumber: song.trackNumber,
+            durationSeconds:
+                song.durationMs != null ? (song.durationMs! ~/ 1000) : null,
+            startMs: song.startMs,
+            endMs: song.endMs,
+            cueFilePath: song.cueFilePath,
           ));
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Added "${song.title}" to Queue')),
@@ -5097,13 +5292,23 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
         await _showAddToPlaylistForSong(song);
         break;
       case SongOption.info:
-        final file = File(song.path);
-        final fileInfo = await AudioFileInspector.inspect(song.path);
-        Duration d = Duration.zero;
+        final file = File(song.realFilePath);
+        final fileInfo = await AudioFileInspector.inspect(song.realFilePath);
+        Duration d = song.durationMs != null
+            ? Duration(milliseconds: song.durationMs!)
+            : Duration.zero;
         Uint8List? art;
         try {
           final meta = NativeAudioMetadata.read(file.path, getImage: true);
-          if (meta.duration > Duration.zero) d = meta.duration;
+          if (!song.isCueTrack && meta.duration > Duration.zero) {
+            d = meta.duration;
+          } else if (song.isCueTrack &&
+              d == Duration.zero &&
+              meta.duration > Duration.zero &&
+              song.startMs != null) {
+            final rem = meta.duration - Duration(milliseconds: song.startMs!);
+            if (rem > Duration.zero) d = rem;
+          }
           if (meta.pictures.isNotEmpty) art = meta.pictures.first.bytes;
         } catch (_) {}
         if (!mounted) return;
@@ -5113,6 +5318,9 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
           artist: song.artist,
           album: song.album,
           genre: song.genre,
+          year: song.year != null ? song.year.toString() : '',
+          trackNumber:
+              song.trackNumber != null ? song.trackNumber.toString() : '',
           albumArt: art,
           sourceType: 'local',
           videoId: song.path,
@@ -5142,6 +5350,11 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
                   album: album.isNotEmpty ? album : song.album,
                   genre: genre.isNotEmpty ? genre : song.genre,
                   fileHash: song.fileHash,
+                  startMs: song.startMs,
+                  endMs: song.endMs,
+                  trackNumber: int.tryParse(trackNumber) ?? song.trackNumber,
+                  cueFilePath: song.cueFilePath,
+                  year: int.tryParse(year) ?? song.year,
                 );
               }
             });
@@ -5157,7 +5370,7 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
         break;
       case SongOption.share:
         try {
-          await Share.shareXFiles([XFile(song.path)], text: song.title);
+          await Share.shareXFiles([XFile(song.realFilePath)], text: song.title);
         } catch (e) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
@@ -5166,6 +5379,51 @@ class _LocalGroupDetailScreenState extends State<LocalGroupDetailScreen> {
         }
         break;
       case SongOption.delete:
+        if (song.isCueTrack) {
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: context.cardDark,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24)),
+              title: Text(
+                'Remove CUE Track?',
+                style: TextStyle(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18),
+              ),
+              content: Text(
+                '"${song.title}" is part of a CUE sheet image file (${p.basename(song.realFilePath)}).\n\nRemove this virtual track from your library? The master audio file on storage will NOT be deleted.',
+                style: TextStyle(color: context.textMuted, fontSize: 14),
+              ),
+              actions: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Remove Track'),
+                ),
+              ],
+            ),
+          );
+          if (confirm == true && mounted) {
+            final cueKey = CueVirtualPath.normalizedKey(song.path);
+            setState(() {
+              _groupSongs.removeWhere(
+                  (s) => CueVirtualPath.normalizedKey(s.path) == cueKey);
+            });
+            widget.onSongDeleted?.call(song);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content:
+                      Text('Removed CUE track "${song.title}" from library.')),
+            );
+          }
+          break;
+        }
         final confirm = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(

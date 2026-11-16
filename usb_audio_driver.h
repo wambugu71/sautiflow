@@ -43,6 +43,7 @@ static constexpr uint16_t UAC1_FORMAT_IEEE_FLOAT = 0x0003;
 static constexpr uint32_t UAC2_FORMAT_PCM = 0x00000001u;
 static constexpr uint32_t UAC2_FORMAT_PCM8 = 0x00000002u;
 static constexpr uint32_t UAC2_FORMAT_IEEE_FLOAT = 0x00000004u;
+static constexpr uint32_t UAC2_FORMAT_SPECIAL_RAW_DATA = 0x80000000u;
 
 // USB Audio Class Requests
 static constexpr uint8_t UAC1_SET_CUR = 0x01;
@@ -96,6 +97,7 @@ struct UsbAudioAltSetting {
     uint8_t clockSourceId = 0;
 
     bool isFloat = false;
+    bool isNativeDsd = false;
     uint8_t channels = 2;
     uint8_t subslotSize = 2;    // Bytes per sample on USB wire (1, 2, 3, or 4)
     uint8_t bitResolution = 16; // Valid audio bits (8, 16, 24, or 32)
@@ -196,6 +198,7 @@ inline UsbAudioDeviceProfile parse_uac_descriptors(const uint8_t *data, size_t l
     bool haveActiveAlt = false;
     UsbAudioAltSetting curAlt{};
     bool curAltSupportedFormat = false;
+    bool curAltAlsoRawDsd = false;
     uint8_t lastEndpointAddr = 0;
 
     auto flushCurrentAlt = [&]() {
@@ -204,9 +207,16 @@ inline UsbAudioDeviceProfile parse_uac_descriptors(const uint8_t *data, size_t l
                 curAlt.clockSourceId = resolve_effective_clock_id(profile, curAlt.terminalLink);
             }
             profile.altSettings.push_back(curAlt);
+            if (curAltAlsoRawDsd && !curAlt.isNativeDsd) {
+                UsbAudioAltSetting rawAlt = curAlt;
+                rawAlt.isNativeDsd = true;
+                rawAlt.isFloat = false;
+                profile.altSettings.push_back(rawAlt);
+            }
         }
         haveActiveAlt = false;
         curAltSupportedFormat = false;
+        curAltAlsoRawDsd = false;
         curAlt = UsbAudioAltSetting{};
     };
 
@@ -319,14 +329,25 @@ inline UsbAudioDeviceProfile parse_uac_descriptors(const uint8_t *data, size_t l
                         uint32_t bmFormats = read_le32(d + 6);
                         curAlt.channels = d[10];
                         if (fmtType == UAC_FORMAT_TYPE_I) {
+                            const bool hasRawDsd = (bmFormats & UAC2_FORMAT_SPECIAL_RAW_DATA) != 0;
                             if (bmFormats & UAC2_FORMAT_PCM) {
                                 curAlt.isFloat = false;
+                                curAlt.isNativeDsd = false;
                                 curAltSupportedFormat = true;
+                                curAltAlsoRawDsd = hasRawDsd;
                             } else if (bmFormats & UAC2_FORMAT_IEEE_FLOAT) {
                                 curAlt.isFloat = true;
+                                curAlt.isNativeDsd = false;
                                 curAltSupportedFormat = true;
+                                curAltAlsoRawDsd = hasRawDsd;
                             } else if (bmFormats & UAC2_FORMAT_PCM8) {
                                 curAlt.isFloat = false;
+                                curAlt.isNativeDsd = false;
+                                curAltSupportedFormat = true;
+                                curAltAlsoRawDsd = hasRawDsd;
+                            } else if (hasRawDsd) {
+                                curAlt.isFloat = false;
+                                curAlt.isNativeDsd = true;
                                 curAltSupportedFormat = true;
                             }
                         }
@@ -622,13 +643,54 @@ struct UsbSelectedConfig {
     int sampleRate = 48000;
 };
 
+inline bool profile_supports_native_dsd(const UsbAudioDeviceProfile &profile) {
+    if (!profile.valid) return false;
+    for (const auto &alt : profile.altSettings) {
+        if (alt.isNativeDsd && alt.subslotSize == 4 && alt.bitResolution >= 32) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool profile_supports_dop(
+    const UsbAudioDeviceProfile &profile,
+    const std::vector<int> *uac2ClockRates = nullptr
+) {
+    if (!profile.valid) return false;
+    for (const auto &alt : profile.altSettings) {
+        if (alt.isNativeDsd || alt.isFloat || alt.bitResolution < 24) {
+            continue;
+        }
+        if (alt.continuousRateMax >= 176400) {
+            return true;
+        }
+        const std::vector<int> &rates =
+            (alt.uacVersion == 2 && uac2ClockRates && !uac2ClockRates->empty())
+                ? *uac2ClockRates
+                : alt.supportedSampleRates;
+        for (int r : rates) {
+            if (r >= 176400) {
+                return true;
+            }
+        }
+        // UAC2 alt-settings don't embed rates in AS_FORMAT_TYPE; if clock rates
+        // haven't been queried yet, >=24-bit UAC2 PCM can generally carry DoP176.4.
+        if (alt.uacVersion == 2 && rates.empty()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 inline UsbSelectedConfig select_best_uac_alt_setting(
     const UsbAudioDeviceProfile &profile,
     int targetSampleRate,
     int targetChannels,
     AEAudioFormat preferredFormat,
     bool explicitFormat,
-    const std::vector<int> *uac2ClockRates = nullptr
+    const std::vector<int> *uac2ClockRates = nullptr,
+    bool wantNativeDsd = false
 ) {
     UsbSelectedConfig best;
     if (!profile.valid || profile.altSettings.empty()) {
@@ -649,6 +711,9 @@ inline UsbSelectedConfig select_best_uac_alt_setting(
 
     int bestScore = -1000000;
     for (const auto &alt : profile.altSettings) {
+        if (alt.isNativeDsd != wantNativeDsd) {
+            continue;
+        }
         const std::vector<int> &rates =
             (alt.uacVersion == 2 && uac2ClockRates && !uac2ClockRates->empty())
                 ? *uac2ClockRates

@@ -208,10 +208,57 @@ static void testIsoPacketPlannerAndFeedback() {
     std::printf("[PASS] testIsoPacketPlannerAndFeedback\n");
 }
 
+static std::vector<uint8_t> buildUac2NativeDsdTestConfigDescriptor() {
+    std::vector<uint8_t> d = buildUac2TestConfigDescriptor();
+    // Append Interface 1 Alt 3: Dual PCM | UAC2_FORMAT_SPECIAL_RAW_DATA (0x80000001), 32-bit Stereo
+    appendDesc(d, {9, 0x04, 1, 3, 2, 0x01, 0x02, 0x20, 0});
+    // UAC2 AS General (16 bytes): terminalLink=0x01, fmtType=1, bmFormats=0x80000001 LE, ch=2
+    appendDesc(d, {16, 0x24, 0x01, 0x01, 0x00, 0x01, 0x01, 0x00, 0x00, 0x80, 2, 0x03, 0, 0, 0, 0});
+    // UAC2 Format Type I (6 bytes): subslot=4, bitRes=32
+    appendDesc(d, {6, 0x24, 0x02, 0x01, 4, 32});
+    appendDesc(d, {7, 0x05, 0x01, 0x05, 0x00, 0x04, 1});
+    appendDesc(d, {7, 0x05, 0x81, 0x11, 4, 0, 4});
+    return d;
+}
+
+static void testUac2NativeDsdAndDopDetection() {
+    auto raw = buildUac2NativeDsdTestConfigDescriptor();
+    UsbAudioDeviceProfile profile = parse_uac_descriptors(raw.data(), raw.size());
+    assert(profile.valid);
+    assert(profile.uacVersion == 2);
+    // Alt 1 (PCM16), Alt 2 (PCM24/32), Alt 3 split into PCM32 + RAW_DATA Native DSD
+    assert(profile.altSettings.size() == 4);
+    assert(profile_supports_native_dsd(profile));
+
+    std::vector<int> dsdRates = {44100, 48000, 88200, 96000, 176400, 192000, 352800};
+    assert(profile_supports_dop(profile, &dsdRates));
+
+    // Request Native DSD (DSD64 -> 2822400/32 = 88200 Hz carrier)
+    UsbSelectedConfig selNative = select_best_uac_alt_setting(
+        profile, 88200, 2, AE_FORMAT_S32, false, &dsdRates, true);
+    assert(selNative.found);
+    assert(selNative.alt.isNativeDsd);
+    assert(selNative.alt.altSetting == 3);
+    assert(selNative.alt.subslotSize == 4);
+    assert(selNative.alt.bitResolution == 32);
+    assert(selNative.sampleRate == 88200);
+
+    // Request DoP (DSD64 DoP -> 176400 Hz PCM carrier, must NOT select RAW_DATA alt)
+    UsbSelectedConfig selDop = select_best_uac_alt_setting(
+        profile, 176400, 2, AE_FORMAT_S32, false, &dsdRates, false);
+    assert(selDop.found);
+    assert(!selDop.alt.isNativeDsd);
+    assert(selDop.sampleRate == 176400);
+    assert(uac_alt_to_ae_format(selDop.alt) == AE_FORMAT_S32);
+
+    std::printf("[PASS] testUac2NativeDsdAndDopDetection\n");
+}
+
 int main() {
     testUac1DescriptorAndSelection();
     testUac2DescriptorClockAndAltSelection();
     testIsoPacketPlannerAndFeedback();
+    testUac2NativeDsdAndDopDetection();
     std::printf("ALL USB AUDIO DRIVER TESTS PASSED\n");
     return 0;
 }

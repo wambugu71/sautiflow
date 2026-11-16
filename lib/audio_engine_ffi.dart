@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:http/http.dart' as http;
+import 'src/cue_parser.dart';
 import 'src/m3u_parser.dart';
 
 enum LoopMode { off, all, one }
@@ -26,6 +27,75 @@ enum ToneMode {
       (m) => m.value == value,
       orElse: () => ToneMode.crossoverLR4,
     );
+  }
+}
+
+enum DsdOutputMode {
+  auto(0),
+  d2p(1),
+  dop(2),
+  nativeDsd(3);
+
+  final int value;
+  const DsdOutputMode(this.value);
+
+  static DsdOutputMode fromValue(int value) {
+    return DsdOutputMode.values.firstWhere(
+      (m) => m.value == value,
+      orElse: () => DsdOutputMode.auto,
+    );
+  }
+
+  String get displayName {
+    switch (this) {
+      case DsdOutputMode.auto:
+        return 'Auto (Native → DoP → D2P)';
+      case DsdOutputMode.d2p:
+        return 'D2P (DSD to High-Res PCM)';
+      case DsdOutputMode.dop:
+        return 'DoP v1.1 (DSD over PCM)';
+      case DsdOutputMode.nativeDsd:
+        return 'Native DSD (USB Direct Raw)';
+    }
+  }
+}
+
+enum ActiveDsdMode {
+  none(0),
+  d2p(1),
+  dop(2),
+  nativeDsd(3);
+
+  final int value;
+  const ActiveDsdMode(this.value);
+
+  static ActiveDsdMode fromValue(int value) {
+    return ActiveDsdMode.values.firstWhere(
+      (m) => m.value == value,
+      orElse: () => ActiveDsdMode.none,
+    );
+  }
+
+  String get shortLabel {
+    switch (this) {
+      case ActiveDsdMode.none:
+        return 'PCM';
+      case ActiveDsdMode.d2p:
+        return 'D2P';
+      case ActiveDsdMode.dop:
+        return 'DoP';
+      case ActiveDsdMode.nativeDsd:
+        return 'NATIVE DSD';
+    }
+  }
+
+  static String formatDsdRateName(int rateHz) {
+    if (rateHz >= 45158400) return 'DSD1024';
+    if (rateHz >= 22579200) return 'DSD512';
+    if (rateHz >= 11289600) return 'DSD256';
+    if (rateHz >= 5644800) return 'DSD128';
+    if (rateHz >= 2822400) return 'DSD64';
+    return 'DSD';
   }
 }
 
@@ -635,42 +705,151 @@ class AudioSource {
   final Uri uri;
   final String? title;
   final String? artist;
+  final String? album;
+  final int? trackNumber;
   final Duration? duration;
+  final Duration? clipStart;
+  final Duration? clipEnd;
+  final double? replayGainTrackDb;
+  final double? replayGainAlbumDb;
 
   const AudioSource.uri(
     this.uri, {
     this.title,
     this.artist,
+    this.album,
+    this.trackNumber,
     this.duration,
+    this.clipStart,
+    this.clipEnd,
+    this.replayGainTrackDb,
+    this.replayGainAlbumDb,
   });
 
   factory AudioSource.file(
     String path, {
     String? title,
     String? artist,
+    String? album,
+    int? trackNumber,
     Duration? duration,
-  }) =>
-      AudioSource.uri(
-        Uri.file(path),
-        title: title,
-        artist: artist,
-        duration: duration,
+    Duration? clipStart,
+    Duration? clipEnd,
+    double? replayGainTrackDb,
+    double? replayGainAlbumDb,
+  }) {
+    if (CueVirtualPath.isVirtual(path)) {
+      final info = CueVirtualPath.parse(path);
+      final realPath = CueVirtualPath.strip(path);
+      return AudioSource.uri(
+        Uri.file(realPath),
+        title: title ?? info?.title,
+        artist: artist ?? info?.artist,
+        album: album ?? info?.album,
+        trackNumber: trackNumber ?? info?.trackNumber,
+        duration: duration ?? info?.duration,
+        clipStart: clipStart ?? info?.clipStart,
+        clipEnd: clipEnd ?? info?.clipEnd,
+        replayGainTrackDb: replayGainTrackDb ?? info?.replayGainTrackDb,
+        replayGainAlbumDb: replayGainAlbumDb ?? info?.replayGainAlbumDb,
       );
+    }
+    return AudioSource.uri(
+      Uri.file(path),
+      title: title,
+      artist: artist,
+      album: album,
+      trackNumber: trackNumber,
+      duration: duration,
+      clipStart: clipStart,
+      clipEnd: clipEnd,
+      replayGainTrackDb: replayGainTrackDb,
+      replayGainAlbumDb: replayGainAlbumDb,
+    );
+  }
 
   factory AudioSource.network(
     String url, {
     String? title,
     String? artist,
+    String? album,
+    int? trackNumber,
     Duration? duration,
+    Duration? clipStart,
+    Duration? clipEnd,
+    double? replayGainTrackDb,
+    double? replayGainAlbumDb,
   }) =>
       AudioSource.uri(
         Uri.parse(url),
         title: title,
         artist: artist,
+        album: album,
+        trackNumber: trackNumber,
         duration: duration,
+        clipStart: clipStart,
+        clipEnd: clipEnd,
+        replayGainTrackDb: replayGainTrackDb,
+        replayGainAlbumDb: replayGainAlbumDb,
       );
 
   bool get isNetwork => uri.scheme == 'http' || uri.scheme == 'https';
+
+  bool get isClipped =>
+      (clipStart != null && clipStart! > Duration.zero) || clipEnd != null;
+
+  /// Parses a CUE sheet string and expands it into virtual clipped [AudioSource] items.
+  static List<AudioSource> fromCueContent(
+    String content, {
+    String? cueFilePath,
+    String? baseDirectory,
+  }) {
+    final sheet = CueParser.parse(
+      content,
+      cueFilePath: cueFilePath,
+      baseDirectory: baseDirectory,
+    );
+    return sheet.allTracks
+        .map(
+          (track) => AudioSource.file(
+            track.filePath,
+            title: track.title,
+            artist: track.effectiveArtist,
+            album: track.effectiveAlbum,
+            trackNumber: track.trackNumber,
+            duration: track.duration,
+            clipStart: track.clipStart,
+            clipEnd: track.clipEnd,
+            replayGainTrackDb: track.replayGainTrackDb,
+            replayGainAlbumDb: track.replayGainAlbumDb,
+          ),
+        )
+        .toList();
+  }
+
+  /// Asynchronously loads a local `.cue` file and expands it into clipped [AudioSource] items.
+  static Future<List<AudioSource>> fromCue(String cueFilePath) async {
+    final sheet = await CueParser.parseFile(cueFilePath);
+    if (sheet == null) {
+      throw FileSystemException('CUE sheet file not found or invalid', cueFilePath);
+    }
+    return sheet.allTracks
+        .map(
+          (track) => AudioSource.file(
+            track.filePath,
+            title: track.title,
+            artist: track.effectiveArtist,
+            album: track.effectiveAlbum,
+            trackNumber: track.trackNumber,
+            duration: track.duration,
+            clipStart: track.clipStart,
+            clipEnd: track.clipEnd,
+            replayGainTrackDb: track.replayGainTrackDb,
+            replayGainAlbumDb: track.replayGainAlbumDb,
+          ),
+        )
+        .toList();
+  }
 
   /// Parses an M3U/M3U8 playlist string and expands it into a list of [AudioSource] instances.
   static List<AudioSource> fromM3uContent(
@@ -1013,6 +1192,7 @@ class NativeAudioMetadata {
 
   static NativeAudioMetadata read(String filePath,
       {bool getImage = false, String? libraryPath}) {
+    filePath = CueVirtualPath.strip(filePath);
     // STRICT ISOLATION: Zero probing, file I/O or network connections for online streams
     if (filePath.isEmpty ||
         filePath.startsWith('http://') ||
@@ -1612,6 +1792,8 @@ typedef _GetIntNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetIntDart = int Function(ffi.Pointer<ffi.Void>);
 typedef _GetFloatNative = ffi.Float Function(ffi.Pointer<ffi.Void>);
 typedef _GetFloatDart = double Function(ffi.Pointer<ffi.Void>);
+typedef _SetFloatNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Float);
+typedef _SetFloatDart = void Function(ffi.Pointer<ffi.Void>, double);
 
 typedef _SetAbRepeatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Double, ffi.Double);
@@ -3498,6 +3680,42 @@ class AudioEngineFFI {
     }
 
     try {
+      _setDsdOutputMode = _lib.lookupFunction<_SetIntNative, _SetIntDart>(
+          'ae_set_dsd_output_mode');
+      _getDsdOutputMode = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+          'ae_get_dsd_output_mode');
+      _getActiveDsdMode = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+          'ae_get_active_dsd_mode');
+      _getSourceDsdRate = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+          'ae_get_source_dsd_rate');
+      _setDsdD2pSampleRate = _lib.lookupFunction<_SetIntNative, _SetIntDart>(
+          'ae_set_dsd_d2p_sample_rate');
+      _getDsdD2pSampleRate = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+          'ae_get_dsd_d2p_sample_rate');
+      _setDsdGainBoostDb =
+          _lib.lookupFunction<_SetFloatNative, _SetFloatDart>(
+              'ae_set_dsd_gain_boost_db');
+      _getDsdGainBoostDb =
+          _lib.lookupFunction<_GetFloatNative, _GetFloatDart>(
+              'ae_get_dsd_gain_boost_db');
+      _isNativeDsdSupported = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+          'ae_is_native_dsd_supported');
+      _isDopSupported = _lib.lookupFunction<_GetIntNative, _GetIntDart>(
+          'ae_is_dop_supported');
+    } catch (_) {
+      _setDsdOutputMode = null;
+      _getDsdOutputMode = null;
+      _getActiveDsdMode = null;
+      _getSourceDsdRate = null;
+      _setDsdD2pSampleRate = null;
+      _getDsdD2pSampleRate = null;
+      _setDsdGainBoostDb = null;
+      _getDsdGainBoostDb = null;
+      _isNativeDsdSupported = null;
+      _isDopSupported = null;
+    }
+
+    try {
       _setPhaseInversion =
           _lib.lookupFunction<_SetPhaseInversionNative, _SetPhaseInversionDart>(
               'ae_set_phase_inversion');
@@ -4027,6 +4245,16 @@ class AudioEngineFFI {
   late final _SetFxEnabledDart? _setAutoSampleRateMatchEnabled;
   late final _GetIntDart? _getAutoSampleRateMatchEnabled;
   _GetIntDart? _consumePendingRateChange;
+  _SetIntDart? _setDsdOutputMode;
+  _GetIntDart? _getDsdOutputMode;
+  _GetIntDart? _getActiveDsdMode;
+  _GetIntDart? _getSourceDsdRate;
+  _SetIntDart? _setDsdD2pSampleRate;
+  _GetIntDart? _getDsdD2pSampleRate;
+  _SetFloatDart? _setDsdGainBoostDb;
+  _GetFloatDart? _getDsdGainBoostDb;
+  _GetIntDart? _isNativeDsdSupported;
+  _GetIntDart? _isDopSupported;
   late final _SetPhaseInversionDart? _setPhaseInversion;
   late final _GetPhaseInversionDart? _getPhaseInversion;
   late final _SetLrSwapDart? _setLrSwap;
@@ -4114,6 +4342,14 @@ class AudioEngineFFI {
   ffi.Pointer<ffi.Void> _engine;
   ffi.Pointer<ffi.Void> get enginePointer => _engine;
 
+  final List<AudioSource?> _playlistSources = <AudioSource?>[];
+  int _lastClipAutoAdvanceIndex = -1;
+  DateTime? _lastClipAutoAdvanceTime;
+  int _lastStartClampIndex = -1;
+  DateTime? _lastStartClampTime;
+
+  String _normalizeSourcePath(String path) => CueVirtualPath.strip(path);
+
   ffi.Pointer<ffi.Char> _toNativeChar(String value) {
     final bytes = utf8.encode(value);
     final ptr = _malloc(bytes.length + 1).cast<ffi.Uint8>();
@@ -4145,9 +4381,9 @@ class AudioEngineFFI {
 
   String _uriToEnginePath(Uri uri) {
     if (uri.scheme == 'file') {
-      return uri.toFilePath();
+      return CueVirtualPath.strip(uri.toFilePath());
     }
-    return uri.toString();
+    return CueVirtualPath.strip(uri.toString());
   }
 
   static ffi.DynamicLibrary openLibrary(String? path) {
@@ -4367,11 +4603,26 @@ class AudioEngineFFI {
 
     try {
       for (var i = 0; i < paths.length; i++) {
-        final c = _toNativeChar(paths[i]);
+        final clean = _normalizeSourcePath(paths[i]);
+        final c = _toNativeChar(clean);
         allocated.add(c);
         ptrArray[i] = c;
       }
-      return _setPlaylist(_engine, ptrArray, paths.length) != 0;
+      final ok = _setPlaylist(_engine, ptrArray, paths.length) != 0;
+      if (ok) {
+        _playlistSources
+          ..clear()
+          ..addAll(
+            paths.map(
+              (p) => CueVirtualPath.isVirtual(p) ? AudioSource.file(p) : null,
+            ),
+          );
+        _lastClipAutoAdvanceIndex = -1;
+        _lastClipAutoAdvanceTime = null;
+        _lastStartClampIndex = -1;
+        _lastStartClampTime = null;
+      }
+      return ok;
     } finally {
       for (final p in allocated) {
         _freePtr(p.cast<ffi.Void>());
@@ -4382,9 +4633,31 @@ class AudioEngineFFI {
 
   bool addToPlaylist(String path) {
     if (_engine == ffi.nullptr) return false;
-    final c = _toNativeChar(path);
+    final clean = _normalizeSourcePath(path);
+    final c = _toNativeChar(clean);
     try {
-      return _addToPlaylist(_engine, c) != 0;
+      final ok = _addToPlaylist(_engine, c) != 0;
+      if (ok) {
+        _playlistSources.add(
+          CueVirtualPath.isVirtual(path) ? AudioSource.file(path) : null,
+        );
+      }
+      return ok;
+    } finally {
+      _freePtr(c.cast<ffi.Void>());
+    }
+  }
+
+  bool addAudioSourceObj(AudioSource source) {
+    if (_engine == ffi.nullptr) return false;
+    final clean = _uriToEnginePath(source.uri);
+    final c = _toNativeChar(clean);
+    try {
+      final ok = _addToPlaylist(_engine, c) != 0;
+      if (ok) {
+        _playlistSources.add(source);
+      }
+      return ok;
     } finally {
       _freePtr(c.cast<ffi.Void>());
     }
@@ -4392,45 +4665,192 @@ class AudioEngineFFI {
 
   bool insertAudioSource(int index, String path) {
     if (_engine == ffi.nullptr) return false;
-    final c = _toNativeChar(path);
+    final clean = _normalizeSourcePath(path);
+    final c = _toNativeChar(clean);
     try {
-      return _insertToPlaylist(_engine, index, c) != 0;
+      final ok = _insertToPlaylist(_engine, index, c) != 0;
+      if (ok) {
+        final safeIdx = index.clamp(0, _playlistSources.length);
+        _playlistSources.insert(
+          safeIdx,
+          CueVirtualPath.isVirtual(path) ? AudioSource.file(path) : null,
+        );
+      }
+      return ok;
     } finally {
       _freePtr(c.cast<ffi.Void>());
     }
   }
 
+  bool insertAudioSourceObj(int index, AudioSource source) {
+    if (_engine == ffi.nullptr) return false;
+    final clean = _uriToEnginePath(source.uri);
+    final c = _toNativeChar(clean);
+    try {
+      final ok = _insertToPlaylist(_engine, index, c) != 0;
+      if (ok) {
+        final safeIdx = index.clamp(0, _playlistSources.length);
+        _playlistSources.insert(safeIdx, source);
+      }
+      return ok;
+    } finally {
+      _freePtr(c.cast<ffi.Void>());
+    }
+  }
+
+  void setAudioSourceMetadataAt(int index, AudioSource source) {
+    if (index >= 0 && index < _playlistSources.length) {
+      _playlistSources[index] = source;
+    }
+  }
+
   bool removeAudioSourceAt(int index) {
     if (_engine == ffi.nullptr) return false;
-    return _removeFromPlaylist(_engine, index) != 0;
+    final ok = _removeFromPlaylist(_engine, index) != 0;
+    if (ok && index >= 0 && index < _playlistSources.length) {
+      _playlistSources.removeAt(index);
+    }
+    return ok;
   }
 
   bool moveAudioSource(int fromIndex, int toIndex) {
     if (_engine == ffi.nullptr) return false;
-    return _movePlaylistItem(_engine, fromIndex, toIndex) != 0;
+    final ok = _movePlaylistItem(_engine, fromIndex, toIndex) != 0;
+    if (ok &&
+        fromIndex >= 0 &&
+        fromIndex < _playlistSources.length &&
+        toIndex >= 0 &&
+        toIndex < _playlistSources.length) {
+      final moved = _playlistSources.removeAt(fromIndex);
+      _playlistSources.insert(toIndex, moved);
+    }
+    return ok;
   }
 
   void clearPlaylist() {
     if (_engine == ffi.nullptr) return;
     _clearPlaylist(_engine);
+    _playlistSources.clear();
+    _lastClipAutoAdvanceIndex = -1;
+    _lastClipAutoAdvanceTime = null;
+    _lastStartClampIndex = -1;
+    _lastStartClampTime = null;
   }
 
   bool play() => _engine != ffi.nullptr && _play(_engine) != 0;
   bool pause() => _engine != ffi.nullptr && _pause(_engine) != 0;
   bool stop() => _engine != ffi.nullptr && _stop(_engine) != 0;
-  bool next() => _engine != ffi.nullptr && _next(_engine) != 0;
-  bool prev() => _engine != ffi.nullptr && _prev(_engine) != 0;
-  bool jumpTo(int index) =>
-      _engine != ffi.nullptr && _jumpTo(_engine, index) != 0;
 
-  bool jumpToWithPosition(int index, Duration position) =>
-      _engine != ffi.nullptr &&
-      _jumpToWithPosition(
+  bool next() {
+    if (_engine == ffi.nullptr) return false;
+    final hasClipped = _playlistSources.any((s) => s != null && s.isClipped);
+    if (!hasClipped) {
+      return _next(_engine) != 0;
+    }
+    final raw = _getStatus(_engine);
+    final loop = LoopMode.values[raw.loop_mode.clamp(0, 2)];
+    if (raw.shuffle_enabled == 0) {
+      if (raw.current_index + 1 < _playlistSources.length) {
+        return jumpTo(raw.current_index + 1);
+      }
+      if (loop == LoopMode.all && _playlistSources.isNotEmpty) {
+        return jumpTo(0);
+      }
+      return false;
+    }
+    final ok = _next(_engine) != 0;
+    if (ok) {
+      final after = _getStatus(_engine);
+      final target = (after.current_index >= 0 &&
+              after.current_index < _playlistSources.length)
+          ? _playlistSources[after.current_index]
+          : null;
+      if (target != null &&
+          target.clipStart != null &&
+          target.clipStart! > Duration.zero) {
+        return jumpTo(after.current_index);
+      }
+    }
+    return ok;
+  }
+
+  bool prev() {
+    if (_engine == ffi.nullptr) return false;
+    final hasClipped = _playlistSources.any((s) => s != null && s.isClipped);
+    if (!hasClipped) {
+      return _prev(_engine) != 0;
+    }
+    final raw = _getStatus(_engine);
+    final cur = raw.current_index;
+    final curSrc =
+        (cur >= 0 && cur < _playlistSources.length) ? _playlistSources[cur] : null;
+    final startSec = (curSrc?.clipStart?.inMicroseconds ?? 0) / 1000000.0;
+    if (curSrc != null && curSrc.isClipped && (raw.position_seconds - startSec) > 3.0) {
+      if (raw.duration_seconds > 0) {
+        return seek((startSec / raw.duration_seconds).clamp(0.0, 1.0));
+      }
+      return jumpTo(cur);
+    }
+    final loop = LoopMode.values[raw.loop_mode.clamp(0, 2)];
+    if (raw.shuffle_enabled == 0) {
+      if (cur - 1 >= 0) {
+        return jumpTo(cur - 1);
+      }
+      if (loop == LoopMode.all && _playlistSources.isNotEmpty) {
+        return jumpTo(_playlistSources.length - 1);
+      }
+      return jumpTo(0);
+    }
+    final ok = _prev(_engine) != 0;
+    if (ok) {
+      final after = _getStatus(_engine);
+      final target = (after.current_index >= 0 &&
+              after.current_index < _playlistSources.length)
+          ? _playlistSources[after.current_index]
+          : null;
+      if (target != null &&
+          target.clipStart != null &&
+          target.clipStart! > Duration.zero) {
+        return jumpTo(after.current_index);
+      }
+    }
+    return ok;
+  }
+
+  bool jumpTo(int index) {
+    if (_engine == ffi.nullptr) return false;
+    final src = (index >= 0 && index < _playlistSources.length)
+        ? _playlistSources[index]
+        : null;
+    _lastStartClampIndex = index;
+    _lastStartClampTime = DateTime.now();
+    if (src != null && src.clipStart != null && src.clipStart! > Duration.zero) {
+      return _jumpToWithPosition(
             _engine,
             index,
-            position.inMicroseconds / 1000000.0,
+            src.clipStart!.inMicroseconds / 1000000.0,
           ) !=
           0;
+    }
+    return _jumpTo(_engine, index) != 0;
+  }
+
+  bool jumpToWithPosition(int index, Duration position) {
+    if (_engine == ffi.nullptr) return false;
+    final src = (index >= 0 && index < _playlistSources.length)
+        ? _playlistSources[index]
+        : null;
+    final clipStart = src?.clipStart ?? Duration.zero;
+    final target = clipStart + position;
+    _lastStartClampIndex = index;
+    _lastStartClampTime = DateTime.now();
+    return _jumpToWithPosition(
+          _engine,
+          index,
+          target.inMicroseconds / 1000000.0,
+        ) !=
+        0;
+  }
 
   bool seekToNext() => next();
   bool seekToPrevious() => prev();
@@ -4456,7 +4876,18 @@ class AudioEngineFFI {
     double endSeconds = 0.0,
   }) {
     if (_engine == ffi.nullptr || _setAbRepeat == null) return;
-    _setAbRepeat!(_engine, enabled ? 1 : 0, startSeconds, endSeconds);
+    final raw = _getStatus(_engine);
+    final src = (raw.current_index >= 0 &&
+            raw.current_index < _playlistSources.length)
+        ? _playlistSources[raw.current_index]
+        : null;
+    final offsetSec = (src?.clipStart?.inMicroseconds ?? 0) / 1000000.0;
+    _setAbRepeat!(
+      _engine,
+      enabled ? 1 : 0,
+      enabled ? startSeconds + offsetSec : 0.0,
+      enabled && endSeconds > 0 ? endSeconds + offsetSec : 0.0,
+    );
   }
 
   ({bool enabled, double startSeconds, double endSeconds}) getAbRepeat() {
@@ -4468,10 +4899,21 @@ class AudioEngineFFI {
     _pAbEnd ??= _malloc(ffi.sizeOf<ffi.Double>()).cast<ffi.Double>();
 
     _getAbRepeat!(_engine, _pAbEnabled!, _pAbStart!, _pAbEnd!);
+    final enabled = _pAbEnabled!.value != 0;
+    if (!enabled) {
+      return (enabled: false, startSeconds: 0.0, endSeconds: 0.0);
+    }
+    final raw = _getStatus(_engine);
+    final src = (raw.current_index >= 0 &&
+            raw.current_index < _playlistSources.length)
+        ? _playlistSources[raw.current_index]
+        : null;
+    final offsetSec = (src?.clipStart?.inMicroseconds ?? 0) / 1000000.0;
     return (
-      enabled: _pAbEnabled!.value != 0,
-      startSeconds: _pAbStart!.value,
-      endSeconds: _pAbEnd!.value,
+      enabled: true,
+      startSeconds: math.max(0.0, _pAbStart!.value - offsetSec),
+      endSeconds:
+          _pAbEnd!.value > 0 ? math.max(0.0, _pAbEnd!.value - offsetSec) : 0.0,
     );
   }
 
@@ -4593,7 +5035,8 @@ class AudioEngineFFI {
 
   TrackNativeInfo? inspectFile(String path) {
     if (_inspectFile == null) return null;
-    final c = _toNativeChar(path);
+    final cleanPath = _normalizeSourcePath(path);
+    final c = _toNativeChar(cleanPath);
     try {
       final native = _inspectFile!(c);
       return TrackNativeInfo.fromNative(native);
@@ -4604,7 +5047,8 @@ class AudioEngineFFI {
 
   AudioFileTags? readFileTags(String path) {
     if (_readFileTags == null) return null;
-    final c = _toNativeChar(path);
+    final cleanPath = _normalizeSourcePath(path);
+    final c = _toNativeChar(cleanPath);
     final artistPtr = calloc<ffi.Char>(256);
     final titlePtr = calloc<ffi.Char>(256);
     final albumPtr = calloc<ffi.Char>(256);
@@ -4704,6 +5148,9 @@ class AudioEngineFFI {
     if (!ok) return false;
 
     if (sources.isEmpty) return false;
+    _playlistSources
+      ..clear()
+      ..addAll(sources);
     final idx = initialIndex.clamp(0, sources.length - 1);
     final jumped = jumpToWithPosition(idx, initialPosition);
 
@@ -4729,18 +5176,37 @@ class AudioEngineFFI {
     if (index != null) {
       return jumpToWithPosition(index, position);
     }
+    if (_engine == ffi.nullptr) return false;
 
-    final s = getStatus();
-    double durationSec = s.durationSeconds;
-    if (durationSec <= 0) {
+    final raw = _getStatus(_engine);
+    double rawDurationSec = raw.duration_seconds;
+    if (rawDurationSec <= 0) {
       final tel = getStreamTelemetry();
       if (tel.isSeekable && tel.totalDuration.inMilliseconds > 0) {
-        durationSec = tel.totalDuration.inMicroseconds / 1000000.0;
+        rawDurationSec = tel.totalDuration.inMicroseconds / 1000000.0;
       }
     }
 
-    if (durationSec <= 0) return false;
-    final percent = (position.inMicroseconds / 1000000.0) / durationSec;
+    if (rawDurationSec <= 0) return false;
+
+    final src = (raw.current_index >= 0 &&
+            raw.current_index < _playlistSources.length)
+        ? _playlistSources[raw.current_index]
+        : null;
+    if (src != null && src.isClipped) {
+      final startSec = (src.clipStart?.inMicroseconds ?? 0) / 1000000.0;
+      double targetSec = startSec + (position.inMicroseconds / 1000000.0);
+      if (src.clipEnd != null) {
+        final endSec = src.clipEnd!.inMicroseconds / 1000000.0;
+        if (targetSec > endSec) {
+          targetSec = math.max(startSec, endSec - 0.05);
+        }
+      }
+      final percent = (targetSec / rawDurationSec).clamp(0.0, 1.0);
+      return seek(percent);
+    }
+
+    final percent = (position.inMicroseconds / 1000000.0) / rawDurationSec;
     return seek(percent);
   }
 
@@ -4760,7 +5226,92 @@ class AudioEngineFFI {
       );
     }
 
-    final s = _getStatus(_engine);
+    var s = _getStatus(_engine);
+    var src = (s.current_index >= 0 && s.current_index < _playlistSources.length)
+        ? _playlistSources[s.current_index]
+        : null;
+
+    if (src != null && src.isClipped) {
+      final now = DateTime.now();
+      var startSec = (src.clipStart?.inMicroseconds ?? 0) / 1000000.0;
+      var rawEndSec = src.clipEnd != null
+          ? (src.clipEnd!.inMicroseconds / 1000000.0)
+          : s.duration_seconds;
+      var endSec = (s.duration_seconds > 0 && rawEndSec > 0)
+          ? math.min(rawEndSec, s.duration_seconds)
+          : rawEndSec;
+
+      if (s.is_playing != 0) {
+        if (src.clipEnd != null &&
+            endSec > startSec &&
+            s.position_seconds >= endSec - 0.045) {
+          final cooldownElapsed = _lastClipAutoAdvanceTime == null ||
+              now.difference(_lastClipAutoAdvanceTime!).inMilliseconds > 400;
+          if (_lastClipAutoAdvanceIndex != s.current_index || cooldownElapsed) {
+            _lastClipAutoAdvanceIndex = s.current_index;
+            _lastClipAutoAdvanceTime = now;
+
+            final loop = LoopMode.values[s.loop_mode.clamp(0, 2)];
+            if (loop == LoopMode.one) {
+              if (s.duration_seconds > 0) {
+                seek((startSec / s.duration_seconds).clamp(0.0, 1.0));
+              }
+            } else if (s.shuffle_enabled != 0) {
+              next();
+            } else if (s.current_index + 1 < _playlistSources.length) {
+              jumpTo(s.current_index + 1);
+            } else if (loop == LoopMode.all && _playlistSources.isNotEmpty) {
+              jumpTo(0);
+            } else {
+              pause();
+              if (s.duration_seconds > 0) {
+                seek((startSec / s.duration_seconds).clamp(0.0, 1.0));
+              }
+            }
+
+            s = _getStatus(_engine);
+            src = (s.current_index >= 0 &&
+                    s.current_index < _playlistSources.length)
+                ? _playlistSources[s.current_index]
+                : null;
+            startSec = (src?.clipStart?.inMicroseconds ?? 0) / 1000000.0;
+            rawEndSec = src?.clipEnd != null
+                ? (src!.clipEnd!.inMicroseconds / 1000000.0)
+                : s.duration_seconds;
+            endSec = (s.duration_seconds > 0 && rawEndSec > 0)
+                ? math.min(rawEndSec, s.duration_seconds)
+                : rawEndSec;
+          }
+        } else if (s.duration_seconds > 0 &&
+            startSec > 0.25 &&
+            s.position_seconds < startSec - 0.25) {
+          final clampElapsed = _lastStartClampTime == null ||
+              now.difference(_lastStartClampTime!).inMilliseconds > 700;
+          if (_lastStartClampIndex != s.current_index || clampElapsed) {
+            _lastStartClampIndex = s.current_index;
+            _lastStartClampTime = now;
+            seek((startSec / s.duration_seconds).clamp(0.0, 1.0));
+          }
+        }
+      }
+
+      if (src != null && src.isClipped) {
+        final clipDurSec = math.max(0.0, endSec - startSec);
+        final posSec = clipDurSec > 0
+            ? (s.position_seconds - startSec).clamp(0.0, clipDurSec)
+            : math.max(0.0, s.position_seconds - startSec);
+        return PlayerStatus(
+          positionSeconds: posSec,
+          durationSeconds: clipDurSec,
+          isPlaying: s.is_playing != 0,
+          currentIndex: s.current_index,
+          playlistCount: s.playlist_count,
+          shuffleEnabled: s.shuffle_enabled != 0,
+          loopMode: LoopMode.values[s.loop_mode.clamp(0, 2)],
+        );
+      }
+    }
+
     return PlayerStatus(
       positionSeconds: s.position_seconds,
       durationSeconds: s.duration_seconds,
@@ -6211,6 +6762,62 @@ class AudioEngineFFI {
   int consumePendingRateChange() {
     if (_engine == ffi.nullptr || _consumePendingRateChange == null) return 0;
     return _consumePendingRateChange!(_engine);
+  }
+
+  // ── DSD Playback Controls & Telemetry ─────────────────────────────────────
+
+  void setDsdOutputMode(DsdOutputMode mode) {
+    if (_engine == ffi.nullptr) return;
+    _setDsdOutputMode?.call(_engine, mode.value);
+  }
+
+  DsdOutputMode getDsdOutputMode() {
+    if (_engine == ffi.nullptr || _getDsdOutputMode == null) {
+      return DsdOutputMode.auto;
+    }
+    return DsdOutputMode.fromValue(_getDsdOutputMode!(_engine));
+  }
+
+  ActiveDsdMode getActiveDsdMode() {
+    if (_engine == ffi.nullptr || _getActiveDsdMode == null) {
+      return ActiveDsdMode.none;
+    }
+    return ActiveDsdMode.fromValue(_getActiveDsdMode!(_engine));
+  }
+
+  int getSourceDsdRate() {
+    if (_engine == ffi.nullptr || _getSourceDsdRate == null) return 0;
+    return _getSourceDsdRate!(_engine);
+  }
+
+  void setDsdD2pSampleRate(int sampleRate) {
+    if (_engine == ffi.nullptr) return;
+    _setDsdD2pSampleRate?.call(_engine, sampleRate);
+  }
+
+  int getDsdD2pSampleRate() {
+    if (_engine == ffi.nullptr || _getDsdD2pSampleRate == null) return 0;
+    return _getDsdD2pSampleRate!(_engine);
+  }
+
+  void setDsdGainBoostDb(double gainDb) {
+    if (_engine == ffi.nullptr) return;
+    _setDsdGainBoostDb?.call(_engine, gainDb.clamp(0.0, 6.0).toDouble());
+  }
+
+  double getDsdGainBoostDb() {
+    if (_engine == ffi.nullptr || _getDsdGainBoostDb == null) return 6.0;
+    return _getDsdGainBoostDb!(_engine);
+  }
+
+  bool isNativeDsdSupported() {
+    if (_engine == ffi.nullptr || _isNativeDsdSupported == null) return false;
+    return _isNativeDsdSupported!(_engine) != 0;
+  }
+
+  bool isDopSupported() {
+    if (_engine == ffi.nullptr || _isDopSupported == null) return false;
+    return _isDopSupported!(_engine) != 0;
   }
 
   // ── Limiter & Clipping Detection ──────────────────────────────────────────

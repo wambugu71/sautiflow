@@ -168,16 +168,11 @@ class MiniAudioPlayer {
         'Network URLs are not supported in this native build (found: ${source.uri}). Rebuild with network streaming enabled, or use local files/pushStream().',
       );
     }
-    return _engine.addAudioSourceUri(source.uri);
+    return _engine.addAudioSourceObj(source);
   }
 
   bool insertAudioSource(int index, AudioSource source) =>
-      _engine.insertAudioSource(
-        index,
-        source.uri.scheme == 'file'
-            ? source.uri.toFilePath()
-            : source.uri.toString(),
-      );
+      _engine.insertAudioSourceObj(index, source);
   bool removeAudioSourceAt(int index) => _engine.removeAudioSourceAt(index);
   void clearAudioSources() => _engine.clearPlaylist();
   bool moveAudioSource(int fromIndex, int toIndex) =>
@@ -662,6 +657,37 @@ class MiniAudioPlayer {
   /// When non-zero, call [setOutputSampleRate] with the returned value — this
   /// triggers [restart_and_apply_config] safely from the Dart/control thread.
   int consumePendingRateChange() => _engine.consumePendingRateChange();
+
+  /// Configure the desired DSD output mode (Auto / D2P / DoP / Native DSD).
+  void setDsdOutputMode(DsdOutputMode mode) => _engine.setDsdOutputMode(mode);
+
+  /// Get the configured DSD output mode preference.
+  DsdOutputMode getDsdOutputMode() => _engine.getDsdOutputMode();
+
+  /// Get the active runtime DSD playback mode (none for PCM, or D2P/DoP/Native).
+  ActiveDsdMode getActiveDsdMode() => _engine.getActiveDsdMode();
+
+  /// Get the native 1-bit DSD source rate in Hz (e.g. 2822400 for DSD64), or 0 for PCM.
+  int getSourceDsdRate() => _engine.getSourceDsdRate();
+
+  /// Set preferred target PCM sample rate for D2P conversion (0 = Auto).
+  void setDsdD2pSampleRate(int sampleRate) =>
+      _engine.setDsdD2pSampleRate(sampleRate);
+
+  /// Get preferred target PCM sample rate for D2P conversion (0 = Auto).
+  int getDsdD2pSampleRate() => _engine.getDsdD2pSampleRate();
+
+  /// Set Scarlet Book D2P loudness compensation boost in dB (0.0 .. +6.0 dB).
+  void setDsdGainBoostDb(double gainDb) => _engine.setDsdGainBoostDb(gainDb);
+
+  /// Get current D2P Scarlet Book gain boost in dB.
+  double getDsdGainBoostDb() => _engine.getDsdGainBoostDb();
+
+  /// Whether the active hardware endpoint supports raw Native DSD.
+  bool isNativeDsdSupported() => _engine.isNativeDsdSupported();
+
+  /// Whether the active hardware endpoint supports DoP v1.1 passthrough.
+  bool isDopSupported() => _engine.isDopSupported();
 
   /// Set the desired output audio format (f32, s16, u8).
   /// This may cause the audio engine to restart.
