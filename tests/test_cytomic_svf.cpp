@@ -20,6 +20,7 @@
 #include <chrono>
 
 #include "dsp/cytomic_svf_dsp.h"
+#include "dsp/dynamic_bass_dsp.h"
 
 using namespace sauti::dsp;
 
@@ -400,6 +401,159 @@ static void test_bandreject_filter() {
     CHECK(std::abs(gMidBoost - boostDb) < 0.3, "BandReject boosts center frequency to +6.0 dB (+/-0.3 dB)");
 }
 
+// -----------------------------------------------------------------------------
+// Test 8: Orfanidis 20 kHz No-Clamping, Boost/Cut Symmetry & 8 kHz Continuity
+// -----------------------------------------------------------------------------
+static void test_orfanidis_20khz_no_clamping_and_symmetry() {
+    std::printf("\n== Test 8: Orfanidis 20 kHz No-Clamping, Boost/Cut Symmetry & 8 kHz Continuity ==\n");
+    const double q = 4.3; // 32-band Graphic EQ 20 kHz band Q
+    const double sampleRates[2] = {44100.0, 48000.0};
+    const double gains[3] = {6.0, 12.0, -12.0};
+
+    for (double fs : sampleRates) {
+        for (double gainDb : gains) {
+            const double resp20k = CytomicSVF::evaluateResponseDb(
+                CytomicSVF::FilterType::Bell, fs, 20000.0, gainDb, q, 20000.0);
+
+            CytomicSVF svf;
+            svf.setParameters(CytomicSVF::FilterType::Bell, fs, 20000.0, gainDb, q);
+            const uint32_t N = 24000;
+            std::vector<double> b(N * 2);
+            for (uint32_t i = 0; i < N; ++i) {
+                const double s = std::cos(2.0 * M_PI * 20000.0 * (double)i / fs);
+                b[i * 2 + 0] = s;
+                b[i * 2 + 1] = s;
+            }
+            svf.process(b.data(), N, 2);
+            const uint32_t win = (fs == 44100.0) ? 4410u : 4800u; // exact 2000 cycles @ 20 kHz
+            double sumSq = 0.0;
+            for (uint32_t i = N - win; i < N; ++i) {
+                sumSq += b[i * 2] * b[i * 2];
+            }
+            const double ampRms = std::sqrt(2.0 * sumSq / static_cast<double>(win));
+            const double steadyDb = 20.0 * std::log10(std::max(ampRms, 1e-12));
+
+            std::printf("  fs=%.0f Hz, fc=20k, G=%+.1f dB, Q=%.1f -> closed=%.3f dB, time=%.3f dB\n",
+                        fs, gainDb, q, resp20k, steadyDb);
+            CHECK(std::abs(resp20k - gainDb) < 0.05,
+                  "Closed-form 20 kHz Bell matches target gain without Orfanidis discriminant clamping");
+            CHECK(std::abs(steadyDb - gainDb) < 0.15,
+                  "Time-domain 20 kHz Bell matches target gain without clamping error");
+        }
+
+        const double skirt15k = CytomicSVF::evaluateResponseDb(
+            CytomicSVF::FilterType::Bell, fs, 20000.0, 6.0, q, 15000.0);
+        std::printf("  fs=%.0f Hz, +6 dB Bell lower skirt @ 15 kHz = %+.3f dB\n", fs, skirt15k);
+        CHECK(skirt15k >= 0.0, "Positive Bell boost exhibits no negative lower-skirt dip at 15 kHz");
+    }
+
+    // Exact rational boost/cut complementarity
+    const double symFreqs[5] = {1000.0, 8000.0, 14000.0, 18000.0, 20000.0};
+    double maxCompErr = 0.0;
+    for (double f : symFreqs) {
+        const double gPos = CytomicSVF::evaluateResponseDb(
+            CytomicSVF::FilterType::Bell, 48000.0, 14000.0, 12.0, 2.5, f);
+        const double gNeg = CytomicSVF::evaluateResponseDb(
+            CytomicSVF::FilterType::Bell, 48000.0, 14000.0, -12.0, 2.5, f);
+        maxCompErr = std::max(maxCompErr, std::abs(gPos + gNeg));
+    }
+    std::printf("  Boost/Cut complementarity (+12/-12 dB @ 14 kHz, Q=2.5) max error = %.3e dB\n", maxCompErr);
+    CHECK(maxCompErr < 1.0e-9, "Bell boost/cut complementarity is exact (< 1e-9 dB)");
+
+    // Continuity across old 8000 Hz Orfanidis switchover boundary
+    const double db7999_10k = CytomicSVF::evaluateResponseDb(
+        CytomicSVF::FilterType::Bell, 48000.0, 7999.0, 12.0, 2.0, 10000.0);
+    const double db8001_10k = CytomicSVF::evaluateResponseDb(
+        CytomicSVF::FilterType::Bell, 48000.0, 8001.0, 12.0, 2.0, 10000.0);
+    const double db7999_16k = CytomicSVF::evaluateResponseDb(
+        CytomicSVF::FilterType::Bell, 48000.0, 7999.0, 12.0, 2.0, 16000.0);
+    const double db8001_16k = CytomicSVF::evaluateResponseDb(
+        CytomicSVF::FilterType::Bell, 48000.0, 8001.0, 12.0, 2.0, 16000.0);
+    const double maxJump = std::max(std::abs(db8001_10k - db7999_10k), std::abs(db8001_16k - db7999_16k));
+    std::printf("  7999->8001 Hz sweep max delta @ 10k/16k = %.5f dB\n", maxJump);
+    CHECK(maxJump < 0.02, "Sweeping Bell fc across 8000 Hz is smooth (< 0.02 dB delta)");
+}
+
+// -----------------------------------------------------------------------------
+// Test 9: HighShelf Nyquist De-Cramping & Boost/Cut Complementarity
+// -----------------------------------------------------------------------------
+static void test_highshelf_nyquist_decramping() {
+    std::printf("\n== Test 9: HighShelf Nyquist De-Cramping & Symmetry ==\n");
+    const double fs = 48000.0;
+    const double fc = 12000.0;
+    const double gainDb = 6.0;
+    const double q = 0.7071067811865475;
+
+    const double gFc = CytomicSVF::evaluateResponseDb(
+        CytomicSVF::FilterType::HighShelf, fs, fc, gainDb, q, fc);
+    const double g20k = CytomicSVF::evaluateResponseDb(
+        CytomicSVF::FilterType::HighShelf, fs, fc, gainDb, q, 20000.0);
+    const double gCutFc = CytomicSVF::evaluateResponseDb(
+        CytomicSVF::FilterType::HighShelf, fs, fc, -gainDb, q, fc);
+    const double gCut20k = CytomicSVF::evaluateResponseDb(
+        CytomicSVF::FilterType::HighShelf, fs, fc, -gainDb, q, 20000.0);
+
+    std::printf("  HighShelf (+6 dB @ 12 kHz): g(12k)=%+.3f dB, g(20k)=%+.3f dB\n", gFc, g20k);
+    CHECK(std::abs(gFc - 3.0) < 0.05, "HighShelf hits half-gain (+3.00 dB) at corner frequency");
+    CHECK(std::abs(g20k - 5.30) < 0.25, "HighShelf 20 kHz matches de-cramped analog skirt (~+5.30 dB)");
+    CHECK(std::abs(gFc + gCutFc) < 1.0e-9 && std::abs(g20k + gCut20k) < 1.0e-9,
+          "HighShelf boost/cut complementarity is exact (< 1e-9 dB)");
+}
+
+// -----------------------------------------------------------------------------
+// Test 10: Pultec Deep (Mode 4) 64-bit SVF LF Precision at 192 kHz / -80 dBFS
+// -----------------------------------------------------------------------------
+static void test_pultec_deep_lf_precision_192khz() {
+    std::printf("\n== Test 10: Pultec Deep 45 Hz LF Precision @ 192 kHz / -80 dBFS ==\n");
+    HarmonicBassDSP bass;
+    bass.setSampleRate(192000.0f);
+    bass.setProfile(BassEnhanceProfile::PultecDeep);
+    bass.setCutoffFrequency(45.0f);
+    bass.setGainDb(12.0f);
+    bass.setEnabled(true);
+
+    const double fs = 192000.0;
+    const double freq = 25.0;
+    const double ampIn = 1.0e-4; // -80 dBFS
+    const uint32_t totalFrames = 92160; // 12 cycles @ 25 Hz (480 ms > 250 ms anti-pop ramp)
+    const uint32_t winFrames = 15360;   // Exact 2 integer cycles @ 25 Hz (frames 76800..92160)
+
+    std::vector<float> buf(totalFrames * 2);
+    for (uint32_t i = 0; i < totalFrames; ++i) {
+        const float s = static_cast<float>(ampIn * std::sin(2.0 * M_PI * freq * (double)i / fs));
+        buf[i * 2 + 0] = s;
+        buf[i * 2 + 1] = s;
+    }
+
+    bass.process(buf.data(), totalFrames);
+
+    double sumCos = 0.0, sumSin = 0.0;
+    const uint32_t start = totalFrames - winFrames;
+    for (uint32_t i = 0; i < winFrames; ++i) {
+        const double w = 2.0 * M_PI * freq * (double)(start + i) / fs;
+        const double y = static_cast<double>(buf[(start + i) * 2]);
+        sumCos += y * std::cos(w);
+        sumSin += y * std::sin(w);
+    }
+    const double c = (2.0 / (double)winFrames) * sumCos;
+    const double s = (2.0 / (double)winFrames) * sumSin;
+    const double fundAmp = std::sqrt(c * c + s * s);
+
+    double sigPow = 0.0, noisePow = 0.0;
+    for (uint32_t i = 0; i < winFrames; ++i) {
+        const double w = 2.0 * M_PI * freq * (double)(start + i) / fs;
+        const double ref = c * std::cos(w) + s * std::sin(w);
+        const double err = static_cast<double>(buf[(start + i) * 2]) - ref;
+        sigPow += ref * ref;
+        noisePow += err * err;
+    }
+    const double snrDb = 10.0 * std::log10(sigPow / std::max(noisePow, 1.0e-30));
+
+    std::printf("  25 Hz / -80 dBFS @ 192 kHz: ampOut=%.5e (boosted), SNR=%.2f dB\n", fundAmp, snrDb);
+    CHECK(fundAmp > ampIn * 1.1, "Pultec Deep actively boosts 25 Hz fundamental without stalling");
+    CHECK(snrDb > 75.0, "64-bit Cytomic SVF eliminates float32 DF1 LF quantization noise (SNR > 75 dB)");
+}
+
 int main() {
     std::printf("=================================================================\n");
     std::printf("  CytomicSVF (Andy Simper) + Orfanidis De-Cramping Test Suite    \n");
@@ -412,6 +566,9 @@ int main() {
     test_allpass_filter();
     test_tilt_filter();
     test_bandreject_filter();
+    test_orfanidis_20khz_no_clamping_and_symmetry();
+    test_highshelf_nyquist_decramping();
+    test_pultec_deep_lf_precision_192khz();
 
     std::printf("\n=================================================================\n");
     std::printf("  Test Summary: %d Passed, %d Failed\n", g_passes, g_failures);

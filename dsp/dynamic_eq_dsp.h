@@ -7,6 +7,7 @@
 #include <vector>
 #include "denormals.h"
 #include "simd_math.h"
+#include "cytomic_svf_dsp.h"
 
 namespace sauti::dsp {
 
@@ -256,25 +257,11 @@ public:
                 }
             }
 
-            // 3. Apply audio biquads for all active bands
+            // 3. Apply 64-bit Cytomic TPT SVF audio filters for all active bands
             for (size_t b = 0; b < kMaxBands; ++b) {
                 auto &band = bands_[b];
-                if (!band.config.enabled) continue;
-
-                // If gain is virtually 0 dB and states are zero, identity bypass this band
-                if (std::abs(band.current_gain_db) < 0.01f && band.statesAreZero(ch)) {
-                    continue;
-                }
-
-                for (size_t f = 0; f < sub_frames; ++f) {
-                    for (size_t c = 0; c < ch; ++c) {
-                        double in_s = static_cast<double>(ptr[f * (size_t)channels + c]);
-                        double out_s = band.b0 * in_s + band.s1[c];
-                        band.s1[c] = band.b1 * in_s - band.a1 * out_s + band.s2[c];
-                        band.s2[c] = band.b2 * in_s - band.a2 * out_s;
-                        ptr[f * (size_t)channels + c] = static_cast<float>(out_s);
-                    }
-                }
+                if (!band.config.enabled || band.svf.isFlat()) continue;
+                band.svf.process(ptr, static_cast<uint32_t>(sub_frames), channels);
             }
 
             ptr += sub_frames * (size_t)channels;
@@ -346,21 +333,8 @@ public:
 
             for (size_t b = 0; b < kMaxBands; ++b) {
                 auto &band = bands_[b];
-                if (!band.config.enabled) continue;
-
-                if (std::abs(band.current_gain_db) < 0.01f && band.statesAreZero(ch)) {
-                    continue;
-                }
-
-                for (size_t f = 0; f < sub_frames; ++f) {
-                    for (size_t c = 0; c < ch; ++c) {
-                        double in_s = ptr[f * (size_t)channels + c];
-                        double out_s = band.b0 * in_s + band.s1[c];
-                        band.s1[c] = band.b1 * in_s - band.a1 * out_s + band.s2[c];
-                        band.s2[c] = band.b2 * in_s - band.a2 * out_s;
-                        ptr[f * (size_t)channels + c] = out_s;
-                    }
-                }
+                if (!band.config.enabled || band.svf.isFlat()) continue;
+                band.svf.process(ptr, static_cast<uint32_t>(sub_frames), channels);
             }
 
             ptr += sub_frames * (size_t)channels;
@@ -386,11 +360,8 @@ private:
         double sc_a1 = 0.0, sc_a2 = 0.0;
         double sc_s1 = 0.0, sc_s2 = 0.0;
 
-        // Audio filter coefficients (TDF2 normalized)
-        double b0 = 1.0, b1 = 0.0, b2 = 0.0;
-        double a1 = 0.0, a2 = 0.0;
-        std::array<double, kMaxChannels> s1{};
-        std::array<double, kMaxChannels> s2{};
+        // Audio filter stage (64-bit Cytomic TPT SVF with Nyquist de-cramping)
+        CytomicSVF svf;
 
         void resetStates() {
             sc_envelope = 0.0f;
@@ -399,17 +370,7 @@ private:
             current_dyn_offset_db = 0.0f;
             sc_s1 = 0.0;
             sc_s2 = 0.0;
-            s1.fill(0.0);
-            s2.fill(0.0);
-        }
-
-        bool statesAreZero(size_t channels) const {
-            for (size_t c = 0; c < channels; ++c) {
-                if (std::abs(s1[c]) > 1.0e-9 || std::abs(s2[c]) > 1.0e-9) {
-                    return false;
-                }
-            }
-            return true;
+            svf.reset();
         }
     };
 
@@ -466,75 +427,19 @@ private:
 
     void updateAudioFilterCoeffs(size_t b, float gain_db) {
         auto &band = bands_[b];
-        constexpr double PI = 3.14159265358979323846;
+        const double fc = std::clamp(static_cast<double>(band.config.freq_hz), 20.0, static_cast<double>(sample_rate_) * 0.48);
+        const double q = static_cast<double>(std::max(band.config.q, 0.1f));
 
-        if (std::abs(gain_db) < 0.005f) {
-            band.b0 = 1.0; band.b1 = 0.0; band.b2 = 0.0;
-            band.a1 = 0.0; band.a2 = 0.0;
-            return;
+        CytomicSVF::FilterType svfType = CytomicSVF::FilterType::Bell;
+        if (band.config.type == DynamicEqFilterType::LowShelf) {
+            svfType = CytomicSVF::FilterType::LowShelf;
+        } else if (band.config.type == DynamicEqFilterType::HighShelf) {
+            svfType = CytomicSVF::FilterType::HighShelf;
         }
 
-        const double fc = std::clamp(static_cast<double>(band.config.freq_hz), 20.0, static_cast<double>(sample_rate_) * 0.48);
-        const double w0 = 2.0 * PI * fc / static_cast<double>(sample_rate_);
-        const double cosw0 = std::cos(w0);
-        const double sinw0 = std::sin(w0);
-        const double q = static_cast<double>(std::max(band.config.q, 0.1f));
-        const double A = std::pow(10.0, static_cast<double>(gain_db) / 40.0);
-        const double alpha = sinw0 / (2.0 * q);
-
-        if (band.config.type == DynamicEqFilterType::Peak) {
-            // RBJ Peaking EQ
-            const double b0_un = 1.0 + alpha * A;
-            const double b1_un = -2.0 * cosw0;
-            const double b2_un = 1.0 - alpha * A;
-            const double a0_un = 1.0 + alpha / A;
-            const double a1_un = -2.0 * cosw0;
-            const double a2_un = 1.0 - alpha / A;
-            const double inv_a0 = 1.0 / a0_un;
-
-            band.b0 = b0_un * inv_a0;
-            band.b1 = b1_un * inv_a0;
-            band.b2 = b2_un * inv_a0;
-            band.a1 = a1_un * inv_a0;
-            band.a2 = a2_un * inv_a0;
-        } else if (band.config.type == DynamicEqFilterType::LowShelf) {
-            // RBJ Low-Shelf
-            const double two_sqrt_A_alpha = 2.0 * std::sqrt(A) * alpha;
-            const double Ap1 = A + 1.0;
-            const double Am1 = A - 1.0;
-
-            const double b0_un = A * (Ap1 - Am1 * cosw0 + two_sqrt_A_alpha);
-            const double b1_un = 2.0 * A * (Am1 - Ap1 * cosw0);
-            const double b2_un = A * (Ap1 - Am1 * cosw0 - two_sqrt_A_alpha);
-            const double a0_un = Ap1 + Am1 * cosw0 + two_sqrt_A_alpha;
-            const double a1_un = -2.0 * (Am1 + Ap1 * cosw0);
-            const double a2_un = Ap1 + Am1 * cosw0 - two_sqrt_A_alpha;
-            const double inv_a0 = 1.0 / a0_un;
-
-            band.b0 = b0_un * inv_a0;
-            band.b1 = b1_un * inv_a0;
-            band.b2 = b2_un * inv_a0;
-            band.a1 = a1_un * inv_a0;
-            band.a2 = a2_un * inv_a0;
-        } else {
-            // RBJ High-Shelf
-            const double two_sqrt_A_alpha = 2.0 * std::sqrt(A) * alpha;
-            const double Ap1 = A + 1.0;
-            const double Am1 = A - 1.0;
-
-            const double b0_un = A * (Ap1 + Am1 * cosw0 + two_sqrt_A_alpha);
-            const double b1_un = -2.0 * A * (Am1 + Ap1 * cosw0);
-            const double b2_un = A * (Ap1 + Am1 * cosw0 - two_sqrt_A_alpha);
-            const double a0_un = Ap1 - Am1 * cosw0 + two_sqrt_A_alpha;
-            const double a1_un = 2.0 * (Am1 - Ap1 * cosw0);
-            const double a2_un = Ap1 - Am1 * cosw0 - two_sqrt_A_alpha;
-            const double inv_a0 = 1.0 / a0_un;
-
-            band.b0 = b0_un * inv_a0;
-            band.b1 = b1_un * inv_a0;
-            band.b2 = b2_un * inv_a0;
-            band.a1 = a1_un * inv_a0;
-            band.a2 = a2_un * inv_a0;
+        band.svf.setParameters(svfType, static_cast<double>(sample_rate_), fc, static_cast<double>(gain_db), q);
+        if (band.svf.isFlat()) {
+            band.svf.reset();
         }
     }
 

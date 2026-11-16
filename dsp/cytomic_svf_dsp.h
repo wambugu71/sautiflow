@@ -50,7 +50,7 @@ public:
         BandReject
     };
 
-    static constexpr int kMaxChannels = 8;
+    static constexpr int kMaxChannels = 16;
 
     CytomicSVF() {
         reset();
@@ -60,12 +60,11 @@ public:
         for (int c = 0; c < kMaxChannels; ++c) {
             ic1eq_[c] = 0.0;
             ic2eq_[c] = 0.0;
-            s1_[c] = 0.0;
-            s2_[c] = 0.0;
         }
     }
 
-    // Configure filter parameters with optional Orfanidis Nyquist de-cramping
+    // Configure filter parameters using unified 64-bit Cytomic Linear Trapezoidal SVF
+    // with closed-form s'-domain Nyquist de-cramping for Bell and HighShelf filters.
     void setParameters(FilterType type, double sampleRate, double frequencyHz,
                        double gainDb, double q) {
         if (!(sampleRate > 0.0) || !std::isfinite(sampleRate)) sampleRate = 48000.0;
@@ -73,158 +72,65 @@ public:
         if (!std::isfinite(frequencyHz)) frequencyHz = 1000.0;
         if (!std::isfinite(gainDb)) gainDb = 0.0;
         if (!std::isfinite(q)) q = 0.7071;
+
         sampleRate_ = sampleRate;
         frequencyHz_ = std::clamp(frequencyHz, 10.0, sampleRate * 0.499);
         gainDb_ = std::clamp(gainDb, -36.0, 36.0);
         q_ = std::clamp(q, 0.05, 30.0);
         type_ = type;
 
-        // Exact flat bypass check: 0.0 dB gain on gain-dependent filter types
-        const bool isGainType = (type == FilterType::Bell || type == FilterType::LowShelf || type == FilterType::HighShelf || type == FilterType::Tilt || type == FilterType::BandReject);
-        if (isGainType && std::abs(gainDb_) < 0.005) {
-            isFlat_ = true;
-            return;
-        }
-        isFlat_ = false;
+        const SvfCoefficients coeff = computeCoefficients(type_, sampleRate_, frequencyHz_, gainDb_, q_);
+        isFlat_ = coeff.isFlat;
+        useOrfanidis_ = coeff.orfanidisActive;
+        g_ = coeff.g;
+        k_ = coeff.k;
+        m0_ = coeff.m0;
+        m1_ = coeff.m1;
+        m2_ = coeff.m2;
 
-        constexpr double PI = 3.14159265358979323846;
-        const double w0 = 2.0 * PI * frequencyHz_ / sampleRate_;
-        const double sin0 = std::sin(w0);
-        const double cos0 = std::cos(w0);
-        const double A = std::pow(10.0, gainDb_ / 40.0); // sqrt(Linear Gain)
-        const double G = A * A;                          // Linear Power/Amplitude Gain
-        const double k0 = 1.0 / q_;
-
-        // Active Orfanidis Nyquist De-Cramping for high-frequency peaking bands
-        useOrfanidis_ = (type == FilterType::Bell) &&
-                        (frequencyHz_ > 8000.0) &&
-                        (sampleRate_ <= 48000.0) &&
-                        (std::abs(gainDb_) >= 0.05);
-
-        if (useOrfanidis_) {
-            // Analog prototype Nyquist gain: Gn = |Ha(j * pi * fs)|
-            const double Om0 = 2.0 * PI * frequencyHz_;
-            const double OmN = PI * sampleRate_;
-            const double Om0_sq = Om0 * Om0;
-            const double OmN_sq = OmN * OmN;
-            const double diff_sq = (Om0_sq - OmN_sq) * (Om0_sq - OmN_sq);
-            const double num_w = (Om0 * OmN * G / q_);
-            const double den_w = (Om0 * OmN / q_);
-            const double Gn_sq = (diff_sq + num_w * num_w) / (diff_sq + den_w * den_w);
-            const double Gn = std::sqrt(Gn_sq);
-
-            // Closed-form matching: DC = 1.0, Nyquist = Gn, Peak(w0) = G
-            const double alpha = (G < 1.0) ? (sin0 / (2.0 * q_ * A)) : (sin0 / (2.0 * q_));
-            const double a0_un = 1.0 + alpha;
-            const double inv_a0 = 1.0 / a0_un;
-
-            a1_ = (-2.0 * cos0) * inv_a0;
-            a2_ = (1.0 - alpha) * inv_a0;
-
-            const double S_plus = 1.0 + a1_ + a2_;
-            const double S_minus = Gn * (1.0 - a1_ + a2_);
-            b1_ = (S_plus - S_minus) * 0.5;
-            const double b0_plus_b2 = (S_plus + S_minus) * 0.5;
-
-            // Denominator magnitude at w0: D(w0) = 1 + a1*e^(-jw0) + a2*e^(-2jw0)
-            const double D_real = 1.0 + a1_ * cos0 + a2_ * std::cos(2.0 * w0);
-            const double D_imag = -a1_ * sin0 - a2_ * std::sin(2.0 * w0);
-            const double D_w0_sq = D_real * D_real + D_imag * D_imag;
-
-            const double target = G * G * D_w0_sq;
-            const double X = b0_plus_b2 * cos0 + b1_;
-            const double sin0_sq = std::max(sin0 * sin0, 1.0e-12);
-            const double diff_term_sq = (target - X * X) / sin0_sq;
-            const double diff_val = std::sqrt(std::max(0.0, diff_term_sq));
-            const double diff = (G >= 1.0) ? diff_val : -diff_val;
-
-            b0_ = (b0_plus_b2 + diff) * 0.5;
-            b2_ = (b0_plus_b2 - diff) * 0.5;
-        } else {
-            // Andy Simper (Cytomic) Linear Trapezoidal SVF Formulations
-            g_ = std::tan(w0 * 0.5);
-
-            switch (type) {
-            case FilterType::Bell:
-                k_ = k0 / A;
-                m0_ = 1.0;
-                m1_ = k0 * A - k_;
-                m2_ = 0.0;
-                break;
-
-            case FilterType::LowShelf:
-                g_ = std::tan(w0 * 0.5) / std::sqrt(A);
-                k_ = k0;
-                m0_ = 1.0;
-                m1_ = k0 * (A - 1.0);
-                m2_ = A * A - 1.0;
-                break;
-
-            case FilterType::HighShelf:
-                g_ = std::tan(w0 * 0.5) * std::sqrt(A);
-                k_ = k0;
-                m0_ = A * A;
-                m1_ = k0 * (1.0 - A) * A;
-                m2_ = 1.0 - A * A;
-                break;
-
-            case FilterType::LowPass:
-                k_ = k0;
-                m0_ = 0.0;
-                m1_ = 0.0;
-                m2_ = 1.0;
-                break;
-
-            case FilterType::HighPass:
-                k_ = k0;
-                m0_ = 1.0;
-                m1_ = -k0;
-                m2_ = -1.0;
-                break;
-
-            case FilterType::BandPass:
-                k_ = k0;
-                m0_ = 0.0;
-                m1_ = 1.0;
-                m2_ = 0.0;
-                break;
-
-            case FilterType::Notch:
-                k_ = k0;
-                m0_ = 1.0;
-                m1_ = -k0;
-                m2_ = 0.0;
-                break;
-
-            case FilterType::AllPass:
-                k_ = k0;
-                m0_ = 1.0;
-                m1_ = -2.0 * k0;
-                m2_ = 0.0;
-                break;
-
-            case FilterType::Tilt:
-                g_ = std::tan(w0 * 0.5) * std::sqrt(A);
-                k_ = k0;
-                m0_ = A;
-                m1_ = (1.0 - A) * k0;
-                m2_ = (1.0 / A) - A;
-                break;
-
-            case FilterType::BandReject:
-                k_ = k0;
-                m0_ = 1.0;
-                m1_ = (G - 1.0) * k0;
-                m2_ = 0.0;
-                break;
-            }
-
+        if (!isFlat_) {
             // Precalculate trapezoidal algebraic loop solver
             const double denom = 1.0 / (1.0 + g_ * (g_ + k_));
             a1_ = denom;
             a2_ = g_ * a1_;
             a3_ = g_ * a2_;
         }
+    }
+
+    // Analytical closed-form magnitude response (dB) of this SVF at evalFreqHz
+    static double evaluateResponseDb(FilterType type, double sampleRate, double frequencyHz,
+                                     double gainDb, double q, double evalFreqHz) {
+        if (!(sampleRate > 0.0) || !std::isfinite(sampleRate)) sampleRate = 48000.0;
+        if (!std::isfinite(frequencyHz)) frequencyHz = 1000.0;
+        if (!std::isfinite(gainDb)) gainDb = 0.0;
+        if (!std::isfinite(q)) q = 0.7071;
+        if (!std::isfinite(evalFreqHz) || evalFreqHz <= 0.0) evalFreqHz = 0.0;
+
+        const double fcClamped = std::clamp(frequencyHz, 10.0, sampleRate * 0.499);
+        const double gainClamped = std::clamp(gainDb, -36.0, 36.0);
+        const double qClamped = std::clamp(q, 0.05, 30.0);
+        const SvfCoefficients coeff = computeCoefficients(type, sampleRate, fcClamped, gainClamped, qClamped);
+        if (coeff.isFlat) return 0.0;
+
+        constexpr double PI = 3.14159265358979323846;
+        if (evalFreqHz >= 0.5 * sampleRate * (1.0 - 1.0e-7)) {
+            return 20.0 * std::log10(std::max(std::abs(coeff.m0), 1.0e-12));
+        }
+
+        const double t = std::tan(PI * evalFreqHz / sampleRate);
+        const double t2 = t * t;
+        const double g2 = coeff.g * coeff.g;
+        const double kg = coeff.k * coeff.g;
+
+        // Evaluate H(j*t) = (m0*(g^2 - t^2 + j*k*g*t) + m1*(j*g*t) + m2*g^2) / ((g^2 - t^2) + j*k*g*t)
+        const double denRe = g2 - t2;
+        const double denIm = kg * t;
+        const double numRe = coeff.m0 * denRe + coeff.m2 * g2;
+        const double numIm = (coeff.m0 * kg + coeff.m1 * coeff.g) * t;
+
+        const double numMagSq = numRe * numRe + numIm * numIm;
+        const double denMagSq = std::max(denRe * denRe + denIm * denIm, 1.0e-30);
+        return 10.0 * std::log10(std::max(numMagSq / denMagSq, 1.0e-24));
     }
 
     // Drop-in backward compatibility with legacy Biquad64::initPeak
@@ -237,42 +143,24 @@ public:
         if (!interleaved || frames == 0 || channels <= 0 || isFlat_) return;
         const int ch = std::min(channels, kMaxChannels);
 
-        if (useOrfanidis_) {
-            // High-frequency Orfanidis de-cramped TDF-II path in 64-bit double
-            for (uint32_t i = 0; i < frames; ++i) {
-                double *frame = interleaved + (size_t)i * (size_t)channels;
-                for (int c = 0; c < ch; ++c) {
-                    const double in = frame[c];
-                    double out = in * b0_ + s1_[c];
-                    flushDenormal(out);
-                    s1_[c] = in * b1_ - out * a1_ + s2_[c];
-                    s2_[c] = in * b2_ - out * a2_;
-                    flushDenormal(s1_[c]);
-                    flushDenormal(s2_[c]);
-                    frame[c] = out;
-                }
-            }
-        } else {
-            // Andy Simper Trapezoidal Integrated SVF in 64-bit double
-            for (uint32_t i = 0; i < frames; ++i) {
-                double *frame = interleaved + (size_t)i * (size_t)channels;
-                for (int c = 0; c < ch; ++c) {
-                    const double in = frame[c];
+        for (uint32_t i = 0; i < frames; ++i) {
+            double *frame = interleaved + (size_t)i * (size_t)channels;
+            for (int c = 0; c < ch; ++c) {
+                const double in = frame[c];
 
-                    // Solve implicit trapezoidal loop without delay
-                    const double v3 = in - ic2eq_[c];
-                    const double v1 = a1_ * ic1eq_[c] + a2_ * v3;
-                    const double v2 = ic2eq_[c] + a2_ * ic1eq_[c] + a3_ * v3;
+                // Solve implicit trapezoidal loop without delay
+                const double v3 = in - ic2eq_[c];
+                const double v1 = a1_ * ic1eq_[c] + a2_ * v3;
+                const double v2 = ic2eq_[c] + a2_ * ic1eq_[c] + a3_ * v3;
 
-                    // Update physical integrator states (equivalent currents)
-                    ic1eq_[c] = 2.0 * v1 - ic1eq_[c];
-                    ic2eq_[c] = 2.0 * v2 - ic2eq_[c];
-                    flushDenormal(ic1eq_[c]);
-                    flushDenormal(ic2eq_[c]);
+                // Update physical integrator states (equivalent currents)
+                ic1eq_[c] = 2.0 * v1 - ic1eq_[c];
+                ic2eq_[c] = 2.0 * v2 - ic2eq_[c];
+                flushDenormal(ic1eq_[c]);
+                flushDenormal(ic2eq_[c]);
 
-                    // Output mixing
-                    frame[c] = m0_ * in + m1_ * v1 + m2_ * v2;
-                }
+                // Output mixing
+                frame[c] = m0_ * in + m1_ * v1 + m2_ * v2;
             }
         }
     }
@@ -282,63 +170,10 @@ public:
         if (!interleaved || frames == 0 || channels <= 0 || isFlat_) return;
         const int ch = std::min(channels, kMaxChannels);
 
-        if (useOrfanidis_) {
-            for (uint32_t i = 0; i < frames; ++i) {
-                float *frame = interleaved + (size_t)i * (size_t)channels;
-                for (int c = 0; c < ch; ++c) {
-                    const double in = static_cast<double>(frame[c]);
-                    double out = in * b0_ + s1_[c];
-                    flushDenormal(out);
-                    s1_[c] = in * b1_ - out * a1_ + s2_[c];
-                    s2_[c] = in * b2_ - out * a2_;
-                    flushDenormal(s1_[c]);
-                    flushDenormal(s2_[c]);
-                    frame[c] = static_cast<float>(out);
-                }
-            }
-        } else {
-            for (uint32_t i = 0; i < frames; ++i) {
-                float *frame = interleaved + (size_t)i * (size_t)channels;
-                for (int c = 0; c < ch; ++c) {
-                    const double in = static_cast<double>(frame[c]);
-
-                    const double v3 = in - ic2eq_[c];
-                    const double v1 = a1_ * ic1eq_[c] + a2_ * v3;
-                    const double v2 = ic2eq_[c] + a2_ * ic1eq_[c] + a3_ * v3;
-
-                    ic1eq_[c] = 2.0 * v1 - ic1eq_[c];
-                    ic2eq_[c] = 2.0 * v2 - ic2eq_[c];
-                    flushDenormal(ic1eq_[c]);
-                    flushDenormal(ic2eq_[c]);
-
-                    frame[c] = static_cast<float>(m0_ * in + m1_ * v1 + m2_ * v2);
-                }
-            }
-        }
-    }
-
-    // Process a single specific channel in interleaved multichannel buffer in-place
-    template <typename T>
-    void processChannel(T *interleaved, uint32_t frames, int channels, int targetChannel) {
-        if (!interleaved || frames == 0 || channels <= 0 || targetChannel < 0 || targetChannel >= channels || isFlat_) return;
-        const int c = std::min(targetChannel, kMaxChannels - 1);
-
-        if (useOrfanidis_) {
-            for (uint32_t i = 0; i < frames; ++i) {
-                T *sample = interleaved + (size_t)i * (size_t)channels + targetChannel;
-                const double in = static_cast<double>(*sample);
-                double out = in * b0_ + s1_[c];
-                flushDenormal(out);
-                s1_[c] = in * b1_ - out * a1_ + s2_[c];
-                s2_[c] = in * b2_ - out * a2_;
-                flushDenormal(s1_[c]);
-                flushDenormal(s2_[c]);
-                *sample = static_cast<T>(out);
-            }
-        } else {
-            for (uint32_t i = 0; i < frames; ++i) {
-                T *sample = interleaved + (size_t)i * (size_t)channels + targetChannel;
-                const double in = static_cast<double>(*sample);
+        for (uint32_t i = 0; i < frames; ++i) {
+            float *frame = interleaved + (size_t)i * (size_t)channels;
+            for (int c = 0; c < ch; ++c) {
+                const double in = static_cast<double>(frame[c]);
 
                 const double v3 = in - ic2eq_[c];
                 const double v1 = a1_ * ic1eq_[c] + a2_ * v3;
@@ -349,8 +184,31 @@ public:
                 flushDenormal(ic1eq_[c]);
                 flushDenormal(ic2eq_[c]);
 
-                *sample = static_cast<T>(m0_ * in + m1_ * v1 + m2_ * v2);
+                frame[c] = static_cast<float>(m0_ * in + m1_ * v1 + m2_ * v2);
             }
+        }
+    }
+
+    // Process a single specific channel in interleaved multichannel buffer in-place
+    template <typename T>
+    void processChannel(T *interleaved, uint32_t frames, int channels, int targetChannel) {
+        if (!interleaved || frames == 0 || channels <= 0 || targetChannel < 0 || targetChannel >= channels || isFlat_) return;
+        const int c = std::min(targetChannel, kMaxChannels - 1);
+
+        for (uint32_t i = 0; i < frames; ++i) {
+            T *sample = interleaved + (size_t)i * (size_t)channels + targetChannel;
+            const double in = static_cast<double>(*sample);
+
+            const double v3 = in - ic2eq_[c];
+            const double v1 = a1_ * ic1eq_[c] + a2_ * v3;
+            const double v2 = ic2eq_[c] + a2_ * ic1eq_[c] + a3_ * v3;
+
+            ic1eq_[c] = 2.0 * v1 - ic1eq_[c];
+            ic2eq_[c] = 2.0 * v2 - ic2eq_[c];
+            flushDenormal(ic1eq_[c]);
+            flushDenormal(ic2eq_[c]);
+
+            *sample = static_cast<T>(m0_ * in + m1_ * v1 + m2_ * v2);
         }
     }
 
@@ -358,24 +216,14 @@ public:
     inline double processSample(double in, int channel = 0) {
         if (isFlat_) return in;
         const int c = std::min(channel, kMaxChannels - 1);
-        if (useOrfanidis_) {
-            double out = in * b0_ + s1_[c];
-            flushDenormal(out);
-            s1_[c] = in * b1_ - out * a1_ + s2_[c];
-            s2_[c] = in * b2_ - out * a2_;
-            flushDenormal(s1_[c]);
-            flushDenormal(s2_[c]);
-            return out;
-        } else {
-            const double v3 = in - ic2eq_[c];
-            const double v1 = a1_ * ic1eq_[c] + a2_ * v3;
-            const double v2 = ic2eq_[c] + a2_ * ic1eq_[c] + a3_ * v3;
-            ic1eq_[c] = 2.0 * v1 - ic1eq_[c];
-            ic2eq_[c] = 2.0 * v2 - ic2eq_[c];
-            flushDenormal(ic1eq_[c]);
-            flushDenormal(ic2eq_[c]);
-            return m0_ * in + m1_ * v1 + m2_ * v2;
-        }
+        const double v3 = in - ic2eq_[c];
+        const double v1 = a1_ * ic1eq_[c] + a2_ * v3;
+        const double v2 = ic2eq_[c] + a2_ * ic1eq_[c] + a3_ * v3;
+        ic1eq_[c] = 2.0 * v1 - ic1eq_[c];
+        ic2eq_[c] = 2.0 * v2 - ic2eq_[c];
+        flushDenormal(ic1eq_[c]);
+        flushDenormal(ic2eq_[c]);
+        return m0_ * in + m1_ * v1 + m2_ * v2;
     }
 
     bool isFlat() const { return isFlat_; }
@@ -386,6 +234,213 @@ public:
     double getQ() const { return q_; }
 
 private:
+    struct SvfCoefficients {
+        double g = 0.0;
+        double k = 1.0;
+        double m0 = 1.0;
+        double m1 = 0.0;
+        double m2 = 0.0;
+        bool isFlat = true;
+        bool orfanidisActive = false;
+    };
+
+    static inline double analogHighShelfMag(double freqHz, double fcHz, double A, double k0) {
+        const double u = freqHz / fcHz;
+        const double u2 = u * u;
+        const double sqrtA = std::sqrt(A);
+        const double imag = k0 * sqrtA * u;
+        const double numRe = 1.0 - A * u2;
+        const double denRe = A - u2;
+        const double numMagSq = numRe * numRe + imag * imag;
+        const double denMagSq = std::max(denRe * denRe + imag * imag, 1.0e-30);
+        return A * std::sqrt(numMagSq / denMagSq);
+    }
+
+    static SvfCoefficients computeCoefficients(FilterType type, double sampleRate,
+                                             double frequencyHz, double gainDb, double q) {
+        SvfCoefficients out{};
+
+        // Exact flat bypass check: 0.0 dB gain on gain-dependent filter types
+        const bool isGainType = (type == FilterType::Bell || type == FilterType::LowShelf ||
+                                 type == FilterType::HighShelf || type == FilterType::Tilt ||
+                                 type == FilterType::BandReject);
+        if (isGainType && std::abs(gainDb) < 0.005) {
+            out.isFlat = true;
+            return out;
+        }
+        out.isFlat = false;
+
+        constexpr double PI = 3.14159265358979323846;
+        const double w0 = 2.0 * PI * frequencyHz / sampleRate;
+        const double A = std::pow(10.0, gainDb / 40.0); // sqrt(Linear Gain)
+        const double G = A * A;                          // Linear Amplitude Gain
+        const double k0 = 1.0 / q;
+        const double t0 = std::tan(w0 * 0.5);
+
+        // Andy Simper (Cytomic) Linear Trapezoidal SVF Formulations
+        // with continuous s'-domain Orfanidis Nyquist de-cramping for Bell & HighShelf.
+        out.g = t0;
+
+        switch (type) {
+        case FilterType::Bell: {
+            // Unconditionally stable, clamping-free s'-domain Orfanidis formulation
+            // mapped directly onto Cytomic TPT SVF (eliminates 8 kHz jump & Q-asymmetry).
+            const double absGainDb = std::abs(gainDb);
+            const double A_pos = std::pow(10.0, absGainDb / 40.0);
+            const double G_pos = A_pos * A_pos;
+            const double GB = A_pos;
+
+            const double r = std::sqrt(1.0 + 1.0 / (4.0 * q * q)) - 1.0 / (2.0 * q);
+            const double w1 = w0 * r;
+            const double t1 = std::tan(0.5 * w1);
+
+            const double u_nyq = PI / w0;
+            const double oneMinusU2 = 1.0 - u_nyq * u_nyq;
+            const double bwTermNum = (A_pos * u_nyq) / q;
+            const double bwTermDen = u_nyq / (q * A_pos);
+            const double G1_sq = (oneMinusU2 * oneMinusU2 + bwTermNum * bwTermNum) /
+                                 std::max(oneMinusU2 * oneMinusU2 + bwTermDen * bwTermDen, 1.0e-30);
+            const double G1 = std::sqrt(std::min(G1_sq, G_pos * G_pos - 1.0e-15));
+
+            const double X0 = std::max(t0 * t0, 1.0e-24);
+            const double X1 = std::max(t1 * t1, 1.0e-24);
+            const double G2_m1 = std::max(G_pos * G_pos - 1.0, 1.0e-24);
+            const double W2 = X0 * std::sqrt(std::max((G_pos * G_pos - G1_sq) / G2_m1, 1.0e-18));
+
+            const double rhs1 = (G_pos * G_pos * (W2 - X0) * (W2 - X0) - (W2 - G1 * X0) * (W2 - G1 * X0)) / X0;
+            const double rhs2 = (GB * GB * (W2 - X1) * (W2 - X1) - (W2 - G1 * X1) * (W2 - G1 * X1)) / X1;
+            const double bd2 = std::max((rhs2 - rhs1) / std::max(G_pos * G_pos - GB * GB, 1.0e-24), 1.0e-24);
+            const double bn2 = std::max(rhs1 + G_pos * G_pos * bd2, 1.0e-24);
+            const double bn = std::sqrt(bn2);
+            const double bd = std::sqrt(bd2);
+
+            if (gainDb >= 0.0) {
+                out.g = std::sqrt(W2);
+                out.k = bd / out.g;
+                out.m0 = G1;
+                out.m2 = 1.0 - G1;
+                out.m1 = (bn / out.g) - out.m0 * out.k;
+            } else {
+                // Exact rational inverse guarantees 0.0000 dB boost/cut complementarity
+                const double invG1 = 1.0 / G1;
+                out.g = std::sqrt(W2 * invG1);
+                out.k = (bd > 0.0 ? (bn * invG1) / out.g : k0);
+                out.m0 = invG1;
+                out.m2 = 1.0 - invG1;
+                out.m1 = ((bd * invG1) / out.g) - out.m0 * out.k;
+            }
+            out.orfanidisActive = (frequencyHz > sampleRate * 0.12) && (absGainDb >= 0.05);
+            break;
+        }
+
+        case FilterType::LowShelf:
+            out.g = t0 / std::sqrt(A);
+            out.k = k0;
+            out.m0 = 1.0;
+            out.m1 = k0 * (A - 1.0);
+            out.m2 = A * A - 1.0;
+            break;
+
+        case FilterType::HighShelf: {
+            // Nyquist-matched s'-domain HighShelf mapped directly into Cytomic TPT SVF
+            const double absGainDb = std::abs(gainDb);
+            const double A_pos = std::pow(10.0, absGainDb / 40.0);
+            const double G1 = analogHighShelfMag(0.5 * sampleRate, frequencyHz, A_pos, k0);
+            const double r = (G1 + A_pos) / (1.0 + A_pos);
+            const double W2 = t0 * t0 * r;
+            const double gBoost = std::sqrt(W2);
+
+            const double ratioNyq = std::clamp(frequencyHz / (0.5 * sampleRate), 0.0, 1.0);
+            const double blend = ratioNyq * ratioNyq;
+            const double fRef = (1.0 - blend) * (0.7 * frequencyHz) +
+                                blend * std::sqrt(frequencyHz * 0.48 * sampleRate);
+            const double M = analogHighShelfMag(fRef, frequencyHz, A_pos, k0);
+            const double M2 = M * M;
+            const double t1 = std::tan(PI * fRef / sampleRate);
+            const double X1 = t1 * t1;
+            const double denomK = W2 * X1 * (M2 - A_pos * A_pos);
+            const double numK = (W2 - G1 * X1) * (W2 - G1 * X1) - M2 * (W2 - X1) * (W2 - X1);
+            double kEff = k0;
+            if (std::abs(denomK) > 1.0e-12 && (numK / denomK) > 0.0) {
+                const double cand = std::sqrt(numK / denomK);
+                if (cand >= 0.25 * k0 && cand <= 4.0 * k0) {
+                    kEff = cand;
+                }
+            }
+
+            if (gainDb >= 0.0) {
+                out.g = gBoost;
+                out.k = kEff;
+                out.m0 = G1;
+                out.m1 = (A_pos - G1) * kEff;
+                out.m2 = 1.0 - G1;
+            } else {
+                const double sqrtG1 = std::sqrt(G1);
+                const double invG1 = 1.0 / G1;
+                out.g = gBoost / sqrtG1;
+                out.k = (A_pos * kEff) / sqrtG1;
+                out.m0 = invG1;
+                out.m2 = 1.0 - invG1;
+                out.m1 = (kEff / sqrtG1) - out.m0 * out.k;
+            }
+            out.orfanidisActive = (frequencyHz > sampleRate * 0.12) && (absGainDb >= 0.05);
+            break;
+        }
+
+        case FilterType::LowPass:
+            out.k = k0;
+            out.m0 = 0.0;
+            out.m1 = 0.0;
+            out.m2 = 1.0;
+            break;
+
+        case FilterType::HighPass:
+            out.k = k0;
+            out.m0 = 1.0;
+            out.m1 = -k0;
+            out.m2 = -1.0;
+            break;
+
+        case FilterType::BandPass:
+            out.k = k0;
+            out.m0 = 0.0;
+            out.m1 = 1.0;
+            out.m2 = 0.0;
+            break;
+
+        case FilterType::Notch:
+            out.k = k0;
+            out.m0 = 1.0;
+            out.m1 = -k0;
+            out.m2 = 0.0;
+            break;
+
+        case FilterType::AllPass:
+            out.k = k0;
+            out.m0 = 1.0;
+            out.m1 = -2.0 * k0;
+            out.m2 = 0.0;
+            break;
+
+        case FilterType::Tilt:
+            out.g = t0 * std::sqrt(A);
+            out.k = k0;
+            out.m0 = A;
+            out.m1 = (1.0 - A) * k0;
+            out.m2 = (1.0 / A) - A;
+            break;
+
+        case FilterType::BandReject:
+            out.k = k0;
+            out.m0 = 1.0;
+            out.m1 = (G - 1.0) * k0;
+            out.m2 = 0.0;
+            break;
+        }
+
+        return out;
+    }
+
     static inline void flushDenormal(double &v) {
         if (std::abs(v) < 1.0e-25) v = 0.0;
     }
@@ -404,14 +459,9 @@ private:
     double a1_ = 0.0, a2_ = 0.0, a3_ = 0.0;
     double m0_ = 1.0, m1_ = 0.0, m2_ = 0.0;
 
-    // Orfanidis Nyquist-Prescribed Coefficients
-    double b0_ = 1.0, b1_ = 0.0, b2_ = 0.0;
-
     // States
     double ic1eq_[kMaxChannels] = {};
     double ic2eq_[kMaxChannels] = {};
-    double s1_[kMaxChannels] = {};
-    double s2_[kMaxChannels] = {};
 };
 
 } // namespace sauti::dsp

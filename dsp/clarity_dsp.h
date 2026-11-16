@@ -142,19 +142,10 @@ public:
         dc_y_l_ = dc_y_r_ = 0.0f;
         cheb_env_sq_l_ = cheb_env_sq_r_ = 0.0f;
 
-        // Reset Air Shelf biquad states
-        air_x1_l_ = air_x2_l_ = air_y1_l_ = air_y2_l_ = 0.0f;
-        air_x1_r_ = air_x2_r_ = air_y1_r_ = air_y2_r_ = 0.0f;
-
-        // Reset 3-Way Crossover filter states
-        x_low_x1_l_ = x_low_x2_l_ = x_low_y1_l_ = x_low_y2_l_ = 0.0f;
-        x_low_x1_r_ = x_low_x2_r_ = x_low_y1_r_ = x_low_y2_r_ = 0.0f;
-        x_mid_x1_l_ = x_mid_x2_l_ = x_mid_y1_l_ = x_mid_y2_l_ = 0.0f;
-        x_mid_x1_r_ = x_mid_x2_r_ = x_mid_y1_r_ = x_mid_y2_r_ = 0.0f;
-        x_high_x1_l_ = x_high_x2_l_ = x_high_y1_l_ = x_high_y2_l_ = 0.0f;
-        x_high_x1_r_ = x_high_x2_r_ = x_high_y1_r_ = x_high_y2_r_ = 0.0f;
-
         // Reset SVF filters
+        air_shelf_svf_.reset();
+        presence_low_svf_.reset();
+        presence_high_svf_.reset();
         for (int c = 0; c < 2; ++c) {
             transient_band_hp_[c].reset();
             transient_band_lp_[c].reset();
@@ -281,81 +272,71 @@ private:
     }
 
     // =========================================================================
-    // 2. Air Shelf (Profile 1)
+    // 2. Air Shelf (Profile 1) - 64-bit Cytomic SVF with Nyquist De-Cramping
     // =========================================================================
     void processAirShelf(float* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
             if (std::abs(current_intensity_ - last_air_intensity_) > 0.002f) {
-                calcHighshelf(12000.0f, current_intensity_ * 8.0f, air_b0_, air_b1_, air_b2_, air_a1_, air_a2_);
+                air_shelf_svf_.setParameters(CytomicSVF::FilterType::HighShelf,
+                                             sample_rate_, 12000.0,
+                                             static_cast<double>(current_intensity_) * 8.0,
+                                             0.70710678);
                 last_air_intensity_ = current_intensity_;
             }
 
-            float in_l = samples[2 * i];
-            float in_r = samples[2 * i + 1];
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
-            float out_l = air_b0_ * in_l + air_b1_ * air_x1_l_ + air_b2_ * air_x2_l_
-                        - air_a1_ * air_y1_l_ - air_a2_ * air_y2_l_;
-            air_x2_l_ = air_x1_l_; air_x1_l_ = in_l;
-            air_y2_l_ = air_y1_l_; air_y1_l_ = out_l;
-
-            float out_r = air_b0_ * in_r + air_b1_ * air_x1_r_ + air_b2_ * air_x2_r_
-                        - air_a1_ * air_y1_r_ - air_a2_ * air_y2_r_;
-            air_x2_r_ = air_x1_r_; air_x1_r_ = in_r;
-            air_y2_r_ = air_y1_r_; air_y1_r_ = out_r;
+            double out_l = air_shelf_svf_.processSample(in_l, 0);
+            double out_r = air_shelf_svf_.processSample(in_r, 1);
 
             if (anti_pop_ < 1.0f) {
-                out_l = in_l + anti_pop_ * (out_l - in_l);
-                out_r = in_r + anti_pop_ * (out_r - in_r);
+                const double pop = static_cast<double>(anti_pop_);
+                out_l = in_l + pop * (out_l - in_l);
+                out_r = in_r + pop * (out_r - in_r);
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 100.0f);
             }
 
-            samples[2 * i]     = out_l;
-            samples[2 * i + 1] = out_r;
+            samples[2 * i]     = static_cast<float>(out_l);
+            samples[2 * i + 1] = static_cast<float>(out_r);
         }
     }
 
     // =========================================================================
-    // 3. Presence Exciter (Profile 2) - Flat-Sum Crossover
+    // 3. Presence Exciter (Profile 2) - 64-bit Cytomic SVF Flat-Sum Crossover
     // =========================================================================
     void processPresenceExciter(float* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
-            const float mid_gain = 1.0f + current_intensity_ * 0.4f;
-            const float high_gain = 1.0f + current_intensity_ * 0.8f;
+            const double mid_gain = 1.0 + static_cast<double>(current_intensity_) * 0.4;
+            const double high_gain = 1.0 + static_cast<double>(current_intensity_) * 0.8;
 
-            float in_l = samples[2 * i];
-            float in_r = samples[2 * i + 1];
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
-            // Left Channel
-            float low_l = x_low_b0_ * in_l + x_low_b1_ * x_low_x1_l_ + x_low_b2_ * x_low_x2_l_ - x_low_a1_ * x_low_y1_l_ - x_low_a2_ * x_low_y2_l_;
-            x_low_x2_l_ = x_low_x1_l_; x_low_x1_l_ = in_l; x_low_y2_l_ = x_low_y1_l_; x_low_y1_l_ = low_l;
+            const double low_l  = presence_low_svf_.processSample(in_l, 0);
+            const double high_l = presence_high_svf_.processSample(in_l, 0);
 
-            float high_l = x_high_b0_ * in_l + x_high_b1_ * x_high_x1_l_ + x_high_b2_ * x_high_x2_l_ - x_high_a1_ * x_high_y1_l_ - x_high_a2_ * x_high_y2_l_;
-            x_high_x2_l_ = x_high_x1_l_; x_high_x1_l_ = in_l; x_high_y2_l_ = x_high_y1_l_; x_high_y1_l_ = high_l;
-
-            // Right Channel
-            float low_r = x_low_b0_ * in_r + x_low_b1_ * x_low_x1_r_ + x_low_b2_ * x_low_x2_r_ - x_low_a1_ * x_low_y1_r_ - x_low_a2_ * x_low_y2_r_;
-            x_low_x2_r_ = x_low_x1_r_; x_low_x1_r_ = in_r; x_low_y2_r_ = x_low_y1_r_; x_low_y1_r_ = low_r;
-
-            float high_r = x_high_b0_ * in_r + x_high_b1_ * x_high_x1_r_ + x_high_b2_ * x_high_x2_r_ - x_high_a1_ * x_high_y1_r_ - x_high_a2_ * x_high_y2_r_;
-            x_high_x2_r_ = x_high_x1_r_; x_high_x1_r_ = in_r; x_high_y2_r_ = x_high_y1_r_; x_high_y1_r_ = high_r;
+            const double low_r  = presence_low_svf_.processSample(in_r, 1);
+            const double high_r = presence_high_svf_.processSample(in_r, 1);
 
             // Mid band derived by subtraction for exact flat sum
-            const float mid_l = in_l - low_l - high_l;
-            const float mid_r = in_r - low_r - high_r;
+            const double mid_l = in_l - low_l - high_l;
+            const double mid_r = in_r - low_r - high_r;
 
-            float out_l = low_l + (mid_l * mid_gain) + (high_l * high_gain);
-            float out_r = low_r + (mid_r * mid_gain) + (high_r * high_gain);
+            double out_l = low_l + (mid_l * mid_gain) + (high_l * high_gain);
+            double out_r = low_r + (mid_r * mid_gain) + (high_r * high_gain);
 
             if (anti_pop_ < 1.0f) {
-                out_l = in_l + anti_pop_ * (out_l - in_l);
-                out_r = in_r + anti_pop_ * (out_r - in_r);
+                const double pop = static_cast<double>(anti_pop_);
+                out_l = in_l + pop * (out_l - in_l);
+                out_r = in_r + pop * (out_r - in_r);
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 100.0f);
             }
 
-            samples[2 * i]     = out_l;
-            samples[2 * i + 1] = out_r;
+            samples[2 * i]     = static_cast<float>(out_l);
+            samples[2 * i + 1] = static_cast<float>(out_r);
         }
     }
 
@@ -545,15 +526,14 @@ private:
         last_boost_l_ = 0.0f;
         last_boost_r_ = 0.0f;
 
-        // 2. Air Shelf: 12 kHz High-Shelf Biquad (+0 dB to +8 dB)
-        float shelf_gain_db = current_intensity_ * 8.0f;
-        calcHighshelf(12000.0f, shelf_gain_db, air_b0_, air_b1_, air_b2_, air_a1_, air_a2_);
+        // 2. Air Shelf: 12 kHz High-Shelf SVF (+0 dB to +8 dB)
+        double shelf_gain_db = static_cast<double>(current_intensity_) * 8.0;
+        air_shelf_svf_.setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 12000.0, shelf_gain_db, 0.70710678);
         last_air_intensity_ = current_intensity_;
 
-        // 3. 3-Way Crossover (PresenceExciter)
-        calcLowpass(120.0f, 0.7071f, x_low_b0_, x_low_b1_, x_low_b2_, x_low_a1_, x_low_a2_);
-        calcBandpass(400.0f, 0.6f, x_mid_b0_, x_mid_b1_, x_mid_b2_, x_mid_a1_, x_mid_a2_);
-        calcHighpass(1200.0f, 0.7071f, x_high_b0_, x_high_b1_, x_high_b2_, x_high_a1_, x_high_a2_);
+        // 3. 3-Way Crossover (PresenceExciter) in 64-bit Cytomic SVF
+        presence_low_svf_.setParameters(CytomicSVF::FilterType::LowPass, sample_rate_, 120.0, 0.0, 0.70710678);
+        presence_high_svf_.setParameters(CytomicSVF::FilterType::HighPass, sample_rate_, 1200.0, 0.0, 0.70710678);
 
         // 4. 4th-Order Linkwitz-Riley Crossover at 3.2 kHz (Pre- and Post-Shaper High-Pass)
         for (int c = 0; c < 2; ++c) {
@@ -569,73 +549,6 @@ private:
             demask_pres_bpf_[c].setParameters(CytomicSVF::FilterType::BandPass, sample_rate_, 2000.0, 0.0, 0.7);
             demask_peaking_[c].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 240.0, 0.0, 1.8);
         }
-    }
-
-    void calcHighshelf(float freq, float gain_db, float& b0, float& b1, float& b2, float& a1, float& a2) {
-        constexpr double PI = 3.14159265358979323846;
-        const double A = std::pow(10.0, static_cast<double>(gain_db) / 40.0);
-        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        const double cos_w0 = std::cos(w0);
-        const double sin_w0 = std::sin(w0);
-        // Butterworth shelf slope S = 1.0 (Q = 1/sqrt(2) = 0.70710678)
-        const double alpha = sin_w0 / (2.0 * 0.7071067811865475);
-        const double sqrt_A = 2.0 * std::sqrt(A) * alpha;
-
-        const double a0 = (A + 1.0) - (A - 1.0) * cos_w0 + sqrt_A;
-        b0 = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 + sqrt_A)) / a0);
-        b1 = static_cast<float>((-2.0 * A * ((A - 1.0) + (A + 1.0) * cos_w0)) / a0);
-        b2 = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 - sqrt_A)) / a0);
-        a1 = static_cast<float>((2.0 * ((A - 1.0) - (A + 1.0) * cos_w0)) / a0);
-        a2 = static_cast<float>(((A + 1.0) - (A - 1.0) * cos_w0 - sqrt_A) / a0);
-    }
-
-    void calcLowpass(float freq, float Q, float& b0, float& b1, float& b2, float& a1, float& a2) {
-        constexpr double PI = 3.14159265358979323846;
-        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        const double cos_w0 = std::cos(w0);
-        const double sin_w0 = std::sin(w0);
-        const double alpha = sin_w0 / (2.0 * static_cast<double>(Q));
-
-        const double a0 = 1.0 + alpha;
-        b0 = static_cast<float>(((1.0 - cos_w0) / 2.0) / a0);
-        b1 = static_cast<float>((1.0 - cos_w0) / a0);
-        b2 = static_cast<float>(((1.0 - cos_w0) / 2.0) / a0);
-        a1 = static_cast<float>((-2.0 * cos_w0) / a0);
-        a2 = static_cast<float>((1.0 - alpha) / a0);
-    }
-
-    void calcHighpass(float freq, float Q, float& b0, float& b1, float& b2, float& a1, float& a2) {
-        constexpr double PI = 3.14159265358979323846;
-        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        const double cos_w0 = std::cos(w0);
-        const double sin_w0 = std::sin(w0);
-        const double alpha = sin_w0 / (2.0 * static_cast<double>(Q));
-
-        const double a0 = 1.0 + alpha;
-        b0 = static_cast<float>(((1.0 + cos_w0) / 2.0) / a0);
-        b1 = static_cast<float>(-(1.0 + cos_w0) / a0);
-        b2 = static_cast<float>(((1.0 + cos_w0) / 2.0) / a0);
-        a1 = static_cast<float>((-2.0 * cos_w0) / a0);
-        a2 = static_cast<float>((1.0 - alpha) / a0);
-    }
-
-    void calcBandpass(float freq, float Q, float& b0, float& b1, float& b2, float& a1, float& a2) {
-        constexpr double PI = 3.14159265358979323846;
-        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        const double cos_w0 = std::cos(w0);
-        const double sin_w0 = std::sin(w0);
-        const double alpha = sin_w0 / (2.0 * static_cast<double>(Q));
-
-        const double a0 = 1.0 + alpha;
-        b0 = static_cast<float>((alpha) / a0);
-        b1 = 0.0f;
-        b2 = static_cast<float>((-alpha) / a0);
-        a1 = static_cast<float>((-2.0 * cos_w0) / a0);
-        a2 = static_cast<float>((1.0 - alpha) / a0);
     }
 
     bool enabled_ = false;
@@ -699,23 +612,10 @@ private:
     CytomicSVF demask_pres_bpf_[2];
     CytomicSVF demask_peaking_[2];
 
-    // Air Shelf (Profile 1) biquad states
-    float air_b0_ = 1.0f, air_b1_ = 0.0f, air_b2_ = 0.0f;
-    float air_a1_ = 0.0f, air_a2_ = 0.0f;
-    float air_x1_l_ = 0.0f, air_x2_l_ = 0.0f, air_y1_l_ = 0.0f, air_y2_l_ = 0.0f;
-    float air_x1_r_ = 0.0f, air_x2_r_ = 0.0f, air_y1_r_ = 0.0f, air_y2_r_ = 0.0f;
-
-    // Presence Exciter (Profile 2) biquad states
-    float x_low_b0_ = 1.0f, x_low_b1_ = 0.0f, x_low_b2_ = 0.0f, x_low_a1_ = 0.0f, x_low_a2_ = 0.0f;
-    float x_mid_b0_ = 1.0f, x_mid_b1_ = 0.0f, x_mid_b2_ = 0.0f, x_mid_a1_ = 0.0f, x_mid_a2_ = 0.0f;
-    float x_high_b0_ = 1.0f, x_high_b1_ = 0.0f, x_high_b2_ = 0.0f, x_high_a1_ = 0.0f, x_high_a2_ = 0.0f;
-
-    float x_low_x1_l_ = 0.0f, x_low_x2_l_ = 0.0f, x_low_y1_l_ = 0.0f, x_low_y2_l_ = 0.0f;
-    float x_low_x1_r_ = 0.0f, x_low_x2_r_ = 0.0f, x_low_y1_r_ = 0.0f, x_low_y2_r_ = 0.0f;
-    float x_mid_x1_l_ = 0.0f, x_mid_x2_l_ = 0.0f, x_mid_y1_l_ = 0.0f, x_mid_y2_l_ = 0.0f;
-    float x_mid_x1_r_ = 0.0f, x_mid_x2_r_ = 0.0f, x_mid_y1_r_ = 0.0f, x_mid_y2_r_ = 0.0f;
-    float x_high_x1_l_ = 0.0f, x_high_x2_l_ = 0.0f, x_high_y1_l_ = 0.0f, x_high_y2_l_ = 0.0f;
-    float x_high_x1_r_ = 0.0f, x_high_x2_r_ = 0.0f, x_high_y1_r_ = 0.0f, x_high_y2_r_ = 0.0f;
+    // Air Shelf (Profile 1) & Presence Exciter (Profile 2) 64-bit Cytomic SVFs
+    CytomicSVF air_shelf_svf_;
+    CytomicSVF presence_low_svf_;
+    CytomicSVF presence_high_svf_;
 };
 
 } // namespace sauti::dsp

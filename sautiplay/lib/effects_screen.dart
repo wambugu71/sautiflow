@@ -479,6 +479,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
         player: widget.player,
         analyzerEnabled: widget.analyzerEnabled,
         analyzerType: widget.analyzerType,
+        sampleRate: _currentlyUsedSampleRate,
         onScrollingChanged: (scrolling) {
           if (_isScrolling != scrolling) {
             _isScrolling = scrolling;

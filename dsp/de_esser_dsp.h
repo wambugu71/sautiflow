@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <vector>
 #include "simd_math.h"
+#include "cytomic_svf_dsp.h"
 
 namespace sauti::dsp {
 
@@ -200,9 +201,8 @@ public:
     }
 
     void reset() {
-        // Reset dynamic shelf biquad states
-        shelf_x1_l_ = shelf_x2_l_ = shelf_y1_l_ = shelf_y2_l_ = 0.0f;
-        shelf_x1_r_ = shelf_x2_r_ = shelf_y1_r_ = shelf_y2_r_ = 0.0f;
+        // Reset dynamic shelf 64-bit Cytomic SVF state
+        shelf_svf_.reset();
 
         // Reset Sidechain HPF states
         sc_x1_ = SimdDouble2(0.0);
@@ -219,10 +219,6 @@ public:
         prev_shelf_gain_db_ = 999.0f;
         updateShelfCoeffs(0.0f);
         shelf_b0_ = tgt_shelf_b0_;
-        shelf_b1_ = tgt_shelf_b1_;
-        shelf_b2_ = tgt_shelf_b2_;
-        shelf_a1_ = tgt_shelf_a1_;
-        shelf_a2_ = tgt_shelf_a2_;
     }
 
     // Active interpolated and target high-shelf coefficients (for verification/telemetry)
@@ -306,29 +302,12 @@ public:
 
             // 4. Output Processing based on Mode
             if (mode_ == DeEsserMode::SplitBand) {
-                // Update shelf coefficients on 32-sample sub-block intervals to prevent
-                // Direct Form denominator pole slewing through unstable trajectories.
-                if ((i & 31) == 0) {
-                    updateShelfCoeffs(-current_gr_db_);
-                    shelf_b0_ = tgt_shelf_b0_;
-                    shelf_b1_ = tgt_shelf_b1_;
-                    shelf_b2_ = tgt_shelf_b2_;
-                    shelf_a1_ = tgt_shelf_a1_;
-                    shelf_a2_ = tgt_shelf_a2_;
-                }
+                // 64-bit Cytomic TPT SVF dynamic HighShelf: state-invariant under modulation
+                updateShelfCoeffs(-current_gr_db_);
+                shelf_b0_ = tgt_shelf_b0_;
 
-                float s_l = shelf_b0_ * in_l + shelf_b1_ * shelf_x1_l_ + shelf_b2_ * shelf_x2_l_
-                          - shelf_a1_ * shelf_y1_l_ - shelf_a2_ * shelf_y2_l_;
-                shelf_x2_l_ = shelf_x1_l_; shelf_x1_l_ = in_l;
-                shelf_y2_l_ = shelf_y1_l_; shelf_y1_l_ = s_l;
-
-                float s_r = shelf_b0_ * in_r + shelf_b1_ * shelf_x1_r_ + shelf_b2_ * shelf_x2_r_
-                          - shelf_a1_ * shelf_y1_r_ - shelf_a2_ * shelf_y2_r_;
-                shelf_x2_r_ = shelf_x1_r_; shelf_x1_r_ = in_r;
-                shelf_y2_r_ = shelf_y1_r_; shelf_y1_r_ = s_r;
-
-                out_l = s_l;
-                out_r = s_r;
+                out_l = static_cast<float>(shelf_svf_.processSample(static_cast<double>(in_l), 0));
+                out_r = static_cast<float>(shelf_svf_.processSample(static_cast<double>(in_r), 1));
             } else {
                 // WideBand Mode: Direct linear attenuation
                 float lin_gain = std::pow(10.0f, -current_gr_db_ / 20.0f);
@@ -377,16 +356,13 @@ private:
     float anti_pop_ = 0.0f;
     float current_gr_db_ = 0.0f;
 
-    // Dynamic High-Shelf Biquad Coefficients (active interpolated and targets)
-    float shelf_b0_ = 1.0f, shelf_b1_ = 0.0f, shelf_b2_ = 0.0f;
-    float shelf_a1_ = 0.0f, shelf_a2_ = 0.0f;
-    float tgt_shelf_b0_ = 1.0f, tgt_shelf_b1_ = 0.0f, tgt_shelf_b2_ = 0.0f;
+    // Dynamic High-Shelf 64-bit Cytomic SVF & Telemetry
+    CytomicSVF shelf_svf_;
+    float shelf_b0_ = 1.0f;
+    float tgt_shelf_b0_ = 1.0f;
+    float tgt_shelf_b1_ = 0.0f, tgt_shelf_b2_ = 0.0f;
     float tgt_shelf_a1_ = 0.0f, tgt_shelf_a2_ = 0.0f;
     float prev_shelf_gain_db_ = 999.0f;
-
-    // Dynamic High-Shelf filter states
-    float shelf_x1_l_ = 0.0f, shelf_x2_l_ = 0.0f, shelf_y1_l_ = 0.0f, shelf_y2_l_ = 0.0f;
-    float shelf_x1_r_ = 0.0f, shelf_x2_r_ = 0.0f, shelf_y1_r_ = 0.0f, shelf_y2_r_ = 0.0f;
 
     // Sidechain HPF Coefficients and states (SimdDouble2 stereo Direct Form I)
     float sc_b0_ = 1.0f, sc_b1_ = 0.0f, sc_b2_ = 0.0f, sc_a1_ = 0.0f, sc_a2_ = 0.0f;
@@ -441,35 +417,19 @@ private:
     }
 
     void updateShelfCoeffs(float gain_db) {
-        // Throttled recalculation: recompute transcendentals only when change exceeds 0.1 dB
+        // Throttled recalculation: recompute only when gain change exceeds 0.1 dB
         if (std::abs(gain_db) >= 0.01f && std::abs(gain_db - prev_shelf_gain_db_) < 0.1f) return;
         prev_shelf_gain_db_ = gain_db;
 
-        if (std::abs(gain_db) < 0.01f) {
-            tgt_shelf_b0_ = 1.0f;
-            tgt_shelf_b1_ = 0.0f;
-            tgt_shelf_b2_ = 0.0f;
-            tgt_shelf_a1_ = 0.0f;
-            tgt_shelf_a2_ = 0.0f;
-            return;
-        }
+        const double effective_gain = (std::abs(gain_db) < 0.01f) ? 0.0 : static_cast<double>(gain_db);
+        const double fc = static_cast<double>(std::clamp(frequency_hz_, 1000.0f, sample_rate_ * 0.45f));
+        shelf_svf_.setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, fc, effective_gain, 0.70710678);
 
-        constexpr double PI = 3.14159265358979323846;
-        const float fc = std::clamp(frequency_hz_, 1000.0f, sample_rate_ * 0.45f);
-        const double A = std::pow(10.0, static_cast<double>(gain_db) / 40.0);
-        double w0 = 2.0 * PI * static_cast<double>(fc) / static_cast<double>(sample_rate_);
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        const double cos_w0 = std::cos(w0);
-        const double sin_w0 = std::sin(w0);
-        const double alpha = sin_w0 / (2.0 * 0.7071067811865475);
-        const double sqrt_A = 2.0 * std::sqrt(A) * alpha;
-
-        const double a0 = (A + 1.0) - (A - 1.0) * cos_w0 + sqrt_A;
-        tgt_shelf_b0_ = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 + sqrt_A)) / a0);
-        tgt_shelf_b1_ = static_cast<float>((-2.0 * A * ((A - 1.0) + (A + 1.0) * cos_w0)) / a0);
-        tgt_shelf_b2_ = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w0 - sqrt_A)) / a0);
-        tgt_shelf_a1_ = static_cast<float>((2.0 * ((A - 1.0) - (A + 1.0) * cos_w0)) / a0);
-        tgt_shelf_a2_ = static_cast<float>(((A + 1.0) - (A - 1.0) * cos_w0 - sqrt_A) / a0);
+        tgt_shelf_b0_ = static_cast<float>(std::pow(10.0, effective_gain / 20.0));
+        tgt_shelf_b1_ = 0.0f;
+        tgt_shelf_b2_ = 0.0f;
+        tgt_shelf_a1_ = 0.0f;
+        tgt_shelf_a2_ = 0.0f;
     }
 };
 

@@ -22,7 +22,7 @@ A comprehensive Python library mathematically modeling all DSP algorithms in Sau
 16. Noise Gate with Hysteresis & Hold (`noise_gate.py`)
 17. OpenStage Spherical-Head Crossfeed (`open_stage.py`)
 18. Binaural Crossfeed Topologies (`crossfeed.py`)
-19. Algorithmic Reverbs (Dattorro, Diffusion, Lattice) (`reverb.py`)
+19. Algorithmic Reverbs (Dattorro, Lattice, Diffusion, Hadamard FDN, Barr Ring, Griesinger) (`reverb.py`)
 20. ScaleTempo WSOLA Time-Stretching (`scaletempo.py`)
 21. Spatial Surround & Binaural HRTF (`spatial_surround.py`)
 22. Stereo Imager & Velvet Noise Decorrelator (`stereo_imager.py`)
@@ -50,7 +50,14 @@ from .tone_crossover import ToneCrossoverDSP
 from .noise_gate import NoiseGateDSP, GateState
 from .open_stage import OpenStageDSP
 from .crossfeed import CrossfeedNode, CrossfeedAlgorithm
-from .reverb import DattorroReverb, DiffusionReverbDSP, LatticeReverbDSP
+from .reverb import (
+    DattorroReverb,
+    DiffusionReverbDSP,
+    LatticeReverbDSP,
+    HadamardFdnDSP,
+    BarrRingReverbDSP,
+    GriesingerTankDSP,
+)
 from .scaletempo import ScaleTempoDSP
 from .spatial_surround import SpatialSurroundDSP, SurroundMode
 from .stereo_imager import StereoImagerDSP, StereoImagerMode
@@ -108,6 +115,9 @@ __all__ = [
     "DattorroReverb",
     "DiffusionReverbDSP",
     "LatticeReverbDSP",
+    "HadamardFdnDSP",
+    "BarrRingReverbDSP",
+    "GriesingerTankDSP",
     "ScaleTempoDSP",
     "SpatialSurroundDSP",
     "SurroundMode",

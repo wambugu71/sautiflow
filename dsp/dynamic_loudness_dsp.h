@@ -7,6 +7,7 @@
 #include <atomic>
 #include "denormals.h"
 #include "simd_math.h"
+#include "cytomic_svf_dsp.h"
 
 namespace sauti::dsp {
 
@@ -90,12 +91,8 @@ public:
     }
 
     void reset() {
-        for (size_t c = 0; c < MAX_CHANNELS; ++c) {
-            s1_bass_[c] = 0.0;
-            s2_bass_[c] = 0.0;
-            s1_treble_[c] = 0.0;
-            s2_treble_[c] = 0.0;
-        }
+        bass_svf_.reset();
+        treble_svf_.reset();
         current_bass_gain_db_ = 0.0f;
         current_treble_gain_db_ = 0.0f;
         target_bass_gain_db_ = 0.0f;
@@ -145,33 +142,20 @@ public:
                 recalculateCoefficients(current_bass_gain_db_, current_treble_gain_db_);
             }
 
-            // If boost is virtually zero and filters are cleared, bypass this sub-block
+            // If boost is virtually zero, reset and bypass this sub-block
             const bool is_flat = (current_bass_gain_db_ < 0.02f) && (current_treble_gain_db_ < 0.02f);
-            if (is_flat && statesAreZero(ch)) {
+            if (is_flat) {
+                bass_svf_.reset();
+                treble_svf_.reset();
                 ptr += sub_frames * ch;
                 frames_remaining -= sub_frames;
                 continue;
             }
 
-            // Process sub-block samples
-            for (size_t f = 0; f < sub_frames; ++f) {
-                for (size_t c = 0; c < ch; ++c) {
-                    double sample = static_cast<double>(ptr[c]);
-
-                    // 1. Low Shelf (Bass) TDF2
-                    double out_bass = b0_bass_ * sample + s1_bass_[c];
-                    s1_bass_[c] = b1_bass_ * sample - a1_bass_ * out_bass + s2_bass_[c];
-                    s2_bass_[c] = b2_bass_ * sample - a2_bass_ * out_bass;
-
-                    // 2. High Shelf (Treble) TDF2
-                    double out_treble = b0_treble_ * out_bass + s1_treble_[c];
-                    s1_treble_[c] = b1_treble_ * out_bass - a1_treble_ * out_treble + s2_treble_[c];
-                    s2_treble_[c] = b2_treble_ * out_bass - a2_treble_ * out_treble;
-
-                    ptr[c] = static_cast<float>(out_treble);
-                }
-                ptr += ch;
-            }
+            // Process sub-block samples via 64-bit Cytomic TPT SVF
+            bass_svf_.process(ptr, static_cast<uint32_t>(sub_frames), channels);
+            treble_svf_.process(ptr, static_cast<uint32_t>(sub_frames), channels);
+            ptr += sub_frames * ch;
 
             frames_remaining -= sub_frames;
         }
@@ -212,85 +196,30 @@ public:
             }
 
             const bool is_flat = (current_bass_gain_db_ < 0.02f) && (current_treble_gain_db_ < 0.02f);
-            if (is_flat && statesAreZero(ch)) {
+            if (is_flat) {
+                bass_svf_.reset();
+                treble_svf_.reset();
                 ptr += sub_frames * ch;
                 frames_remaining -= sub_frames;
                 continue;
             }
 
-            for (size_t f = 0; f < sub_frames; ++f) {
-                for (size_t c = 0; c < ch; ++c) {
-                    double sample = ptr[c];
-
-                    double out_bass = b0_bass_ * sample + s1_bass_[c];
-                    s1_bass_[c] = b1_bass_ * sample - a1_bass_ * out_bass + s2_bass_[c];
-                    s2_bass_[c] = b2_bass_ * sample - a2_bass_ * out_bass;
-
-                    double out_treble = b0_treble_ * out_bass + s1_treble_[c];
-                    s1_treble_[c] = b1_treble_ * out_bass - a1_treble_ * out_treble + s2_treble_[c];
-                    s2_treble_[c] = b2_treble_ * out_bass - a2_treble_ * out_treble;
-
-                    ptr[c] = out_treble;
-                }
-                ptr += ch;
-            }
+            bass_svf_.process(ptr, static_cast<uint32_t>(sub_frames), channels);
+            treble_svf_.process(ptr, static_cast<uint32_t>(sub_frames), channels);
+            ptr += sub_frames * ch;
 
             frames_remaining -= sub_frames;
         }
     }
 
 private:
-    bool statesAreZero(size_t ch) const {
-        for (size_t c = 0; c < ch; ++c) {
-            if (std::abs(s1_bass_[c]) > 1.0e-12 || std::abs(s2_bass_[c]) > 1.0e-12 ||
-                std::abs(s1_treble_[c]) > 1.0e-12 || std::abs(s2_treble_[c]) > 1.0e-12) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     void recalculateCoefficients(float bass_gain_db, float treble_gain_db) {
-        constexpr double PI = 3.14159265358979323846;
-
-        // 1. Low Shelf (Cookbook formula)
-        {
-            const double A = std::pow(10.0, static_cast<double>(bass_gain_db) / 40.0);
-            const double w0 = 2.0 * PI * static_cast<double>(bass_freq_hz_.load(std::memory_order_relaxed)) / static_cast<double>(sample_rate_);
-            const double cosw0 = std::cos(w0);
-            const double sinw0 = std::sin(w0);
-            // S = 1.0 shelf slope
-            const double alpha = 0.5 * sinw0 * std::sqrt((A + 1.0 / A) * (1.0 - 1.0) + 2.0); // = sinw0 * sqrt(2)/2
-            const double two_sqrtA_alpha = 2.0 * std::sqrt(A) * alpha;
-
-            const double a0 = (A + 1.0) + (A - 1.0) * cosw0 + two_sqrtA_alpha;
-            const double inv_a0 = (std::abs(a0) > 1.0e-12) ? (1.0 / a0) : 1.0;
-
-            b0_bass_ = (A * ((A + 1.0) - (A - 1.0) * cosw0 + two_sqrtA_alpha)) * inv_a0;
-            b1_bass_ = (2.0 * A * ((A - 1.0) - (A + 1.0) * cosw0)) * inv_a0;
-            b2_bass_ = (A * ((A + 1.0) - (A - 1.0) * cosw0 - two_sqrtA_alpha)) * inv_a0;
-            a1_bass_ = (-2.0 * ((A - 1.0) + (A + 1.0) * cosw0)) * inv_a0;
-            a2_bass_ = ((A + 1.0) + (A - 1.0) * cosw0 - two_sqrtA_alpha) * inv_a0;
-        }
-
-        // 2. High Shelf (Cookbook formula)
-        {
-            const double A = std::pow(10.0, static_cast<double>(treble_gain_db) / 40.0);
-            const double w0 = 2.0 * PI * static_cast<double>(treble_freq_hz_.load(std::memory_order_relaxed)) / static_cast<double>(sample_rate_);
-            const double cosw0 = std::cos(w0);
-            const double sinw0 = std::sin(w0);
-            const double alpha = 0.5 * sinw0 * std::sqrt((A + 1.0 / A) * (1.0 - 1.0) + 2.0);
-            const double two_sqrtA_alpha = 2.0 * std::sqrt(A) * alpha;
-
-            const double a0 = (A + 1.0) - (A - 1.0) * cosw0 + two_sqrtA_alpha;
-            const double inv_a0 = (std::abs(a0) > 1.0e-12) ? (1.0 / a0) : 1.0;
-
-            b0_treble_ = (A * ((A + 1.0) + (A - 1.0) * cosw0 + two_sqrtA_alpha)) * inv_a0;
-            b1_treble_ = (-2.0 * A * ((A - 1.0) + (A + 1.0) * cosw0)) * inv_a0;
-            b2_treble_ = (A * ((A + 1.0) + (A - 1.0) * cosw0 - two_sqrtA_alpha)) * inv_a0;
-            a1_treble_ = (2.0 * ((A - 1.0) - (A + 1.0) * cosw0)) * inv_a0;
-            a2_treble_ = ((A + 1.0) - (A - 1.0) * cosw0 - two_sqrtA_alpha) * inv_a0;
-        }
+        const double bass_fc = static_cast<double>(bass_freq_hz_.load(std::memory_order_relaxed));
+        const double treble_fc = static_cast<double>(treble_freq_hz_.load(std::memory_order_relaxed));
+        bass_svf_.setParameters(CytomicSVF::FilterType::LowShelf, static_cast<double>(sample_rate_),
+                                bass_fc, static_cast<double>(bass_gain_db), 0.70710678);
+        treble_svf_.setParameters(CytomicSVF::FilterType::HighShelf, static_cast<double>(sample_rate_),
+                                  treble_fc, static_cast<double>(treble_gain_db), 0.70710678);
     }
 
     std::atomic<bool> enabled_{false};
@@ -311,15 +240,9 @@ private:
     float target_bass_gain_db_ = 0.0f;
     float target_treble_gain_db_ = 0.0f;
 
-    // Filter coefficients
-    double b0_bass_ = 1.0, b1_bass_ = 0.0, b2_bass_ = 0.0, a1_bass_ = 0.0, a2_bass_ = 0.0;
-    double b0_treble_ = 1.0, b1_treble_ = 0.0, b2_treble_ = 0.0, a1_treble_ = 0.0, a2_treble_ = 0.0;
-
-    // Filter states (TDF2 per channel)
-    std::array<double, MAX_CHANNELS> s1_bass_{{0.0}};
-    std::array<double, MAX_CHANNELS> s2_bass_{{0.0}};
-    std::array<double, MAX_CHANNELS> s1_treble_{{0.0}};
-    std::array<double, MAX_CHANNELS> s2_treble_{{0.0}};
+    // 64-bit Cytomic TPT SVF filter stages (with Nyquist de-cramping on HighShelf)
+    CytomicSVF bass_svf_;
+    CytomicSVF treble_svf_;
 };
 
 } // namespace sauti::dsp

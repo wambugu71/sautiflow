@@ -29,6 +29,7 @@
 #include "miniaudio.h"
 
 #include "audio_engine.h"
+#include "usb_audio_driver.h"
 #include "crossfeed_node.h"
 #include "reverb_node.h"
 #include <samplerate.h>
@@ -3547,6 +3548,11 @@ struct AudioEngineHandle
     ma_context customContext{};
     bool customContextInit = false;
     void *pAudioTrackSink = nullptr;
+    void *pUsbDacSink = nullptr;
+    std::mutex manualUsbMutex;
+    int manualUsbFd = -1;
+    std::vector<uint8_t> manualUsbDescriptors;
+    std::string manualUsbDeviceName;
 
     ma_decoder *currentDecoder = nullptr;
     ma_decoder *nextDecoder = nullptr;
@@ -4027,6 +4033,10 @@ struct AudioEngineHandle
             band.gainDb = gainDb;
             band.slope = slope;
 
+            const double shelfQ = (std::abs(slope - 1.0f) > 1.0e-5f && slope > 0.0f)
+                                      ? (double)slope
+                                      : (double)q;
+
             switch (band.type)
             {
             case AE_EQ_BAND_BANDPASS:
@@ -4041,12 +4051,12 @@ struct AudioEngineHandle
             }
             case AE_EQ_BAND_LOWSHELF:
             {
-                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::LowShelf, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::LowShelf, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, shelfQ);
                 break;
             }
             case AE_EQ_BAND_HIGHSHELF:
             {
-                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::HighShelf, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::HighShelf, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, shelfQ);
                 break;
             }
             case AE_EQ_BAND_LOWPASS:
@@ -4061,7 +4071,7 @@ struct AudioEngineHandle
             }
             case AE_EQ_BAND_TILT:
             {
-                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::Tilt, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, (double)q);
+                band.svf.setParameters(sauti::dsp::CytomicSVF::FilterType::Tilt, (double)sampleRateU32, (double)frequencyHz, (double)gainDb, shelfQ);
                 break;
             }
             case AE_EQ_BAND_ALLPASS:
@@ -9538,6 +9548,933 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
     }
 
+    static std::mutex g_usbEngineRegistryMutex;
+    static std::mutex g_usbHotplugDispatchMutex;
+    static std::vector<AudioEngineHandle *> g_usbEngineRegistry;
+    static std::mutex g_sautiflowPluginJniMutex;
+    static jclass g_sautiflowPluginClass = nullptr;
+
+    static void registerUsbEngine(AudioEngineHandle *e)
+    {
+        if (!e) return;
+        std::lock_guard<std::mutex> lk(g_usbEngineRegistryMutex);
+        if (std::find(g_usbEngineRegistry.begin(), g_usbEngineRegistry.end(), e) == g_usbEngineRegistry.end())
+        {
+            g_usbEngineRegistry.push_back(e);
+        }
+    }
+
+    static void unregisterUsbEngine(AudioEngineHandle *e)
+    {
+        if (!e) return;
+        std::lock_guard<std::mutex> lk(g_usbEngineRegistryMutex);
+        g_usbEngineRegistry.erase(
+            std::remove(g_usbEngineRegistry.begin(), g_usbEngineRegistry.end(), e),
+            g_usbEngineRegistry.end());
+    }
+
+    struct AndroidJniAttachGuard
+    {
+        JNIEnv *env = nullptr;
+        bool attached = false;
+
+        AndroidJniAttachGuard()
+        {
+            if (g_androidJavaVM == nullptr) return;
+            jint res = g_androidJavaVM->GetEnv((void **)&env, JNI_VERSION_1_6);
+            if (res == JNI_EDETACHED)
+            {
+                if (g_androidJavaVM->AttachCurrentThread(&env, nullptr) == JNI_OK && env != nullptr)
+                {
+                    attached = true;
+                }
+                else
+                {
+                    env = nullptr;
+                }
+            }
+            else if (res != JNI_OK)
+            {
+                env = nullptr;
+            }
+        }
+
+        ~AndroidJniAttachGuard()
+        {
+            if (env != nullptr && env->ExceptionCheck())
+            {
+                env->ExceptionClear();
+            }
+            if (attached && g_androidJavaVM != nullptr)
+            {
+                g_androidJavaVM->DetachCurrentThread();
+            }
+        }
+    };
+
+    static jobject getAndroidApplicationContext(JNIEnv *env)
+    {
+        if (!env) return nullptr;
+        jclass atClass = env->FindClass("android/app/ActivityThread");
+        if (!atClass)
+        {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            return nullptr;
+        }
+        jmethodID curAt = env->GetStaticMethodID(atClass, "currentActivityThread", "()Landroid/app/ActivityThread;");
+        if (!curAt)
+        {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            env->DeleteLocalRef(atClass);
+            return nullptr;
+        }
+        jobject atObj = env->CallStaticObjectMethod(atClass, curAt);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (!atObj)
+        {
+            env->DeleteLocalRef(atClass);
+            return nullptr;
+        }
+        jmethodID getApp = env->GetMethodID(atClass, "getApplication", "()Landroid/app/Application;");
+        jobject app = getApp ? env->CallObjectMethod(atObj, getApp) : nullptr;
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        env->DeleteLocalRef(atObj);
+        env->DeleteLocalRef(atClass);
+        return app;
+    }
+
+    static jclass getSautiflowPluginClass(JNIEnv *env, jobject appContext)
+    {
+        if (!env) return nullptr;
+        {
+            std::lock_guard<std::mutex> lk(g_sautiflowPluginJniMutex);
+            if (g_sautiflowPluginClass != nullptr)
+            {
+                return static_cast<jclass>(env->NewLocalRef(g_sautiflowPluginClass));
+            }
+        }
+
+        jclass found = env->FindClass("com/wambugu/sautiflow/SautiflowPlugin");
+        if (env->ExceptionCheck()) env->ExceptionClear();
+
+        if (!found && appContext != nullptr)
+        {
+            jclass ctxClass = env->GetObjectClass(appContext);
+            if (ctxClass)
+            {
+                jmethodID getCl = env->GetMethodID(ctxClass, "getClassLoader", "()Ljava/lang/ClassLoader;");
+                jobject clObj = getCl ? env->CallObjectMethod(appContext, getCl) : nullptr;
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                if (clObj)
+                {
+                    jclass clClass = env->FindClass("java/lang/ClassLoader");
+                    jmethodID loadClass = clClass
+                        ? env->GetMethodID(clClass, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;")
+                        : nullptr;
+                    if (loadClass)
+                    {
+                        jstring clsName = env->NewStringUTF("com.wambugu.sautiflow.SautiflowPlugin");
+                        jobject loaded = env->CallObjectMethod(clObj, loadClass, clsName);
+                        if (env->ExceptionCheck()) env->ExceptionClear();
+                        env->DeleteLocalRef(clsName);
+                        found = static_cast<jclass>(loaded);
+                    }
+                    if (clClass) env->DeleteLocalRef(clClass);
+                    env->DeleteLocalRef(clObj);
+                }
+                env->DeleteLocalRef(ctxClass);
+            }
+        }
+
+        if (found)
+        {
+            std::lock_guard<std::mutex> lk(g_sautiflowPluginJniMutex);
+            if (g_sautiflowPluginClass == nullptr)
+            {
+                g_sautiflowPluginClass = static_cast<jclass>(env->NewGlobalRef(found));
+            }
+        }
+        return found;
+    }
+
+    static bool jniHasUsbAudioDevice()
+    {
+        AndroidJniAttachGuard jni;
+        if (!jni.env) return false;
+        jobject appCtx = getAndroidApplicationContext(jni.env);
+        jclass pluginCls = getSautiflowPluginClass(jni.env, appCtx);
+        bool result = false;
+        if (pluginCls)
+        {
+            jmethodID m = jni.env->GetStaticMethodID(pluginCls, "hasUsbAudioDevice", "(Landroid/content/Context;)Z");
+            if (m)
+            {
+                result = (jni.env->CallStaticBooleanMethod(pluginCls, m, appCtx) == JNI_TRUE);
+            }
+            if (jni.env->ExceptionCheck()) jni.env->ExceptionClear();
+            jni.env->DeleteLocalRef(pluginCls);
+        }
+        if (appCtx) jni.env->DeleteLocalRef(appCtx);
+        return result;
+    }
+
+    static int jniRequestUsbAudioPermission()
+    {
+        AndroidJniAttachGuard jni;
+        if (!jni.env) return -1;
+        jobject appCtx = getAndroidApplicationContext(jni.env);
+        jclass pluginCls = getSautiflowPluginClass(jni.env, appCtx);
+        int result = -1;
+        if (pluginCls)
+        {
+            jmethodID m = jni.env->GetStaticMethodID(pluginCls, "requestUsbAudioPermission", "(Landroid/content/Context;)I");
+            if (m)
+            {
+                result = static_cast<int>(jni.env->CallStaticIntMethod(pluginCls, m, appCtx));
+            }
+            if (jni.env->ExceptionCheck()) jni.env->ExceptionClear();
+            jni.env->DeleteLocalRef(pluginCls);
+        }
+        if (appCtx) jni.env->DeleteLocalRef(appCtx);
+        return result;
+    }
+
+    static int jniOpenUsbAudioDeviceFd(std::vector<uint8_t> &outDescriptors, std::string &outProductName)
+    {
+        outDescriptors.clear();
+        outProductName.clear();
+        AndroidJniAttachGuard jni;
+        if (!jni.env) return -1;
+        jobject appCtx = getAndroidApplicationContext(jni.env);
+        jclass pluginCls = getSautiflowPluginClass(jni.env, appCtx);
+        int fd = -1;
+        if (pluginCls)
+        {
+            jmethodID openMid = jni.env->GetStaticMethodID(pluginCls, "openUsbAudioDeviceFd", "(Landroid/content/Context;)I");
+            if (openMid)
+            {
+                fd = static_cast<int>(jni.env->CallStaticIntMethod(pluginCls, openMid, appCtx));
+            }
+            if (jni.env->ExceptionCheck())
+            {
+                jni.env->ExceptionClear();
+                fd = -1;
+            }
+
+            if (fd >= 0)
+            {
+                jmethodID descMid = jni.env->GetStaticMethodID(pluginCls, "getActiveUsbRawDescriptors", "()[B");
+                if (descMid)
+                {
+                    jbyteArray arr = static_cast<jbyteArray>(jni.env->CallStaticObjectMethod(pluginCls, descMid));
+                    if (jni.env->ExceptionCheck())
+                    {
+                        jni.env->ExceptionClear();
+                        arr = nullptr;
+                    }
+                    if (arr)
+                    {
+                        jsize len = jni.env->GetArrayLength(arr);
+                        if (len > 0)
+                        {
+                            outDescriptors.resize(static_cast<size_t>(len));
+                            jni.env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte *>(outDescriptors.data()));
+                        }
+                        jni.env->DeleteLocalRef(arr);
+                    }
+                }
+
+                jmethodID nameMid = jni.env->GetStaticMethodID(pluginCls, "getActiveUsbProductName", "()Ljava/lang/String;");
+                if (nameMid)
+                {
+                    jstring nameStr = static_cast<jstring>(jni.env->CallStaticObjectMethod(pluginCls, nameMid));
+                    if (jni.env->ExceptionCheck())
+                    {
+                        jni.env->ExceptionClear();
+                        nameStr = nullptr;
+                    }
+                    if (nameStr)
+                    {
+                        const char *utf = jni.env->GetStringUTFChars(nameStr, nullptr);
+                        if (utf)
+                        {
+                            outProductName = utf;
+                            jni.env->ReleaseStringUTFChars(nameStr, utf);
+                        }
+                        jni.env->DeleteLocalRef(nameStr);
+                    }
+                }
+            }
+            jni.env->DeleteLocalRef(pluginCls);
+        }
+        if (appCtx) jni.env->DeleteLocalRef(appCtx);
+        return fd;
+    }
+
+    static void jniCloseUsbAudioDevice()
+    {
+        AndroidJniAttachGuard jni;
+        if (!jni.env) return;
+        jobject appCtx = getAndroidApplicationContext(jni.env);
+        jclass pluginCls = getSautiflowPluginClass(jni.env, appCtx);
+        if (pluginCls)
+        {
+            jmethodID closeMid = jni.env->GetStaticMethodID(pluginCls, "closeUsbAudioDevice", "()V");
+            if (closeMid)
+            {
+                jni.env->CallStaticVoidMethod(pluginCls, closeMid);
+            }
+            if (jni.env->ExceptionCheck()) jni.env->ExceptionClear();
+            jni.env->DeleteLocalRef(pluginCls);
+        }
+        if (appCtx) jni.env->DeleteLocalRef(appCtx);
+    }
+
+    extern "C" JNIEXPORT void JNICALL
+    Java_com_wambugu_sautiflow_SautiflowPlugin_nativeOnUsbEvent(JNIEnv *env, jclass clazz, jint eventType, jint granted)
+    {
+        if (env && clazz)
+        {
+            std::lock_guard<std::mutex> lk(g_sautiflowPluginJniMutex);
+            if (g_sautiflowPluginClass == nullptr)
+            {
+                g_sautiflowPluginClass = static_cast<jclass>(env->NewGlobalRef(clazz));
+            }
+        }
+
+        engine_log("SautiflowPlugin USB event: type=%d granted=%d", static_cast<int>(eventType), static_cast<int>(granted));
+
+        // 1 = USB_EVENT_PERMISSION, 2 = USB_EVENT_ATTACHED, 3 = USB_EVENT_DETACHED
+        if ((eventType == 1 && granted == 1) || (eventType == 2 && granted == 1) || eventType == 3)
+        {
+            std::thread([eventType]() {
+                std::lock_guard<std::mutex> dispLock(g_usbHotplugDispatchMutex);
+                std::vector<AudioEngineHandle *> snapshot;
+                {
+                    std::lock_guard<std::mutex> lk(g_usbEngineRegistryMutex);
+                    snapshot = g_usbEngineRegistry;
+                }
+                for (AudioEngineHandle *eng : snapshot)
+                {
+                    if (!eng) continue;
+                    int cfgBk = eng->configuredBackend.load(std::memory_order_relaxed);
+                    int actBk = eng->activeBackend.load(std::memory_order_relaxed);
+                    if (eventType == 3)
+                    {
+                        if (actBk == AE_BACKEND_USB_DIRECT)
+                        {
+                            restart_and_apply_config(eng);
+                        }
+                    }
+                    else
+                    {
+                        if ((cfgBk == AE_BACKEND_USB_DIRECT || cfgBk == AE_BACKEND_DIRECT_HIRES) &&
+                            actBk != AE_BACKEND_USB_DIRECT)
+                        {
+                            restart_and_apply_config(eng);
+                        }
+                    }
+                }
+            }).detach();
+        }
+    }
+
+    struct AndroidUsbDacSink
+    {
+        static constexpr int kOutTransferCount = 8;
+        static constexpr int kFeedbackTransferCount = 2;
+
+        AudioEngineHandle *engine = nullptr;
+        libusb_context *usbCtx = nullptr;
+        libusb_device_handle *usbHandle = nullptr;
+        bool usingManualFd = false;
+        int usbFd = -1;
+        bool acClaimed = false;
+        bool asClaimed = false;
+
+        sautiflow::usb::UsbAudioDeviceProfile profile{};
+        sautiflow::usb::UsbAudioAltSetting activeAlt{};
+        sautiflow::usb::UsbIsoPacketPlanner planner{};
+        std::string deviceName;
+
+        int sampleRate = 48000;
+        int channels = 2;
+        AEAudioFormat wireFormat = AE_FORMAT_S24;
+        int bitDepth = 24;
+        int bytesPerSample = 3;
+        int bytesPerFrame = 6;
+        uint32_t framesPerBuffer = 256;
+        double nominalLatencyMs = 16.0;
+
+        int packetsPerOutTransfer = 16;
+        std::vector<libusb_transfer *> outTransfers;
+        std::vector<std::vector<uint8_t>> outBuffers;
+        std::vector<bool> outInFlight;
+
+        std::vector<libusb_transfer *> fbTransfers;
+        std::vector<std::vector<uint8_t>> fbBuffers;
+        std::vector<bool> fbInFlight;
+
+        std::atomic<bool> initialized{false};
+        std::atomic<bool> running{false};
+        std::atomic<bool> shuttingDown{false};
+        std::atomic<bool> deviceDisconnected{false};
+        std::thread eventThread;
+
+        static bool hasDeviceAvailable(AudioEngineHandle *e)
+        {
+            if (e)
+            {
+                std::lock_guard<std::mutex> lk(e->manualUsbMutex);
+                if (e->manualUsbFd >= 0) return true;
+            }
+            return jniHasUsbAudioDevice();
+        }
+
+        bool init(AudioEngineHandle *e, int targetSampleRate, int targetChannels)
+        {
+            release();
+            if (!e) return false;
+            engine = e;
+
+            std::vector<uint8_t> rawDescriptors;
+            std::string prodName;
+            int fd = -1;
+            {
+                std::lock_guard<std::mutex> lk(e->manualUsbMutex);
+                if (e->manualUsbFd >= 0)
+                {
+                    fd = e->manualUsbFd;
+                    rawDescriptors = e->manualUsbDescriptors;
+                    prodName = e->manualUsbDeviceName;
+                    usingManualFd = true;
+                }
+            }
+
+            if (fd < 0)
+            {
+                usingManualFd = false;
+                fd = jniOpenUsbAudioDeviceFd(rawDescriptors, prodName);
+            }
+            if (fd < 0)
+            {
+                engine_log("AndroidUsbDacSink: no USB Audio DAC fd available (permission missing or no DAC attached)");
+                return false;
+            }
+            usbFd = fd;
+            deviceName = prodName.empty() ? "USB Audio DAC" : prodName;
+
+            (void)libusb_set_option(nullptr, LIBUSB_OPTION_NO_DEVICE_DISCOVERY);
+            int rc = libusb_init(&usbCtx);
+            if (rc != LIBUSB_SUCCESS || !usbCtx)
+            {
+                engine_log("AndroidUsbDacSink: libusb_init failed (%d)", rc);
+                release();
+                return false;
+            }
+
+            rc = libusb_wrap_sys_device(usbCtx, static_cast<intptr_t>(usbFd), &usbHandle);
+            if (rc != LIBUSB_SUCCESS || !usbHandle)
+            {
+                engine_log("AndroidUsbDacSink: libusb_wrap_sys_device(%d) failed (%d: %s)",
+                           usbFd, rc, libusb_error_name(rc));
+                release();
+                return false;
+            }
+
+            if (!rawDescriptors.empty())
+            {
+                (void)libusb_android_set_raw_descriptors(usbHandle, rawDescriptors.data(), rawDescriptors.size());
+            }
+
+            size_t descLen = 0;
+            const uint8_t *descPtr = libusb_android_get_raw_descriptors(usbHandle, &descLen);
+            if (!descPtr || descLen < 9)
+            {
+                engine_log("AndroidUsbDacSink: missing raw USB descriptors");
+                release();
+                return false;
+            }
+
+            profile = sautiflow::usb::parse_uac_descriptors(descPtr, descLen);
+            if (!profile.valid || profile.altSettings.empty())
+            {
+                engine_log("AndroidUsbDacSink: no valid UAC1/UAC2 playback alt settings found");
+                release();
+                return false;
+            }
+
+            std::vector<int> uac2Rates;
+            const std::vector<int> *pUac2Rates = nullptr;
+            for (const auto &alt : profile.altSettings)
+            {
+                if (alt.uacVersion == 2 && alt.clockSourceId != 0)
+                {
+                    if (sautiflow::usb::query_uac2_clock_rates(usbHandle, profile, alt.clockSourceId, uac2Rates) == LIBUSB_SUCCESS &&
+                        !uac2Rates.empty())
+                    {
+                        pUac2Rates = &uac2Rates;
+                    }
+                    break;
+                }
+            }
+
+            bool explicitFmt = e->userOutputFormatExplicit.load(std::memory_order_relaxed);
+            sautiflow::usb::UsbSelectedConfig selected = sautiflow::usb::select_best_uac_alt_setting(
+                profile,
+                targetSampleRate,
+                targetChannels,
+                e->outputFormat,
+                explicitFmt,
+                pUac2Rates);
+
+            if (!selected.found)
+            {
+                engine_log("AndroidUsbDacSink: select_best_uac_alt_setting returned no candidate");
+                release();
+                return false;
+            }
+
+            rc = sautiflow::usb::configure_uac_hardware(usbHandle, profile, selected.alt, selected.sampleRate);
+            if (rc != LIBUSB_SUCCESS)
+            {
+                engine_log("AndroidUsbDacSink: configure_uac_hardware failed (%d: %s)", rc, libusb_error_name(rc));
+                release();
+                return false;
+            }
+            acClaimed = (profile.acInterfaceNumber >= 0);
+            asClaimed = (selected.alt.interfaceNumber >= 0);
+
+            activeAlt = selected.alt;
+            sampleRate = selected.sampleRate;
+            channels = static_cast<int>(activeAlt.channels);
+            wireFormat = sautiflow::usb::uac_alt_to_ae_format(activeAlt);
+            bytesPerSample = static_cast<int>(activeAlt.subslotSize);
+            bytesPerFrame = std::max(1, channels * bytesPerSample);
+            bitDepth = (activeAlt.bitResolution > 0) ? static_cast<int>(activeAlt.bitResolution) : (bytesPerSample * 8);
+
+            // Configure wire format and DAC valid bit depth directly on the miniaudio device mirror
+            e->device.playback.format = sautiflow::usb::ae_to_ma_format_usb(wireFormat);
+            e->device.playback.channels = static_cast<ma_uint32>(channels);
+            e->device.sampleRate = static_cast<ma_uint32>(sampleRate);
+            e->device.pUserData = e;
+            if (!explicitFmt)
+            {
+                (void)explicitFmt; // Keep e->outputFormat intact for fallback backends; e->device.playback.format carries wireFormat
+            }
+            if (!e->dacValidBitDepthExplicit.load(std::memory_order_relaxed))
+            {
+                e->dacValidBitDepth.store(bitDepth, std::memory_order_release);
+            }
+
+            int devSpeed = libusb_get_device_speed(libusb_get_device(usbHandle));
+            if (devSpeed == LIBUSB_SPEED_UNKNOWN)
+            {
+                devSpeed = (activeAlt.uacVersion == 2) ? LIBUSB_SPEED_HIGH : LIBUSB_SPEED_FULL;
+            }
+
+            planner.configure(
+                sampleRate,
+                channels,
+                bytesPerSample,
+                devSpeed,
+                activeAlt.epOutInterval,
+                activeAlt.epOutMaxPacketSize);
+
+            const uint32_t pps = planner.packetsPerSecond();
+            packetsPerOutTransfer = (pps >= 4000u) ? 16 : 8; // ~2ms per URB at HS (8kHz uframes), ~8ms at FS
+
+            uint32_t nominalAvgFrames = static_cast<uint32_t>(
+                (static_cast<uint64_t>(sampleRate) * static_cast<uint64_t>(packetsPerOutTransfer) + pps / 2) / pps);
+            if (nominalAvgFrames == 0) nominalAvgFrames = 64;
+            framesPerBuffer = nominalAvgFrames;
+            nominalLatencyMs = (static_cast<double>(framesPerBuffer * kOutTransferCount) / static_cast<double>(sampleRate)) * 1000.0;
+
+            uint16_t maxPktBytes = activeAlt.epOutMaxPacketSize;
+            if (maxPktBytes == 0)
+            {
+                uint32_t maxFramesPerPkt = (planner.nominalStepQ16() >> 16) + 4u;
+                maxPktBytes = static_cast<uint16_t>(maxFramesPerPkt * static_cast<uint32_t>(bytesPerFrame));
+            }
+            const size_t urbBufBytes = static_cast<size_t>(packetsPerOutTransfer) * static_cast<size_t>(maxPktBytes);
+
+            outTransfers.resize(kOutTransferCount, nullptr);
+            outBuffers.resize(kOutTransferCount);
+            outInFlight.assign(kOutTransferCount, false);
+            for (int i = 0; i < kOutTransferCount; ++i)
+            {
+                outTransfers[i] = libusb_alloc_transfer(packetsPerOutTransfer);
+                if (!outTransfers[i])
+                {
+                    engine_log("AndroidUsbDacSink: libusb_alloc_transfer(out) failed");
+                    release();
+                    return false;
+                }
+                outBuffers[i].assign(urbBufBytes, (wireFormat == AE_FORMAT_U8) ? 0x80 : 0x00);
+            }
+
+            if (activeAlt.epFeedbackInAddr != 0)
+            {
+                uint16_t fbMaxPkt = (activeAlt.epFeedbackMaxPacketSize >= 3) ? activeAlt.epFeedbackMaxPacketSize : 4;
+                fbTransfers.resize(kFeedbackTransferCount, nullptr);
+                fbBuffers.resize(kFeedbackTransferCount);
+                fbInFlight.assign(kFeedbackTransferCount, false);
+                for (int i = 0; i < kFeedbackTransferCount; ++i)
+                {
+                    fbTransfers[i] = libusb_alloc_transfer(1);
+                    if (fbTransfers[i])
+                    {
+                        fbBuffers[i].assign(fbMaxPkt, 0);
+                    }
+                }
+            }
+
+            initialized.store(true, std::memory_order_release);
+            engine_log("AndroidUsbDacSink initialized: dev='%s' UAC%d rate=%d ch=%d bits=%d/%d epOut=0x%02x epFb=0x%02x pps=%u pkt/urb=%d",
+                       deviceName.c_str(), activeAlt.uacVersion, sampleRate, channels, bitDepth, bytesPerSample * 8,
+                       activeAlt.epOutAddr, activeAlt.epFeedbackInAddr, pps, packetsPerOutTransfer);
+            return true;
+        }
+
+        int findOutTransferIndex(struct libusb_transfer *xfer) const
+        {
+            for (size_t i = 0; i < outTransfers.size(); ++i)
+            {
+                if (outTransfers[i] == xfer) return static_cast<int>(i);
+            }
+            return -1;
+        }
+
+        int findFbTransferIndex(struct libusb_transfer *xfer) const
+        {
+            for (size_t i = 0; i < fbTransfers.size(); ++i)
+            {
+                if (fbTransfers[i] == xfer) return static_cast<int>(i);
+            }
+            return -1;
+        }
+
+        bool fillAndSubmitOutTransfer(int idx, bool fillSilenceOnly)
+        {
+            if (idx < 0 || idx >= static_cast<int>(outTransfers.size())) return false;
+            struct libusb_transfer *xfer = outTransfers[idx];
+            if (!xfer || !usbHandle || !engine) return false;
+
+            const size_t cap = outBuffers[idx].size();
+            uint32_t totalBytes = 0;
+            uint32_t totalFrames = 0;
+            for (int p = 0; p < packetsPerOutTransfer; ++p)
+            {
+                uint32_t pktFrames = planner.nextPacketFrames();
+                uint32_t pktBytes = pktFrames * static_cast<uint32_t>(bytesPerFrame);
+                if (totalBytes + pktBytes > cap)
+                {
+                    pktFrames = static_cast<uint32_t>((cap - totalBytes) / static_cast<size_t>(bytesPerFrame));
+                    pktBytes = pktFrames * static_cast<uint32_t>(bytesPerFrame);
+                }
+                xfer->iso_packet_desc[p].length = pktBytes;
+                xfer->iso_packet_desc[p].actual_length = 0;
+                xfer->iso_packet_desc[p].status = LIBUSB_TRANSFER_COMPLETED;
+                totalBytes += pktBytes;
+                totalFrames += pktFrames;
+            }
+
+            if (fillSilenceOnly || !running.load(std::memory_order_acquire) || totalFrames == 0)
+            {
+                if (totalBytes > 0)
+                {
+                    std::memset(outBuffers[idx].data(), (wireFormat == AE_FORMAT_U8) ? 0x80 : 0x00, totalBytes);
+                }
+            }
+            else
+            {
+                data_callback(&engine->device, outBuffers[idx].data(), nullptr, static_cast<ma_uint32>(totalFrames));
+            }
+
+            libusb_fill_iso_transfer(
+                xfer,
+                usbHandle,
+                activeAlt.epOutAddr,
+                outBuffers[idx].data(),
+                static_cast<int>(totalBytes),
+                packetsPerOutTransfer,
+                &AndroidUsbDacSink::onOutTransferComplete,
+                this,
+                1000);
+
+            int rc = libusb_submit_transfer(xfer);
+            if (rc == LIBUSB_SUCCESS)
+            {
+                outInFlight[idx] = true;
+                return true;
+            }
+            if (rc == LIBUSB_ERROR_NO_DEVICE)
+            {
+                deviceDisconnected.store(true, std::memory_order_release);
+            }
+            outInFlight[idx] = false;
+            return false;
+        }
+
+        bool submitFeedbackTransfer(int idx)
+        {
+            if (idx < 0 || idx >= static_cast<int>(fbTransfers.size())) return false;
+            struct libusb_transfer *xfer = fbTransfers[idx];
+            if (!xfer || !usbHandle || activeAlt.epFeedbackInAddr == 0) return false;
+
+            const int pktLen = static_cast<int>(fbBuffers[idx].size());
+            libusb_fill_iso_transfer(
+                xfer,
+                usbHandle,
+                activeAlt.epFeedbackInAddr,
+                fbBuffers[idx].data(),
+                pktLen,
+                1,
+                &AndroidUsbDacSink::onFeedbackTransferComplete,
+                this,
+                1000);
+            xfer->iso_packet_desc[0].length = static_cast<unsigned int>(pktLen);
+            xfer->iso_packet_desc[0].actual_length = 0;
+            xfer->iso_packet_desc[0].status = LIBUSB_TRANSFER_COMPLETED;
+
+            int rc = libusb_submit_transfer(xfer);
+            if (rc == LIBUSB_SUCCESS)
+            {
+                fbInFlight[idx] = true;
+                return true;
+            }
+            fbInFlight[idx] = false;
+            return false;
+        }
+
+        static void LIBUSB_CALL onOutTransferComplete(struct libusb_transfer *xfer)
+        {
+            auto *self = reinterpret_cast<AndroidUsbDacSink *>(xfer ? xfer->user_data : nullptr);
+            if (!self) return;
+            int idx = self->findOutTransferIndex(xfer);
+            if (idx >= 0)
+            {
+                self->outInFlight[idx] = false;
+            }
+            if (xfer->status == LIBUSB_TRANSFER_NO_DEVICE)
+            {
+                self->deviceDisconnected.store(true, std::memory_order_release);
+                return;
+            }
+            if (self->shuttingDown.load(std::memory_order_acquire) ||
+                self->deviceDisconnected.load(std::memory_order_acquire) ||
+                xfer->status == LIBUSB_TRANSFER_CANCELLED)
+            {
+                return;
+            }
+            if (idx >= 0)
+            {
+                (void)self->fillAndSubmitOutTransfer(idx, false);
+            }
+        }
+
+        static void LIBUSB_CALL onFeedbackTransferComplete(struct libusb_transfer *xfer)
+        {
+            auto *self = reinterpret_cast<AndroidUsbDacSink *>(xfer ? xfer->user_data : nullptr);
+            if (!self) return;
+            int idx = self->findFbTransferIndex(xfer);
+            if (idx >= 0)
+            {
+                self->fbInFlight[idx] = false;
+            }
+            if (xfer->status == LIBUSB_TRANSFER_NO_DEVICE)
+            {
+                self->deviceDisconnected.store(true, std::memory_order_release);
+                return;
+            }
+            if (xfer->status == LIBUSB_TRANSFER_COMPLETED && xfer->num_iso_packets > 0)
+            {
+                const unsigned int actLen = xfer->iso_packet_desc[0].actual_length;
+                if (xfer->iso_packet_desc[0].status == LIBUSB_TRANSFER_COMPLETED && actLen >= 3)
+                {
+                    self->planner.applyFeedbackBytes(xfer->buffer, static_cast<size_t>(actLen));
+                }
+            }
+            if (self->shuttingDown.load(std::memory_order_acquire) ||
+                self->deviceDisconnected.load(std::memory_order_acquire) ||
+                xfer->status == LIBUSB_TRANSFER_CANCELLED)
+            {
+                return;
+            }
+            if (idx >= 0)
+            {
+                (void)self->submitFeedbackTransfer(idx);
+            }
+        }
+
+        bool anyTransferInFlight() const
+        {
+            for (bool v : outInFlight) { if (v) return true; }
+            for (bool v : fbInFlight) { if (v) return true; }
+            return false;
+        }
+
+        void cancelAllInFlightOnEventThread()
+        {
+            for (size_t i = 0; i < outTransfers.size(); ++i)
+            {
+                if (outInFlight[i] && outTransfers[i])
+                {
+                    if (libusb_cancel_transfer(outTransfers[i]) != LIBUSB_SUCCESS)
+                    {
+                        outInFlight[i] = false;
+                    }
+                }
+            }
+            for (size_t i = 0; i < fbTransfers.size(); ++i)
+            {
+                if (fbInFlight[i] && fbTransfers[i])
+                {
+                    if (libusb_cancel_transfer(fbTransfers[i]) != LIBUSB_SUCCESS)
+                    {
+                        fbInFlight[i] = false;
+                    }
+                }
+            }
+        }
+
+        void start()
+        {
+            if (!initialized.load(std::memory_order_acquire) || running.load(std::memory_order_acquire) || !usbCtx || !usbHandle)
+            {
+                return;
+            }
+
+            shuttingDown.store(false, std::memory_order_release);
+            deviceDisconnected.store(false, std::memory_order_release);
+            running.store(true, std::memory_order_release);
+
+            int submitted = 0;
+            for (int i = 0; i < kOutTransferCount; ++i)
+            {
+                if (fillAndSubmitOutTransfer(i, i < 2))
+                {
+                    ++submitted;
+                }
+            }
+            for (size_t i = 0; i < fbTransfers.size(); ++i)
+            {
+                (void)submitFeedbackTransfer(static_cast<int>(i));
+            }
+
+            if (submitted == 0)
+            {
+                running.store(false, std::memory_order_release);
+                engine_log("AndroidUsbDacSink::start failed to submit any isochronous OUT transfer");
+                return;
+            }
+
+            eventThread = std::thread(&AndroidUsbDacSink::eventLoop, this);
+        }
+
+        void stop()
+        {
+            shuttingDown.store(true, std::memory_order_release);
+            running.store(false, std::memory_order_release);
+            if (eventThread.joinable())
+            {
+                eventThread.join();
+            }
+        }
+
+        void eventLoop()
+        {
+            ::setpriority(PRIO_PROCESS, 0, -19);
+
+            while (!shuttingDown.load(std::memory_order_acquire) &&
+                   !deviceDisconnected.load(std::memory_order_acquire) &&
+                   anyTransferInFlight())
+            {
+                struct timeval tv{0, 10000};
+                int completed = 0;
+                int rc = libusb_handle_events_timeout_completed(usbCtx, &tv, &completed);
+                if (rc < 0 && rc != LIBUSB_ERROR_INTERRUPTED && rc != LIBUSB_ERROR_TIMEOUT)
+                {
+                    if (rc == LIBUSB_ERROR_NO_DEVICE)
+                    {
+                        deviceDisconnected.store(true, std::memory_order_release);
+                    }
+                    break;
+                }
+            }
+
+            cancelAllInFlightOnEventThread();
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
+            while (anyTransferInFlight() && std::chrono::steady_clock::now() < deadline)
+            {
+                struct timeval tv{0, 5000};
+                int completed = 0;
+                int rc = libusb_handle_events_timeout_completed(usbCtx, &tv, &completed);
+                if (rc < 0 && rc != LIBUSB_ERROR_INTERRUPTED && rc != LIBUSB_ERROR_TIMEOUT)
+                {
+                    break;
+                }
+            }
+            std::fill(outInFlight.begin(), outInFlight.end(), false);
+            std::fill(fbInFlight.begin(), fbInFlight.end(), false);
+        }
+
+        void release()
+        {
+            stop();
+            initialized.store(false, std::memory_order_release);
+
+            for (libusb_transfer *t : outTransfers)
+            {
+                if (t) libusb_free_transfer(t);
+            }
+            outTransfers.clear();
+            outBuffers.clear();
+            outInFlight.clear();
+
+            for (libusb_transfer *t : fbTransfers)
+            {
+                if (t) libusb_free_transfer(t);
+            }
+            fbTransfers.clear();
+            fbBuffers.clear();
+            fbInFlight.clear();
+
+            if (usbHandle)
+            {
+                if (asClaimed && activeAlt.interfaceNumber >= 0 && !deviceDisconnected.load(std::memory_order_relaxed))
+                {
+                    (void)libusb_set_interface_alt_setting(usbHandle, activeAlt.interfaceNumber, 0);
+                    (void)libusb_release_interface(usbHandle, activeAlt.interfaceNumber);
+                }
+                if (acClaimed && profile.acInterfaceNumber >= 0 &&
+                    profile.acInterfaceNumber != activeAlt.interfaceNumber &&
+                    !deviceDisconnected.load(std::memory_order_relaxed))
+                {
+                    (void)libusb_release_interface(usbHandle, profile.acInterfaceNumber);
+                }
+                libusb_close(usbHandle);
+                usbHandle = nullptr;
+            }
+            acClaimed = false;
+            asClaimed = false;
+
+            if (usbCtx)
+            {
+                libusb_exit(usbCtx);
+                usbCtx = nullptr;
+            }
+
+            if (usbFd >= 0 && !usingManualFd)
+            {
+                jniCloseUsbAudioDevice();
+            }
+            usbFd = -1;
+            usingManualFd = false;
+            deviceName.clear();
+        }
+    };
+
     struct AndroidAudioTrackSink
     {
         AudioEngineHandle* engine = nullptr;
@@ -10151,6 +11088,9 @@ extern "C"
         e->decodeProducerExit.store(false, std::memory_order_release);
         e->decodeProducerThread = std::thread(decode_producer_loop, e);
         e->worker = std::thread(worker_loop, e);
+#if defined(__ANDROID__)
+        registerUsbEngine(e);
+#endif
         return e;
     }
 
@@ -10160,6 +11100,12 @@ extern "C"
             return;
 
         engine_log("destroy_engine begin");
+#if defined(__ANDROID__)
+        {
+            std::lock_guard<std::mutex> usbDispLock(g_usbHotplugDispatchMutex);
+            unregisterUsbEngine(e);
+        }
+#endif
 
         {
             std::lock_guard<std::mutex> lk(e->decodeProducerMutex);
@@ -10256,6 +11202,16 @@ extern "C"
         }
 
         e->garbageQueue.drain();
+#if defined(__ANDROID__)
+        if (e->pUsbDacSink != nullptr)
+        {
+            auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink);
+            usbSink->stop();
+            usbSink->release();
+            delete usbSink;
+            e->pUsbDacSink = nullptr;
+        }
+#endif
         engine_log("destroy_engine end");
         delete e;
     }
@@ -10592,7 +11548,13 @@ extern "C"
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
 #if defined(__ANDROID__)
-            if (e->pAudioTrackSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) >= AE_BACKEND_AUDIOTRACK)
+            if (e->pUsbDacSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_USB_DIRECT)
+            {
+                reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->start();
+            }
+            else if (e->pAudioTrackSink != nullptr &&
+                     (e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_AUDIOTRACK ||
+                      e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_DIRECT_HIRES))
             {
                 reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->start();
             }
@@ -10651,7 +11613,13 @@ extern "C"
         }
         e->tempoProcessor.reset();
 #if defined(__ANDROID__)
-        if (e->pAudioTrackSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) >= AE_BACKEND_AUDIOTRACK)
+        if (e->pUsbDacSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_USB_DIRECT)
+        {
+            reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->stop();
+        }
+        else if (e->pAudioTrackSink != nullptr &&
+                 (e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_AUDIOTRACK ||
+                  e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_DIRECT_HIRES))
         {
             reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->stop();
         }
@@ -11797,6 +12765,54 @@ extern "C"
         e->reverbNode.getDiffusionParams(out_wet, out_dry, out_room_size, out_decay_time_ms, out_diffusion, out_damping, out_width);
     }
 
+    AE_API void ae_set_hadamard_reverb_params(AudioEngineHandle *e, float wet, float dry, float room_size, float damping, float width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.setHadamardParams(wet, dry, room_size, damping, width);
+    }
+
+    AE_API void ae_get_hadamard_reverb_params(AudioEngineHandle *e, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.getHadamardParams(out_wet, out_dry, out_room_size, out_damping, out_width);
+    }
+
+    AE_API void ae_set_barr_reverb_params(AudioEngineHandle *e, float wet, float dry, float room_size, float damping, float width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.setBarrParams(wet, dry, room_size, damping, width);
+    }
+
+    AE_API void ae_get_barr_reverb_params(AudioEngineHandle *e, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.getBarrParams(out_wet, out_dry, out_room_size, out_damping, out_width);
+    }
+
+    AE_API void ae_set_griesinger_reverb_params(AudioEngineHandle *e, float wet, float dry, float room_size, float damping, float width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.setGriesingerParams(wet, dry, room_size, damping, width);
+    }
+
+    AE_API void ae_get_griesinger_reverb_params(AudioEngineHandle *e, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.getGriesingerParams(out_wet, out_dry, out_room_size, out_damping, out_width);
+    }
+
     AE_API void ae_dsp_set_lattice_reverb_enabled(AudioEngineHandle *e, int enabled)
     {
         if (e == nullptr)
@@ -12541,6 +13557,14 @@ extern "C"
             engine_log("DEVICE STOP BEGIN");
             (void)freeze_audible_clock(e);
 #if defined(__ANDROID__)
+            if (e->pUsbDacSink != nullptr)
+            {
+                auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink);
+                usbSink->stop();
+                usbSink->release();
+            }
+#endif
+#if defined(__ANDROID__)
             if (e->pAudioTrackSink != nullptr)
             {
                 auto *sink = reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink);
@@ -12654,7 +13678,31 @@ extern "C"
             int targetBackend = e->configuredBackend.load(std::memory_order_relaxed);
 
 #if defined(__ANDROID__)
-            if (targetBackend == AE_BACKEND_AUDIOTRACK || targetBackend == AE_BACKEND_DIRECT_HIRES)
+            if (targetBackend == AE_BACKEND_USB_DIRECT ||
+                (targetBackend == AE_BACKEND_DIRECT_HIRES && AndroidUsbDacSink::hasDeviceAvailable(e)))
+            {
+                if (e->pUsbDacSink == nullptr)
+                {
+                    e->pUsbDacSink = new AndroidUsbDacSink();
+                }
+                auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink);
+                int usbTargetRate = (e->userOutputSampleRate > 0)
+                                        ? e->userOutputSampleRate
+                                        : ((e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit);
+                if (usbSink->init(e, usbTargetRate, newCh))
+                {
+                    initOk = true;
+                    e->activeBackend.store(AE_BACKEND_USB_DIRECT, std::memory_order_release);
+                    engine_log("USB Direct DAC sink initialized successfully (rate=%d, ch=%d, bits=%d)",
+                               usbSink->sampleRate, usbSink->channels, usbSink->bitDepth);
+                }
+                else
+                {
+                    engine_log("USB Direct DAC sink init failed; falling back...");
+                }
+            }
+
+            if (!initOk && (targetBackend == AE_BACKEND_AUDIOTRACK || targetBackend == AE_BACKEND_DIRECT_HIRES))
             {
                 if (e->pAudioTrackSink == nullptr)
                 {
@@ -12978,7 +14026,13 @@ extern "C"
                 }
                 engine_log("DEVICE START");
 #if defined(__ANDROID__)
-                if (e->pAudioTrackSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) >= AE_BACKEND_AUDIOTRACK)
+                if (e->pUsbDacSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_USB_DIRECT)
+                {
+                    reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->start();
+                }
+                else if (e->pAudioTrackSink != nullptr &&
+                         (e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_AUDIOTRACK ||
+                          e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_DIRECT_HIRES))
                 {
                     reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->start();
                 }
@@ -13179,6 +14233,12 @@ extern "C"
         {
             return 1;
         }
+        if (backend == AE_BACKEND_USB_DIRECT)
+        {
+            std::lock_guard<std::mutex> lk(engine->manualUsbMutex);
+            if (engine->manualUsbFd >= 0) return 1;
+            return (g_androidJavaVM != nullptr) ? 1 : 0;
+        }
         if (backend == AE_BACKEND_AUDIOTRACK)
         {
             return (g_androidJavaVM != nullptr) ? 1 : 0;
@@ -13209,7 +14269,7 @@ extern "C"
     {
         if (!engine)
             return 0;
-        if (backend < 0 || backend > AE_BACKEND_DIRECT_HIRES)
+        if (backend < 0 || backend > AE_BACKEND_USB_DIRECT)
             return 0;
 
         if (!ae_is_backend_supported(engine, backend))
@@ -13227,6 +14287,57 @@ extern "C"
         engine->configuredBackend.store(backend, std::memory_order_relaxed);
         restart_and_apply_config(engine);
         return 1;
+    }
+
+    AE_API int ae_request_usb_dac_permission(AudioEngineHandle *engine)
+    {
+#if defined(__ANDROID__)
+        if (engine)
+        {
+            std::lock_guard<std::mutex> lk(engine->manualUsbMutex);
+            if (engine->manualUsbFd >= 0) return 1;
+        }
+        if (g_androidJavaVM == nullptr) return -1;
+        return jniRequestUsbAudioPermission();
+#else
+        (void)engine;
+        return -1;
+#endif
+    }
+
+    AE_API void ae_set_android_usb_fd(
+        AudioEngineHandle *engine,
+        int fd,
+        const uint8_t *raw_descriptors,
+        int raw_desc_len,
+        const char *device_name)
+    {
+        if (!engine) return;
+        {
+            std::lock_guard<std::mutex> lk(engine->manualUsbMutex);
+            engine->manualUsbFd = fd;
+            if (raw_descriptors != nullptr && raw_desc_len > 0)
+            {
+                engine->manualUsbDescriptors.assign(raw_descriptors, raw_descriptors + raw_desc_len);
+            }
+            else
+            {
+                engine->manualUsbDescriptors.clear();
+            }
+            engine->manualUsbDeviceName = (device_name != nullptr) ? device_name : "";
+        }
+#if defined(__ANDROID__)
+        const int cfgBk = engine->configuredBackend.load(std::memory_order_relaxed);
+        if (cfgBk == AE_BACKEND_USB_DIRECT || cfgBk == AE_BACKEND_DIRECT_HIRES)
+        {
+            restart_and_apply_config(engine);
+        }
+#else
+        (void)fd;
+        (void)raw_descriptors;
+        (void)raw_desc_len;
+        (void)device_name;
+#endif
     }
 
     AE_API int ae_get_output_backend(AudioEngineHandle *engine)
@@ -16267,7 +17378,22 @@ extern "C"
 
 #if defined(__ANDROID__)
             int activeBkForHw = engine->activeBackend.load(std::memory_order_relaxed);
-            if (engine->pAudioTrackSink != nullptr && activeBkForHw >= AE_BACKEND_AUDIOTRACK)
+            if (engine->pUsbDacSink != nullptr && activeBkForHw == AE_BACKEND_USB_DIRECT)
+            {
+                auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(engine->pUsbDacSink);
+                info.sample_rate = usbSink->sampleRate;
+                info.channels = usbSink->channels;
+                info.period_size_frames = usbSink->framesPerBuffer;
+                info.period_count = static_cast<uint32_t>(AndroidUsbDacSink::kOutTransferCount);
+                info.latency_ms = usbSink->nominalLatencyMs;
+                info.is_exclusive_mode = 1;
+                info.is_direct_pcm = 1;
+                info.output_format = usbSink->wireFormat;
+                info.bit_depth = usbSink->bitDepth;
+                info.is_float = (usbSink->wireFormat == AE_FORMAT_F32) ? 1 : 0;
+            }
+            else if (engine->pAudioTrackSink != nullptr &&
+                     (activeBkForHw == AE_BACKEND_AUDIOTRACK || activeBkForHw == AE_BACKEND_DIRECT_HIRES))
             {
                 auto* sink = reinterpret_cast<AndroidAudioTrackSink*>(engine->pAudioTrackSink);
                 info.sample_rate = sink->sampleRate;
@@ -16409,6 +17535,13 @@ extern "C"
             }
 
             int activeBk = engine->activeBackend.load(std::memory_order_relaxed);
+            if (activeBk == AE_BACKEND_USB_DIRECT)
+            {
+                std::strncpy(info.backend_name, "USB Direct", sizeof(info.backend_name) - 1);
+                info.is_direct_pcm = 1;
+                info.is_exclusive_mode = 1;
+            }
+            else
             if (activeBk == AE_BACKEND_DIRECT_HIRES)
             {
                 std::strncpy(info.backend_name, "Direct Hi-Res", sizeof(info.backend_name) - 1);
@@ -16450,6 +17583,26 @@ extern "C"
 #endif
 #else
             query_android_hardware_info(&info);
+            if (activeBk == AE_BACKEND_USB_DIRECT && engine->pUsbDacSink != nullptr)
+            {
+                auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(engine->pUsbDacSink);
+                std::memset(info.backend_name, 0, sizeof(info.backend_name));
+                std::strncpy(info.backend_name, "USB Direct", sizeof(info.backend_name) - 1);
+                if (!usbSink->deviceName.empty())
+                {
+                    std::memset(info.device_name, 0, sizeof(info.device_name));
+                    std::strncpy(info.device_name, usbSink->deviceName.c_str(), sizeof(info.device_name) - 1);
+                }
+                std::memset(info.dsp_hardware, 0, sizeof(info.dsp_hardware));
+                std::strncpy(
+                    info.dsp_hardware,
+                    (usbSink->profile.uacVersion == 2)
+                        ? "UAC 2.0 Bit-Perfect Direct USB Driver"
+                        : "UAC 1.0 Bit-Perfect Direct USB Driver",
+                    sizeof(info.dsp_hardware) - 1);
+                info.is_direct_pcm = 1;
+                info.is_exclusive_mode = 1;
+            }
             if (activeBk == AE_BACKEND_DIRECT_HIRES)
             {
                 info.is_direct_pcm = 1;

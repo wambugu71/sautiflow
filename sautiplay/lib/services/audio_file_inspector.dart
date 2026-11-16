@@ -312,7 +312,7 @@ class AudioFileInspector {
             (bytes[alacPos + 33] << 16) |
             (bytes[alacPos + 34] << 8) |
             bytes[alacPos + 35];
-        if (sr > 0 && sr < 384000) sampleRate = sr;
+        if (sr > 0 && sr <= 768000) sampleRate = sr;
       }
 
       return AudioFileInfo(

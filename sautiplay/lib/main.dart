@@ -755,6 +755,16 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         _player.setOutputSampleRate(activeRate);
       }
     }
+    if (engine.dacValidBitDepth > 0) {
+      _player.setDacValidBitDepth(engine.dacValidBitDepth);
+    }
+    if (Platform.isAndroid && engine.outputBackend > 0) {
+      final savedBackend = AudioOutputBackend.fromInt(engine.outputBackend);
+      if (savedBackend == AudioOutputBackend.usbDirect) {
+        await _player.requestUsbDacPermission();
+      }
+      _player.setOutputBackend(savedBackend);
+    }
     _player.setExclusiveMode(_exclusiveMode);
     _player.setCrossfadeEnabled(_crossfadeEnabled);
     _player.setCrossfadeDurationMs(_crossfadeDurationMs);

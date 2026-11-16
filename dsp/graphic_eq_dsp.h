@@ -311,39 +311,9 @@ private:
         }
     }
 
-    // Exact closed-form dB response of Andy Simper / RBJ Bell filter at test frequency
+    // Exact closed-form dB response matching active CytomicSVF Bell filter (including Nyquist de-cramping)
     static double evaluateSingleFilterDb(double f0, double q, double gain_db, double f_eval, double fs) {
-        if (std::abs(gain_db) < 0.005) return 0.0;
-        if (fs <= 0.0) fs = 48000.0;
-
-        constexpr double kPi = 3.14159265358979323846;
-        const double A = std::pow(10.0, gain_db / 40.0);
-        const double w0 = 2.0 * kPi * f0 / fs;
-        const double alpha = std::sin(w0) / (2.0 * std::max(q, 0.01));
-
-        const double b0 = 1.0 + alpha * A;
-        const double b1 = -2.0 * std::cos(w0);
-        const double b2 = 1.0 - alpha * A;
-        const double a0 = 1.0 + alpha / A;
-        const double a1 = -2.0 * std::cos(w0);
-        const double a2 = 1.0 - alpha / A;
-
-        const double w = 2.0 * kPi * f_eval / fs;
-        const double cos_w = std::cos(w);
-        const double sin_w = std::sin(w);
-        const double cos_2w = 2.0 * cos_w * cos_w - 1.0;
-        const double sin_2w = 2.0 * sin_w * cos_w;
-
-        const double num_re = b0 + b1 * cos_w + b2 * cos_2w;
-        const double num_im = -(b1 * sin_w + b2 * sin_2w);
-        const double den_re = a0 + a1 * cos_w + a2 * cos_2w;
-        const double den_im = -(a1 * sin_w + a2 * sin_2w);
-
-        const double num_sq = num_re * num_re + num_im * num_im;
-        const double den_sq = den_re * den_re + den_im * den_im;
-        if (den_sq <= 1e-15) return gain_db;
-
-        return 10.0 * std::log10(std::max(num_sq / den_sq, 1e-15));
+        return CytomicSVF::evaluateResponseDb(CytomicSVF::FilterType::Bell, fs, f0, gain_db, q, f_eval);
     }
 
     // Unity-peak CytomicSVF BandPass complex transfer function (k * v1 / in) at eval_freq_hz

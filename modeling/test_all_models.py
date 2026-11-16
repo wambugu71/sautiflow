@@ -130,11 +130,22 @@ cf_l, cf_r = cf.process(sig, sig)
 assert len(cf_l) == len(sig), "Crossfeed failed"
 print("[19/25] Crossfeed OK")
 
-# 20. Reverb
+# 20. Reverb (All 6 Topologies)
 rev = dm.DattorroReverb(sample_rate=fs)
 rev_l, rev_r = rev.process(sig[:64], sig[:64])
-assert len(rev_l) == 64, "Dattorro Reverb failed"
-print("[20/25] Dattorro Reverb OK")
+assert len(rev_l) == 64 and np.all(np.isfinite(rev_l)) and np.all(np.isfinite(rev_r)), "Dattorro Reverb failed"
+for name, cls in [
+    ("LatticeReverbDSP", dm.LatticeReverbDSP),
+    ("DiffusionReverbDSP", dm.DiffusionReverbDSP),
+    ("HadamardFdnDSP", dm.HadamardFdnDSP),
+    ("BarrRingReverbDSP", dm.BarrRingReverbDSP),
+    ("GriesingerTankDSP", dm.GriesingerTankDSP),
+]:
+    r = cls(sample_rate=fs)
+    rl, rr = r.process(sig[:64], sig[:64])
+    assert len(rl) == 64 and len(rr) == 64, f"{name} length failed"
+    assert np.all(np.isfinite(rl)) and np.all(np.isfinite(rr)), f"{name} produced NaN/Inf"
+print("[20/25] All 6 Reverb Topologies OK")
 
 # 21. ScaleTempo
 st = dm.ScaleTempoDSP(sample_rate=int(fs), channels=1)

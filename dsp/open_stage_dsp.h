@@ -206,28 +206,29 @@ private:
     // Canonical 2-state storage with optimal numerical stability and low noise
     // -------------------------------------------------------------------------
     struct BiquadCoeffs {
-        float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
-        float a1 = 0.0f, a2 = 0.0f;
+        double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+        double a1 = 0.0, a2 = 0.0;
     };
 
     struct Biquad {
         BiquadCoeffs c;
-        float s1 = 0.0f;
-        float s2 = 0.0f;
+        double s1 = 0.0;
+        double s2 = 0.0;
 
         inline float process(float x) noexcept {
-            const float y = x * c.b0 + s1;
-            s1 = x * c.b1 - y * c.a1 + s2;
-            s2 = x * c.b2 - y * c.a2;
+            const double xd = static_cast<double>(x);
+            const double y = xd * c.b0 + s1;
+            s1 = xd * c.b1 - y * c.a1 + s2;
+            s2 = xd * c.b2 - y * c.a2;
             // Denormal clamping on internal memory
-            if (std::fabs(s1) < 1.0e-25f) s1 = 0.0f;
-            if (std::fabs(s2) < 1.0e-25f) s2 = 0.0f;
-            return y;
+            if (std::fabs(s1) < 1.0e-25) s1 = 0.0;
+            if (std::fabs(s2) < 1.0e-25) s2 = 0.0;
+            return static_cast<float>(y);
         }
 
         void reset() noexcept {
-            s1 = 0.0f;
-            s2 = 0.0f;
+            s1 = 0.0;
+            s2 = 0.0;
         }
     };
 
@@ -236,135 +237,137 @@ private:
     // -------------------------------------------------------------------------
 
     // Computes Interaural Time Difference (seconds) using spherical head geometry
-    static float computeITD(float angleDegrees) noexcept {
-        constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
-        constexpr float kInvC = 1.0f / kSpeedOfSoundMps;
-        constexpr float w = kDefaultHeadWidthMeters;
-        constexpr float d = kDefaultSpeakerDistanceM;
+    static double computeITD(double angleDegrees) noexcept {
+        constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
+        constexpr double kInvC = 1.0 / static_cast<double>(kSpeedOfSoundMps);
+        constexpr double w = static_cast<double>(kDefaultHeadWidthMeters);
+        constexpr double d = static_cast<double>(kDefaultSpeakerDistanceM);
 
-        const float halfTheta = (angleDegrees * 0.5f) * kDegToRad;
-        const float sinHalfTheta = std::sin(halfTheta);
+        const double halfTheta = (angleDegrees * 0.5) * kDegToRad;
+        const double sinHalfTheta = std::sin(halfTheta);
 
         // Law of Cosines distance from virtual speaker to left vs right ear
-        const float dFarSq  = d * d + (w * w * 0.25f) + (w * d * sinHalfTheta);
-        const float dNearSq = d * d + (w * w * 0.25f) - (w * d * sinHalfTheta);
+        const double dFarSq  = d * d + (w * w * 0.25) + (w * d * sinHalfTheta);
+        const double dNearSq = d * d + (w * w * 0.25) - (w * d * sinHalfTheta);
 
-        const float dFar  = std::sqrt(std::max(0.0f, dFarSq));
-        const float dNear = std::sqrt(std::max(0.0f, dNearSq));
+        const double dFar  = std::sqrt(std::max(0.0, dFarSq));
+        const double dNear = std::sqrt(std::max(0.0, dNearSq));
 
         return (dFar - dNear) * kInvC;
     }
 
     // Calculates the low-frequency DC phase/group delay (seconds) of a biquad
-    static float computeBiquadDcPhaseDelay(const BiquadCoeffs& c, float fs) noexcept {
-        const float bSum = c.b0 + c.b1 + c.b2;
-        const float aSum = 1.0f + c.a1 + c.a2;
+    static double computeBiquadDcPhaseDelay(const BiquadCoeffs& c, double fs) noexcept {
+        const double bSum = c.b0 + c.b1 + c.b2;
+        const double aSum = 1.0 + c.a1 + c.a2;
 
-        if (std::abs(bSum) < 1.0e-6f || std::abs(aSum) < 1.0e-6f || fs <= 0.0f) {
-            return 0.0f;
+        if (std::abs(bSum) < 1.0e-9 || std::abs(aSum) < 1.0e-9 || fs <= 0.0) {
+            return 0.0;
         }
 
-        const float numWeighted = c.b1 + 2.0f * c.b2;
-        const float denWeighted = c.a1 + 2.0f * c.a2;
+        const double numWeighted = c.b1 + 2.0 * c.b2;
+        const double denWeighted = c.a1 + 2.0 * c.a2;
         return ((numWeighted / bSum) - (denWeighted / aSum)) / fs;
     }
 
     // Normalizes b0, b1, b2, a1, a2 by dividing through by a0
-    static BiquadCoeffs normalizeCoeffs(float b0, float b1, float b2,
-                                        float a0, float a1, float a2) noexcept {
-        const float invA0 = (std::abs(a0) > 1.0e-12f) ? (1.0f / a0) : 1.0f;
+    static BiquadCoeffs normalizeCoeffs(double b0, double b1, double b2,
+                                        double a0, double a1, double a2) noexcept {
+        const double invA0 = (std::abs(a0) > 1.0e-18) ? (1.0 / a0) : 1.0;
         return { b0 * invA0, b1 * invA0, b2 * invA0, a1 * invA0, a2 * invA0 };
     }
 
-    // RBJ Low Shelf Biquad Filter with post-gain scaling
-    static BiquadCoeffs makeLowShelf(float fs, float fc, float shelfGainDb,
-                                     float slope, float postGainDb) noexcept {
-        constexpr float kTwoPi = 6.28318530717958647692f;
-        const float A = std::pow(10.0f, shelfGainDb / 40.0f);
-        const float omega = std::clamp(kTwoPi * fc / fs, 0.0001f, 3.14159f * 0.95f);
-        const float cosW = std::cos(omega);
-        const float sinW = std::sin(omega);
+    // RBJ Low Shelf Biquad Filter with post-gain scaling (64-bit internal precision)
+    static BiquadCoeffs makeLowShelf(double fs, double fc, double shelfGainDb,
+                                     double slope, double postGainDb) noexcept {
+        constexpr double kTwoPi = 6.28318530717958647692;
+        constexpr double kPi = 3.14159265358979323846;
+        const double A = std::pow(10.0, shelfGainDb / 40.0);
+        const double omega = std::clamp(kTwoPi * fc / fs, 0.0001, kPi * 0.95);
+        const double cosW = std::cos(omega);
+        const double sinW = std::sin(omega);
 
         // RBJ slope parameterization: 1/Q = sqrt((A + 1/A)*(1/S - 1) + 2)
-        const float invQ = std::sqrt(std::max(0.0f, (A + 1.0f / A) * (1.0f / slope - 1.0f) + 2.0f));
-        const float alpha = sinW * 0.5f * invQ;
-        const float twoSqrtAAlpha = 2.0f * std::sqrt(A) * alpha;
+        const double invQ = std::sqrt(std::max(0.0, (A + 1.0 / A) * (1.0 / slope - 1.0) + 2.0));
+        const double alpha = sinW * 0.5 * invQ;
+        const double twoSqrtAAlpha = 2.0 * std::sqrt(A) * alpha;
 
-        const float postGainLinear = std::pow(10.0f, postGainDb / 20.0f);
-        const float plus  = A + 1.0f;
-        const float minus = A - 1.0f;
-        const float plusCos  = plus * cosW;
-        const float minusCos = minus * cosW;
+        const double postGainLinear = std::pow(10.0, postGainDb / 20.0);
+        const double plus  = A + 1.0;
+        const double minus = A - 1.0;
+        const double plusCos  = plus * cosW;
+        const double minusCos = minus * cosW;
 
-        const float b0 = A * (plus - minusCos + twoSqrtAAlpha) * postGainLinear;
-        const float b1 = 2.0f * A * (minus - plusCos) * postGainLinear;
-        const float b2 = A * (plus - minusCos - twoSqrtAAlpha) * postGainLinear;
+        const double b0 = A * (plus - minusCos + twoSqrtAAlpha) * postGainLinear;
+        const double b1 = 2.0 * A * (minus - plusCos) * postGainLinear;
+        const double b2 = A * (plus - minusCos - twoSqrtAAlpha) * postGainLinear;
 
-        const float a0 = plus + minusCos + twoSqrtAAlpha;
-        const float a1 = -2.0f * (minus + plusCos);
-        const float a2 = plus + minusCos - twoSqrtAAlpha;
-
-        return normalizeCoeffs(b0, b1, b2, a0, a1, a2);
-    }
-
-    // RBJ High Shelf Biquad Filter with post-gain scaling
-    static BiquadCoeffs makeHighShelf(float fs, float fc, float shelfGainDb,
-                                      float slope, float postGainDb) noexcept {
-        constexpr float kTwoPi = 6.28318530717958647692f;
-        const float A = std::pow(10.0f, shelfGainDb / 40.0f);
-        const float omega = std::clamp(kTwoPi * fc / fs, 0.0001f, 3.14159f * 0.95f);
-        const float cosW = std::cos(omega);
-        const float sinW = std::sin(omega);
-
-        const float invQ = std::sqrt(std::max(0.0f, (A + 1.0f / A) * (1.0f / slope - 1.0f) + 2.0f));
-        const float alpha = sinW * 0.5f * invQ;
-        const float twoSqrtAAlpha = 2.0f * std::sqrt(A) * alpha;
-
-        const float postGainLinear = std::pow(10.0f, postGainDb / 20.0f);
-        const float plus  = A + 1.0f;
-        const float minus = A - 1.0f;
-        const float plusCos  = plus * cosW;
-        const float minusCos = minus * cosW;
-
-        const float b0 = A * (plus + minusCos + twoSqrtAAlpha) * postGainLinear;
-        const float b1 = -2.0f * A * (minus + plusCos) * postGainLinear;
-        const float b2 = A * (plus + minusCos - twoSqrtAAlpha) * postGainLinear;
-
-        const float a0 = plus - minusCos + twoSqrtAAlpha;
-        const float a1 = 2.0f * (minus - plusCos);
-        const float a2 = plus - minusCos - twoSqrtAAlpha;
+        const double a0 = plus + minusCos + twoSqrtAAlpha;
+        const double a1 = -2.0 * (minus + plusCos);
+        const double a2 = plus + minusCos - twoSqrtAAlpha;
 
         return normalizeCoeffs(b0, b1, b2, a0, a1, a2);
     }
 
-    // 2nd-Order Bilinear All-Pass Filter for phase delay
+    // RBJ High Shelf Biquad Filter with post-gain scaling (64-bit internal precision)
+    static BiquadCoeffs makeHighShelf(double fs, double fc, double shelfGainDb,
+                                      double slope, double postGainDb) noexcept {
+        constexpr double kTwoPi = 6.28318530717958647692;
+        constexpr double kPi = 3.14159265358979323846;
+        const double A = std::pow(10.0, shelfGainDb / 40.0);
+        const double omega = std::clamp(kTwoPi * fc / fs, 0.0001, kPi * 0.95);
+        const double cosW = std::cos(omega);
+        const double sinW = std::sin(omega);
+
+        const double invQ = std::sqrt(std::max(0.0, (A + 1.0 / A) * (1.0 / slope - 1.0) + 2.0));
+        const double alpha = sinW * 0.5 * invQ;
+        const double twoSqrtAAlpha = 2.0 * std::sqrt(A) * alpha;
+
+        const double postGainLinear = std::pow(10.0, postGainDb / 20.0);
+        const double plus  = A + 1.0;
+        const double minus = A - 1.0;
+        const double plusCos  = plus * cosW;
+        const double minusCos = minus * cosW;
+
+        const double b0 = A * (plus + minusCos + twoSqrtAAlpha) * postGainLinear;
+        const double b1 = -2.0 * A * (minus + plusCos) * postGainLinear;
+        const double b2 = A * (plus + minusCos - twoSqrtAAlpha) * postGainLinear;
+
+        const double a0 = plus - minusCos + twoSqrtAAlpha;
+        const double a1 = 2.0 * (minus - plusCos);
+        const double a2 = plus - minusCos - twoSqrtAAlpha;
+
+        return normalizeCoeffs(b0, b1, b2, a0, a1, a2);
+    }
+
+    // 2nd-Order Bilinear All-Pass Filter for phase delay (64-bit internal precision)
     // Cascades two identical 1st-order bilinear allpass sections, total delay = delaySeconds
-    static BiquadCoeffs makeAllPass(float fs, float delaySeconds) noexcept {
-        if (delaySeconds <= 0.0f || fs <= 0.0f) {
-            return { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    static BiquadCoeffs makeAllPass(double fs, double delaySeconds) noexcept {
+        if (delaySeconds <= 0.0 || fs <= 0.0) {
+            return { 1.0, 0.0, 0.0, 0.0, 0.0 };
         }
 
-        const float k = delaySeconds * 0.5f * fs;
-        const float v = (1.0f - k) / (1.0f + k);
+        const double k = delaySeconds * 0.5 * fs;
+        const double v = (1.0 - k) / (1.0 + k);
 
         // H_ap(z) = ((v + z^-1)/(1 + v*z^-1))^2 = (v^2 + 2v*z^-1 + z^-2) / (1 + 2v*z^-1 + v^2*z^-2)
-        return normalizeCoeffs(v * v, 2.0f * v, 1.0f, 1.0f, 2.0f * v, v * v);
+        return normalizeCoeffs(v * v, 2.0 * v, 1.0, 1.0, 2.0 * v, v * v);
     }
 
     // Recalculates all filter coefficients based on current sample rate and speaker angle
     void updateFilters(float angleDegrees) noexcept {
         if (sampleRate_ <= 0.0) return;
 
-        const float fs = static_cast<float>(sampleRate_);
-        const float itd = computeITD(angleDegrees);
+        const double fs = sampleRate_;
+        const double itd = computeITD(static_cast<double>(angleDegrees));
 
         // Head shadow acoustic cutoff frequencies
-        constexpr float kShelfSlope = 0.4f;
-        constexpr float kLowGainDb  = 9.0f;
-        constexpr float kHighGainDb = 3.0f;
+        constexpr double kShelfSlope = 0.4;
+        constexpr double kLowGainDb  = 9.0;
+        constexpr double kHighGainDb = 3.0;
 
-        const float lowCutoff = std::min(0.5f / std::max(itd, 1.0e-5f), 2000.0f);
-        const float highCutoff = lowCutoff / 3.0f;
+        const double lowCutoff = std::min(0.5 / std::max(itd, 1.0e-5), 2000.0);
+        const double highCutoff = lowCutoff / 3.0;
 
         // Ipsilateral direct treble enhancement
         const BiquadCoeffs hsCoeffs = makeHighShelf(fs, highCutoff, kHighGainDb, kShelfSlope, -kHighGainDb);
@@ -373,8 +376,8 @@ private:
         const BiquadCoeffs lsCoeffs = makeLowShelf(fs, lowCutoff, kLowGainDb, kShelfSlope, -(kHighGainDb + kLowGainDb));
 
         // Group delay compensation through 2nd-order allpass
-        const float shelfDelay = computeBiquadDcPhaseDelay(lsCoeffs, fs);
-        const float residualDelay = std::max(0.0f, itd - shelfDelay);
+        const double shelfDelay = computeBiquadDcPhaseDelay(lsCoeffs, fs);
+        const double residualDelay = std::max(0.0, itd - shelfDelay);
         const BiquadCoeffs apCoeffs = makeAllPass(fs, residualDelay);
 
         for (int ch = 0; ch < 2; ++ch) {

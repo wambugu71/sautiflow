@@ -1208,6 +1208,8 @@ class AppStateService {
   static const _kAnalyzerShowGrids = 'sp_analyzer_show_grids';
   static const _kAnalyzerLogScale = 'sp_analyzer_log_scale';
   static const _kSpectrumStyle = 'sp_spectrum_style';
+  static const _kOutputBackend = 'sp_output_backend';
+  static const _kDacValidBitDepth = 'sp_dac_valid_bit_depth';
 
   Future<void> saveEngineSettings({
     required int outputFormatIndex,
@@ -1226,6 +1228,8 @@ class AppStateService {
     required bool analyzerShowGrids,
     required bool analyzerLogScale,
     required String spectrumStyle,
+    int? outputBackend,
+    int? dacValidBitDepth,
   }) async {
     final prefs = PreferencesStore.instance;
     await prefs.setInt(_kOutputFormat, outputFormatIndex);
@@ -1244,6 +1248,28 @@ class AppStateService {
     await prefs.setBool(_kAnalyzerShowGrids, analyzerShowGrids);
     await prefs.setBool(_kAnalyzerLogScale, analyzerLogScale);
     await prefs.setString(_kSpectrumStyle, spectrumStyle);
+    if (outputBackend != null) {
+      await prefs.setInt(_kOutputBackend, outputBackend.clamp(0, 5));
+    }
+    if (dacValidBitDepth != null) {
+      await prefs.setInt(_kDacValidBitDepth, dacValidBitDepth);
+    }
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  /// Saves the selected Android audio output backend (e.g. USB Direct vs AAudio)
+  /// without disturbing unrelated engine settings.
+  Future<void> saveOutputBackend(int backendValue) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setInt(_kOutputBackend, backendValue.clamp(0, 5));
+    audioProcessingSettingsChanged.add(null);
+  }
+
+  /// Saves the configured DAC valid bit depth (`0` = Auto, `16`, `24`, or `32`).
+  Future<void> saveDacValidBitDepth(int bits) async {
+    final prefs = PreferencesStore.instance;
+    const allowed = {0, 16, 24, 32};
+    await prefs.setInt(_kDacValidBitDepth, allowed.contains(bits) ? bits : 0);
     audioProcessingSettingsChanged.add(null);
   }
 
@@ -1272,12 +1298,19 @@ class AppStateService {
         bool analyzerAutoFit,
         bool analyzerShowGrids,
         bool analyzerLogScale,
-        String spectrumStyle
+        String spectrumStyle,
+        int outputBackend,
+        int dacValidBitDepth,
       })> loadEngineSettings() async {
     final prefs = PreferencesStore.instance;
+    final rawRate = prefs.getInt(_kSampleRate) ?? 0;
+    final safeRate = (rawRate >= 0 && rawRate <= 768000) ? rawRate : 0;
+    final rawBackend = prefs.getInt(_kOutputBackend) ?? 0;
+    final rawDacBits = prefs.getInt(_kDacValidBitDepth) ?? 0;
+    const allowedDacBits = {0, 16, 24, 32};
     return (
       outputFormatIndex: prefs.getInt(_kOutputFormat) ?? 0, // 0 = f32
-      sampleRate: prefs.getInt(_kSampleRate) ?? 0,
+      sampleRate: safeRate,
       channels: prefs.getInt(_kChannels) ?? 2,
       crossfadeEnabled: prefs.getBool(_kCrossfadeEnabled) ?? false,
       crossfadeMs: prefs.getInt(_kCrossfadeMs) ?? 250,
@@ -1292,6 +1325,8 @@ class AppStateService {
       analyzerShowGrids: prefs.getBool(_kAnalyzerShowGrids) ?? true,
       analyzerLogScale: prefs.getBool(_kAnalyzerLogScale) ?? true,
       spectrumStyle: prefs.getString(_kSpectrumStyle) ?? 'minimal',
+      outputBackend: rawBackend.clamp(0, 5),
+      dacValidBitDepth: allowedDacBits.contains(rawDacBits) ? rawDacBits : 0,
     );
   }
 

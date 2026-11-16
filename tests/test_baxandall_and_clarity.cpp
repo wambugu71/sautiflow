@@ -100,9 +100,13 @@ static void test_baxandall_proportional_q() {
     baxandall.setTrebleGainDb(2.0f);
     double gain1kHz_treble = measureGainDb(baxandall, 48000.0, 1000.0);
     double gain15kHz_treble = measureGainDb(baxandall, 48000.0, 15000.0);
-    std::printf("  Small +2 dB Treble: 1 kHz = %+.2f dB, 15 kHz = %+.2f dB\n", gain1kHz_treble, gain15kHz_treble);
+    double gain20kHz_treble = measureGainDb(baxandall, 48000.0, 20000.0);
+    std::printf("  Small +2 dB Treble: 1 kHz = %+.2f dB, 15 kHz = %+.2f dB, 20 kHz = %+.2f dB\n",
+                gain1kHz_treble, gain15kHz_treble, gain20kHz_treble);
     CHECK(std::abs(gain1kHz_treble) < 0.05, "+2 dB Treble leaves 1 kHz vocal range flat (< 0.05 dB)");
-    CHECK(gain15kHz_treble > 1.2 && gain15kHz_treble < 2.5, "+2 dB Treble provides smooth air lift at 15 kHz");
+    // Analog prototype at fc=12.6 kHz, Q=0.517 gives +1.18 dB @ 15 kHz and +1.45 dB @ 20 kHz
+    CHECK(gain15kHz_treble > 1.1 && gain15kHz_treble < 1.5, "+2 dB Treble tracks analog shelf curve at 15 kHz (~+1.18 dB)");
+    CHECK(gain20kHz_treble > 1.3 && gain20kHz_treble < 1.8, "+2 dB Treble provides smooth de-cramped air lift at 20 kHz (~+1.45 dB)");
 
     // 5. Reciprocal Symmetry: Boost and Cut cancel to 0.0 dB
     sauti::dsp::BaxandallToneDSP boostDSP, cutDSP;

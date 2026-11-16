@@ -407,6 +407,78 @@ class DiffusionReverbParams {
       'diffusion: $diffusion, damping: $damping, width: $width)';
 }
 
+/// Parameters for the 8-Channel Orthonormal Hadamard FDN Reverb.
+class HadamardReverbParams {
+  const HadamardReverbParams({
+    this.enabled = false,
+    this.wet = 0.35,
+    this.dry = 1.0,
+    this.roomSize = 0.70,
+    this.damping = 0.30,
+    this.width = 1.0,
+  });
+
+  final bool enabled;
+  final double wet;
+  final double dry;
+  final double roomSize;
+  final double damping;
+  final double width;
+
+  @override
+  String toString() =>
+      'HadamardReverbParams(enabled: $enabled, wet: $wet, dry: $dry, '
+      'roomSize: $roomSize, damping: $damping, width: $width)';
+}
+
+/// Parameters for the Keith Barr All-Pass Ring Reverb.
+class BarrReverbParams {
+  const BarrReverbParams({
+    this.enabled = false,
+    this.wet = 0.35,
+    this.dry = 1.0,
+    this.roomSize = 0.70,
+    this.damping = 0.30,
+    this.width = 1.0,
+  });
+
+  final bool enabled;
+  final double wet;
+  final double dry;
+  final double roomSize;
+  final double damping;
+  final double width;
+
+  @override
+  String toString() =>
+      'BarrReverbParams(enabled: $enabled, wet: $wet, dry: $dry, '
+      'roomSize: $roomSize, damping: $damping, width: $width)';
+}
+
+/// Parameters for the David Griesinger "Spin & Wander" Tank Reverb.
+class GriesingerReverbParams {
+  const GriesingerReverbParams({
+    this.enabled = false,
+    this.wet = 0.35,
+    this.dry = 1.0,
+    this.roomSize = 0.70,
+    this.damping = 0.30,
+    this.width = 1.0,
+  });
+
+  final bool enabled;
+  final double wet;
+  final double dry;
+  final double roomSize;
+  final double damping;
+  final double width;
+
+  @override
+  String toString() =>
+      'GriesingerReverbParams(enabled: $enabled, wet: $wet, dry: $dry, '
+      'roomSize: $roomSize, damping: $damping, width: $width)';
+}
+
 class ToneCrossoverParams {
   const ToneCrossoverParams({
     this.enabled = false,
@@ -1099,7 +1171,8 @@ enum AudioOutputBackend {
   aaudio(1, 'AAudio (Android Low-Latency)'),
   openSl(2, 'OpenSL ES (Android Legacy Fallback)'),
   audioTrack(3, 'AudioTrack (Java Audio Subsystem)'),
-  directHiRes(4, 'Direct Hi-Res (Bit-Perfect Direct HAL / DAC)');
+  directHiRes(4, 'Direct Hi-Res (Bit-Perfect Direct HAL / DAC)'),
+  usbDirect(5, 'USB Direct (libusb Bit-Perfect DAC Bypass)');
 
   final int value;
   final String displayName;
@@ -2018,6 +2091,25 @@ typedef _IsBackendSupportedNative = ffi.Int32 Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _IsBackendSupportedDart = int Function(ffi.Pointer<ffi.Void>, int);
 
+typedef _RequestUsbDacPermissionNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>);
+typedef _RequestUsbDacPermissionDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _SetAndroidUsbFdNative = ffi.Void Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Int32,
+  ffi.Pointer<ffi.Uint8>,
+  ffi.Int32,
+  ffi.Pointer<Utf8>,
+);
+typedef _SetAndroidUsbFdDart = void Function(
+  ffi.Pointer<ffi.Void>,
+  int,
+  ffi.Pointer<ffi.Uint8>,
+  int,
+  ffi.Pointer<Utf8>,
+);
+
 
 typedef _SetOutputFormatNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -2915,6 +3007,45 @@ class AudioEngineFFI {
         _lib.lookupFunction<_GetDiffusionReverbParamsNative, _GetDiffusionReverbParamsDart>(
       'ae_get_diffusion_reverb_params',
     );
+    try {
+      _setHadamardReverbParams =
+          _lib.lookupFunction<_SetLatticeReverbParamsNative, _SetLatticeReverbParamsDart>(
+        'ae_set_hadamard_reverb_params',
+      );
+      _getHadamardReverbParams =
+          _lib.lookupFunction<_GetLatticeReverbParamsNative, _GetLatticeReverbParamsDart>(
+        'ae_get_hadamard_reverb_params',
+      );
+    } catch (_) {
+      _setHadamardReverbParams = null;
+      _getHadamardReverbParams = null;
+    }
+    try {
+      _setBarrReverbParams =
+          _lib.lookupFunction<_SetLatticeReverbParamsNative, _SetLatticeReverbParamsDart>(
+        'ae_set_barr_reverb_params',
+      );
+      _getBarrReverbParams =
+          _lib.lookupFunction<_GetLatticeReverbParamsNative, _GetLatticeReverbParamsDart>(
+        'ae_get_barr_reverb_params',
+      );
+    } catch (_) {
+      _setBarrReverbParams = null;
+      _getBarrReverbParams = null;
+    }
+    try {
+      _setGriesingerReverbParams =
+          _lib.lookupFunction<_SetLatticeReverbParamsNative, _SetLatticeReverbParamsDart>(
+        'ae_set_griesinger_reverb_params',
+      );
+      _getGriesingerReverbParams =
+          _lib.lookupFunction<_GetLatticeReverbParamsNative, _GetLatticeReverbParamsDart>(
+        'ae_get_griesinger_reverb_params',
+      );
+    } catch (_) {
+      _setGriesingerReverbParams = null;
+      _getGriesingerReverbParams = null;
+    }
       _setToneCrossoverEnabled =
           _lib.lookupFunction<_SetToneCrossoverEnabledNative, _SetToneCrossoverEnabledDart>(
         'ae_set_tone_crossover_enabled',
@@ -3674,6 +3805,24 @@ class AudioEngineFFI {
     } catch (_) {
       _registerAndroidJvm = null;
     }
+
+    try {
+      _requestUsbDacPermission = _lib.lookupFunction<
+          _RequestUsbDacPermissionNative, _RequestUsbDacPermissionDart>(
+        'ae_request_usb_dac_permission',
+      );
+    } catch (_) {
+      _requestUsbDacPermission = null;
+    }
+
+    try {
+      _setAndroidUsbFd =
+          _lib.lookupFunction<_SetAndroidUsbFdNative, _SetAndroidUsbFdDart>(
+        'ae_set_android_usb_fd',
+      );
+    } catch (_) {
+      _setAndroidUsbFd = null;
+    }
   }
 
   final ffi.DynamicLibrary _lib;
@@ -3739,6 +3888,12 @@ class AudioEngineFFI {
   late final _GetLatticeReverbParamsDart _getLatticeReverbParams;
   late final _SetDiffusionReverbParamsDart _setDiffusionReverbParams;
   late final _GetDiffusionReverbParamsDart _getDiffusionReverbParams;
+  _SetLatticeReverbParamsDart? _setHadamardReverbParams;
+  _GetLatticeReverbParamsDart? _getHadamardReverbParams;
+  _SetLatticeReverbParamsDart? _setBarrReverbParams;
+  _GetLatticeReverbParamsDart? _getBarrReverbParams;
+  _SetLatticeReverbParamsDart? _setGriesingerReverbParams;
+  _GetLatticeReverbParamsDart? _getGriesingerReverbParams;
   late final _SetToneCrossoverEnabledDart _setToneCrossoverEnabled;
   late final _GetToneCrossoverEnabledDart _getToneCrossoverEnabled;
   late final _SetToneCrossoverGainsDart _setToneCrossoverGains;
@@ -3934,6 +4089,8 @@ class AudioEngineFFI {
   _InspectFileDart? _inspectFile;
   _GetHardwareInfoDart? _getHardwareInfo;
   _RegisterAndroidJvmDart? _registerAndroidJvm;
+  _RequestUsbDacPermissionDart? _requestUsbDacPermission;
+  _SetAndroidUsbFdDart? _setAndroidUsbFd;
 
   // Release 1 Quality Foundation Lookups
   _GetLoudnessMetricsDart? _getLoudnessMetrics;
@@ -4729,7 +4886,7 @@ class AudioEngineFFI {
     }
   }
 
-  /// Sets the active reverberation algorithm engine (Dattorro, Lattice, or Diffusion).
+  /// Sets the active reverberation algorithm engine.
   void setReverbEngine(ReverbEngine engine) {
     if (_engine == ffi.nullptr) return;
     _setReverbEngine(_engine, engine.value);
@@ -4822,6 +4979,180 @@ class AudioEngineFFI {
         ..free(roomPtr)
         ..free(decayPtr)
         ..free(diffPtr)
+        ..free(dampPtr)
+        ..free(widthPtr);
+    }
+  }
+
+  /// Updates parameters for the 8-Channel Orthonormal Hadamard FDN Reverb algorithm.
+  void setHadamardReverbParams({
+    double wet = 0.35,
+    double dry = 1.0,
+    double roomSize = 0.70,
+    double damping = 0.30,
+    double width = 1.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    final fn = _setHadamardReverbParams;
+    if (fn != null) {
+      fn(_engine, wet, dry, roomSize, damping, width);
+    } else {
+      _setReverbParamsEx(_engine, wet, roomSize, damping, 0.0, width);
+      _setReverbGains(_engine, wet, dry);
+    }
+  }
+
+  /// Retrieves current Hadamard FDN Reverb parameters from the native audio engine.
+  HadamardReverbParams getHadamardReverbParams() {
+    if (_engine == ffi.nullptr) return const HadamardReverbParams();
+    final fn = _getHadamardReverbParams;
+    if (fn == null) {
+      final ex = getReverbParamsEx();
+      final gains = getReverbGains();
+      return HadamardReverbParams(
+        enabled: ex.enabled,
+        wet: gains.wet,
+        dry: gains.dry,
+        roomSize: ex.roomSize,
+        damping: ex.damping,
+        width: ex.width,
+      );
+    }
+    final wetPtr = calloc<ffi.Float>();
+    final dryPtr = calloc<ffi.Float>();
+    final roomPtr = calloc<ffi.Float>();
+    final dampPtr = calloc<ffi.Float>();
+    final widthPtr = calloc<ffi.Float>();
+    try {
+      fn(_engine, wetPtr, dryPtr, roomPtr, dampPtr, widthPtr);
+      return HadamardReverbParams(
+        wet: wetPtr.value,
+        dry: dryPtr.value,
+        roomSize: roomPtr.value,
+        damping: dampPtr.value,
+        width: widthPtr.value,
+      );
+    } finally {
+      calloc
+        ..free(wetPtr)
+        ..free(dryPtr)
+        ..free(roomPtr)
+        ..free(dampPtr)
+        ..free(widthPtr);
+    }
+  }
+
+  /// Updates parameters for the Keith Barr All-Pass Ring Reverb algorithm.
+  void setBarrReverbParams({
+    double wet = 0.35,
+    double dry = 1.0,
+    double roomSize = 0.70,
+    double damping = 0.30,
+    double width = 1.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    final fn = _setBarrReverbParams;
+    if (fn != null) {
+      fn(_engine, wet, dry, roomSize, damping, width);
+    } else {
+      _setReverbParamsEx(_engine, wet, roomSize, damping, 0.0, width);
+      _setReverbGains(_engine, wet, dry);
+    }
+  }
+
+  /// Retrieves current Keith Barr Ring Reverb parameters from the native audio engine.
+  BarrReverbParams getBarrReverbParams() {
+    if (_engine == ffi.nullptr) return const BarrReverbParams();
+    final fn = _getBarrReverbParams;
+    if (fn == null) {
+      final ex = getReverbParamsEx();
+      final gains = getReverbGains();
+      return BarrReverbParams(
+        enabled: ex.enabled,
+        wet: gains.wet,
+        dry: gains.dry,
+        roomSize: ex.roomSize,
+        damping: ex.damping,
+        width: ex.width,
+      );
+    }
+    final wetPtr = calloc<ffi.Float>();
+    final dryPtr = calloc<ffi.Float>();
+    final roomPtr = calloc<ffi.Float>();
+    final dampPtr = calloc<ffi.Float>();
+    final widthPtr = calloc<ffi.Float>();
+    try {
+      fn(_engine, wetPtr, dryPtr, roomPtr, dampPtr, widthPtr);
+      return BarrReverbParams(
+        wet: wetPtr.value,
+        dry: dryPtr.value,
+        roomSize: roomPtr.value,
+        damping: dampPtr.value,
+        width: widthPtr.value,
+      );
+    } finally {
+      calloc
+        ..free(wetPtr)
+        ..free(dryPtr)
+        ..free(roomPtr)
+        ..free(dampPtr)
+        ..free(widthPtr);
+    }
+  }
+
+  /// Updates parameters for the David Griesinger Spin & Wander Reverb algorithm.
+  void setGriesingerReverbParams({
+    double wet = 0.35,
+    double dry = 1.0,
+    double roomSize = 0.70,
+    double damping = 0.30,
+    double width = 1.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    final fn = _setGriesingerReverbParams;
+    if (fn != null) {
+      fn(_engine, wet, dry, roomSize, damping, width);
+    } else {
+      _setReverbParamsEx(_engine, wet, roomSize, damping, 0.0, width);
+      _setReverbGains(_engine, wet, dry);
+    }
+  }
+
+  /// Retrieves current Griesinger Spin & Wander Reverb parameters from the native audio engine.
+  GriesingerReverbParams getGriesingerReverbParams() {
+    if (_engine == ffi.nullptr) return const GriesingerReverbParams();
+    final fn = _getGriesingerReverbParams;
+    if (fn == null) {
+      final ex = getReverbParamsEx();
+      final gains = getReverbGains();
+      return GriesingerReverbParams(
+        enabled: ex.enabled,
+        wet: gains.wet,
+        dry: gains.dry,
+        roomSize: ex.roomSize,
+        damping: ex.damping,
+        width: ex.width,
+      );
+    }
+    final wetPtr = calloc<ffi.Float>();
+    final dryPtr = calloc<ffi.Float>();
+    final roomPtr = calloc<ffi.Float>();
+    final dampPtr = calloc<ffi.Float>();
+    final widthPtr = calloc<ffi.Float>();
+    try {
+      fn(_engine, wetPtr, dryPtr, roomPtr, dampPtr, widthPtr);
+      return GriesingerReverbParams(
+        wet: wetPtr.value,
+        dry: dryPtr.value,
+        roomSize: roomPtr.value,
+        damping: dampPtr.value,
+        width: widthPtr.value,
+      );
+    } finally {
+      calloc
+        ..free(wetPtr)
+        ..free(dryPtr)
+        ..free(roomPtr)
         ..free(dampPtr)
         ..free(widthPtr);
     }
@@ -5612,6 +5943,41 @@ class AudioEngineFFI {
   bool isBackendSupported(AudioOutputBackend backend) {
     if (_engine == ffi.nullptr) return false;
     return _isBackendSupported(_engine, backend.value) != 0;
+  }
+
+  /// Requests Android USB permission for the attached USB Audio Class DAC.
+  ///
+  /// Returns `1` if already granted, `0` if the system permission dialog was
+  /// launched, or `-1` if no USB audio DAC is detected or unsupported.
+  int requestUsbDacPermission() {
+    if (_engine == ffi.nullptr || _requestUsbDacPermission == null) return -1;
+    return _requestUsbDacPermission!(_engine);
+  }
+
+  /// Registers an already-opened Android USB file descriptor and optional raw
+  /// USB descriptor bytes / product name with the engine for libusb direct output.
+  void setAndroidUsbFd(
+    int fd, {
+    Uint8List? rawDescriptors,
+    String? deviceName,
+  }) {
+    if (_engine == ffi.nullptr || _setAndroidUsbFd == null) return;
+    ffi.Pointer<ffi.Uint8> descPtr = ffi.nullptr;
+    ffi.Pointer<Utf8> namePtr = ffi.nullptr;
+    try {
+      final int descLen = rawDescriptors?.length ?? 0;
+      if (descLen > 0) {
+        descPtr = calloc<ffi.Uint8>(descLen);
+        descPtr.asTypedList(descLen).setAll(0, rawDescriptors!);
+      }
+      if (deviceName != null && deviceName.isNotEmpty) {
+        namePtr = deviceName.toNativeUtf8(allocator: calloc);
+      }
+      _setAndroidUsbFd!(_engine, fd, descPtr, descLen, namePtr);
+    } finally {
+      if (descPtr != ffi.nullptr) calloc.free(descPtr);
+      if (namePtr != ffi.nullptr) calloc.free(namePtr);
+    }
   }
 
   void setOutputFormat(AudioFormat format) {

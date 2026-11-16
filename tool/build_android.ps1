@@ -26,6 +26,7 @@ $includes = @(
     "-I.",
     "-Idsp",
     "-Ithird_party",
+    "-Ithird_party/libusb",
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/r8brain"
 )
@@ -46,7 +47,8 @@ $defines = @(
 )
 
 $allSources = @(
-    "audio_engine.cpp"
+    "audio_engine.cpp",
+    "third_party/libusb/libusb_android.c"
 ) + (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName)
 
 foreach ($t in $targets) {
@@ -61,7 +63,7 @@ foreach ($t in $targets) {
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
     $outLib = Join-Path $outDir "libaudio_engine.so"
 
-    & $clang -std=c++17 -O2 -fPIC -shared @allSources -o $outLib -D__ANDROID_API__=$Api @includes @defines
+    & $clang -std=c++17 -O2 -fPIC -shared @allSources -o $outLib "-D__ANDROID_API__=$Api" @includes @defines
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed for ABI $abi"
     }

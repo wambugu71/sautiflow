@@ -7,6 +7,7 @@
 #include <atomic>
 #include "denormals.h"
 #include "simd_math.h"
+#include "cytomic_svf_dsp.h"
 
 namespace sauti::dsp {
 
@@ -85,99 +86,42 @@ struct StereoImagerBiquadDouble {
     }
 };
 
-// Direct Form I Biquad for filtering Side channel
+// 64-bit Cytomic Trapezoidal SVF wrapper for filtering Side channel (air shelf, shuffler, HPF)
 struct StereoImagerBiquad {
-    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
-    float a1 = 0.0f, a2 = 0.0f;
-    float x1 = 0.0f, x2 = 0.0f, y1 = 0.0f, y2 = 0.0f;
+    CytomicSVF svf_;
 
     void reset() {
-        x1 = x2 = y1 = y2 = 0.0f;
+        svf_.reset();
     }
 
     inline float process(float x) {
-        const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-        x2 = x1; x1 = x;
-        y2 = y1; y1 = (std::fabs(y) < 1.0e-15f) ? 0.0f : y;
-        return y1;
+        return static_cast<float>(svf_.processSample(static_cast<double>(x), 0));
     }
 
     // 2nd-Order Butterworth Highpass (Q = 0.7071)
     void setHighpass(double fs, double fc) {
         if (fc <= 20.0 || fs <= 0.0) {
             // Bypass
-            b0 = 1.0f; b1 = 0.0f; b2 = 0.0f;
-            a1 = 0.0f; a2 = 0.0f;
+            svf_.setParameters(CytomicSVF::FilterType::Bell,
+                               (fs > 0.0) ? fs : 48000.0, 1000.0, 0.0, 0.7071067811865475);
             return;
         }
-        constexpr double PI = 3.14159265358979323846;
-        double w0 = 2.0 * PI * fc / fs;
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        if (w0 < 1.0e-4) w0 = 1.0e-4;
-
-        const double cos_w = std::cos(w0);
-        const double sin_w = std::sin(w0);
-        const double alpha = sin_w / (2.0 * 0.7071067811865475); // Q = 1/sqrt(2)
-
-        const double a0 = 1.0 + alpha;
-        b0 = static_cast<float>((1.0 + cos_w) / (2.0 * a0));
-        b1 = static_cast<float>(-(1.0 + cos_w) / a0);
-        b2 = static_cast<float>((1.0 + cos_w) / (2.0 * a0));
-        a1 = static_cast<float>((-2.0 * cos_w) / a0);
-        a2 = static_cast<float>((1.0 - alpha) / a0);
+        const double clampedFc = std::clamp(fc, 10.0, fs * 0.45);
+        svf_.setParameters(CytomicSVF::FilterType::HighPass, fs, clampedFc, 0.0, 0.7071067811865475);
     }
 
-    // 2nd-Order High-Shelf Filter
+    // 2nd-Order High-Shelf Filter with Nyquist de-cramping (64-bit Cytomic SVF)
     void setHighShelf(double fs, double fc, double gainDb) {
-        if (std::fabs(gainDb) < 0.05 || fs <= 0.0) {
-            // Bypass
-            b0 = 1.0f; b1 = 0.0f; b2 = 0.0f;
-            a1 = 0.0f; a2 = 0.0f;
-            return;
-        }
-        constexpr double PI = 3.14159265358979323846;
-        double w0 = 2.0 * PI * fc / fs;
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        if (w0 < 1.0e-4) w0 = 1.0e-4;
-
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double cos_w = std::cos(w0);
-        const double sin_w = std::sin(w0);
-        const double alpha = sin_w / (2.0 * 0.7071067811865475);
-        const double two_sqrt_A_alpha = 2.0 * std::sqrt(A) * alpha;
-
-        const double a0 = (A + 1.0) - (A - 1.0) * cos_w + two_sqrt_A_alpha;
-        b0 = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w + two_sqrt_A_alpha)) / a0);
-        b1 = static_cast<float>((-2.0 * A * ((A - 1.0) + (A + 1.0) * cos_w)) / a0);
-        b2 = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cos_w - two_sqrt_A_alpha)) / a0);
-        a1 = static_cast<float>((2.0 * ((A - 1.0) - (A + 1.0) * cos_w)) / a0);
-        a2 = static_cast<float>(((A + 1.0) - (A - 1.0) * cos_w - two_sqrt_A_alpha) / a0);
+        if (fs <= 0.0) return;
+        const double clampedFc = std::clamp(fc, 20.0, fs * 0.45);
+        svf_.setParameters(CytomicSVF::FilterType::HighShelf, fs, clampedFc, gainDb, 0.7071067811865475);
     }
 
-    // 2nd-Order Low-Shelf Filter (for Blumlein/Gerzon shuffler)
+    // 2nd-Order Low-Shelf Filter (for Blumlein/Gerzon shuffler, 64-bit Cytomic SVF)
     void setLowShelf(double fs, double fc, double gainDb) {
-        if (std::fabs(gainDb) < 0.05 || fs <= 0.0) {
-            b0 = 1.0f; b1 = 0.0f; b2 = 0.0f;
-            a1 = 0.0f; a2 = 0.0f;
-            return;
-        }
-        constexpr double PI = 3.14159265358979323846;
-        double w0 = 2.0 * PI * fc / fs;
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        if (w0 < 1.0e-4) w0 = 1.0e-4;
-
-        const double A = std::pow(10.0, gainDb / 40.0);
-        const double cos_w = std::cos(w0);
-        const double sin_w = std::sin(w0);
-        const double alpha = sin_w / (2.0 * 0.7071067811865475);
-        const double two_sqrt_A_alpha = 2.0 * std::sqrt(A) * alpha;
-
-        const double a0 = (A + 1.0) + (A - 1.0) * cos_w + two_sqrt_A_alpha;
-        b0 = static_cast<float>((A * ((A + 1.0) - (A - 1.0) * cos_w + two_sqrt_A_alpha)) / a0);
-        b1 = static_cast<float>((2.0 * A * ((A - 1.0) - (A + 1.0) * cos_w)) / a0);
-        b2 = static_cast<float>((A * ((A + 1.0) - (A - 1.0) * cos_w - two_sqrt_A_alpha)) / a0);
-        a1 = static_cast<float>((-2.0 * ((A - 1.0) + (A + 1.0) * cos_w)) / a0);
-        a2 = static_cast<float>(((A + 1.0) + (A - 1.0) * cos_w - two_sqrt_A_alpha) / a0);
+        if (fs <= 0.0) return;
+        const double clampedFc = std::clamp(fc, 20.0, fs * 0.45);
+        svf_.setParameters(CytomicSVF::FilterType::LowShelf, fs, clampedFc, gainDb, 0.7071067811865475);
     }
 };
 

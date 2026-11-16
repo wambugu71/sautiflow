@@ -6,14 +6,14 @@ import '../services/app_theme_service.dart';
 /// A sleek, real-time frequency response visualization graph for Parametric EQ.
 ///
 /// Samples 150 logarithmic frequency points across [20Hz, 20kHz] and computes
-/// exact biquad filter transfer functions H(z) for each band type (Peak, Low Shelf,
-/// High Shelf, Bandpass, Notch) to render both individual band curves and the master
-/// combined acoustic output curve.
+/// exact Cytomic SVF (and multi-stage TDF-II for Super-Filters) transfer functions
+/// matching `audio_engine.cpp` and `dsp/cytomic_svf_dsp.h`.
 class ParametricEqGraph extends StatelessWidget {
   final List<EqBandConfig> bands;
   final bool isEnabled;
   final double height;
   final Color? primaryColor;
+  final double sampleRate;
 
   const ParametricEqGraph({
     super.key,
@@ -21,6 +21,7 @@ class ParametricEqGraph extends StatelessWidget {
     this.isEnabled = true,
     this.height = 160.0,
     this.primaryColor,
+    this.sampleRate = 48000.0,
   });
 
   @override
@@ -53,6 +54,7 @@ class ParametricEqGraph extends StatelessWidget {
             bands: bands,
             isEnabled: isEnabled,
             primaryColor: effectivePrimary,
+            sampleRate: sampleRate > 0 ? sampleRate : 48000.0,
           ),
         ),
       ),
@@ -60,15 +62,35 @@ class ParametricEqGraph extends StatelessWidget {
   }
 }
 
+class _SvfCoeffs {
+  final double g;
+  final double k;
+  final double m0;
+  final double m1;
+  final double m2;
+  final bool isFlat;
+
+  const _SvfCoeffs({
+    this.g = 0.0,
+    this.k = 1.0,
+    this.m0 = 1.0,
+    this.m1 = 0.0,
+    this.m2 = 0.0,
+    this.isFlat = true,
+  });
+}
+
 class _ParametricEqPainter extends CustomPainter {
   final List<EqBandConfig> bands;
   final bool isEnabled;
   final Color primaryColor;
+  final double sampleRate;
 
   _ParametricEqPainter({
     required this.bands,
     required this.isEnabled,
     required this.primaryColor,
+    required this.sampleRate,
   });
 
   static const double minFreq = 20.0;
@@ -76,7 +98,6 @@ class _ParametricEqPainter extends CustomPainter {
   static const double minDb = -18.0;
   static const double maxDb = 18.0;
   static const int numPoints = 150;
-  static const double sampleRate = 48000.0;
 
   static const List<Color> _bandColors = [
     Color(0xFF00E5FF), // Cyan
@@ -133,8 +154,7 @@ class _ParametricEqPainter extends CustomPainter {
       final band = bands[b];
       if (!band.enabled) continue;
 
-      if (band.type == EqBandType.tilt ||
-          band.type == EqBandType.asupercut ||
+      if (band.type == EqBandType.asupercut ||
           band.type == EqBandType.asuperpass ||
           band.type == EqBandType.asuperstop) {
         final stages = _computeMultiStageCoeffs(band, sampleRate);
@@ -147,9 +167,9 @@ class _ParametricEqPainter extends CustomPainter {
           totalDbCurve[i] += db;
         }
       } else {
-        final coeffs = _computeBiquadCoeffs(band, sampleRate);
+        final svfCoeffs = _computeSvfCoeffs(band, sampleRate);
         for (int i = 0; i < numPoints; i++) {
-          final db = _evalBiquadGainDb(coeffs, freqs[i], sampleRate);
+          final db = _evalSvfGainDb(svfCoeffs, freqs[i], sampleRate);
           bandDbCurves[b][i] = db;
           totalDbCurve[i] += db;
         }
@@ -264,9 +284,18 @@ class _ParametricEqPainter extends CustomPainter {
       final double bandNetDb;
       if (band.type == EqBandType.tilt || band.type == EqBandType.allpass) {
         bandNetDb = 0.0;
+      } else if (band.type == EqBandType.asupercut ||
+          band.type == EqBandType.asuperpass ||
+          band.type == EqBandType.asuperstop) {
+        final stages = _computeMultiStageCoeffs(band, sampleRate);
+        double dbSum = 0.0;
+        for (final stageCoeffs in stages) {
+          dbSum += _evalBiquadGainDb(stageCoeffs, freq, sampleRate);
+        }
+        bandNetDb = dbSum;
       } else {
-        final coeffs = _computeBiquadCoeffs(band, sampleRate);
-        bandNetDb = _evalBiquadGainDb(coeffs, freq, sampleRate);
+        final svfCoeffs = _computeSvfCoeffs(band, sampleRate);
+        bandNetDb = _evalSvfGainDb(svfCoeffs, freq, sampleRate);
       }
       final handleY = dbToY(bandNetDb);
 
@@ -390,181 +419,235 @@ class _ParametricEqPainter extends CustomPainter {
     }
   }
 
-  // --- Biquad Coefficients Math ---
+  // --- Exact Cytomic TPT SVF & Orfanidis Math matching dsp/cytomic_svf_dsp.h ---
 
-  List<double> _computeBiquadCoeffs(EqBandConfig band, double fs) {
-    final f0 = band.frequencyHz.clamp(20.0, fs / 2.1);
-    final w0 = 2.0 * math.pi * f0 / fs;
-    final sinW0 = math.sin(w0);
-    final cosW0 = math.cos(w0);
-    final gainDb = band.gainDb;
-    final A = math.pow(10.0, gainDb / 40.0).toDouble();
+  double _analogHighShelfMag(double freqHz, double fcHz, double a, double k0) {
+    final u = freqHz / fcHz;
+    final u2 = u * u;
+    final sqrtA = math.sqrt(a);
+    final imag = k0 * sqrtA * u;
+    final numRe = 1.0 - a * u2;
+    final denRe = a - u2;
+    final numMagSq = numRe * numRe + imag * imag;
+    final denMagSq = math.max(denRe * denRe + imag * imag, 1.0e-30);
+    return a * math.sqrt(numMagSq / denMagSq);
+  }
 
-    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
-    double a0 = 1.0, a1 = 0.0, a2 = 0.0;
+  _SvfCoeffs _computeSvfCoeffs(EqBandConfig band, double fs) {
+    final fc = band.frequencyHz.clamp(10.0, fs * 0.499);
+    final gainDb = band.gainDb.clamp(-36.0, 36.0);
+    final isShelfOrTilt = band.type == EqBandType.lowshelf ||
+        band.type == EqBandType.highshelf ||
+        band.type == EqBandType.tilt;
+    final rawQ = (isShelfOrTilt &&
+            (band.slope - 1.0).abs() > 1.0e-5 &&
+            band.slope > 0.0)
+        ? band.slope
+        : band.q;
+    final q = rawQ.clamp(0.05, 30.0);
+
+    final isGainType = band.type == EqBandType.peak ||
+        band.type == EqBandType.bell ||
+        band.type == EqBandType.lowshelf ||
+        band.type == EqBandType.highshelf ||
+        band.type == EqBandType.tilt ||
+        band.type == EqBandType.bandreject;
+    if (isGainType && gainDb.abs() < 0.005) {
+      return const _SvfCoeffs(isFlat: true);
+    }
+
+    final w0 = 2.0 * math.pi * fc / fs;
+    final a = math.pow(10.0, gainDb / 40.0).toDouble();
+    final gLin = a * a;
+    final k0 = 1.0 / q;
+    final t0 = math.tan(w0 * 0.5);
 
     switch (band.type) {
       case EqBandType.peak:
       case EqBandType.bell:
-        final q = band.q > 0 ? band.q : 1.0;
-        final f0 = band.frequencyHz.clamp(20.0, fs / 2.1);
-        final useOrfanidis =
-            (f0 > 8000.0) && (fs <= 48000.0) && (gainDb.abs() >= 0.05);
+        final absGainDb = gainDb.abs();
+        final aPos = math.pow(10.0, absGainDb / 40.0).toDouble();
+        final gPos = aPos * aPos;
+        final gb = aPos;
 
-        if (useOrfanidis) {
-          final linG = A * A;
-          final om0 = 2.0 * math.pi * f0;
-          final omN = math.pi * fs;
-          final om0Sq = om0 * om0;
-          final omNSq = omN * omN;
-          final diffSq = (om0Sq - omNSq) * (om0Sq - omNSq);
-          final numW = (om0 * omN * linG / q);
-          final denW = (om0 * omN / q);
-          final gnSq = (diffSq + numW * numW) / (diffSq + denW * denW);
-          final gn = math.sqrt(gnSq);
+        final r = math.sqrt(1.0 + 1.0 / (4.0 * q * q)) - 1.0 / (2.0 * q);
+        final w1 = w0 * r;
+        final t1 = math.tan(0.5 * w1);
 
-          final alpha =
-              (linG < 1.0) ? (sinW0 / (2.0 * q * A)) : (sinW0 / (2.0 * q));
-          final a0Un = 1.0 + alpha;
-          final invA0 = 1.0 / a0Un;
-          a1 = (-2.0 * cosW0) * invA0;
-          a2 = (1.0 - alpha) * invA0;
-          a0 = 1.0;
+        final uNyq = math.pi / w0;
+        final oneMinusU2 = 1.0 - uNyq * uNyq;
+        final bwTermNum = (aPos * uNyq) / q;
+        final bwTermDen = uNyq / (q * aPos);
+        final g1Sq = (oneMinusU2 * oneMinusU2 + bwTermNum * bwTermNum) /
+            math.max(oneMinusU2 * oneMinusU2 + bwTermDen * bwTermDen, 1.0e-30);
+        final g1 = math.sqrt(math.min(g1Sq, gPos * gPos - 1.0e-15));
 
-          final sPlus = 1.0 + a1 + a2;
-          final sMinus = gn * (1.0 - a1 + a2);
-          b1 = (sPlus - sMinus) * 0.5;
-          final b0PlusB2 = (sPlus + sMinus) * 0.5;
+        final x0 = math.max(t0 * t0, 1.0e-24);
+        final x1 = math.max(t1 * t1, 1.0e-24);
+        final g2M1 = math.max(gPos * gPos - 1.0, 1.0e-24);
+        final w2 = x0 *
+            math.sqrt(math.max((gPos * gPos - g1Sq) / g2M1, 1.0e-18));
 
-          final dReal = 1.0 + a1 * cosW0 + a2 * math.cos(2.0 * w0);
-          final dImag = -a1 * sinW0 - a2 * math.sin(2.0 * w0);
-          final dW0Sq = dReal * dReal + dImag * dImag;
+        final rhs1 = (gPos * gPos * (w2 - x0) * (w2 - x0) -
+                (w2 - g1 * x0) * (w2 - g1 * x0)) /
+            x0;
+        final rhs2 = (gb * gb * (w2 - x1) * (w2 - x1) -
+                (w2 - g1 * x1) * (w2 - g1 * x1)) /
+            x1;
+        final bd2 = math.max(
+            (rhs2 - rhs1) / math.max(gPos * gPos - gb * gb, 1.0e-24), 1.0e-24);
+        final bn2 = math.max(rhs1 + gPos * gPos * bd2, 1.0e-24);
+        final bn = math.sqrt(bn2);
+        final bd = math.sqrt(bd2);
 
-          final target = linG * linG * dW0Sq;
-          final x = b0PlusB2 * cosW0 + b1;
-          final sin0Sq = math.max(sinW0 * sinW0, 1.0e-12);
-          final diffTermSq = (target - x * x) / sin0Sq;
-          final diffVal = math.sqrt(math.max(0.0, diffTermSq));
-          final diff = (linG >= 1.0) ? diffVal : -diffVal;
-
-          b0 = (b0PlusB2 + diff) * 0.5;
-          b2 = (b0PlusB2 - diff) * 0.5;
+        if (gainDb >= 0.0) {
+          final gOut = math.sqrt(w2);
+          final kOut = bd / gOut;
+          return _SvfCoeffs(
+            g: gOut,
+            k: kOut,
+            m0: g1,
+            m1: (bn / gOut) - g1 * kOut,
+            m2: 1.0 - g1,
+            isFlat: false,
+          );
         } else {
-          final alpha = sinW0 / (2.0 * q);
-          b0 = 1.0 + alpha * A;
-          b1 = -2.0 * cosW0;
-          b2 = 1.0 - alpha * A;
-          a0 = 1.0 + alpha / A;
-          a1 = -2.0 * cosW0;
-          a2 = 1.0 - alpha / A;
+          final invG1 = 1.0 / g1;
+          final gOut = math.sqrt(w2 * invG1);
+          final kOut = bd > 0.0 ? (bn * invG1) / gOut : k0;
+          return _SvfCoeffs(
+            g: gOut,
+            k: kOut,
+            m0: invG1,
+            m1: ((bd * invG1) / gOut) - invG1 * kOut,
+            m2: 1.0 - invG1,
+            isFlat: false,
+          );
         }
-        break;
 
       case EqBandType.lowshelf:
-        final slope = band.slope > 0 ? band.slope : 1.0;
-        final beta = math.sqrt(A) / slope;
-        final alpha = (sinW0 / 2.0) * beta;
-        b0 = A * ((A + 1.0) - (A - 1.0) * cosW0 + 2.0 * math.sqrt(A) * alpha);
-        b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosW0);
-        b2 = A * ((A + 1.0) - (A - 1.0) * cosW0 - 2.0 * math.sqrt(A) * alpha);
-        a0 = (A + 1.0) + (A - 1.0) * cosW0 + 2.0 * math.sqrt(A) * alpha;
-        a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosW0);
-        a2 = (A + 1.0) + (A - 1.0) * cosW0 - 2.0 * math.sqrt(A) * alpha;
-        break;
+        return _SvfCoeffs(
+          g: t0 / math.sqrt(a),
+          k: k0,
+          m0: 1.0,
+          m1: k0 * (a - 1.0),
+          m2: a * a - 1.0,
+          isFlat: false,
+        );
 
       case EqBandType.highshelf:
-        final slope = band.slope > 0 ? band.slope : 1.0;
-        final beta = math.sqrt(A) / slope;
-        final alpha = (sinW0 / 2.0) * beta;
-        b0 = A * ((A + 1.0) + (A - 1.0) * cosW0 + 2.0 * math.sqrt(A) * alpha);
-        b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosW0);
-        b2 = A * ((A + 1.0) + (A - 1.0) * cosW0 - 2.0 * math.sqrt(A) * alpha);
-        a0 = (A + 1.0) - (A - 1.0) * cosW0 + 2.0 * math.sqrt(A) * alpha;
-        a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosW0);
-        a2 = (A + 1.0) - (A - 1.0) * cosW0 - 2.0 * math.sqrt(A) * alpha;
-        break;
+        final absGainDb = gainDb.abs();
+        final aPos = math.pow(10.0, absGainDb / 40.0).toDouble();
+        final g1 = _analogHighShelfMag(0.5 * fs, fc, aPos, k0);
+        final r = (g1 + aPos) / (1.0 + aPos);
+        final w2 = t0 * t0 * r;
+        final gBoost = math.sqrt(w2);
+
+        final ratioNyq = (fc / (0.5 * fs)).clamp(0.0, 1.0);
+        final blend = ratioNyq * ratioNyq;
+        final fRef = (1.0 - blend) * (0.7 * fc) +
+            blend * math.sqrt(fc * 0.48 * fs);
+        final m = _analogHighShelfMag(fRef, fc, aPos, k0);
+        final m2Sq = m * m;
+        final t1 = math.tan(math.pi * fRef / fs);
+        final x1 = t1 * t1;
+        final denomK = w2 * x1 * (m2Sq - aPos * aPos);
+        final numK =
+            (w2 - g1 * x1) * (w2 - g1 * x1) - m2Sq * (w2 - x1) * (w2 - x1);
+        double kEff = k0;
+        if (denomK.abs() > 1.0e-12 && (numK / denomK) > 0.0) {
+          final cand = math.sqrt(numK / denomK);
+          if (cand >= 0.25 * k0 && cand <= 4.0 * k0) {
+            kEff = cand;
+          }
+        }
+
+        if (gainDb >= 0.0) {
+          return _SvfCoeffs(
+            g: gBoost,
+            k: kEff,
+            m0: g1,
+            m1: (aPos - g1) * kEff,
+            m2: 1.0 - g1,
+            isFlat: false,
+          );
+        } else {
+          final sqrtG1 = math.sqrt(g1);
+          final invG1 = 1.0 / g1;
+          final kCut = (aPos * kEff) / sqrtG1;
+          return _SvfCoeffs(
+            g: gBoost / sqrtG1,
+            k: kCut,
+            m0: invG1,
+            m1: (kEff / sqrtG1) - invG1 * kCut,
+            m2: 1.0 - invG1,
+            isFlat: false,
+          );
+        }
 
       case EqBandType.bandpass:
-        final q = band.q > 0 ? band.q : 1.0;
-        final alpha = sinW0 / (2.0 * q);
-        b0 = alpha;
-        b1 = 0.0;
-        b2 = -alpha;
-        a0 = 1.0 + alpha;
-        a1 = -2.0 * cosW0;
-        a2 = 1.0 - alpha;
-        break;
+        return _SvfCoeffs(g: t0, k: k0, m0: 0.0, m1: 1.0, m2: 0.0, isFlat: false);
 
       case EqBandType.notch:
-        final q = band.q > 0 ? band.q : 1.0;
-        final alpha = sinW0 / (2.0 * q);
-        b0 = 1.0;
-        b1 = -2.0 * cosW0;
-        b2 = 1.0;
-        a0 = 1.0 + alpha;
-        a1 = -2.0 * cosW0;
-        a2 = 1.0 - alpha;
-        break;
+        return _SvfCoeffs(g: t0, k: k0, m0: 1.0, m1: -k0, m2: 0.0, isFlat: false);
 
       case EqBandType.lowpass:
-        final q = band.q > 0 ? band.q : 1.0;
-        final alpha = sinW0 / (2.0 * q);
-        b0 = (1.0 - cosW0) / 2.0;
-        b1 = 1.0 - cosW0;
-        b2 = (1.0 - cosW0) / 2.0;
-        a0 = 1.0 + alpha;
-        a1 = -2.0 * cosW0;
-        a2 = 1.0 - alpha;
-        break;
+        return _SvfCoeffs(g: t0, k: k0, m0: 0.0, m1: 0.0, m2: 1.0, isFlat: false);
 
       case EqBandType.highpass:
-        final q = band.q > 0 ? band.q : 1.0;
-        final alpha = sinW0 / (2.0 * q);
-        b0 = (1.0 + cosW0) / 2.0;
-        b1 = -(1.0 + cosW0);
-        b2 = (1.0 + cosW0) / 2.0;
-        a0 = 1.0 + alpha;
-        a1 = -2.0 * cosW0;
-        a2 = 1.0 - alpha;
-        break;
+        return _SvfCoeffs(g: t0, k: k0, m0: 1.0, m1: -k0, m2: -1.0, isFlat: false);
 
       case EqBandType.allpass:
-        final q = band.q > 0 ? band.q : 1.0;
-        final alpha = sinW0 / (2.0 * q);
-        b0 = 1.0 - alpha;
-        b1 = -2.0 * cosW0;
-        b2 = 1.0 + alpha;
-        a0 = 1.0 + alpha;
-        a1 = -2.0 * cosW0;
-        a2 = 1.0 - alpha;
-        break;
+        return _SvfCoeffs(
+            g: t0, k: k0, m0: 1.0, m1: -2.0 * k0, m2: 0.0, isFlat: false);
+
+      case EqBandType.tilt:
+        return _SvfCoeffs(
+          g: t0 * math.sqrt(a),
+          k: k0,
+          m0: a,
+          m1: (1.0 - a) * k0,
+          m2: (1.0 / a) - a,
+          isFlat: false,
+        );
 
       case EqBandType.bandreject:
-        final q = band.q > 0 ? band.q : 1.0;
-        final alpha = sinW0 / (2.0 * q);
-        b0 = 1.0 + alpha * A;
-        b1 = -2.0 * cosW0;
-        b2 = 1.0 + alpha * A;
-        a0 = 1.0 + alpha / A;
-        a1 = -2.0 * cosW0;
-        a2 = 1.0 - alpha / A;
-        break;
+        return _SvfCoeffs(
+          g: t0,
+          k: k0,
+          m0: 1.0,
+          m1: (gLin - 1.0) * k0,
+          m2: 0.0,
+          isFlat: false,
+        );
 
       case EqBandType.asupercut:
       case EqBandType.asuperpass:
       case EqBandType.asuperstop:
-      case EqBandType.tilt:
-        // Handled via cascaded multi-stage biquads in paint()
-        b0 = 1.0;
-        b1 = 0.0;
-        b2 = 0.0;
-        a0 = 1.0;
-        a1 = 0.0;
-        a2 = 0.0;
-        break;
+        return const _SvfCoeffs(isFlat: true);
     }
+  }
 
-    return [b0, b1, b2, a0, a1, a2];
+  double _evalSvfGainDb(_SvfCoeffs c, double f, double fs) {
+    if (c.isFlat) return 0.0;
+    if (f >= 0.5 * fs * (1.0 - 1.0e-7)) {
+      return 20.0 * (math.log(math.max(c.m0.abs(), 1.0e-12)) / math.ln10);
+    }
+    final t = math.tan(math.pi * f / fs);
+    final t2 = t * t;
+    final g2 = c.g * c.g;
+    final kg = c.k * c.g;
+
+    final denRe = g2 - t2;
+    final denIm = kg * t;
+    final numRe = c.m0 * denRe + c.m2 * g2;
+    final numIm = (c.m0 * kg + c.m1 * c.g) * t;
+
+    final numMagSq = numRe * numRe + numIm * numIm;
+    final denMagSq = math.max(denRe * denRe + denIm * denIm, 1.0e-30);
+    final magSq = numMagSq / denMagSq;
+    if (magSq <= 1.0e-12) return -60.0;
+    return 10.0 * (math.log(magSq) / math.ln10);
   }
 
   List<List<double>> _computeMultiStageCoeffs(EqBandConfig band, double fs) {
@@ -572,17 +655,6 @@ class _ParametricEqPainter extends CustomPainter {
     final q = band.q > 0 ? band.q : 1.0;
 
     switch (band.type) {
-      case EqBandType.tilt:
-        final halfGain = band.gainDb * 0.5;
-        final lowCoeffs = _computeBiquadCoeffs(
-          band.copyWith(type: EqBandType.lowshelf, gainDb: -halfGain),
-          fs,
-        );
-        final highCoeffs = _computeBiquadCoeffs(
-          band.copyWith(type: EqBandType.highshelf, gainDb: halfGain),
-          fs,
-        );
-        return [lowCoeffs, highCoeffs];
 
       case EqBandType.asupercut:
         // 8th-order Butterworth low-pass (4 cascaded SOS)
@@ -663,7 +735,9 @@ class _ParametricEqPainter extends CustomPainter {
         return list;
 
       default:
-        return [_computeBiquadCoeffs(band, fs)];
+        return [
+          [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+        ];
     }
   }
 

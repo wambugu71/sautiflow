@@ -289,6 +289,25 @@ class MiniAudioPlayer {
   /// Checks if a specific backend is supported on the current platform/device.
   bool isBackendSupported(AudioOutputBackend backend) =>
       _engine.isBackendSupported(backend);
+
+  /// Requests Android USB permission for an attached USB Audio Class DAC.
+  ///
+  /// Returns `1` if already granted, `0` if the permission dialog was launched,
+  /// or `-1` if no USB DAC is attached or the platform is unsupported.
+  int requestUsbDacPermission() => _engine.requestUsbDacPermission();
+
+  /// Registers an already-opened Android USB file descriptor (from
+  /// `UsbDeviceConnection.getFileDescriptor()`) for direct `libusb` playback.
+  void setAndroidUsbFd(
+    int fd, {
+    Uint8List? rawDescriptors,
+    String? deviceName,
+  }) =>
+      _engine.setAndroidUsbFd(
+        fd,
+        rawDescriptors: rawDescriptors,
+        deviceName: deviceName,
+      );
   ResampleAlgorithm getEngineResampleAlgorithm() =>
       ResampleAlgorithm.values[_engine.getEngineResampleAlgorithm().clamp(0, ResampleAlgorithm.values.length - 1)];
   bool isNetworkStreamingSupported() => _engine.isNetworkStreamingSupported();
@@ -446,6 +465,65 @@ class MiniAudioPlayer {
   /// Retrieves current Diffusion Reverb parameters.
   DiffusionReverbParams getDiffusionReverbParams() =>
       _engine.getDiffusionReverbParams();
+
+  /// Updates parameters for the 8-Channel Orthonormal Hadamard FDN Reverb algorithm.
+  void setHadamardReverbParams({
+    double wet = 0.35,
+    double dry = 1.0,
+    double roomSize = 0.70,
+    double damping = 0.30,
+    double width = 1.0,
+  }) =>
+      _engine.setHadamardReverbParams(
+        wet: wet,
+        dry: dry,
+        roomSize: roomSize,
+        damping: damping,
+        width: width,
+      );
+
+  /// Retrieves current Hadamard FDN Reverb parameters.
+  HadamardReverbParams getHadamardReverbParams() =>
+      _engine.getHadamardReverbParams();
+
+  /// Updates parameters for the Keith Barr All-Pass Ring Reverb algorithm.
+  void setBarrReverbParams({
+    double wet = 0.35,
+    double dry = 1.0,
+    double roomSize = 0.70,
+    double damping = 0.30,
+    double width = 1.0,
+  }) =>
+      _engine.setBarrReverbParams(
+        wet: wet,
+        dry: dry,
+        roomSize: roomSize,
+        damping: damping,
+        width: width,
+      );
+
+  /// Retrieves current Keith Barr Ring Reverb parameters.
+  BarrReverbParams getBarrReverbParams() => _engine.getBarrReverbParams();
+
+  /// Updates parameters for the David Griesinger Spin & Wander Reverb algorithm.
+  void setGriesingerReverbParams({
+    double wet = 0.35,
+    double dry = 1.0,
+    double roomSize = 0.70,
+    double damping = 0.30,
+    double width = 1.0,
+  }) =>
+      _engine.setGriesingerReverbParams(
+        wet: wet,
+        dry: dry,
+        roomSize: roomSize,
+        damping: damping,
+        width: width,
+      );
+
+  /// Retrieves current Griesinger Spin & Wander Reverb parameters.
+  GriesingerReverbParams getGriesingerReverbParams() =>
+      _engine.getGriesingerReverbParams();
 
   /// Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4)
   void setToneCrossoverEnabled(bool enabled) =>

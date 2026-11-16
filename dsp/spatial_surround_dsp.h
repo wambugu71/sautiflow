@@ -54,49 +54,51 @@ inline float surround_sanitize(float v)
 }
 
 // ---------------------------------------------------------------------------
-// Direct Form I biquad
+// Direct Form I biquad (64-bit double precision)
 // ---------------------------------------------------------------------------
 struct SurroundBiquad {
-    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
-    float a1 = 0.0f, a2 = 0.0f;
-    float x1 = 0.0f, x2 = 0.0f, y1 = 0.0f, y2 = 0.0f;
+    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+    double a1 = 0.0, a2 = 0.0;
+    double x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
 
-    void reset() { x1 = x2 = y1 = y2 = 0.0f; }
+    void reset() { x1 = x2 = y1 = y2 = 0.0; }
 
     inline float process(float x)
     {
-        const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-        x2 = x1; x1 = x;
-        y2 = y1; y1 = surround_sanitize(y);
-        return y1;
+        const double xd = static_cast<double>(x);
+        double y = b0 * xd + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+        if (std::fabs(y) < 1.0e-25) y = 0.0;
+        x2 = x1; x1 = xd;
+        y2 = y1; y1 = y;
+        return surround_sanitize(static_cast<float>(y1));
     }
 };
 
 // ---------------------------------------------------------------------------
-// Stereo Direct Form I biquad (SIMD single-precision)
+// Stereo Direct Form I biquad (SIMD 64-bit double-precision)
 // ---------------------------------------------------------------------------
 struct SurroundBiquadStereo {
-    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
-    float a1 = 0.0f, a2 = 0.0f;
-    SimdFloat4 x1{0.0f}, x2{0.0f}, y1{0.0f}, y2{0.0f};
+    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+    double a1 = 0.0, a2 = 0.0;
+    SimdDouble2 x1{0.0}, x2{0.0}, y1{0.0}, y2{0.0};
 
     void reset() {
-        x1 = x2 = y1 = y2 = SimdFloat4(0.0f);
+        x1 = x2 = y1 = y2 = SimdDouble2(0.0);
     }
 
-    void setCoeffs(float in_b0, float in_b1, float in_b2, float in_a1, float in_a2) {
+    void setCoeffs(double in_b0, double in_b1, double in_b2, double in_a1, double in_a2) {
         b0 = in_b0; b1 = in_b1; b2 = in_b2;
         a1 = in_a1; a2 = in_a2;
     }
 
     inline void process(float xl, float xr, float &yl, float &yr) {
-        const SimdFloat4 in_s(xl, xr, 0.0f, 0.0f);
-        const SimdFloat4 vb0(b0), vb1(b1), vb2(b2), va1(a1), va2(a2);
-        const SimdFloat4 y = (vb0 * in_s) + (vb1 * x1) + (vb2 * x2) - (va1 * y1) - (va2 * y2);
+        const SimdDouble2 in_s(static_cast<double>(xl), static_cast<double>(xr));
+        const SimdDouble2 vb0(b0), vb1(b1), vb2(b2), va1(a1), va2(a2);
+        const SimdDouble2 y = (vb0 * in_s) + (vb1 * x1) + (vb2 * x2) - (va1 * y1) - (va2 * y2);
         x2 = x1; x1 = in_s;
         y2 = y1; y1 = y;
-        yl = surround_sanitize(y.get(0));
-        yr = surround_sanitize(y.get(1));
+        yl = surround_sanitize(static_cast<float>(y.get_low()));
+        yr = surround_sanitize(static_cast<float>(y.get_high()));
     }
 };
 
@@ -140,11 +142,11 @@ inline void surround_set_peaking(SurroundBiquad &bq, double fs, double f0, doubl
     const double alpha = std::sin(w0) / (2.0 * Q);
 
     const double a0 = 1.0 + alpha / A;
-    bq.b0 = static_cast<float>((1.0 + alpha * A) / a0);
-    bq.b1 = static_cast<float>((-2.0 * cw) / a0);
-    bq.b2 = static_cast<float>((1.0 - alpha * A) / a0);
-    bq.a1 = static_cast<float>((-2.0 * cw) / a0);
-    bq.a2 = static_cast<float>((1.0 - alpha / A) / a0);
+    bq.b0 = (1.0 + alpha * A) / a0;
+    bq.b1 = (-2.0 * cw) / a0;
+    bq.b2 = (1.0 - alpha * A) / a0;
+    bq.a1 = (-2.0 * cw) / a0;
+    bq.a2 = (1.0 - alpha / A) / a0;
 }
 
 // RBJ 2nd-order Butterworth low/high pass (Q = 0.7071)
@@ -158,11 +160,11 @@ inline void surround_set_lowpass(SurroundBiquad &bq, double fs, double f0, doubl
     const double alpha = std::sin(w0) / (2.0 * Q);
 
     const double a0 = 1.0 + alpha;
-    bq.b0 = static_cast<float>(((1.0 - cw) / 2.0) / a0);
-    bq.b1 = static_cast<float>((1.0 - cw) / a0);
-    bq.b2 = static_cast<float>(((1.0 - cw) / 2.0) / a0);
-    bq.a1 = static_cast<float>((-2.0 * cw) / a0);
-    bq.a2 = static_cast<float>((1.0 - alpha) / a0);
+    bq.b0 = ((1.0 - cw) / 2.0) / a0;
+    bq.b1 = (1.0 - cw) / a0;
+    bq.b2 = ((1.0 - cw) / 2.0) / a0;
+    bq.a1 = (-2.0 * cw) / a0;
+    bq.a2 = (1.0 - alpha) / a0;
 }
 
 inline void surround_set_highpass(SurroundBiquad &bq, double fs, double f0, double Q = 0.7071)
@@ -175,11 +177,11 @@ inline void surround_set_highpass(SurroundBiquad &bq, double fs, double f0, doub
     const double alpha = std::sin(w0) / (2.0 * Q);
 
     const double a0 = 1.0 + alpha;
-    bq.b0 = static_cast<float>(((1.0 + cw) / 2.0) / a0);
-    bq.b1 = static_cast<float>(-(1.0 + cw) / a0);
-    bq.b2 = static_cast<float>(((1.0 + cw) / 2.0) / a0);
-    bq.a1 = static_cast<float>((-2.0 * cw) / a0);
-    bq.a2 = static_cast<float>((1.0 - alpha) / a0);
+    bq.b0 = ((1.0 + cw) / 2.0) / a0;
+    bq.b1 = -(1.0 + cw) / a0;
+    bq.b2 = ((1.0 + cw) / 2.0) / a0;
+    bq.a1 = (-2.0 * cw) / a0;
+    bq.a2 = (1.0 - alpha) / a0;
 }
 
 // RBJ high-shelf filter for air presence contouring
@@ -196,11 +198,11 @@ inline void surround_set_highshelf(SurroundBiquad &bq, double fs, double f0, dou
     const double two_sqrt_A_alpha = 2.0 * std::sqrt(A) * alpha;
 
     const double a0 = (A + 1.0) - (A - 1.0) * cw + two_sqrt_A_alpha;
-    bq.b0 = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cw + two_sqrt_A_alpha)) / a0);
-    bq.b1 = static_cast<float>((-2.0 * A * ((A - 1.0) + (A + 1.0) * cw)) / a0);
-    bq.b2 = static_cast<float>((A * ((A + 1.0) + (A - 1.0) * cw - two_sqrt_A_alpha)) / a0);
-    bq.a1 = static_cast<float>((2.0 * ((A - 1.0) - (A + 1.0) * cw)) / a0);
-    bq.a2 = static_cast<float>(((A + 1.0) - (A - 1.0) * cw - two_sqrt_A_alpha) / a0);
+    bq.b0 = (A * ((A + 1.0) + (A - 1.0) * cw + two_sqrt_A_alpha)) / a0;
+    bq.b1 = (-2.0 * A * ((A - 1.0) + (A + 1.0) * cw)) / a0;
+    bq.b2 = (A * ((A + 1.0) + (A - 1.0) * cw - two_sqrt_A_alpha)) / a0;
+    bq.a1 = (2.0 * ((A - 1.0) - (A + 1.0) * cw)) / a0;
+    bq.a2 = ((A + 1.0) - (A - 1.0) * cw - two_sqrt_A_alpha) / a0;
 }
 
 inline void surround_set_lowpass(SurroundBiquadStereo &bq, double fs, double f0, double Q = 0.7071)

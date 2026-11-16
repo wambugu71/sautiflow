@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <vector>
 #include "denormals.h"
+#include "cytomic_svf_dsp.h"
 
 namespace sauti::dsp {
 
@@ -149,9 +150,9 @@ public:
         current_clarity_ = target_clarity_;
         current_center_focus_ = target_center_focus_;
 
-        formant_x1_ = formant_x2_ = formant_y1_ = formant_y2_ = 0.0f;
-        body_x1_ = body_x2_ = body_y1_ = body_y2_ = 0.0f;
-        clarity_x1_ = clarity_x2_ = clarity_y1_ = clarity_y2_ = 0.0f;
+        formant_svf_.reset();
+        body_svf_.reset();
+        clarity_svf_.reset();
 
         speech_energy_env_ = 0.0f;
         last_ducking_reduction_db_ = 0.0f;
@@ -196,30 +197,10 @@ public:
             float mid = 0.5f * (in_l + in_r);
             float side = 0.5f * (in_l - in_r);
 
-            // 3. Multi-stage vocal formant enhancement on center/mid channel
-            // Stage A: Main Vocal Formant Peaking Filter (2.4 kHz)
-            float mid_formant = b0_formant_ * mid + b1_formant_ * formant_x1_ + b2_formant_ * formant_x2_
-                                - a1_formant_ * formant_y1_ - a2_formant_ * formant_y2_;
-            formant_x2_ = formant_x1_;
-            formant_x1_ = mid;
-            formant_y2_ = formant_y1_;
-            formant_y1_ = mid_formant;
-
-            // Stage B: Speech Body Peaking Filter (1.2 kHz)
-            float mid_body = b0_body_ * mid_formant + b1_body_ * body_x1_ + b2_body_ * body_x2_
-                             - a1_body_ * body_y1_ - a2_body_ * body_y2_;
-            body_x2_ = body_x1_;
-            body_x1_ = mid_formant;
-            body_y2_ = body_y1_;
-            body_y1_ = mid_body;
-
-            // Stage C: Speech Articulation & Consonant Clarity Filter (3.8 kHz)
-            float mid_enhanced = b0_clarity_ * mid_body + b1_clarity_ * clarity_x1_ + b2_clarity_ * clarity_x2_
-                                 - a1_clarity_ * clarity_y1_ - a2_clarity_ * clarity_y2_;
-            clarity_x2_ = clarity_x1_;
-            clarity_x1_ = mid_body;
-            clarity_y2_ = clarity_y1_;
-            clarity_y1_ = mid_enhanced;
+            // 3. Multi-stage vocal formant enhancement on center/mid channel (64-bit Cytomic SVF)
+            const double mid_formant = formant_svf_.processSample(static_cast<double>(mid), 0);
+            const double mid_body = body_svf_.processSample(mid_formant, 0);
+            const float mid_enhanced = static_cast<float>(clarity_svf_.processSample(mid_body, 0));
 
             // 4. Speech energy envelope detection for dynamic background ducking
             float abs_speech = std::fabs(mid_enhanced);
@@ -310,45 +291,22 @@ private:
         recalcBiquads();
     }
 
-    static void calcPeakingBiquad(float f0, float gain_db, float q, float fs,
-                                  float& b0, float& b1, float& b2, float& a1, float& a2) {
-        if (std::abs(gain_db) < 0.05f) {
-            b0 = 1.0f; b1 = 0.0f; b2 = 0.0f;
-            a1 = 0.0f; a2 = 0.0f;
-            return;
-        }
-        // Audio EQ Cookbook peaking formula 
-        const double A = std::pow(10.0, static_cast<double>(gain_db) / 40.0);
-        const double w0 = 2.0 * 3.14159265358979323846 * static_cast<double>(f0) / static_cast<double>(fs);
-        const double alpha = std::sin(w0) / (2.0 * static_cast<double>(q));
-        const double a0 = 1.0 + alpha / A;
-
-        b0 = static_cast<float>((1.0 + alpha * A) / a0);
-        b1 = static_cast<float>((-2.0 * std::cos(w0)) / a0);
-        b2 = static_cast<float>((1.0 - alpha * A) / a0);
-        a1 = static_cast<float>((-2.0 * std::cos(w0)) / a0);
-        a2 = static_cast<float>((1.0 - alpha / A) / a0);
-    }
-
     void recalcBiquads() {
         cached_amount_ = current_amount_;
         cached_clarity_ = current_clarity_;
 
-        // 1. Primary vocal formant peak at 2400 Hz 
+        // 1. Primary vocal formant peak at 2400 Hz (64-bit Cytomic SVF)
         // Amount [0.0, 1.0] maps from 0.0 dB to +11.0 dB
         float formant_gain_db = current_amount_ * 11.0f;
-        calcPeakingBiquad(2400.0f, formant_gain_db, 1.25f, sample_rate_,
-                          b0_formant_, b1_formant_, b2_formant_, a1_formant_, a2_formant_);
+        formant_svf_.setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 2400.0, formant_gain_db, 1.25);
 
         // 2. Vocal body formant peak at 1200 Hz for warm intelligible fullness
         float body_gain_db = current_amount_ * 3.5f;
-        calcPeakingBiquad(1200.0f, body_gain_db, 1.0f, sample_rate_,
-                          b0_body_, b1_body_, b2_body_, a1_body_, a2_body_);
+        body_svf_.setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 1200.0, body_gain_db, 1.0);
 
         // 3. Consonant clarity & presence peak at 3800 Hz
         float clarity_gain_db = current_clarity_ * 5.0f;
-        calcPeakingBiquad(3800.0f, clarity_gain_db, 1.3f, sample_rate_,
-                          b0_clarity_, b1_clarity_, b2_clarity_, a1_clarity_, a2_clarity_);
+        clarity_svf_.setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 3800.0, clarity_gain_db, 1.3);
 
         // Automatic headroom compensation: caps combined 3-band boost to safe +12 dB headroom
         // preventing digital clipping when formant (+11dB), body (+3.5dB), and clarity (+5dB) peak together
@@ -382,20 +340,10 @@ private:
     float current_center_focus_ = 0.70f;
     float headroom_comp_ = 1.0f;
 
-    // Filter coefficients: Formant (2.4 kHz)
-    float b0_formant_ = 1.0f, b1_formant_ = 0.0f, b2_formant_ = 0.0f;
-    float a1_formant_ = 0.0f, a2_formant_ = 0.0f;
-    float formant_x1_ = 0.0f, formant_x2_ = 0.0f, formant_y1_ = 0.0f, formant_y2_ = 0.0f;
-
-    // Filter coefficients: Body (1.2 kHz)
-    float b0_body_ = 1.0f, b1_body_ = 0.0f, b2_body_ = 0.0f;
-    float a1_body_ = 0.0f, a2_body_ = 0.0f;
-    float body_x1_ = 0.0f, body_x2_ = 0.0f, body_y1_ = 0.0f, body_y2_ = 0.0f;
-
-    // Filter coefficients: Clarity (3.8 kHz)
-    float b0_clarity_ = 1.0f, b1_clarity_ = 0.0f, b2_clarity_ = 0.0f;
-    float a1_clarity_ = 0.0f, a2_clarity_ = 0.0f;
-    float clarity_x1_ = 0.0f, clarity_x2_ = 0.0f, clarity_y1_ = 0.0f, clarity_y2_ = 0.0f;
+    // Vocal formant 64-bit Cytomic SVF stages
+    CytomicSVF formant_svf_;
+    CytomicSVF body_svf_;
+    CytomicSVF clarity_svf_;
 
     // Speech envelope & telemetry
     float speech_energy_env_ = 0.0f;

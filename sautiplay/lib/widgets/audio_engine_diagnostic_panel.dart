@@ -385,6 +385,8 @@ class _AudioEngineDiagnosticPanelState
 
     final bool eqOn = t['eqEnabled'] == true;
     final bool reverbOn = t['reverbEnabled'] == true;
+    final String reverbEngineName =
+        (t['reverbEngine'] as String?) ?? 'Dattorro Plate';
     final double crossfeedMix = (t['crossfeedMix'] as num?)?.toDouble() ?? 0.0;
     final String crossfeedAlgo =
         _formatCrossfeedAlgo(t['crossfeedAlgo']?.toString(), crossfeedMix);
@@ -430,6 +432,7 @@ class _AudioEngineDiagnosticPanelState
       stereoWidenOn: stereoWidenOn,
       stereoEnhanceOn: stereoEnhanceOn,
       reverbOn: reverbOn,
+      reverbEngineName: reverbEngineName,
       sautiDspOn: sautiDspOn,
       eqOn: eqOn,
       isSrcActive: (srcRate != dacRate),
@@ -647,7 +650,7 @@ class _AudioEngineDiagnosticPanelState
                   isValueActive: eqOn, context: context),
               _buildTelemetryRow('Crossfeed', crossfeedAlgo,
                   isValueActive: crossfeedAlgo != 'OFF', context: context),
-              _buildTelemetryRow('Reverb', reverbOn ? 'ON' : 'OFF',
+              _buildTelemetryRow('Reverb', reverbOn ? 'ON ($reverbEngineName)' : 'OFF',
                   isValueActive: reverbOn, context: context),
               _buildTelemetryRow('Sauti DSP', sautiDspOn ? 'ON' : 'OFF',
                   isValueActive: sautiDspOn, context: context),
@@ -1320,6 +1323,7 @@ class _AudioEngineDiagnosticPanelState
     required bool stereoWidenOn,
     required bool stereoEnhanceOn,
     required bool reverbOn,
+    String reverbEngineName = 'Dattorro Plate',
     required bool sautiDspOn,
     required bool eqOn,
     required bool isSrcActive,
@@ -1405,7 +1409,7 @@ class _AudioEngineDiagnosticPanelState
     if (reverbOn) {
       list.add(_NodeLatencyInfo(
         '${step++}.',
-        'Dattorro Reverb Tank',
+        'Reverb ($reverbEngineName)',
         0.0,
         0.0,
         zoneBadge: 'Z5',

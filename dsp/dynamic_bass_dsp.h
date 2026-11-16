@@ -7,6 +7,7 @@
 #include <array>
 #include <cstring>
 #include "simd_math.h"
+#include "cytomic_svf_dsp.h"
 
 namespace sauti::dsp {
 
@@ -218,9 +219,8 @@ public:
         harm_hp_r_.reset();
 
         // Reset Pultec filter states
-        pultec_boost_x1_ = pultec_boost_x2_ = pultec_boost_y1_ = pultec_boost_y2_ = 0.0f;
-        pultec_scoop_x1_l_ = pultec_scoop_x2_l_ = pultec_scoop_y1_l_ = pultec_scoop_y1_r_ = 0.0f;
-        pultec_scoop_x1_r_ = pultec_scoop_x2_r_ = pultec_scoop_y2_l_ = pultec_scoop_y2_r_ = 0.0f;
+        pultec_boost_svf_.reset();
+        pultec_scoop_svf_.reset();
 
         // Reset Multi-Pole Ladder filters
         ladder_x_[0] = LadderChannel{};
@@ -485,15 +485,9 @@ private:
     BiquadDirectFormI harm_lp_l_, harm_lp_r_;
     BiquadDirectFormI harm_hp_l_, harm_hp_r_;
 
-    // Pultec Low-End Trick Coefficients
-    float pultec_boost_b0_ = 1.0f, pultec_boost_b1_ = 0.0f, pultec_boost_b2_ = 0.0f;
-    float pultec_boost_a1_ = 0.0f, pultec_boost_a2_ = 0.0f;
-    float pultec_boost_x1_ = 0.0f, pultec_boost_x2_ = 0.0f, pultec_boost_y1_ = 0.0f, pultec_boost_y2_ = 0.0f;
-
-    float pultec_scoop_b0_ = 1.0f, pultec_scoop_b1_ = 0.0f, pultec_scoop_b2_ = 0.0f;
-    float pultec_scoop_a1_ = 0.0f, pultec_scoop_a2_ = 0.0f;
-    float pultec_scoop_x1_l_ = 0.0f, pultec_scoop_x2_l_ = 0.0f, pultec_scoop_y1_l_ = 0.0f, pultec_scoop_y1_r_ = 0.0f;
-    float pultec_scoop_x1_r_ = 0.0f, pultec_scoop_x2_r_ = 0.0f, pultec_scoop_y2_l_ = 0.0f, pultec_scoop_y2_r_ = 0.0f;
+    // Pultec Low-End Trick 64-bit Cytomic SVF Stages
+    CytomicSVF pultec_boost_svf_;
+    CytomicSVF pultec_scoop_svf_;
 
     // Multi-Pole Dynamic Resonator Parameters
     float x_low_ = 800.0f;
@@ -776,35 +770,25 @@ private:
     }
 
     // =========================================================================
-    // Mode 4: Pultec EQP-1A Low-End Trick in Mono Sub + Stereo Mud Scoop
+    // Mode 4: Pultec EQP-1A Low-End Trick in Mono Sub + Stereo Mud Scoop (64-bit SVF)
     // =========================================================================
     void processPultecDeep(float* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             const float in_l = samples[2 * i];
             const float in_r = samples[2 * i + 1];
 
-            // 1. Mono Sub-Bass 45 Hz Low-Shelf Boost
-            const float mono_in = (in_l + in_r) * 0.5f;
-            const float b_out = pultec_boost_b0_ * mono_in + pultec_boost_b1_ * pultec_boost_x1_ + pultec_boost_b2_ * pultec_boost_x2_
-                              - pultec_boost_a1_ * pultec_boost_y1_ - pultec_boost_a2_ * pultec_boost_y2_;
-            pultec_boost_x2_ = pultec_boost_x1_; pultec_boost_x1_ = mono_in;
-            pultec_boost_y2_ = pultec_boost_y1_; pultec_boost_y1_ = b_out;
+            // 1. Mono Sub-Bass 45 Hz Low-Shelf Boost (64-bit Cytomic TPT SVF)
+            const double mono_in = (static_cast<double>(in_l) + static_cast<double>(in_r)) * 0.5;
+            const double b_out = pultec_boost_svf_.processSample(mono_in, 0);
 
-            // 2. Stereo 300 Hz Mud Scoop Peak Filter
-            const float s_out_l = pultec_scoop_b0_ * in_l + pultec_scoop_b1_ * pultec_scoop_x1_l_ + pultec_scoop_b2_ * pultec_scoop_x2_l_
-                                - pultec_scoop_a1_ * pultec_scoop_y1_l_ - pultec_scoop_a2_ * pultec_scoop_y2_l_;
-            pultec_scoop_x2_l_ = pultec_scoop_x1_l_; pultec_scoop_x1_l_ = in_l;
-            pultec_scoop_y2_l_ = pultec_scoop_y1_l_; pultec_scoop_y1_l_ = s_out_l;
-
-            const float s_out_r = pultec_scoop_b0_ * in_r + pultec_scoop_b1_ * pultec_scoop_x1_r_ + pultec_scoop_b2_ * pultec_scoop_x2_r_
-                                - pultec_scoop_a1_ * pultec_scoop_y1_r_ - pultec_scoop_a2_ * pultec_scoop_y2_r_;
-            pultec_scoop_x2_r_ = pultec_scoop_x1_r_; pultec_scoop_x1_r_ = in_r;
-            pultec_scoop_y2_r_ = pultec_scoop_y1_r_; pultec_scoop_y1_r_ = s_out_r;
+            // 2. Stereo 300 Hz Mud Scoop Bell Filter (64-bit Cytomic TPT SVF)
+            const float s_out_l = static_cast<float>(pultec_scoop_svf_.processSample(static_cast<double>(in_l), 0));
+            const float s_out_r = static_cast<float>(pultec_scoop_svf_.processSample(static_cast<double>(in_r), 1));
 
             samples[2 * i]     = s_out_l;
             samples[2 * i + 1] = s_out_r;
 
-            float mono_bass = (b_out - mono_in) * 0.8f;
+            float mono_bass = static_cast<float>((b_out - mono_in) * 0.8);
 
             if (anti_pop_ < 1.0f) {
                 mono_bass *= anti_pop_;
@@ -932,14 +916,14 @@ private:
         harm_attack_coeff_ = 1.0 - std::exp(-1.0 / (static_cast<double>(sample_rate_) * 0.00208333));
         harm_release_coeff_ = 1.0 - std::exp(-1.0 / (static_cast<double>(sample_rate_) * 0.208333));
 
-        // 4. Pultec EQP-1A Low-End Trick:
+        // 4. Pultec EQP-1A Low-End Trick (64-bit Cytomic TPT SVF):
         // Deep 45 Hz Low-Shelf (+0 dB to +12 dB boost)
-        const float pultec_boost_db = boost_ * 12.0f;
-        calcLowshelf(45.0f, pultec_boost_db, pultec_boost_b0_, pultec_boost_b1_, pultec_boost_b2_, pultec_boost_a1_, pultec_boost_a2_);
+        const double pultec_boost_db = static_cast<double>(boost_) * 12.0;
+        pultec_boost_svf_.setParameters(CytomicSVF::FilterType::LowShelf, sample_rate_, 45.0, pultec_boost_db, 0.70710678);
 
         // 300 Hz Mud-Scoop (-0 dB to -4.5 dB cut at Q=1.2)
-        const float pultec_scoop_db = -boost_ * 4.5f;
-        calcPeakingEq(300.0f, 1.2f, pultec_scoop_db, pultec_scoop_b0_, pultec_scoop_b1_, pultec_scoop_b2_, pultec_scoop_a1_, pultec_scoop_a2_);
+        const double pultec_scoop_db = -static_cast<double>(boost_) * 4.5;
+        pultec_scoop_svf_.setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 300.0, pultec_scoop_db, 1.2);
 
         // 5. Dynamic Multi-Pole Resonator Ladders
         const float coeff = 2.0f * 3.14159265358979323846f / sample_rate_;
@@ -996,40 +980,6 @@ private:
             std::memset(polyphase_kernel_, 0, sizeof(polyphase_kernel_));
             polyphase_kernel_[M] = 1.0f;
         }
-    }
-
-    void calcLowshelf(float freq, float gain_db, float& b0, float& b1, float& b2, float& a1, float& a2) {
-        constexpr double PI = 3.14159265358979323846;
-        const double A = std::pow(10.0, static_cast<double>(gain_db) / 40.0);
-        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        const double cos_w0 = std::cos(w0);
-        const double sin_w0 = std::sin(w0);
-        const double alpha = sin_w0 / 2.0 * std::sqrt((A + 1.0 / A) * (1.0 / 0.7071 - 1.0) + 2.0);
-        const double sqrt_A = 2.0 * std::sqrt(A) * alpha;
-
-        const double a0 = (A + 1.0) + (A - 1.0) * cos_w0 + sqrt_A;
-        b0 = static_cast<float>((A * ((A + 1.0) - (A - 1.0) * cos_w0 + sqrt_A)) / a0);
-        b1 = static_cast<float>((2.0 * A * ((A - 1.0) - (A + 1.0) * cos_w0)) / a0);
-        b2 = static_cast<float>((A * ((A + 1.0) - (A - 1.0) * cos_w0 - sqrt_A)) / a0);
-        a1 = static_cast<float>((-2.0 * ((A - 1.0) + (A + 1.0) * cos_w0)) / a0);
-        a2 = static_cast<float>(((A + 1.0) + (A - 1.0) * cos_w0 - sqrt_A) / a0);
-    }
-
-    void calcPeakingEq(float freq, float Q, float gain_db, float& b0, float& b1, float& b2, float& a1, float& a2) {
-        constexpr double PI = 3.14159265358979323846;
-        const double A = std::pow(10.0, static_cast<double>(gain_db) / 40.0);
-        double w0 = 2.0 * PI * static_cast<double>(freq) / static_cast<double>(sample_rate_);
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        const double cos_w0 = std::cos(w0);
-        const double alpha = std::sin(w0) / (2.0 * static_cast<double>(Q));
-
-        const double a0 = 1.0 + alpha / A;
-        b0 = static_cast<float>((1.0 + alpha * A) / a0);
-        b1 = static_cast<float>((-2.0 * cos_w0) / a0);
-        b2 = static_cast<float>((1.0 - alpha * A) / a0);
-        a1 = static_cast<float>((-2.0 * cos_w0) / a0);
-        a2 = static_cast<float>((1.0 - alpha / A) / a0);
     }
 };
 

@@ -32,6 +32,8 @@ class AudioHardwareSpecs {
   final int? btBitDepth; // BT codec bit depth
 
   final List<int> supportedSampleRates;
+  final bool usbDacAttached;
+  final bool usbHasPermission;
 
   // ── System info ───────────────────────────────────────────────────────────
   final int? androidVersion; // Android SDK version
@@ -57,6 +59,8 @@ class AudioHardwareSpecs {
     this.btSampleRate,
     this.btBitDepth,
     this.supportedSampleRates = const [],
+    this.usbDacAttached = false,
+    this.usbHasPermission = false,
     this.androidVersion,
     this.androidRelease,
   });
@@ -89,6 +93,9 @@ class AudioHardwareSpecs {
         ? supportedRatesRaw.map((e) => (e as num).toInt()).toList()
         : const <int>[];
 
+    final bool usbAttached =
+        m['usbDacAttached'] == true || rawDevType.toLowerCase().contains('usb');
+
     return AudioHardwareSpecs(
       backendName: 'AAudio / Android HAL',
       deviceName: devName,
@@ -109,6 +116,8 @@ class AudioHardwareSpecs {
       btSampleRate: btRate,
       btBitDepth: btBits,
       supportedSampleRates: supportedRates,
+      usbDacAttached: usbAttached,
+      usbHasPermission: m['usbHasPermission'] == true,
       androidVersion: (m['androidVersion'] as num?)?.toInt(),
       androidRelease: m['androidRelease']?.toString(),
     );
@@ -163,6 +172,17 @@ class AudioHardwareSpecs {
   /// True if device hardware supports Hi-Res Audio (>48kHz or >16-bit or USB DAC)
   bool get isHiResAudio =>
       sampleRate > 48000 || bitDepth > 16 || deviceType.contains('USB');
+
+  /// True when the active output route or connected device is a USB DAC.
+  bool get isUsbDac =>
+      usbDacAttached ||
+      deviceType.toLowerCase().contains('usb') ||
+      backendName == 'USB Direct' ||
+      deviceName.toLowerCase().contains('usb') ||
+      deviceName.toLowerCase().contains('dac');
+
+  /// True when the native libusb UAC 1.0/2.0 kernel-bypass driver is active.
+  bool get isUsbDirectBypass => backendName == 'USB Direct';
 
   /// True if Bluetooth is the active output route
   bool get isBluetooth =>
@@ -235,7 +255,19 @@ class AudioHardwareSpecs {
     ));
 
     // Node 3: Audio Engine / Driver
-    if (isDirectPcm) {
+    if (backendName == 'USB Direct') {
+      final latLabel =
+          latencyMs > 0 ? ' • ${latencyMs.toStringAsFixed(1)}ms' : '';
+      final driverLabel = (dspHardware != null && dspHardware!.isNotEmpty)
+          ? dspHardware!
+          : 'libusb UAC 2.0 Kernel Bypass';
+      nodes.add(SignalChainNode(
+        label: backendName,
+        sublabel: '$driverLabel$latLabel',
+        icon: SignalChainIcon.backend,
+        isHighlight: true,
+      ));
+    } else if (isDirectPcm) {
       nodes.add(SignalChainNode(
         label: backendName,
         sublabel: 'Direct Hi-Res Bit-Perfect',
@@ -395,6 +427,124 @@ class AudioHardwareInspector {
     );
   }
 
+  /// Merges Android platform channel metadata with live native engine [AEHardwareInfo]
+  /// so `USB Direct` (`libusb`) and `Direct Hi-Res` routes retain their negotiated parameters.
+  static AudioHardwareSpecs _mergeAndroidAndNative(
+    Map<dynamic, dynamic> map,
+    AEHardwareInfo? nativeHw,
+  ) {
+    final base = AudioHardwareSpecs.fromAndroidMap(map);
+    if (nativeHw == null) return base;
+
+    final bool isUsbDirect = nativeHw.backendName == 'USB Direct';
+    final bool isNativeDirect = isUsbDirect ||
+        nativeHw.backendName == 'Direct Hi-Res' ||
+        nativeHw.isDirectPcm ||
+        nativeHw.isExclusiveMode;
+
+    if (isUsbDirect) {
+      final hasSpecificNativeName = nativeHw.deviceName.isNotEmpty &&
+          nativeHw.deviceName != 'USB Direct DAC (Standby)' &&
+          nativeHw.deviceName != 'USB Direct DAC';
+      final resolvedDeviceName = hasSpecificNativeName
+          ? nativeHw.deviceName
+          : (base.isUsbDac ? base.deviceName : nativeHw.deviceName);
+      final mergedRates = <int>{
+        ...base.supportedSampleRates,
+        if (nativeHw.sampleRate > 0) nativeHw.sampleRate,
+        if (base.supportedSampleRates.isEmpty) ...[
+          44100,
+          48000,
+          88200,
+          96000,
+          176400,
+          192000,
+          352800,
+          384000,
+        ],
+      }.toList()
+        ..sort();
+
+      return AudioHardwareSpecs(
+        backendName: 'USB Direct',
+        deviceName: resolvedDeviceName.isNotEmpty
+            ? resolvedDeviceName
+            : 'USB Audio DAC',
+        sampleRate:
+            nativeHw.sampleRate > 0 ? nativeHw.sampleRate : base.sampleRate,
+        bitDepth: nativeHw.bitDepth > 0 ? nativeHw.bitDepth : base.bitDepth,
+        isFloat: nativeHw.isFloat,
+        channels: nativeHw.channels > 0 ? nativeHw.channels : base.channels,
+        periodSizeFrames: nativeHw.periodSizeFrames > 0
+            ? nativeHw.periodSizeFrames
+            : base.periodSizeFrames,
+        periodCount: nativeHw.periodCount > 0
+            ? nativeHw.periodCount
+            : base.periodCount,
+        latencyMs:
+            nativeHw.latencyMs > 0 ? nativeHw.latencyMs : base.latencyMs,
+        isExclusiveMode: nativeHw.isExclusiveMode,
+        deviceType: 'USB DAC',
+        dspHardware: nativeHw.dspHardware.isNotEmpty
+            ? nativeHw.dspHardware
+            : base.dspHardware,
+        socName: nativeHw.socName.isNotEmpty ? nativeHw.socName : base.socName,
+        isDirectPcm: true,
+        supportedSampleRates: mergedRates,
+        usbDacAttached: base.usbDacAttached || hasSpecificNativeName,
+        usbHasPermission: base.usbHasPermission || hasSpecificNativeName,
+        androidVersion: base.androidVersion,
+        androidRelease: base.androidRelease,
+      );
+    }
+
+    if (isNativeDirect || nativeHw.bitDepth > 0 || nativeHw.sampleRate > 0) {
+      return AudioHardwareSpecs(
+        backendName: isNativeDirect && nativeHw.backendName.isNotEmpty
+            ? nativeHw.backendName
+            : base.backendName,
+        deviceName: (isNativeDirect &&
+                nativeHw.deviceName.isNotEmpty &&
+                base.deviceName == 'Default Soundcard')
+            ? nativeHw.deviceName
+            : base.deviceName,
+        sampleRate: (isNativeDirect && nativeHw.sampleRate > 0)
+            ? nativeHw.sampleRate
+            : base.sampleRate,
+        bitDepth: nativeHw.bitDepth > 0 ? nativeHw.bitDepth : base.bitDepth,
+        isFloat: nativeHw.bitDepth > 0 ? nativeHw.isFloat : base.isFloat,
+        channels: base.channels,
+        periodSizeFrames: (isNativeDirect && nativeHw.periodSizeFrames > 0)
+            ? nativeHw.periodSizeFrames
+            : base.periodSizeFrames,
+        periodCount: (isNativeDirect && nativeHw.periodCount > 0)
+            ? nativeHw.periodCount
+            : base.periodCount,
+        latencyMs: (isNativeDirect && nativeHw.latencyMs > 0)
+            ? nativeHw.latencyMs
+            : base.latencyMs,
+        isExclusiveMode: isNativeDirect ? nativeHw.isExclusiveMode : base.isExclusiveMode,
+        deviceType: base.deviceType,
+        dspHardware: nativeHw.dspHardware.isNotEmpty
+            ? nativeHw.dspHardware
+            : base.dspHardware,
+        socName: nativeHw.socName.isNotEmpty ? nativeHw.socName : base.socName,
+        isDirectPcm: isNativeDirect ? nativeHw.isDirectPcm : base.isDirectPcm,
+        bluetoothCodec: base.bluetoothCodec,
+        bluetoothDeviceName: base.bluetoothDeviceName,
+        btSampleRate: base.btSampleRate,
+        btBitDepth: base.btBitDepth,
+        supportedSampleRates: base.supportedSampleRates,
+        usbDacAttached: base.usbDacAttached,
+        usbHasPermission: base.usbHasPermission,
+        androidVersion: base.androidVersion,
+        androidRelease: base.androidRelease,
+      );
+    }
+
+    return base;
+  }
+
   /// Single async fetch — updates cached specs and notifies broadcast subscribers.
   static Future<AudioHardwareSpecs> inspectAsync(dynamic player) async {
     AEHardwareInfo? nativeHw;
@@ -411,12 +561,7 @@ class AudioHardwareInspector {
       try {
         final res = await _methodChannel.invokeMethod('getHardwareAudioSpecs');
         if (res is Map) {
-          final merged = Map<dynamic, dynamic>.from(res);
-          if (nativeHw != null && nativeHw.bitDepth > 0) {
-            merged['bitDepth'] = nativeHw.bitDepth;
-            merged['isFloat'] = nativeHw.isFloat;
-          }
-          _currentSpecs = AudioHardwareSpecs.fromAndroidMap(merged);
+          _currentSpecs = _mergeAndroidAndNative(res, nativeHw);
           _controller.add(_currentSpecs!);
           return _currentSpecs!;
         }
@@ -459,15 +604,14 @@ class AudioHardwareInspector {
       _androidEventSub = _eventChannel.receiveBroadcastStream().listen(
         (event) async {
           if (event is Map) {
-            final merged = Map<dynamic, dynamic>.from(event);
+            AEHardwareInfo? nativeHw;
             try {
               final rawNative = await player.getHardwareInfo();
-              if (rawNative is AEHardwareInfo && rawNative.bitDepth > 0) {
-                merged['bitDepth'] = rawNative.bitDepth;
-                merged['isFloat'] = rawNative.isFloat;
+              if (rawNative is AEHardwareInfo) {
+                nativeHw = rawNative;
               }
             } catch (_) {}
-            _currentSpecs = AudioHardwareSpecs.fromAndroidMap(merged);
+            _currentSpecs = _mergeAndroidAndNative(event, nativeHw);
             _controller.add(_currentSpecs!);
           }
         },

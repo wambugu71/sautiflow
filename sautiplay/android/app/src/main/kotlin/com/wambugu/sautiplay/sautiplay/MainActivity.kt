@@ -14,6 +14,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.hardware.usb.UsbConstants
+import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -419,6 +421,29 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    private fun findAttachedUsbAudioDevice(): UsbDevice? {
+        return try {
+            val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager ?: return null
+            for (device in usbManager.deviceList.values) {
+                if (device.deviceClass == UsbConstants.USB_CLASS_AUDIO) {
+                    return device
+                }
+                for (i in 0 until device.interfaceCount) {
+                    val intf = device.getInterface(i)
+                    if (intf.interfaceClass == UsbConstants.USB_CLASS_AUDIO &&
+                        intf.interfaceSubclass == 2 /* USB_SUBCLASS_AUDIOSTREAMING */
+                    ) {
+                        return device
+                    }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Log.w(TAG, "findAttachedUsbAudioDevice error: ${e.message}")
+            null
+        }
+    }
+
     private fun buildSpecsMap(): Map<String, Any?> {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val defaultHalSampleRate = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 48000
@@ -490,10 +515,39 @@ class MainActivity : AudioServiceActivity() {
             }
         }
 
+        val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager
+        val usbAudioDev = findAttachedUsbAudioDevice()
+        val isAudioMgrUsb = selectedDeviceTypeCode == AudioDeviceInfo.TYPE_USB_DEVICE ||
+            selectedDeviceTypeCode == AudioDeviceInfo.TYPE_USB_HEADSET ||
+            selectedDeviceTypeCode == AudioDeviceInfo.TYPE_USB_ACCESSORY
+
+        if (usbAudioDev != null) {
+            val usbProduct = usbAudioDev.productName?.trim()?.takeIf { it.isNotEmpty() }
+            val usbManufacturer = usbAudioDev.manufacturerName?.trim()?.takeIf { it.isNotEmpty() }
+            val resolvedUsbName = usbProduct ?: usbManufacturer ?: "USB Audio DAC"
+
+            if (!isAudioMgrUsb) {
+                // When libusb detaches snd-usb-audio kernel driver, AudioManager falls back
+                // to built-in speaker; restore USB DAC metadata from UsbManager.
+                deviceType = "USB DAC"
+                deviceName = resolvedUsbName
+                bitDepth = 32
+                isFloat = false
+                if (supportedSampleRates.isEmpty()) {
+                    supportedSampleRates = listOf(
+                        44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000, 705600, 768000
+                    )
+                }
+                sampleRate = supportedSampleRates.maxOrNull() ?: 384000
+            } else if ((deviceName == "USB Audio DAC" || deviceName.isBlank()) && usbProduct != null) {
+                deviceName = resolvedUsbName
+            }
+        }
+
         // Bluetooth codec details when BT route is active
-        if (selectedDeviceTypeCode == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+        if (!isAudioMgrUsb && usbAudioDev == null && (selectedDeviceTypeCode == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
             selectedDeviceTypeCode == 26 /* TYPE_BLUETOOTH_LE */ ||
-            selectedDeviceTypeCode == 23 /* TYPE_HEARING_AID */
+            selectedDeviceTypeCode == 23 /* TYPE_HEARING_AID */)
         ) {
             val btInfo = queryBluetoothCodec()
             btCodec = btInfo?.first
@@ -529,6 +583,8 @@ class MainActivity : AudioServiceActivity() {
             "btSampleRate" to btSampleRate,
             "btBitDepth" to btBitDepth,
             "supportedSampleRates" to supportedSampleRates,
+            "usbDacAttached" to (usbAudioDev != null),
+            "usbHasPermission" to (if (usbAudioDev != null && usbManager != null) usbManager.hasPermission(usbAudioDev) else false),
             "androidVersion" to Build.VERSION.SDK_INT,
             "androidRelease" to Build.VERSION.RELEASE,
         )

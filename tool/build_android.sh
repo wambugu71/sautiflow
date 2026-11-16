@@ -19,6 +19,7 @@ INCLUDES=(
   "-I."
   "-Idsp"
   "-Ithird_party"
+  "-Ithird_party/libusb"
   "-Ithird_party/libsamplerate/include"
   "-Ithird_party/r8brain"
 )
@@ -61,7 +62,7 @@ for ABI in "${ABIS[@]}"; do
 
   "$CLANG" \
     -std=c++17 -O2 -fPIC -shared \
-    audio_engine.cpp third_party/libsamplerate/src/*.c \
+    audio_engine.cpp third_party/libusb/libusb_android.c third_party/libsamplerate/src/*.c \
     -o "$OUT_DIR/libaudio_engine.so" \
     -D__ANDROID_API__=$API "${INCLUDES[@]}" "${DEFINES[@]}" \
     $AE_EXTRA_CXXFLAGS \

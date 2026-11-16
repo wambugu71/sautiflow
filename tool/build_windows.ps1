@@ -35,6 +35,7 @@ $includes = @(
     "-I.",
     "-Idsp",
     "-Ithird_party",
+    "-Ithird_party/libusb",
     "-Ithird_party/libsamplerate/include",
     "-Ithird_party/r8brain",
     "-Ithird_party/ffmpeg/include"
@@ -60,7 +61,7 @@ $defines = @(
 )
 
 Write-Host "Compiling C sources with gcc..."
-$cFiles = (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName)
+$cFiles = @("third_party/libusb/libusb_android.c") + (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName)
 foreach ($f in $cFiles) {
     $objName = [System.IO.Path]::GetFileNameWithoutExtension($f) + "_" + [System.IO.Path]::GetRandomFileName() + ".o"
     $objPath = Join-Path $objDir $objName

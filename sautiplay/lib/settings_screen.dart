@@ -181,6 +181,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Android Audio Output Backend & Hardware
   AudioOutputBackend _selectedBackend = AudioOutputBackend.auto;
   String _detectedDspHardware = '';
+  int _dacValidBitDepth = 0; // 0 = Auto, 16, 24, 32
+  AudioHardwareSpecs? _liveHardwareSpecs;
+  StreamSubscription<AudioHardwareSpecs>? _hwSpecsSub;
   // String _detectedSocModel = '';
 
   // Neutron HiFi Engine Settings
@@ -288,6 +291,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() => _isPlaying = status.isPlaying);
       }
     });
+    _liveHardwareSpecs = AudioHardwareInspector.currentSpecs;
+    _hwSpecsSub =
+        AudioHardwareInspector.hardwareStream(widget.player).listen((specs) {
+      if (mounted) {
+        setState(() {
+          _liveHardwareSpecs = specs;
+          if (specs.dspHardware != null && specs.dspHardware!.isNotEmpty) {
+            _detectedDspHardware = specs.dspHardware!;
+          }
+        });
+      }
+    });
+    AudioHardwareInspector.inspectAsync(widget.player);
     _lastFmAuthSub =
         LastFmService.instance.authSuccessStream.listen((username) {
       if (mounted) {
@@ -333,6 +349,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _useM3EShapeSub?.cancel();
     _audioSettingsSub?.cancel();
     _playerStatusSub?.cancel();
+    _hwSpecsSub?.cancel();
     _lastFmAuthSub?.cancel();
     _audioFocusSub?.cancel();
     _proximitySettingsSub?.cancel();
@@ -342,6 +359,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   String _getAudioProcessingSubtitle() {
+    if (Platform.isAndroid &&
+        (_selectedBackend == AudioOutputBackend.usbDirect ||
+            _liveHardwareSpecs?.isUsbDirectBypass == true)) {
+      return 'USB Direct (libusb) • ${_formatAudioDepth(widget.outputFormat)}';
+    }
     if (widget.exclusiveMode) {
       return 'Bit-Perfect exclusive mode active';
     }
@@ -448,6 +470,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _use64BitProcessingEnabled = is64Bit;
       _autoBitPerfectEnabled = autoBp;
       _loudnessCrossfadeEnabled = loudnessCf;
+      _dacValidBitDepth = engineSettings.dacValidBitDepth;
+      if (Platform.isAndroid && engineSettings.outputBackend > 0) {
+        _selectedBackend =
+            AudioOutputBackend.fromInt(engineSettings.outputBackend);
+      }
       _useWaveformSeekBar = waveformSaved;
       _useWavySlider = wavySaved;
       _useM3EAlbumArtShape = AppThemeService.instance.useM3EAlbumArtShape;
@@ -501,6 +528,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       periodCount: _outputBufferPeriods,
     );
     _applySpeakerProtectionSettings();
+
+    if (_dacValidBitDepth > 0) {
+      widget.player.setDacValidBitDepth(_dacValidBitDepth);
+    }
+    widget.player.getDacValidBitDepth().then((bits) {
+      if (mounted && bits > 0 && bits != _dacValidBitDepth) {
+        setState(() => _dacValidBitDepth = bits);
+      }
+    });
 
     if (Platform.isAndroid) {
       widget.player.getOutputBackend().then((bk) {
@@ -604,6 +640,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case AudioFormat.u8:
         return '8 bit';
     }
+  }
+
+  String _sampleRateLabel(int rate) {
+    if (rate <= 0) return 'Native (Auto)';
+    return '${(rate / 1000.0).toStringAsFixed(1)} kHz';
+  }
+
+  String _dacValidBitDepthLabel(int bits) {
+    switch (bits) {
+      case 16:
+        return '16-bit Integer';
+      case 24:
+        return '24-bit (in 32-bit)';
+      case 32:
+        return '32-bit True PCM';
+      default:
+        return 'Auto (Negotiated)';
+    }
+  }
+
+  void _showUsbSnackBar(
+    BuildContext context, {
+    required IconData icon,
+    required Color accentColor,
+    required String message,
+  }) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: _cardDark,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: accentColor.withAlpha(120)),
+        ),
+        content: Row(
+          children: [
+            Icon(icon, color: accentColor, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(color: _textPrimary, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -1511,6 +1597,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _showOutputFormatDialog(onDone: () => setSubState(() {})),
                 ),
                 const M3EDivider(),
+                AppSettingsValueTile(
+                  headline: 'DAC Valid Bit Depth',
+                  supportingText:
+                      'Physical DAC ladder / sigma-delta target for dithering & packing',
+                  value: _dacValidBitDepthLabel(_dacValidBitDepth),
+                  leading: _buildLeadingIcon(Icons.tune_rounded),
+                  onTap: () => _showDacValidBitDepthDialog(
+                      onDone: () => setSubState(() {})),
+                ),
+                const M3EDivider(),
                 IgnorePointer(
                   ignoring: _autoBitPerfectEnabled,
                   child: AnimatedOpacity(
@@ -1521,9 +1617,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       supportingText: _autoBitPerfectEnabled
                           ? 'Managed automatically by Auto-Match'
                           : 'Hardware output sample rate',
-                      value: widget.outputSampleRate == 0
-                          ? 'Native'
-                          : '${widget.outputSampleRate} Hz',
+                      value: _sampleRateLabel(widget.outputSampleRate),
                       leading: _buildLeadingIcon(SautiIcons.samplerate),
                       onTap: () => _showSampleRateDialog(
                           onDone: () => setSubState(() {})),
@@ -1930,6 +2024,303 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ],
               ],
+            ),
+            const SizedBox(height: 20),
+            _buildSectionHeader('USB DAC & HI-RES HARDWARE'),
+            const SizedBox(height: 8),
+            StreamBuilder<AudioHardwareSpecs>(
+              initialData:
+                  _liveHardwareSpecs ?? AudioHardwareInspector.currentSpecs,
+              stream: AudioHardwareInspector.hardwareStream(widget.player),
+              builder: (context, hwSnap) {
+                final hw = hwSnap.data;
+                final bool dacConnected = hw?.isUsbDac == true;
+                final bool usbDirectActive = hw?.isUsbDirectBypass == true ||
+                    (Platform.isAndroid &&
+                        _selectedBackend == AudioOutputBackend.usbDirect);
+                final Color statusColor = usbDirectActive && dacConnected
+                    ? Colors.greenAccent
+                    : (dacConnected ? _primary : _textDark);
+                final String badgeText = usbDirectActive
+                    ? (dacConnected ? 'USB DIRECT' : 'ARMED')
+                    : (dacConnected ? 'CONNECTED' : 'STANDBY');
+                final String statusTitle =
+                    dacConnected ? hw!.deviceName : 'USB Audio DAC';
+                final String statusSubtitle = dacConnected
+                    ? '${hw!.isUsbDirectBypass ? "libusb UAC Bit-Perfect Bypass" : hw.backendName} • ${hw.formattedBitDepth} / ${hw.formattedSampleRate}'
+                    : 'No USB DAC detected • Connect a USB-C / OTG DAC for up to 32-bit / 384–768 kHz direct output';
+                final List<int> dacRates = hw?.supportedSampleRates.isNotEmpty == true
+                    ? hw!.supportedSampleRates
+                    : const <int>[
+                        44100,
+                        48000,
+                        88200,
+                        96000,
+                        176400,
+                        192000,
+                        352800,
+                        384000,
+                      ];
+
+                return _buildCardContainer(
+                  children: [
+                    AppSettingsTile(
+                      title: statusTitle,
+                      subtitle: statusSubtitle,
+                      leading: _buildLeadingIcon(
+                        Icons.usb_rounded,
+                        statusColor,
+                      ),
+                      trailing: AppStatusBadge(
+                        text: badgeText,
+                        color: statusColor,
+                      ),
+                    ),
+                    if (Platform.isAndroid) ...[
+                      const M3EDivider(),
+                      _buildM3ESwitchTile(
+                        title: 'USB Direct Bypass (libusb)',
+                        subtitle:
+                            'Bypass Android AudioFlinger & kernel mixer for bit-perfect UAC 1.0/2.0 DAC output',
+                        secondary: _buildLeadingIcon(
+                          Icons.developer_board_rounded,
+                          _selectedBackend == AudioOutputBackend.usbDirect
+                              ? Colors.greenAccent
+                              : _textDark,
+                        ),
+                        value: _selectedBackend == AudioOutputBackend.usbDirect,
+                        onChanged: (enabled) async {
+                          final target = enabled
+                              ? AudioOutputBackend.usbDirect
+                              : AudioOutputBackend.auto;
+                          int perm = -1;
+                          if (enabled) {
+                            perm = await widget.player
+                                .requestUsbDacPermission();
+                          }
+                          widget.player.setOutputBackend(target);
+                          await AppStateService.instance
+                              .saveOutputBackend(target.value);
+                          setState(() => _selectedBackend = target);
+                          setSubState(() {});
+                          await AudioHardwareInspector.inspectAsync(
+                              widget.player);
+                          if (!context.mounted) return;
+                          if (!enabled) {
+                            _showUsbSnackBar(
+                              context,
+                              icon: Icons.info_outline,
+                              accentColor: _textDark,
+                              message:
+                                  'Switched back to Auto Android audio driver',
+                            );
+                          } else if (perm == 1) {
+                            _showUsbSnackBar(
+                              context,
+                              icon: Icons.verified_rounded,
+                              accentColor: Colors.greenAccent,
+                              message:
+                                  'USB Direct (libusb) active — Bit-perfect hardware lock engaged',
+                            );
+                          } else if (perm == 0) {
+                            _showUsbSnackBar(
+                              context,
+                              icon: Icons.usb_rounded,
+                              accentColor: Colors.amberAccent,
+                              message:
+                                  'Approve the Android USB DAC permission dialog to begin direct playback',
+                            );
+                          } else {
+                            _showUsbSnackBar(
+                              context,
+                              icon: Icons.usb_off_rounded,
+                              accentColor: _primary,
+                              message:
+                                  'USB Direct armed — Connect a USB DAC to engage libusb kernel bypass',
+                            );
+                          }
+                        },
+                      ),
+                      const M3EDivider(),
+                      AppSettingsTile(
+                        title: hw?.usbHasPermission == true
+                            ? 'USB DAC Permission Granted'
+                            : 'Request / Refresh USB DAC Permission',
+                        subtitle: dacConnected
+                            ? (hw?.usbHasPermission == true
+                                ? 'Direct libusb file descriptor bound cleanly'
+                                : 'Tap to grant Android UsbManager access for direct DAC transport')
+                            : 'Plug in a USB DAC via USB-C / OTG and tap to probe hardware descriptors',
+                        leading: _buildLeadingIcon(
+                          hw?.usbHasPermission == true
+                              ? Icons.verified_user_rounded
+                              : Icons.key_rounded,
+                          hw?.usbHasPermission == true
+                              ? Colors.greenAccent
+                              : _primary,
+                        ),
+                        onTap: () async {
+                          final perm = await widget.player
+                              .requestUsbDacPermission();
+                          await AudioHardwareInspector.inspectAsync(
+                              widget.player);
+                          setSubState(() {});
+                          if (!context.mounted) return;
+                          if (perm == 1) {
+                            _showUsbSnackBar(
+                              context,
+                              icon: Icons.verified_rounded,
+                              accentColor: Colors.greenAccent,
+                              message:
+                                  'USB DAC access granted & descriptors bound to engine',
+                            );
+                          } else if (perm == 0) {
+                            _showUsbSnackBar(
+                              context,
+                              icon: Icons.usb_rounded,
+                              accentColor: Colors.amberAccent,
+                              message:
+                                  'USB permission prompt opened — Accept to unlock USB Direct',
+                            );
+                          } else {
+                            _showUsbSnackBar(
+                              context,
+                              icon: Icons.usb_off_rounded,
+                              accentColor: _textDark,
+                              message:
+                                  'No USB Audio Class DAC detected on USB OTG host bus',
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                    const M3EDivider(),
+                    AppSettingsTile(
+                      title: '32-bit / 384 kHz Ultra Hi-Res Preset',
+                      subtitle:
+                          'Sets 32-bit Integer PCM, 384.0 kHz rate, 32-bit DAC depth & bit-perfect driver',
+                      leading: _buildLeadingIcon(
+                        Icons.high_quality_rounded,
+                        (widget.outputFormat == AudioFormat.s32 &&
+                                widget.outputSampleRate == 384000)
+                            ? Colors.greenAccent
+                            : _primary,
+                      ),
+                      trailing: AppStatusBadge(
+                        text: (widget.outputFormat == AudioFormat.s32 &&
+                                widget.outputSampleRate == 384000)
+                            ? 'ACTIVE'
+                            : 'APPLY',
+                        color: (widget.outputFormat == AudioFormat.s32 &&
+                                widget.outputSampleRate == 384000)
+                            ? Colors.greenAccent
+                            : _primary,
+                      ),
+                      onTap: () async {
+                        setState(() {
+                          _autoBitPerfectEnabled = false;
+                          _dacValidBitDepth = 32;
+                        });
+                        widget.player.setAutoSampleRateMatchEnabled(false);
+                        AppStateService.instance
+                            .saveAutoBitPerfectEnabled(false);
+                        widget.onOutputFormatChanged(AudioFormat.s32);
+                        widget.player.setOutputFormat(AudioFormat.s32);
+                        widget.onOutputSampleRateChanged(384000);
+                        widget.player.setOutputSampleRate(384000);
+                        widget.player.setDacValidBitDepth(32);
+                        await AppStateService.instance
+                            .saveDacValidBitDepth(32);
+                        if (Platform.isAndroid) {
+                          await widget.player.requestUsbDacPermission();
+                          widget.player
+                              .setOutputBackend(AudioOutputBackend.usbDirect);
+                          await AppStateService.instance.saveOutputBackend(
+                              AudioOutputBackend.usbDirect.value);
+                          setState(() =>
+                              _selectedBackend = AudioOutputBackend.usbDirect);
+                        } else {
+                          widget.player.setExclusiveMode(true);
+                          widget.onExclusiveModeChanged(true);
+                        }
+                        await AudioHardwareInspector.inspectAsync(
+                            widget.player);
+                        setSubState(() {});
+                        if (!context.mounted) return;
+                        _showUsbSnackBar(
+                          context,
+                          icon: Icons.high_quality_rounded,
+                          accentColor: Colors.greenAccent,
+                          message:
+                              'Applied 32-bit / 384.0 kHz Hi-Res USB DAC profile',
+                        );
+                      },
+                    ),
+                    if (dacConnected || dacRates.isNotEmpty) ...[
+                      const M3EDivider(),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              dacConnected
+                                  ? 'DAC Sample Rate Quick Lock'
+                                  : 'Hi-Res USB DAC Sample Rates',
+                              style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: dacRates.map((rate) {
+                                final isSelected =
+                                    widget.outputSampleRate == rate &&
+                                        !_autoBitPerfectEnabled;
+                                return ChoiceChip(
+                                  label: Text(_sampleRateLabel(rate)),
+                                  selected: isSelected,
+                                  onSelected: (_) async {
+                                    setState(
+                                        () => _autoBitPerfectEnabled = false);
+                                    widget.player
+                                        .setAutoSampleRateMatchEnabled(false);
+                                    AppStateService.instance
+                                        .saveAutoBitPerfectEnabled(false);
+                                    widget.onOutputSampleRateChanged(rate);
+                                    widget.player.setOutputSampleRate(rate);
+                                    await AudioHardwareInspector.inspectAsync(
+                                        widget.player);
+                                    setSubState(() {});
+                                  },
+                                  selectedColor: _primary.withAlpha(45),
+                                  labelStyle: TextStyle(
+                                    color:
+                                        isSelected ? _primary : _textPrimary,
+                                    fontSize: 12,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                  ),
+                                  side: BorderSide(
+                                    color: isSelected
+                                        ? _primary
+                                        : context.outlineColor,
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 20),
             _buildSectionHeader('SPEAKER & EAR PROTECTION'),
@@ -6523,24 +6914,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _showDacValidBitDepthDialog({VoidCallback? onDone}) {
+    final options = [
+      (
+        0,
+        'Auto (Negotiated)',
+        'Matches USB DAC descriptor / output stream resolution automatically'
+      ),
+      (
+        32,
+        '32-Bit True PCM',
+        'Full 32-bit linearity for flagship 32-bit USB DACs (R2R & Delta-Sigma)'
+      ),
+      (
+        24,
+        '24-Bit (in 32-Bit Container)',
+        'Standard studio Hi-Res 24-bit noise-shaped target inside 32-bit frames'
+      ),
+      (
+        16,
+        '16-Bit Integer',
+        'Truncates / dithers precisely for classic 16-bit DAC stages'
+      ),
+    ];
+
+    Future<void> selectBits(int bits, BuildContext dlgCtx) async {
+      setState(() => _dacValidBitDepth = bits);
+      widget.player.setDacValidBitDepth(bits);
+      await AppStateService.instance.saveDacValidBitDepth(bits);
+      await AudioHardwareInspector.inspectAsync(widget.player);
+      onDone?.call();
+      if (dlgCtx.mounted) Navigator.pop(dlgCtx);
+    }
+
+    M3EBottomSheet.show<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
+          title: 'DAC Valid Bit Depth',
+          subtitle: 'Physical DAC valid bit resolution for dithering & packing',
+          child: M3EList.scrollable(
+            listPadding: const EdgeInsets.symmetric(vertical: 4.0),
+            margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            gap: 6.0,
+            outerRadius: 20.0,
+            innerRadius: 6.0,
+            itemCount: options.length,
+            onTap: (index) {
+              setDlgState(() {});
+              selectBits(options[index].$1, ctx);
+            },
+            itemBuilder: (context, index) {
+              final item = options[index];
+              final bits = item.$1;
+              final isSelected = bits == _dacValidBitDepth;
+              return M3EListItem(
+                headline: item.$2,
+                supportingText: item.$3,
+                selected: isSelected,
+                trailing: M3ERadio<int>(
+                  value: bits,
+                  groupValue: _dacValidBitDepth,
+                  onChanged: (_) {
+                    setDlgState(() {});
+                    selectBits(bits, ctx);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showSampleRateDialog({VoidCallback? onDone}) {
+    final supportedRates =
+        _liveHardwareSpecs?.supportedSampleRates ?? const <int>[];
     final rates = [
       (
         0,
         'Native (Auto)',
-        'Matches connected hardware to avoid extra resampling'
+        'Matches source track & USB DAC clock to avoid resampling'
       ),
-      (44100, '44.1 kHz', 'Standard CD audio sample rate'),
-      (48000, '48.0 kHz', 'Standard digital media and video audio rate'),
-      (96000, '96.0 kHz', 'High-Resolution 24/96 studio rate'),
-      (192000, '192.0 kHz', 'Ultra HD Master high-resolution rate'),
+      (44100, '44.1 kHz', 'Standard CD Red Book audio sample rate'),
+      (48000, '48.0 kHz', 'Standard studio & digital media audio rate'),
+      (88200, '88.2 kHz', '2× CD oversampled high-resolution rate'),
+      (96000, '96.0 kHz', 'High-Resolution 24/96 studio master rate'),
+      (176400, '176.4 kHz', '4× CD high-resolution audiophile rate'),
+      (192000, '192.0 kHz', 'Ultra HD studio master rate'),
+      (352800, '352.8 kHz (DXD)', 'Digital eXtreme Definition (8× CD USB DAC rate)'),
+      (384000, '384.0 kHz (PCM Ultra)', '32-bit / 384 kHz flagship USB DAC master rate'),
+      (705600, '705.6 kHz (16× CD)', 'Extreme 16× CD rate for flagship UAC 2.0 DACs'),
+      (768000, '768.0 kHz (PCM Max)', 'Maximum UAC 2.0 USB DAC sample rate'),
     ];
+
+    void selectRate(int rate, BuildContext dlgCtx) {
+      setState(() {});
+      widget.onOutputSampleRateChanged(rate);
+      widget.player.setOutputSampleRate(rate);
+      AudioHardwareInspector.inspectAsync(widget.player);
+      onDone?.call();
+      Navigator.pop(dlgCtx);
+    }
+
     M3EBottomSheet.show<void>(
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
           title: 'Output Sample Rate',
-          subtitle: 'Target sample rate sent to the audio output stream',
+          subtitle: 'Target sample rate sent to audio hardware or USB DAC',
+          height: MediaQuery.of(context).size.height * 0.72,
           child: M3EList.scrollable(
             listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
@@ -6551,32 +7037,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
             innerRadius: 6.0,
             itemCount: rates.length,
             onTap: (index) {
-              final r = rates[index].$1;
               setDlgState(() {});
-              widget.onOutputSampleRateChanged(r);
-              widget.player.setOutputSampleRate(r);
-              setState(() {});
-              onDone?.call();
-              Navigator.pop(ctx);
+              selectRate(rates[index].$1, ctx);
             },
             itemBuilder: (context, index) {
               final item = rates[index];
               final r = item.$1;
               final isSelected = r == widget.outputSampleRate;
+              final isDacSupported = r > 0 && supportedRates.contains(r);
+              final supporting = isDacSupported
+                  ? '${item.$3} • DAC Supported'
+                  : item.$3;
               return M3EListItem(
                 headline: item.$2,
-                supportingText: item.$3,
+                supportingText: supporting,
                 selected: isSelected,
                 trailing: M3ERadio<int>(
                   value: r,
                   groupValue: widget.outputSampleRate,
-                  onChanged: (v) {
+                  onChanged: (_) {
                     setDlgState(() {});
-                    widget.onOutputSampleRateChanged(r);
-                    widget.player.setOutputSampleRate(r);
-                    setState(() {});
-                    onDone?.call();
-                    Navigator.pop(ctx);
+                    selectRate(r, ctx);
                   },
                 ),
               );
@@ -6620,7 +7101,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'Bypasses system mixer on supported high-res hardware',
         Icons.verified_rounded,
       ),
+      (
+        AudioOutputBackend.usbDirect,
+        'USB Direct (libusb Bit-Perfect)',
+        'Userspace libusb UAC 1.0/2.0 driver. Bypasses Android AudioFlinger & kernel HAL for native 32-bit / 384–768 kHz USB DAC playback',
+        Icons.usb_rounded,
+      ),
     ];
+
+    Future<void> selectBackend(
+        AudioOutputBackend selected, BuildContext dlgCtx) async {
+      int perm = -1;
+      if (selected == AudioOutputBackend.usbDirect) {
+        perm = await widget.player.requestUsbDacPermission();
+      }
+      widget.player.setOutputBackend(selected);
+      await AppStateService.instance.saveOutputBackend(selected.value);
+      setState(() {
+        _selectedBackend = selected;
+      });
+      setSubState(() {});
+      await AudioHardwareInspector.inspectAsync(widget.player);
+      if (dlgCtx.mounted) Navigator.pop(dlgCtx);
+      if (selected == AudioOutputBackend.usbDirect && context.mounted) {
+        if (perm == 1) {
+          _showUsbSnackBar(
+            context,
+            icon: Icons.verified_rounded,
+            accentColor: Colors.greenAccent,
+            message:
+                'USB Direct (libusb) active — Bit-perfect hardware lock engaged',
+          );
+        } else if (perm == 0) {
+          _showUsbSnackBar(
+            context,
+            icon: Icons.usb_rounded,
+            accentColor: Colors.amberAccent,
+            message:
+                'Grant USB DAC permission in the Android system dialog to activate direct playback',
+          );
+        } else {
+          _showUsbSnackBar(
+            context,
+            icon: Icons.usb_off_rounded,
+            accentColor: _primary,
+            message:
+                'USB Direct armed — Connect a USB DAC via OTG to engage libusb bypass',
+          );
+        }
+      }
+    }
 
     M3EBottomSheet.show<void>(
       context,
@@ -6628,6 +7158,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (ctx, setDlgState) => _buildModalBottomSheetLayout(
           title: 'Android Audio Driver',
           subtitle: 'Select the low-level audio driver for sound output',
+          height: MediaQuery.of(context).size.height * 0.72,
           child: M3EList.scrollable(
             listPadding: const EdgeInsets.symmetric(vertical: 4.0),
             margin: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 16.0),
@@ -6638,13 +7169,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             innerRadius: 6.0,
             itemCount: backends.length,
             onTap: (index) {
-              final selected = backends[index].$1;
-              widget.player.setOutputBackend(selected);
-              setState(() {
-                _selectedBackend = selected;
-              });
-              setSubState(() {});
-              Navigator.pop(ctx);
+              setDlgState(() {});
+              selectBackend(backends[index].$1, ctx);
             },
             itemBuilder: (context, index) {
               final item = backends[index];
@@ -6660,12 +7186,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: bk,
                   groupValue: _selectedBackend,
                   onChanged: (v) {
-                    widget.player.setOutputBackend(v);
-                    setState(() {
-                      _selectedBackend = v;
-                    });
-                    setSubState(() {});
-                    Navigator.pop(ctx);
+                    setDlgState(() {});
+                    selectBackend(v, ctx);
                   },
                 ),
               );

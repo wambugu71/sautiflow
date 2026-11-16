@@ -32,8 +32,8 @@ class DynamicEqBandModel {
 /// specifically engineered for the Dynamic Equalizer (up to 6 bands).
 ///
 /// Features:
-/// - Exact biquad transfer functions H(z) matching `dsp/dynamic_eq_dsp.h`
-///   (RBJ Peaking, Low-Shelf, and High-Shelf filters).
+/// - Exact Cytomic Trapezoidal SVF transfer functions matching `dsp/dynamic_eq_dsp.h`
+///   and `dsp/cytomic_svf_dsp.h` (Orfanidis Peaking, Low-Shelf, and Nyquist-matched High-Shelf).
 /// - Shows baseline curve and dynamic excursion envelope (compression/expansion zones).
 /// - Displays composite master acoustic output curve with glowing neon gradient.
 /// - Interactive band badge markers (1-4) with tap selection support.
@@ -42,6 +42,7 @@ class DynamicEqGraph extends StatelessWidget {
   final bool isEnabled;
   final double height;
   final Color? primaryColor;
+  final double sampleRate;
   final int selectedBandIndex;
   final ValueChanged<int>? onBandSelected;
 
@@ -51,6 +52,7 @@ class DynamicEqGraph extends StatelessWidget {
     this.isEnabled = true,
     this.height = 160.0,
     this.primaryColor,
+    this.sampleRate = 48000.0,
     this.selectedBandIndex = 0,
     this.onBandSelected,
   });
@@ -124,6 +126,7 @@ class DynamicEqGraph extends StatelessWidget {
                       bands: bands,
                       isEnabled: isEnabled,
                       primaryColor: effectivePrimary,
+                      sampleRate: sampleRate > 0 ? sampleRate : 48000.0,
                       selectedBandIndex: selectedBandIndex,
                     ),
                   ),
@@ -185,16 +188,36 @@ class DynamicEqGraph extends StatelessWidget {
   }
 }
 
+class _DynamicSvfCoeffs {
+  final double g;
+  final double k;
+  final double m0;
+  final double m1;
+  final double m2;
+  final bool isFlat;
+
+  const _DynamicSvfCoeffs({
+    this.g = 0.0,
+    this.k = 1.0,
+    this.m0 = 1.0,
+    this.m1 = 0.0,
+    this.m2 = 0.0,
+    this.isFlat = true,
+  });
+}
+
 class _DynamicEqPainter extends CustomPainter {
   final List<DynamicEqBandModel> bands;
   final bool isEnabled;
   final Color primaryColor;
+  final double sampleRate;
   final int selectedBandIndex;
 
   _DynamicEqPainter({
     required this.bands,
     required this.isEnabled,
     required this.primaryColor,
+    required this.sampleRate,
     required this.selectedBandIndex,
   });
 
@@ -203,7 +226,6 @@ class _DynamicEqPainter extends CustomPainter {
   static const double minDb = -18.0;
   static const double maxDb = 18.0;
   static const int numPoints = 150;
-  static const double sampleRate = 48000.0;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -259,7 +281,7 @@ class _DynamicEqPainter extends CustomPainter {
       final band = bands[b];
       if (!band.enabled) continue;
 
-      final baseCoeffs = _computeBiquadCoeffs(
+      final baseCoeffs = _computeSvfCoeffs(
         band.filterType,
         band.freqHz,
         band.q,
@@ -277,7 +299,7 @@ class _DynamicEqPainter extends CustomPainter {
               : band.baseGainDb);
 
       final excursionCoeffs = hasDynamics
-          ? _computeBiquadCoeffs(
+          ? _computeSvfCoeffs(
               band.filterType,
               band.freqHz,
               band.q,
@@ -287,13 +309,13 @@ class _DynamicEqPainter extends CustomPainter {
           : baseCoeffs;
 
       for (int i = 0; i < numPoints; i++) {
-        final baseDb = _evalBiquadGainDb(baseCoeffs, freqs[i], sampleRate);
+        final baseDb = _evalSvfGainDb(baseCoeffs, freqs[i], sampleRate);
         bandBaselineCurves[b][i] = baseDb;
         totalDbCurve[i] += baseDb;
 
         if (hasDynamics) {
           bandExcursionCurves[b][i] =
-              _evalBiquadGainDb(excursionCoeffs, freqs[i], sampleRate);
+              _evalSvfGainDb(excursionCoeffs, freqs[i], sampleRate);
         } else {
           bandExcursionCurves[b][i] = baseDb;
         }
@@ -431,14 +453,14 @@ class _DynamicEqPainter extends CustomPainter {
       final handleX = paddingLeft + logRatio * graphWidth;
 
       // Net gain at center frequency
-      final coeffs = _computeBiquadCoeffs(
+      final coeffs = _computeSvfCoeffs(
         band.filterType,
         band.freqHz,
         band.q,
         band.baseGainDb,
         sampleRate,
       );
-      final bandNetDb = _evalBiquadGainDb(coeffs, freq, sampleRate);
+      final bandNetDb = _evalSvfGainDb(coeffs, freq, sampleRate);
       final handleY = dbToY(bandNetDb);
 
       // Selected clean outer boundary ring (1px stroke, no blur)
@@ -662,92 +684,183 @@ class _DynamicEqPainter extends CustomPainter {
     }
   }
 
-  // --- Exact RBJ Biquad Math matching dsp/dynamic_eq_dsp.h ---
+  // --- Exact Cytomic SVF & Orfanidis Math matching dsp/dynamic_eq_dsp.h ---
 
-  List<double> _computeBiquadCoeffs(
+  double _analogHighShelfMag(double freqHz, double fcHz, double a, double k0) {
+    final u = freqHz / fcHz;
+    final u2 = u * u;
+    final sqrtA = math.sqrt(a);
+    final imag = k0 * sqrtA * u;
+    final numRe = 1.0 - a * u2;
+    final denRe = a - u2;
+    final numMagSq = numRe * numRe + imag * imag;
+    final denMagSq = math.max(denRe * denRe + imag * imag, 1.0e-30);
+    return a * math.sqrt(numMagSq / denMagSq);
+  }
+
+  _DynamicSvfCoeffs _computeSvfCoeffs(
     DynamicEqFilterType type,
     double freqHz,
     double q,
     double gainDb,
     double fs,
   ) {
-    final f0 = freqHz.clamp(20.0, fs / 2.1);
-    final w0 = 2.0 * math.pi * f0 / fs;
-    final sinW0 = math.sin(w0);
-    final cosW0 = math.cos(w0);
-    final clampedQ = q > 0.05 ? q : 1.0;
-    final A = math.pow(10.0, gainDb / 40.0).toDouble();
-    final alpha = sinW0 / (2.0 * clampedQ);
+    final clampedGain = gainDb.clamp(-36.0, 36.0);
+    if (clampedGain.abs() < 0.005) {
+      return const _DynamicSvfCoeffs(isFlat: true);
+    }
 
-    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
-    double a0 = 1.0, a1 = 0.0, a2 = 0.0;
+    final fc = freqHz.clamp(10.0, fs * 0.499);
+    final clampedQ = (q > 0.05 ? q : 1.0).clamp(0.05, 30.0);
+    final w0 = 2.0 * math.pi * fc / fs;
+    final a = math.pow(10.0, clampedGain / 40.0).toDouble();
+    final k0 = 1.0 / clampedQ;
+    final t0 = math.tan(w0 * 0.5);
 
     switch (type) {
       case DynamicEqFilterType.peak:
-        b0 = 1.0 + alpha * A;
-        b1 = -2.0 * cosW0;
-        b2 = 1.0 - alpha * A;
-        a0 = 1.0 + alpha / A;
-        a1 = -2.0 * cosW0;
-        a2 = 1.0 - alpha / A;
-        break;
+        final absGainDb = clampedGain.abs();
+        final aPos = math.pow(10.0, absGainDb / 40.0).toDouble();
+        final gPos = aPos * aPos;
+        final gb = aPos;
+
+        final r = math.sqrt(1.0 + 1.0 / (4.0 * clampedQ * clampedQ)) -
+            1.0 / (2.0 * clampedQ);
+        final w1 = w0 * r;
+        final t1 = math.tan(0.5 * w1);
+
+        final uNyq = math.pi / w0;
+        final oneMinusU2 = 1.0 - uNyq * uNyq;
+        final bwTermNum = (aPos * uNyq) / clampedQ;
+        final bwTermDen = uNyq / (clampedQ * aPos);
+        final g1Sq = (oneMinusU2 * oneMinusU2 + bwTermNum * bwTermNum) /
+            math.max(oneMinusU2 * oneMinusU2 + bwTermDen * bwTermDen, 1.0e-30);
+        final g1 = math.sqrt(math.min(g1Sq, gPos * gPos - 1.0e-15));
+
+        final x0 = math.max(t0 * t0, 1.0e-24);
+        final x1 = math.max(t1 * t1, 1.0e-24);
+        final g2M1 = math.max(gPos * gPos - 1.0, 1.0e-24);
+        final w2 = x0 *
+            math.sqrt(math.max((gPos * gPos - g1Sq) / g2M1, 1.0e-18));
+
+        final rhs1 = (gPos * gPos * (w2 - x0) * (w2 - x0) -
+                (w2 - g1 * x0) * (w2 - g1 * x0)) /
+            x0;
+        final rhs2 = (gb * gb * (w2 - x1) * (w2 - x1) -
+                (w2 - g1 * x1) * (w2 - g1 * x1)) /
+            x1;
+        final bd2 = math.max(
+            (rhs2 - rhs1) / math.max(gPos * gPos - gb * gb, 1.0e-24), 1.0e-24);
+        final bn2 = math.max(rhs1 + gPos * gPos * bd2, 1.0e-24);
+        final bn = math.sqrt(bn2);
+        final bd = math.sqrt(bd2);
+
+        if (clampedGain >= 0.0) {
+          final gOut = math.sqrt(w2);
+          final kOut = bd / gOut;
+          return _DynamicSvfCoeffs(
+            g: gOut,
+            k: kOut,
+            m0: g1,
+            m1: (bn / gOut) - g1 * kOut,
+            m2: 1.0 - g1,
+            isFlat: false,
+          );
+        } else {
+          final invG1 = 1.0 / g1;
+          final gOut = math.sqrt(w2 * invG1);
+          final kOut = bd > 0.0 ? (bn * invG1) / gOut : k0;
+          return _DynamicSvfCoeffs(
+            g: gOut,
+            k: kOut,
+            m0: invG1,
+            m1: ((bd * invG1) / gOut) - invG1 * kOut,
+            m2: 1.0 - invG1,
+            isFlat: false,
+          );
+        }
 
       case DynamicEqFilterType.lowShelf:
-        final twoSqrtAAlpha = 2.0 * math.sqrt(A) * alpha;
-        final ap1 = A + 1.0;
-        final am1 = A - 1.0;
-        b0 = A * (ap1 - am1 * cosW0 + twoSqrtAAlpha);
-        b1 = 2.0 * A * (am1 - ap1 * cosW0);
-        b2 = A * (ap1 - am1 * cosW0 - twoSqrtAAlpha);
-        a0 = ap1 + am1 * cosW0 + twoSqrtAAlpha;
-        a1 = -2.0 * (am1 + ap1 * cosW0);
-        a2 = ap1 + am1 * cosW0 - twoSqrtAAlpha;
-        break;
+        return _DynamicSvfCoeffs(
+          g: t0 / math.sqrt(a),
+          k: k0,
+          m0: 1.0,
+          m1: k0 * (a - 1.0),
+          m2: a * a - 1.0,
+          isFlat: false,
+        );
 
       case DynamicEqFilterType.highShelf:
-        final twoSqrtAAlpha = 2.0 * math.sqrt(A) * alpha;
-        final ap1 = A + 1.0;
-        final am1 = A - 1.0;
-        b0 = A * (ap1 + am1 * cosW0 + twoSqrtAAlpha);
-        b1 = -2.0 * A * (am1 + ap1 * cosW0);
-        b2 = A * (ap1 + am1 * cosW0 - twoSqrtAAlpha);
-        a0 = ap1 - am1 * cosW0 + twoSqrtAAlpha;
-        a1 = 2.0 * (am1 - ap1 * cosW0);
-        a2 = ap1 - am1 * cosW0 - twoSqrtAAlpha;
-        break;
-    }
+        final absGainDb = clampedGain.abs();
+        final aPos = math.pow(10.0, absGainDb / 40.0).toDouble();
+        final g1 = _analogHighShelfMag(0.5 * fs, fc, aPos, k0);
+        final r = (g1 + aPos) / (1.0 + aPos);
+        final w2 = t0 * t0 * r;
+        final gBoost = math.sqrt(w2);
 
-    return [b0, b1, b2, a0, a1, a2];
+        final ratioNyq = (fc / (0.5 * fs)).clamp(0.0, 1.0);
+        final blend = ratioNyq * ratioNyq;
+        final fRef = (1.0 - blend) * (0.7 * fc) +
+            blend * math.sqrt(fc * 0.48 * fs);
+        final m = _analogHighShelfMag(fRef, fc, aPos, k0);
+        final m2Sq = m * m;
+        final t1 = math.tan(math.pi * fRef / fs);
+        final x1 = t1 * t1;
+        final denomK = w2 * x1 * (m2Sq - aPos * aPos);
+        final numK =
+            (w2 - g1 * x1) * (w2 - g1 * x1) - m2Sq * (w2 - x1) * (w2 - x1);
+        double kEff = k0;
+        if (denomK.abs() > 1.0e-12 && (numK / denomK) > 0.0) {
+          final cand = math.sqrt(numK / denomK);
+          if (cand >= 0.25 * k0 && cand <= 4.0 * k0) {
+            kEff = cand;
+          }
+        }
+
+        if (clampedGain >= 0.0) {
+          return _DynamicSvfCoeffs(
+            g: gBoost,
+            k: kEff,
+            m0: g1,
+            m1: (aPos - g1) * kEff,
+            m2: 1.0 - g1,
+            isFlat: false,
+          );
+        } else {
+          final sqrtG1 = math.sqrt(g1);
+          final invG1 = 1.0 / g1;
+          final kCut = (aPos * kEff) / sqrtG1;
+          return _DynamicSvfCoeffs(
+            g: gBoost / sqrtG1,
+            k: kCut,
+            m0: invG1,
+            m1: (kEff / sqrtG1) - invG1 * kCut,
+            m2: 1.0 - invG1,
+            isFlat: false,
+          );
+        }
+    }
   }
 
-  double _evalBiquadGainDb(List<double> coeffs, double f, double fs) {
-    final a0 = coeffs[3];
-    if (a0.abs() < 1e-9) return 0.0;
+  double _evalSvfGainDb(_DynamicSvfCoeffs c, double f, double fs) {
+    if (c.isFlat) return 0.0;
+    if (f >= 0.5 * fs * (1.0 - 1.0e-7)) {
+      return 20.0 * (math.log(math.max(c.m0.abs(), 1.0e-12)) / math.ln10);
+    }
+    final t = math.tan(math.pi * f / fs);
+    final t2 = t * t;
+    final g2 = c.g * c.g;
+    final kg = c.k * c.g;
 
-    final b0n = coeffs[0] / a0;
-    final b1n = coeffs[1] / a0;
-    final b2n = coeffs[2] / a0;
-    final a1n = coeffs[4] / a0;
-    final a2n = coeffs[5] / a0;
+    final denRe = g2 - t2;
+    final denIm = kg * t;
+    final numRe = c.m0 * denRe + c.m2 * g2;
+    final numIm = (c.m0 * kg + c.m1 * c.g) * t;
 
-    final w = 2.0 * math.pi * f / fs;
-    final cos1 = math.cos(w);
-    final cos2 = math.cos(2.0 * w);
-    final sin1 = math.sin(w);
-    final sin2 = math.sin(2.0 * w);
-
-    final numR = b0n + b1n * cos1 + b2n * cos2;
-    final numI = -b1n * sin1 - b2n * sin2;
-    final denR = 1.0 + a1n * cos1 + a2n * cos2;
-    final denI = -a1n * sin1 - a2n * sin2;
-
-    final numSq = numR * numR + numI * numI;
-    final denSq = denR * denR + denI * denI;
-
-    if (denSq < 1e-12) return 0.0;
-    final magSq = numSq / denSq;
-    if (magSq <= 1e-12) return -60.0;
-
+    final numMagSq = numRe * numRe + numIm * numIm;
+    final denMagSq = math.max(denRe * denRe + denIm * denIm, 1.0e-30);
+    final magSq = numMagSq / denMagSq;
+    if (magSq <= 1.0e-12) return -60.0;
     return 10.0 * (math.log(magSq) / math.ln10);
   }
 

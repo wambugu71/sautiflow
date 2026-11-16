@@ -8,6 +8,7 @@ file(GLOB LIBSAMPLERATE_SOURCES "../../../../third_party/libsamplerate/src/*.c")
 add_library(audio_engine SHARED
   ../../../../audio_engine.cpp
   ../../../../ffmpeg_stream_decoder.cpp
+  ../../../../third_party/libusb/libusb_android.c
   ${LIBSAMPLERATE_SOURCES}
 )
 
@@ -15,6 +16,7 @@ target_include_directories(audio_engine PRIVATE
   ../../../../
   ../../../../dsp
   ../../../../third_party
+  ../../../../third_party/libusb
   ../../../../third_party/libsamplerate/include
   ../../../../third_party/r8brain
   ../../../../third_party/ffmpeg/include

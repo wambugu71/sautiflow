@@ -165,6 +165,7 @@ class EqScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
   final bool analyzerEnabled;
   final String analyzerType;
+  final int sampleRate;
   final GlobalKey? effectsKnobKey;
   final List<Widget>? headerSlivers;
   final ScrollController? scrollController;
@@ -176,6 +177,7 @@ class EqScreen extends StatefulWidget {
     required this.player,
     required this.analyzerEnabled,
     required this.analyzerType,
+    this.sampleRate = 48000,
     this.effectsKnobKey,
     this.headerSlivers,
     this.scrollController,
@@ -8364,6 +8366,7 @@ class _EqScreenState extends State<EqScreen>
             isEnabled: _parametricEqEnabled,
             height: 110.0,
             primaryColor: primaryColor,
+            sampleRate: (widget.sampleRate > 0 ? widget.sampleRate : 48000).toDouble(),
           ),
         ),
         const SizedBox(height: 12),
@@ -13905,6 +13908,7 @@ class _EqScreenState extends State<EqScreen>
             isEnabled: _dynamicEqEnabled,
             height: 135.0,
             primaryColor: primaryColor,
+            sampleRate: (widget.sampleRate > 0 ? widget.sampleRate : 48000).toDouble(),
             selectedBandIndex: _selectedDynamicEqBand,
             onBandSelected: _scrollToDynamicEqBand,
           ),

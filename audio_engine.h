@@ -236,7 +236,7 @@ extern "C"
     AE_API void ae_get_reverb_gains(AudioEngineHandle *engine, float *out_wet, float *out_dry);
     AE_API void ae_get_reverb_params_ex(AudioEngineHandle *engine, int *out_enabled, float *out_mix, float *out_room_size, float *out_damping, float *out_pre_delay_ms, float *out_width);
 
-    // Reverb Engine Selection (0 = Dattorro Tank, 1 = Lattice Reverb, 2 = Diffusion Reverb)
+    // Reverb Engine Selection (0 = Dattorro Tank, 1 = Lattice Reverb, 2 = Diffusion Reverb, 3 = Hadamard FDN, 4 = Keith Barr Ring, 5 = Griesinger Spin & Wander)
     AE_API void ae_set_reverb_engine(AudioEngineHandle *engine, int engine_type);
     AE_API int  ae_get_reverb_engine(AudioEngineHandle *engine);
 
@@ -247,6 +247,18 @@ extern "C"
     // Diffusion Reverb Controls
     AE_API void ae_set_diffusion_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float decay_time_ms, float diffusion, float damping, float width);
     AE_API void ae_get_diffusion_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_decay_time_ms, float *out_diffusion, float *out_damping, float *out_width);
+
+    // Hadamard FDN Reverb Controls
+    AE_API void ae_set_hadamard_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float damping, float width);
+    AE_API void ae_get_hadamard_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width);
+
+    // Keith Barr All-Pass Ring Reverb Controls
+    AE_API void ae_set_barr_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float damping, float width);
+    AE_API void ae_get_barr_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width);
+
+    // David Griesinger Spin & Wander Reverb Controls
+    AE_API void ae_set_griesinger_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float damping, float width);
+    AE_API void ae_get_griesinger_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width);
 
     // Standalone Clean-Room DSP Suite Exports
     AE_API void ae_dsp_set_lattice_reverb_enabled(AudioEngineHandle *engine, int enabled);
@@ -948,7 +960,8 @@ extern "C"
         AE_BACKEND_AAUDIO       = 1, // Android low-latency AAudio (MMAP)
         AE_BACKEND_OPENSL       = 2, // Android legacy OpenSL ES
         AE_BACKEND_AUDIOTRACK   = 3, // Android standard framework AudioTrack
-        AE_BACKEND_DIRECT_HIRES = 4  // Android bit-perfect Direct Hi-Res (Hexagon/MTK/Exynos/Tensor)
+        AE_BACKEND_DIRECT_HIRES = 4, // Android bit-perfect Direct Hi-Res (Hexagon/MTK/Exynos/Tensor)
+        AE_BACKEND_USB_DIRECT   = 5  // Android direct USB Audio Class 1.0/2.0 driver via libusb (AudioFlinger & kernel bypass)
     } AEAudioBackend;
 
     // Native Hardware Audio Engine Inspection
@@ -977,6 +990,8 @@ extern "C"
     AE_API int ae_set_output_backend(AudioEngineHandle *engine, int backend);
     AE_API int ae_get_output_backend(AudioEngineHandle *engine);
     AE_API int ae_is_backend_supported(AudioEngineHandle *engine, int backend);
+    AE_API int ae_request_usb_dac_permission(AudioEngineHandle *engine);
+    AE_API void ae_set_android_usb_fd(AudioEngineHandle *engine, int fd, const uint8_t *raw_descriptors, int raw_desc_len, const char *device_name);
 
     // Reads tags and ReplayGain for a local audio file via FFmpeg libavformat.
     // Returns 1 on success, 0 on failure. Safe for local files; returns 0 immediately for network URLs.

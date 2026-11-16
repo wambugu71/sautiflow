@@ -1688,6 +1688,41 @@ class IsolateAudioPlayer {
     return response as bool? ?? false;
   }
 
+  /// Requests Android `UsbManager` permission for an attached USB Audio DAC
+  /// and binds its file descriptor and raw USB descriptors to the engine.
+  ///
+  /// Returns `1` if already granted, `0` if a permission dialog was launched,
+  /// or `-1` if no USB DAC is attached or the platform is unsupported.
+  Future<int> requestUsbDacPermission() async {
+    final response = await _request('requestUsbDacPermission');
+    return response as int? ?? -1;
+  }
+
+  /// Explicitly supplies an Android `UsbDeviceConnection` file descriptor and
+  /// raw USB descriptors for direct `libusb` USB DAC playback.
+  void setAndroidUsbFd(
+    int fd, {
+    Uint8List? rawDescriptors,
+    String? deviceName,
+  }) =>
+      _send({
+        'cmd': 'setAndroidUsbFd',
+        'fd': fd,
+        if (rawDescriptors != null) 'rawDescriptors': rawDescriptors,
+        if (deviceName != null) 'deviceName': deviceName,
+      });
+
+  /// Sets the physical DAC valid bit depth (`0` = auto-negotiated, `16`, `24`,
+  /// or `32` bits) used by noise-shaping/dithering and 24-in-32 bit packing.
+  void setDacValidBitDepth(int bits) =>
+      _send({'cmd': 'setDacValidBitDepth', 'bits': bits});
+
+  /// Returns the currently configured physical DAC valid bit depth.
+  Future<int> getDacValidBitDepth() async {
+    final response = await _request('getDacValidBitDepth');
+    return response as int? ?? 0;
+  }
+
   Future<double> getDeviceLatencyMs() async {
     final response = await _request('getDeviceLatencyMs');
     return (response as num?)?.toDouble() ?? 0.0;
@@ -2253,13 +2288,11 @@ void _isolateEntry(_IsolateInitData initData) {
           final bool hadEnabled = message['enabled'] as bool? ?? false;
           player.setReverbEnabled(hadEnabled);
           player.setReverbEngine(ReverbEngine.hadamardFdn);
-          player.setReverbEx(
-            enabled: hadEnabled,
+          player.setHadamardReverbParams(
             wet: (message['wet'] as num?)?.toDouble() ?? 0.22,
             dry: (message['dry'] as num?)?.toDouble() ?? 0.95,
             roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.65,
             damping: (message['damping'] as num?)?.toDouble() ?? 0.30,
-            preDelayMs: 0.0,
             width: (message['width'] as num?)?.toDouble() ?? 1.0,
           );
           break;
@@ -2267,13 +2300,11 @@ void _isolateEntry(_IsolateInitData initData) {
           final bool barrEnabled = message['enabled'] as bool? ?? false;
           player.setReverbEnabled(barrEnabled);
           player.setReverbEngine(ReverbEngine.barrRing);
-          player.setReverbEx(
-            enabled: barrEnabled,
+          player.setBarrReverbParams(
             wet: (message['wet'] as num?)?.toDouble() ?? 0.28,
             dry: (message['dry'] as num?)?.toDouble() ?? 0.90,
             roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.70,
             damping: (message['damping'] as num?)?.toDouble() ?? 0.35,
-            preDelayMs: 0.0,
             width: (message['width'] as num?)?.toDouble() ?? 1.0,
           );
           break;
@@ -2281,13 +2312,11 @@ void _isolateEntry(_IsolateInitData initData) {
           final bool griesEnabled = message['enabled'] as bool? ?? false;
           player.setReverbEnabled(griesEnabled);
           player.setReverbEngine(ReverbEngine.griesinger);
-          player.setReverbEx(
-            enabled: griesEnabled,
+          player.setGriesingerReverbParams(
             wet: (message['wet'] as num?)?.toDouble() ?? 0.24,
             dry: (message['dry'] as num?)?.toDouble() ?? 0.95,
             roomSize: (message['roomSize'] as num?)?.toDouble() ?? 0.68,
             damping: (message['damping'] as num?)?.toDouble() ?? 0.30,
-            preDelayMs: 0.0,
             width: (message['width'] as num?)?.toDouble() ?? 1.0,
           );
           break;
@@ -2761,6 +2790,34 @@ void _isolateEntry(_IsolateInitData initData) {
             sendResponse(message, null, e);
           }
           break;
+        case 'requestUsbDacPermission':
+          try {
+            sendResponse(message, player.requestUsbDacPermission());
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'setAndroidUsbFd':
+          final fd = message['fd'] as int? ?? -1;
+          final rawDesc = message['rawDescriptors'] as Uint8List?;
+          final devName = message['deviceName'] as String?;
+          player.setAndroidUsbFd(
+            fd,
+            rawDescriptors: rawDesc,
+            deviceName: devName,
+          );
+          break;
+        case 'setDacValidBitDepth':
+          final dacBits = message['bits'] as int? ?? 0;
+          player.setDacValidBitDepth(dacBits);
+          break;
+        case 'getDacValidBitDepth':
+          try {
+            sendResponse(message, player.getDacValidBitDepth());
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
         case 'getPipelineState':
           try {
             sendResponse(message, player.pipelineState);
@@ -2916,6 +2973,7 @@ void _isolateEntry(_IsolateInitData initData) {
               'outputChannels': ps.outputChannels,
               'eqEnabled': ps.eqEnabled,
               'reverbEnabled': ps.reverbEnabled,
+              'reverbEngine': player.getReverbEngine().label,
               'limiterEnabled': ps.limiterEnabled || player.isLookaheadLimiterEnabled,
               'lookaheadLimiterEnabled': player.isLookaheadLimiterEnabled,
               'simpleLimiterEnabled': ps.limiterEnabled,

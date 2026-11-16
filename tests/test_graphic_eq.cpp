@@ -174,6 +174,73 @@ static void test_audio_processing_stability() {
     CHECK(!hasInf, "No Inf values in float32 or float64 processed streams");
 }
 
+// -----------------------------------------------------------------------------
+// Test 5: Nyquist-Band Matrix Decoupling Alignment (32-Band @ 20 kHz)
+// -----------------------------------------------------------------------------
+static void test_nyquist_band_decoupling_alignment() {
+    std::printf("\n== Test 5: Nyquist-Band Matrix Decoupling Alignment (32-Band @ 20 kHz) ==\n");
+    const float freqs32[32] = {
+        20.0f, 25.0f, 31.5f, 40.0f, 50.0f, 63.0f, 80.0f, 100.0f,
+        125.0f, 160.0f, 200.0f, 250.0f, 315.0f, 400.0f, 500.0f, 630.0f,
+        800.0f, 1000.0f, 1250.0f, 1600.0f, 2000.0f, 2500.0f, 3150.0f, 4000.0f,
+        5000.0f, 6300.0f, 8000.0f, 10000.0f, 12500.0f, 16000.0f, 18000.0f, 20000.0f
+    };
+
+    GraphicEqDSP eqLegacy44k;
+    eqLegacy44k.init(32, freqs32, nullptr, 44100.0, GraphicEqDSP::EqTopology::LegacyCascade);
+    eqLegacy44k.setBandGain(31, 6.0);
+    const double evalMatch = eqLegacy44k.evaluateCompositeResponseDb(20000.0);
+    const double svfDirect = CytomicSVF::evaluateResponseDb(
+        CytomicSVF::FilterType::Bell, 44100.0, 20000.0, 6.0, eqLegacy44k.getQ(31), 20000.0);
+    CHECK(std::abs(evalMatch - svfDirect) < 1.0e-9,
+          "GraphicEq single-band 20 kHz evaluation matches CytomicSVF::evaluateResponseDb exactly");
+    CHECK(std::abs(evalMatch - 6.0) < 0.01,
+          "GraphicEq 20 kHz band hits +6.0 dB at 44.1 kHz without cramping or clamping");
+
+    const double sampleRates[2] = {44100.0, 48000.0};
+    for (double fs : sampleRates) {
+        GraphicEqDSP eqAll6;
+        eqAll6.init(32, freqs32, nullptr, fs, GraphicEqDSP::EqTopology::MatrixCompensatedCascade);
+        for (int b = 0; b < 32; ++b) eqAll6.setBandGain(b, 6.0);
+        const double comp20k = eqAll6.evaluateCompositeResponseDb(20000.0);
+        std::printf("  32-Band all +6 dB @ %.0f Hz -> composite 20 kHz = %+.3f dB\n", fs, comp20k);
+        CHECK(std::abs(comp20k - 6.0) < 0.25,
+              "32-band matrix decoupling holds 20 kHz at +6.0 dB (+/-0.25 dB)");
+
+        GraphicEqDSP eqSingle12;
+        eqSingle12.init(32, freqs32, nullptr, fs, GraphicEqDSP::EqTopology::MatrixCompensatedCascade);
+        eqSingle12.setBandGain(31, 12.0);
+        const double single20k = eqSingle12.evaluateCompositeResponseDb(20000.0);
+        CHECK(std::abs(single20k - 12.0) < 0.25,
+              "32-band single 20 kHz band @ +12 dB hits target without clamping");
+    }
+
+    // Verify steady-state time-domain 32-band 20 kHz boost @ 48 kHz
+    GraphicEqDSP eqAudio;
+    eqAudio.init(32, freqs32, nullptr, 48000.0, GraphicEqDSP::EqTopology::MatrixCompensatedCascade);
+    eqAudio.setBandGain(31, 6.0);
+    const uint32_t N = 24000;
+    std::vector<double> audio(N * 2);
+    for (uint32_t i = 0; i < N; ++i) {
+        const double s = std::cos(2.0 * M_PI * 20000.0 * (double)i / 48000.0);
+        audio[i * 2 + 0] = s;
+        audio[i * 2 + 1] = s;
+    }
+    eqAudio.process(audio.data(), N, 2);
+    const uint32_t win = 4800; // Exact 2000 cycles @ 20 kHz / 48 kHz
+    double sumSq = 0.0;
+    bool finiteOk = true;
+    for (uint32_t i = N - win; i < N; ++i) {
+        if (!std::isfinite(audio[i * 2])) finiteOk = false;
+        sumSq += audio[i * 2] * audio[i * 2];
+    }
+    const double rmsAmp = std::sqrt(2.0 * sumSq / static_cast<double>(win));
+    const double measuredDb = 20.0 * std::log10(std::max(rmsAmp, 1e-12));
+    std::printf("  32-Band audio 20 kHz (+6 dB @ 48 kHz): measured = %+.3f dB\n", measuredDb);
+    CHECK(finiteOk, "32-band 20 kHz steady-state audio contains no NaN/Inf");
+    CHECK(std::abs(measuredDb - 6.0) < 0.25, "32-band steady-state 20 kHz audio hits +6.0 dB (+/-0.25 dB)");
+}
+
 int main() {
     std::printf("========================================================\n");
     std::printf("GraphicEqDSP Unit Verification Suite\n");
@@ -183,6 +250,7 @@ int main() {
     test_matrix_decoupling_anti_ripple();
     test_flat_bypass_bit_exact();
     test_audio_processing_stability();
+    test_nyquist_band_decoupling_alignment();
 
     std::printf("\n========================================================\n");
     std::printf("Summary: %d Passed, %d Failed\n", g_passes, g_failures);
