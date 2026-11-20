@@ -432,6 +432,10 @@ extern "C"
         int direct_multi_rate,
         const int *supported_rates,
         int supported_rates_count);
+    AE_API int ae_get_hardware_supported_sample_rates(
+        AudioEngineHandle *engine,
+        int *out_rates,
+        int max_count);
 
     AE_API void ae_set_output_channels(AudioEngineHandle *engine, int channels);
     AE_API int ae_get_output_channels(AudioEngineHandle *engine);

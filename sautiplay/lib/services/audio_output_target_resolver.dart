@@ -61,8 +61,46 @@ abstract final class AudioOutputTargetResolver {
     required AudioFormat userFormat,
     int? sourceSampleRateHz,
   }) {
-    // 1. User explicit sample rate override in Settings
+    // 1. User explicit sample rate in Settings (clamped strictly to real hardware capability if known)
     if (userSampleRateHz > 0) {
+      if (specs.isFixedClock && !specs.directMultiRate && specs.sampleRate > 0) {
+        if (userSampleRateHz == specs.sampleRate) {
+          return ResolvedOutputTarget(
+            sampleRateHz: userSampleRateHz,
+            format: userFormat,
+            reason: 'User target (${(userSampleRateHz / 1000.0).toStringAsFixed(1)} kHz)',
+            isUserOverride: true,
+          );
+        }
+        return ResolvedOutputTarget(
+          sampleRateHz: specs.sampleRate,
+          format: userFormat,
+          reason:
+              'User target clamped to device capability (${(specs.sampleRate / 1000.0).toStringAsFixed(1)} kHz)',
+          isUserOverride: true,
+        );
+      }
+      if (specs.supportedSampleRates.isNotEmpty) {
+        if (specs.supportedSampleRates.contains(userSampleRateHz)) {
+          return ResolvedOutputTarget(
+            sampleRateHz: userSampleRateHz,
+            format: userFormat,
+            reason: 'User target (${(userSampleRateHz / 1000.0).toStringAsFixed(1)} kHz)',
+            isUserOverride: true,
+          );
+        }
+        final clamped = _pickBestSupportedRate(
+          userSampleRateHz,
+          specs.supportedSampleRates,
+        );
+        return ResolvedOutputTarget(
+          sampleRateHz: clamped,
+          format: userFormat,
+          reason:
+              'User target clamped to DAC capability (${(clamped / 1000.0).toStringAsFixed(1)} kHz)',
+          isUserOverride: true,
+        );
+      }
       return ResolvedOutputTarget(
         sampleRateHz: userSampleRateHz,
         format: userFormat,
@@ -75,7 +113,7 @@ abstract final class AudioOutputTargetResolver {
     if (specs.isBluetooth) {
       final int btRate = (specs.btSampleRate != null && specs.btSampleRate! > 0)
           ? specs.btSampleRate!
-          : (specs.sampleRate > 0 ? specs.sampleRate : 44100);
+          : (specs.sampleRate > 0 ? specs.sampleRate : 0);
       final int btBits = (specs.btBitDepth != null && specs.btBitDepth! > 0)
           ? specs.btBitDepth!
           : (specs.bitDepth > 0 ? specs.bitDepth : 16);
@@ -83,7 +121,9 @@ abstract final class AudioOutputTargetResolver {
       return ResolvedOutputTarget(
         sampleRateHz: btRate,
         format: formatForBitDepth(btBits, preferFloat: false),
-        reason: '$codec codec match ($btBits-bit / ${(btRate / 1000.0).toStringAsFixed(1)} kHz)',
+        reason: btRate > 0
+            ? '$codec codec match ($btBits-bit / ${(btRate / 1000.0).toStringAsFixed(1)} kHz)'
+            : '$codec codec match ($btBits-bit)',
         isUserOverride: false,
       );
     }
@@ -128,7 +168,15 @@ abstract final class AudioOutputTargetResolver {
 
     // 4. Built-in / Wired / Desktop output
     if (specs.isFixedClock && !specs.directMultiRate) {
-      final int halRate = specs.sampleRate > 0 ? specs.sampleRate : 48000;
+      final int halRate = specs.sampleRate;
+      if (halRate <= 0) {
+        return ResolvedOutputTarget(
+          sampleRateHz: 0,
+          format: formatForBitDepth(specs.bitDepth, preferFloat: specs.isFloat),
+          reason: 'HAL native auto',
+          isUserOverride: false,
+        );
+      }
       final bool matched =
           sourceSampleRateHz != null && sourceSampleRateHz == halRate;
       return ResolvedOutputTarget(

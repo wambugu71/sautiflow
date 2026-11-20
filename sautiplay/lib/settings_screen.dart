@@ -7029,7 +7029,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ))
           .toList(),
       onSelected: (rate) {
-        setState(() {});
+        setState(() {
+          if (rate > 0) {
+            _autoBitPerfectEnabled = false;
+          }
+        });
+        if (rate > 0) {
+          widget.player.setAutoSampleRateMatchEnabled(false);
+          AppStateService.instance.saveAutoBitPerfectEnabled(false);
+        }
         widget.onOutputSampleRateChanged(rate);
         widget.player.setOutputSampleRate(rate);
         AudioHardwareInspector.inspectAsync(widget.player);

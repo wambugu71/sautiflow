@@ -2005,6 +2005,17 @@ typedef _SetHardwareOutputCapabilitiesDart = void Function(
   int,
 );
 
+typedef _GetHardwareSupportedSampleRatesNative = ffi.Int32 Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Pointer<ffi.Int32>,
+  ffi.Int32,
+);
+typedef _GetHardwareSupportedSampleRatesDart = int Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Pointer<ffi.Int32>,
+  int,
+);
+
 typedef _GetLastErrorNative = ffi.Pointer<ffi.Char> Function(
   ffi.Pointer<ffi.Void>,
 );
@@ -3291,6 +3302,15 @@ class AudioEngineFFI {
     } catch (_) {
       _setHardwareOutputCapabilities = null;
     }
+    try {
+      _getHardwareSupportedSampleRates = _lib.lookupFunction<
+          _GetHardwareSupportedSampleRatesNative,
+          _GetHardwareSupportedSampleRatesDart>(
+        'ae_get_hardware_supported_sample_rates',
+      );
+    } catch (_) {
+      _getHardwareSupportedSampleRates = null;
+    }
     _getLastError = _lib.lookupFunction<_GetLastErrorNative, _GetLastErrorDart>(
       'ae_get_last_error',
     );
@@ -4392,6 +4412,7 @@ class AudioEngineFFI {
   late final _GetPipelineStateDart _getPipelineState;
   _GetActiveDspNodesJsonDart? _getActiveDspNodesJson;
   _SetHardwareOutputCapabilitiesDart? _setHardwareOutputCapabilities;
+  _GetHardwareSupportedSampleRatesDart? _getHardwareSupportedSampleRates;
   late final _GetLastErrorDart _getLastError;
   late final _ClearLastErrorDart _clearLastError;
   late final _SetIntDart _setLoopMode;
@@ -6973,6 +6994,23 @@ class AudioEngineFFI {
       if (ratesPtr != ffi.nullptr) {
         calloc.free(ratesPtr);
       }
+    }
+  }
+
+  List<int> getHardwareSupportedSampleRates() {
+    final fn = _getHardwareSupportedSampleRates;
+    if (_engine == ffi.nullptr || fn == null) return const [];
+    const int maxCount = 64;
+    final ptr = calloc<ffi.Int32>(maxCount);
+    try {
+      final count = fn(_engine, ptr, maxCount);
+      if (count <= 0) return const [];
+      final n = count < maxCount ? count : maxCount;
+      return List<int>.generate(n, (i) => ptr[i], growable: false);
+    } catch (_) {
+      return const [];
+    } finally {
+      calloc.free(ptr);
     }
   }
 

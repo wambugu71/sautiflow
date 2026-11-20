@@ -585,15 +585,12 @@ class MainActivity : AudioServiceActivity() {
             if (!isAudioMgrUsb) {
                 // When libusb detaches snd-usb-audio kernel driver, AudioManager falls back
                 // to built-in speaker; restore USB DAC metadata from UsbManager.
+                // Leave supportedSampleRates empty so real UAC1/UAC2 descriptor rates come
+                // directly from AndroidUsbDacSink without predefined assumptions.
                 deviceType = "USB DAC"
                 deviceName = resolvedUsbName
                 bitDepth = 32
                 isFloat = false
-                if (supportedSampleRates.isEmpty()) {
-                    supportedSampleRates = listOf(
-                        44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000, 705600, 768000
-                    )
-                }
             } else if ((deviceName == "USB Audio DAC" || deviceName.isBlank()) && usbProduct != null) {
                 deviceName = resolvedUsbName
             }
@@ -636,22 +633,41 @@ class MainActivity : AudioServiceActivity() {
         } else if (isBluetoothRoute) {
             isFixedClock = true
             directMultiRate = false
-            supportedSampleRates = listOf(sampleRate)
-        } else {
+            supportedSampleRates = if (sampleRate > 0) listOf(sampleRate) else emptyList()
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val directRates = queryDirectSupportedSampleRates(supportedSampleRates)
-            if (directRates.size > 1) {
-                isFixedClock = false
-                directMultiRate = true
+            if (directRates.isNotEmpty()) {
                 supportedSampleRates = directRates
+                directMultiRate = directRates.size > 1
+                isFixedClock = directRates.size <= 1
+                sampleRate = if (directRates.contains(nativeHalSampleRate)) {
+                    nativeHalSampleRate
+                } else {
+                    directRates.last()
+                }
             } else {
                 isFixedClock = true
                 directMultiRate = false
                 sampleRate = nativeHalSampleRate
+                supportedSampleRates = if (nativeHalSampleRate > 0) {
+                    listOf(nativeHalSampleRate)
+                } else {
+                    emptyList()
+                }
+            }
+        } else {
+            if (supportedSampleRates.isEmpty() && nativeHalSampleRate > 0) {
                 supportedSampleRates = listOf(nativeHalSampleRate)
             }
+            directMultiRate = supportedSampleRates.size > 1
+            isFixedClock = supportedSampleRates.size <= 1
         }
 
-        val latencyMs = (periodFrames.toDouble() * 2.0 / sampleRate.toDouble()) * 1000.0
+        val latencyMs = if (sampleRate > 0) {
+            (periodFrames.toDouble() * 2.0 / sampleRate.toDouble()) * 1000.0
+        } else {
+            0.0
+        }
 
         return mapOf(
             "deviceName" to deviceName,

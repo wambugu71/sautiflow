@@ -1860,6 +1860,14 @@ class IsolateAudioPlayer {
     return response as AEHardwareInfo;
   }
 
+  Future<List<int>> getHardwareSupportedSampleRates() async {
+    final response = await _request('getHardwareSupportedSampleRates');
+    if (response is List) {
+      return response.whereType<num>().map((n) => n.toInt()).toList(growable: false);
+    }
+    return const [];
+  }
+
   Future<Map<String, dynamic>> getAudioProperties() async {
     final response = await _request('getAudioProperties');
     return (response as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
@@ -3879,6 +3887,14 @@ void _isolateEntry(_IsolateInitData initData) {
             sendResponse(message, info);
           } catch (e) {
             sendResponse(message, null, e);
+          }
+          break;
+        case 'getHardwareSupportedSampleRates':
+          try {
+            final rates = player.getHardwareSupportedSampleRates();
+            sendResponse(message, rates);
+          } catch (e) {
+            sendResponse(message, const <int>[], e);
           }
           break;
         case 'setAbRepeat':

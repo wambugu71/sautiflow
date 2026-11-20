@@ -275,6 +275,8 @@ class MiniAudioPlayer {
       _engine.readFileMetadata(path, getImage: getImage);
   AEHardwareInfo getHardwareInfo() => _engine.getHardwareInfo();
   AEHardwareInfo get hardwareInfo => getHardwareInfo();
+  List<int> getHardwareSupportedSampleRates() =>
+      _engine.getHardwareSupportedSampleRates();
 
   /// Sets the preferred audio output backend.
   bool setOutputBackend(AudioOutputBackend backend) =>

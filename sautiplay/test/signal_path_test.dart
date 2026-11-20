@@ -647,6 +647,244 @@ void main() {
       expect(directDapSpecs.isFixedClock, isFalse);
       expect(directDapSpecs.directMultiRate, isTrue);
     });
+
+    test('dynamic non-48k fixed-clock device capability (96 kHz) governs clamping and 1:1 SRC OFF', () {
+      const soundcard96Specs = AudioHardwareSpecs(
+        backendName: 'WASAPI',
+        deviceName: 'Studio Soundcard (96 kHz Shared)',
+        sampleRate: 96000,
+        bitDepth: 32,
+        isFloat: true,
+        channels: 2,
+        periodSizeFrames: 480,
+        periodCount: 2,
+        latencyMs: 10.0,
+        isExclusiveMode: false,
+        deviceType: 'Speakers / Output Device',
+        supportedSampleRates: [96000],
+        isFixedClock: true,
+        directMultiRate: false,
+      );
+
+      expect(
+        AudioOutputTargetResolver.resolve(
+          specs: soundcard96Specs,
+          userSampleRateHz: 0,
+          userFormat: AudioFormat.f32,
+          sourceSampleRateHz: 44100,
+        ).sampleRateHz,
+        96000,
+      );
+      expect(
+        AudioOutputTargetResolver.resolve(
+          specs: soundcard96Specs,
+          userSampleRateHz: 0,
+          userFormat: AudioFormat.f32,
+          sourceSampleRateHz: 192000,
+        ).sampleRateHz,
+        96000,
+      );
+      expect(
+        AudioOutputTargetResolver.resolve(
+          specs: soundcard96Specs,
+          userSampleRateHz: 0,
+          userFormat: AudioFormat.f32,
+          sourceSampleRateHz: 96000,
+        ).sampleRateHz,
+        96000,
+      );
+
+      final sig96Matched = buildSignalPath(
+        {
+          'hardware': {'outputFormat': 0, 'bitDepth': 32},
+          'fileType': 'FLAC',
+          'inputSampleRate': 96000,
+          'inputBitDepth': 24,
+          'engineSampleRate': 96000,
+          'processingSampleRate': 96000,
+          'processingChannels': 2,
+          'outputSampleRate': 96000,
+          'decoderSrcActive': false,
+          'deviceSrcActive': false,
+        },
+        soundcard96Specs,
+        activeDeviceType: 'Speakers / Output Device',
+        isCastingOut: false,
+        castMode: CastAudioMode.dspProcessed,
+        castMaxSampleRateHz: 96000,
+      );
+      expect(sig96Matched.srcLabel, 'OFF (Matched 96.0 kHz)');
+    });
+
+    test('user sample-rate setting is honored within DAC capability and clamped above max', () {
+      const dac192Specs = AudioHardwareSpecs(
+        backendName: 'USB Direct',
+        deviceName: '192 kHz DAC',
+        sampleRate: 192000,
+        bitDepth: 24,
+        isFloat: false,
+        channels: 2,
+        periodSizeFrames: 256,
+        periodCount: 2,
+        latencyMs: 2.7,
+        isExclusiveMode: true,
+        deviceType: 'USB DAC',
+        supportedSampleRates: [44100, 48000, 88200, 96000, 176400, 192000],
+        supportedBitDepths: [16, 24],
+        usbDacAttached: true,
+        isFixedClock: false,
+        directMultiRate: true,
+      );
+
+      final user48 = AudioOutputTargetResolver.resolve(
+        specs: dac192Specs,
+        userSampleRateHz: 48000,
+        userFormat: AudioFormat.s24,
+        sourceSampleRateHz: 44100,
+      );
+      expect(user48.sampleRateHz, 48000);
+      expect(user48.isUserOverride, isTrue);
+
+      final user96 = AudioOutputTargetResolver.resolve(
+        specs: dac192Specs,
+        userSampleRateHz: 96000,
+        userFormat: AudioFormat.s24,
+        sourceSampleRateHz: 44100,
+      );
+      expect(user96.sampleRateHz, 96000);
+      expect(user96.isUserOverride, isTrue);
+
+      final user384Clamped = AudioOutputTargetResolver.resolve(
+        specs: dac192Specs,
+        userSampleRateHz: 384000,
+        userFormat: AudioFormat.s24,
+        sourceSampleRateHz: 44100,
+      );
+      expect(user384Clamped.sampleRateHz, 192000);
+      expect(user384Clamped.isUserOverride, isTrue);
+
+      const phone48Specs = AudioHardwareSpecs(
+        backendName: 'AAudio / Android HAL',
+        deviceName: 'Phone Speaker',
+        sampleRate: 48000,
+        bitDepth: 32,
+        isFloat: true,
+        channels: 2,
+        periodSizeFrames: 192,
+        periodCount: 2,
+        latencyMs: 8.0,
+        isExclusiveMode: false,
+        deviceType: 'Built-in Speaker',
+        supportedSampleRates: [48000],
+        isFixedClock: true,
+        directMultiRate: false,
+      );
+      final user192OnPhone = AudioOutputTargetResolver.resolve(
+        specs: phone48Specs,
+        userSampleRateHz: 192000,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: 44100,
+      );
+      expect(user192OnPhone.sampleRateHz, 48000);
+      expect(user192OnPhone.isUserOverride, isTrue);
+
+      const openMultiSpecs = AudioHardwareSpecs(
+        backendName: 'WASAPI',
+        deviceName: 'Open DAC',
+        sampleRate: 48000,
+        bitDepth: 24,
+        isFloat: false,
+        channels: 2,
+        periodSizeFrames: 256,
+        periodCount: 2,
+        latencyMs: 5.0,
+        isExclusiveMode: true,
+        deviceType: 'USB DAC',
+        supportedSampleRates: [],
+        isFixedClock: false,
+        directMultiRate: true,
+      );
+      final user96Open = AudioOutputTargetResolver.resolve(
+        specs: openMultiSpecs,
+        userSampleRateHz: 96000,
+        userFormat: AudioFormat.s24,
+        sourceSampleRateHz: 44100,
+      );
+      expect(user96Open.sampleRateHz, 96000);
+      expect(user96Open.isUserOverride, isTrue);
+    });
+
+    test('AudioHardwareSpecs.fromNative reflects Exclusive vs Shared rates without hardcoding 48 kHz', () {
+      final shared96 = AudioHardwareSpecs.fromNative(
+        AEHardwareInfo(
+          backendName: 'WASAPI',
+          deviceName: 'Interface',
+          dspHardware: '',
+          socName: '',
+          outputFormat: AudioFormat.f32,
+          bitDepth: 32,
+          isFloat: true,
+          sampleRate: 96000,
+          channels: 2,
+          periodSizeFrames: 480,
+          periodCount: 2,
+          latencyMs: 10.0,
+          isExclusiveMode: false,
+          isDirectPcm: false,
+        ),
+        supportedSampleRates: [44100, 48000, 96000],
+      );
+      expect(shared96.isFixedClock, isTrue);
+      expect(shared96.directMultiRate, isFalse);
+      expect(shared96.supportedSampleRates, [96000]);
+      expect(shared96.sampleRate, 96000);
+
+      final exclMulti = AudioHardwareSpecs.fromNative(
+        AEHardwareInfo(
+          backendName: 'WASAPI',
+          deviceName: 'Interface',
+          dspHardware: '',
+          socName: '',
+          outputFormat: AudioFormat.s24,
+          bitDepth: 24,
+          isFloat: false,
+          sampleRate: 96000,
+          channels: 2,
+          periodSizeFrames: 256,
+          periodCount: 2,
+          latencyMs: 5.3,
+          isExclusiveMode: true,
+          isDirectPcm: true,
+        ),
+        supportedSampleRates: [44100, 48000, 96000, 192000],
+      );
+      expect(exclMulti.isFixedClock, isFalse);
+      expect(exclMulti.directMultiRate, isTrue);
+      expect(exclMulti.supportedSampleRates, [44100, 48000, 96000, 192000]);
+
+      final exclFixed44 = AudioHardwareSpecs.fromNative(
+        AEHardwareInfo(
+          backendName: 'WASAPI',
+          deviceName: 'Fixed DAC',
+          dspHardware: '',
+          socName: '',
+          outputFormat: AudioFormat.s16,
+          bitDepth: 16,
+          isFloat: false,
+          sampleRate: 44100,
+          channels: 2,
+          periodSizeFrames: 256,
+          periodCount: 2,
+          latencyMs: 5.8,
+          isExclusiveMode: true,
+          isDirectPcm: true,
+        ),
+        supportedSampleRates: [44100],
+      );
+      expect(exclFixed44.isFixedClock, isTrue);
+      expect(exclFixed44.directMultiRate, isFalse);
+      expect(exclFixed44.supportedSampleRates, [44100]);
+    });
   });
 
   group('SignalPathCard & AudioEngineDiagnosticPanel widgets', () {

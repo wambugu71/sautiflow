@@ -940,21 +940,25 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         DlnaService.instance.activeRenderer != null;
     if (isCasting) return;
 
-    final int nativeRate = specs.isBluetooth && (specs.btSampleRate ?? 0) > 0
-        ? specs.btSampleRate!
-        : specs.sampleRate;
-    final String capSignature =
-        '$nativeRate|${specs.bitDepth}|${specs.isFixedClock}|${specs.isBluetooth}|${specs.directMultiRate}|${specs.supportedSampleRates.join(",")}';
-    if (capSignature != _lastPushedHwCapSignature) {
-      _lastPushedHwCapSignature = capSignature;
-      _player.setHardwareOutputCapabilities(
-        nativeSampleRate: nativeRate,
-        maxBitDepth: specs.bitDepth,
-        isFixedClock: specs.isFixedClock,
-        isBluetooth: specs.isBluetooth,
-        directMultiRate: specs.directMultiRate,
-        supportedRates: specs.supportedSampleRates,
-      );
+    // Skip pushing Flutter-side capability guesses when USB Direct kernel-bypass is active;
+    // AndroidUsbDacSink already populates exact UAC1/UAC2 descriptor rates directly in C++.
+    if (!specs.isUsbDirectBypass) {
+      final int nativeRate = specs.isBluetooth && (specs.btSampleRate ?? 0) > 0
+          ? specs.btSampleRate!
+          : specs.sampleRate;
+      final String capSignature =
+          '$nativeRate|${specs.bitDepth}|${specs.isFixedClock}|${specs.isBluetooth}|${specs.directMultiRate}|${specs.supportedSampleRates.join(",")}';
+      if (capSignature != _lastPushedHwCapSignature) {
+        _lastPushedHwCapSignature = capSignature;
+        _player.setHardwareOutputCapabilities(
+          nativeSampleRate: nativeRate,
+          maxBitDepth: specs.bitDepth,
+          isFixedClock: specs.isFixedClock,
+          isBluetooth: specs.isBluetooth,
+          directMultiRate: specs.directMultiRate,
+          supportedRates: specs.supportedSampleRates,
+        );
+      }
     }
 
     if (!Platform.isAndroid) return;
@@ -3973,7 +3977,10 @@ void _showNowPlayingScreen() {
                   },
                   outputSampleRate: _outputSampleRate,
                   onOutputSampleRateChanged: (v) {
-                    setState(() => _outputSampleRate = v);
+                    setState(() {
+                      _outputSampleRate = v;
+                      _lastResolvedOutputTarget = null;
+                    });
                     _saveEngineSettings();
                   },
                   outputChannels: _outputChannels,

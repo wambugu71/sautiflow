@@ -151,7 +151,10 @@ class AudioHardwareSpecs {
   }
 
   /// Factory: build from native miniaudio AEHardwareInfo (Desktop / iOS).
-  factory AudioHardwareSpecs.fromNative(AEHardwareInfo native) {
+  factory AudioHardwareSpecs.fromNative(
+    AEHardwareInfo native, {
+    List<int> supportedSampleRates = const [],
+  }) {
     String devType = 'Speakers / Output Device';
     final lowerName = native.deviceName.toLowerCase();
 
@@ -173,13 +176,34 @@ class AudioHardwareSpecs {
       devType = 'AirPlay Stream';
     }
 
+    final cleanedRates = supportedSampleRates
+        .where((r) => r >= 8000 && r <= 1536000)
+        .toSet()
+        .toList()
+      ..sort();
+    final List<int> effectiveRates;
+    final bool isFixedClock;
+    final bool directMultiRate;
+    if (!native.isExclusiveMode) {
+      effectiveRates =
+          native.sampleRate > 0 ? <int>[native.sampleRate] : cleanedRates;
+      isFixedClock = true;
+      directMultiRate = false;
+    } else {
+      effectiveRates = cleanedRates;
+      isFixedClock = cleanedRates.length == 1;
+      directMultiRate = cleanedRates.length != 1;
+    }
+
     return AudioHardwareSpecs(
       backendName:
           native.backendName.isNotEmpty ? native.backendName : 'Audio Backend',
       deviceName: native.deviceName.isNotEmpty
           ? native.deviceName
           : 'Default Soundcard',
-      sampleRate: native.sampleRate > 0 ? native.sampleRate : 48000,
+      sampleRate: native.sampleRate > 0
+          ? native.sampleRate
+          : (effectiveRates.isNotEmpty ? effectiveRates.first : 0),
       bitDepth: native.bitDepth > 0 ? native.bitDepth : 32,
       isFloat: native.isFloat,
       channels: native.channels > 0 ? native.channels : 2,
@@ -191,8 +215,9 @@ class AudioHardwareSpecs {
       dspHardware: native.dspHardware.isNotEmpty ? native.dspHardware : null,
       socName: native.socName.isNotEmpty ? native.socName : null,
       isDirectPcm: native.isDirectPcm,
-      isFixedClock: !native.isExclusiveMode,
-      directMultiRate: native.isExclusiveMode,
+      isFixedClock: isFixedClock,
+      directMultiRate: directMultiRate,
+      supportedSampleRates: effectiveRates,
     );
   }
 
@@ -466,8 +491,9 @@ class AudioHardwareInspector {
   /// so `USB Direct` (`libusb`) and `Direct Hi-Res` routes retain their negotiated parameters.
   static AudioHardwareSpecs _mergeAndroidAndNative(
     Map<dynamic, dynamic> map,
-    AEHardwareInfo? nativeHw,
-  ) {
+    AEHardwareInfo? nativeHw, {
+    List<int> nativeSupportedRates = const [],
+  }) {
     final base = AudioHardwareSpecs.fromAndroidMap(map);
     if (nativeHw == null) return base;
 
@@ -486,18 +512,9 @@ class AudioHardwareInspector {
           ? nativeHw.deviceName
           : (base.isUsbDac ? base.deviceName : nativeHw.deviceName);
       final mergedRates = <int>{
-        ...base.supportedSampleRates,
+        ...nativeSupportedRates.where((r) => r >= 8000 && r <= 1536000),
+        ...base.supportedSampleRates.where((r) => r >= 8000 && r <= 1536000),
         if (nativeHw.sampleRate > 0) nativeHw.sampleRate,
-        if (base.supportedSampleRates.isEmpty) ...[
-          44100,
-          48000,
-          88200,
-          96000,
-          176400,
-          192000,
-          352800,
-          384000,
-        ],
       }.toList()
         ..sort();
 
@@ -526,8 +543,8 @@ class AudioHardwareInspector {
             : base.dspHardware,
         socName: nativeHw.socName.isNotEmpty ? nativeHw.socName : base.socName,
         isDirectPcm: true,
-        isFixedClock: false,
-        directMultiRate: true,
+        isFixedClock: mergedRates.length == 1,
+        directMultiRate: mergedRates.length != 1,
         supportedSampleRates: mergedRates,
         usbDacAttached: base.usbDacAttached || hasSpecificNativeName,
         usbHasPermission: base.usbHasPermission || hasSpecificNativeName,
@@ -592,6 +609,16 @@ class AudioHardwareInspector {
     return base;
   }
 
+  static Future<List<int>> _fetchSupportedRates(dynamic player) async {
+    try {
+      final raw = await player.getHardwareSupportedSampleRates();
+      if (raw is List) {
+        return raw.whereType<num>().map((n) => n.toInt()).toList(growable: false);
+      }
+    } catch (_) {}
+    return const <int>[];
+  }
+
   /// Single async fetch — updates cached specs and notifies broadcast subscribers.
   static Future<AudioHardwareSpecs> inspectAsync(dynamic player) async {
     AEHardwareInfo? nativeHw;
@@ -603,12 +630,17 @@ class AudioHardwareInspector {
     } catch (e) {
       debugPrint('[AudioHardwareInspector] Native getHardwareInfo error: $e');
     }
+    final nativeRates = await _fetchSupportedRates(player);
 
     if (Platform.isAndroid) {
       try {
         final res = await _methodChannel.invokeMethod('getHardwareAudioSpecs');
         if (res is Map) {
-          _currentSpecs = _mergeAndroidAndNative(res, nativeHw);
+          _currentSpecs = _mergeAndroidAndNative(
+            res,
+            nativeHw,
+            nativeSupportedRates: nativeRates,
+          );
           _controller.add(_currentSpecs!);
           return _currentSpecs!;
         }
@@ -618,7 +650,10 @@ class AudioHardwareInspector {
     }
 
     if (nativeHw != null) {
-      _currentSpecs = AudioHardwareSpecs.fromNative(nativeHw);
+      _currentSpecs = AudioHardwareSpecs.fromNative(
+        nativeHw,
+        supportedSampleRates: nativeRates,
+      );
       _controller.add(_currentSpecs!);
       return _currentSpecs!;
     }
@@ -658,7 +693,12 @@ class AudioHardwareInspector {
                 nativeHw = rawNative;
               }
             } catch (_) {}
-            _currentSpecs = _mergeAndroidAndNative(event, nativeHw);
+            final nativeRates = await _fetchSupportedRates(player);
+            _currentSpecs = _mergeAndroidAndNative(
+              event,
+              nativeHw,
+              nativeSupportedRates: nativeRates,
+            );
             _controller.add(_currentSpecs!);
           }
         },

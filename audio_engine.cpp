@@ -4507,9 +4507,52 @@ static int android_query_native_hal_sample_rate();
 static void android_aaudio_get_hw_rate_and_sharing(const ma_device *pDev, int *outHwRate, int *outSharingMode);
 #endif
 
+static int clamp_rate_to_supported_list(
+    int desiredRate,
+    const std::vector<int> &supportedRates,
+    int fallbackNativeRate,
+    bool allowUnlistedMultiRate)
+{
+    if (desiredRate <= 0)
+    {
+        return (fallbackNativeRate > 0) ? fallbackNativeRate : 0;
+    }
+    if (!supportedRates.empty())
+    {
+        if (std::find(supportedRates.begin(), supportedRates.end(), desiredRate) != supportedRates.end())
+        {
+            return desiredRate;
+        }
+        if (desiredRate > supportedRates.back())
+        {
+            return supportedRates.back();
+        }
+        for (int r : supportedRates)
+        {
+            if (r >= desiredRate && (r % desiredRate) == 0)
+            {
+                return r;
+            }
+        }
+        for (int r : supportedRates)
+        {
+            if (r >= desiredRate)
+            {
+                return r;
+            }
+        }
+        return supportedRates.back();
+    }
+    if (allowUnlistedMultiRate)
+    {
+        return desiredRate;
+    }
+    return (fallbackNativeRate > 0) ? fallbackNativeRate : desiredRate;
+}
+
 static int resolve_hardware_target_rate(AudioEngineHandle *e, int sourceRate)
 {
-    if (!e) return sourceRate > 0 ? sourceRate : 48000;
+    if (!e) return (sourceRate > 0) ? sourceRate : 0;
     if (e->castPcmTapEnabled.load(std::memory_order_relaxed) && e->outputSampleRate > 0)
     {
         return e->outputSampleRate;
@@ -4529,9 +4572,31 @@ static int resolve_hardware_target_rate(AudioEngineHandle *e, int sourceRate)
         supportedRates = e->hwCapSupportedRates;
     }
 
+    int activeNativeRate = nativeRate;
+    if (activeNativeRate <= 0)
+    {
+#if defined(__ANDROID__)
+        activeNativeRate = android_query_native_hal_sample_rate();
+        if (activeNativeRate <= 0 && e->device.sampleRate > 0)
+        {
+            activeNativeRate = static_cast<int>(e->device.sampleRate);
+        }
+#else
+        if (e->device.playback.internalSampleRate > 0)
+        {
+            activeNativeRate = static_cast<int>(e->device.playback.internalSampleRate);
+        }
+        else if (e->device.sampleRate > 0)
+        {
+            activeNativeRate = static_cast<int>(e->device.sampleRate);
+        }
+#endif
+    }
+
     const int userRate = e->userOutputSampleRate;
     const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed);
     const int cfgBackend = e->configuredBackend.load(std::memory_order_relaxed);
+    const int desired = (userRate > 0) ? userRate : sourceRate;
 
 #if defined(__ANDROID__)
     const bool canMultiRate = (cfgBackend == AE_BACKEND_USB_DIRECT) ||
@@ -4544,55 +4609,133 @@ static int resolve_hardware_target_rate(AudioEngineHandle *e, int sourceRate)
 
     if (canMultiRate)
     {
-        const int desired = (userRate > 0) ? userRate : sourceRate;
-        if (!supportedRates.empty() && desired > 0)
-        {
-            if (std::find(supportedRates.begin(), supportedRates.end(), desired) != supportedRates.end())
-            {
-                return desired;
-            }
-            for (int r : supportedRates)
-            {
-                if (r >= desired && (r % desired) == 0)
-                {
-                    return r;
-                }
-            }
-            for (int r : supportedRates)
-            {
-                if (r >= desired)
-                {
-                    return r;
-                }
-            }
-            return supportedRates.back();
-        }
-        return (desired > 0) ? desired : 0;
+        return clamp_rate_to_supported_list(
+            desired, supportedRates, activeNativeRate, /*allowUnlistedMultiRate=*/true);
     }
 
     if (isBluetooth)
     {
-        return (nativeRate > 0) ? nativeRate : 44100;
+        return (activeNativeRate > 0) ? activeNativeRate : ((desired > 0) ? desired : 0);
     }
 
-    if (nativeRate > 0)
+    if (!supportedRates.empty())
     {
-        return nativeRate;
+        return clamp_rate_to_supported_list(
+            desired, supportedRates, activeNativeRate, /*allowUnlistedMultiRate=*/false);
     }
 
+    if (activeNativeRate > 0)
+    {
+        return activeNativeRate;
+    }
+
+    return (desired > 0) ? desired : 0;
+}
+
+static void refresh_native_device_capabilities(AudioEngineHandle *e)
+{
 #if defined(__ANDROID__)
-    const int halRate = android_query_native_hal_sample_rate();
-    if (halRate > 0)
-    {
-        return halRate;
-    }
-    return (e->device.sampleRate > 0) ? (int)e->device.sampleRate : 48000;
+    (void)e;
 #else
-    if (e->device.playback.internalSampleRate > 0)
+    if (!e || e->device.pContext == nullptr ||
+        ma_device_get_state(&e->device) == ma_device_state_uninitialized)
     {
-        return (int)e->device.playback.internalSampleRate;
+        return;
     }
-    return (e->device.sampleRate > 0) ? (int)e->device.sampleRate : 0;
+
+    const bool isExcl = (e->device.playback.shareMode == ma_share_mode_exclusive) ||
+                        e->exclusiveModeEnabled.load(std::memory_order_relaxed);
+    const int activeRate = (e->device.playback.internalSampleRate > 0)
+                               ? static_cast<int>(e->device.playback.internalSampleRate)
+                               : static_cast<int>(e->device.sampleRate);
+
+    ma_device_info devInfo{};
+    std::vector<int> exclRates;
+    std::vector<int> allRates;
+    bool exclAnyRate = false;
+    bool allAnyRate = false;
+    int maxBits = 0;
+
+    if (ma_device_get_info(&e->device, ma_device_type_playback, &devInfo) == MA_SUCCESS)
+    {
+        const ma_uint32 nFmt = (devInfo.nativeDataFormatCount <= 64u)
+                                   ? devInfo.nativeDataFormatCount
+                                   : 64u;
+        for (ma_uint32 i = 0; i < nFmt; ++i)
+        {
+            const auto &ndf = devInfo.nativeDataFormats[i];
+            int bits = 0;
+            switch (ndf.format)
+            {
+            case ma_format_u8:  bits = 8;  break;
+            case ma_format_s16: bits = 16; break;
+            case ma_format_s24: bits = 24; break;
+            case ma_format_s32:
+            case ma_format_f32: bits = 32; break;
+            default: break;
+            }
+            if (bits > maxBits) maxBits = bits;
+
+            const bool hasExclFlag = (ndf.flags & MA_DATA_FORMAT_FLAG_EXCLUSIVE_MODE) != 0;
+            const int sr = static_cast<int>(ndf.sampleRate);
+            if (sr == 0)
+            {
+                allAnyRate = true;
+                if (hasExclFlag) exclAnyRate = true;
+            }
+            else if (sr >= 8000 && sr <= 1536000)
+            {
+                allRates.push_back(sr);
+                if (hasExclFlag) exclRates.push_back(sr);
+            }
+        }
+    }
+
+    auto dedupSort = [](std::vector<int> &v) {
+        std::sort(v.begin(), v.end());
+        v.erase(std::unique(v.begin(), v.end()), v.end());
+    };
+    dedupSort(exclRates);
+    dedupSort(allRates);
+
+    std::lock_guard<std::mutex> hwk(e->hwCapMutex);
+    if (activeRate > 0)
+    {
+        e->hwCapNativeSampleRate = activeRate;
+    }
+    if (maxBits > 0)
+    {
+        e->hwCapMaxBitDepth = maxBits;
+    }
+
+    if (!isExcl)
+    {
+        e->hwCapIsFixedClock = true;
+        e->hwCapDirectMultiRate = false;
+        e->hwCapSupportedRates.clear();
+        if (activeRate > 0)
+        {
+            e->hwCapSupportedRates.push_back(activeRate);
+        }
+    }
+    else
+    {
+        std::vector<int> chosenRates = !exclRates.empty() ? std::move(exclRates) : std::move(allRates);
+        const bool anyRate = (!chosenRates.empty()) ? exclAnyRate : (exclAnyRate || allAnyRate);
+        if (activeRate > 0 && chosenRates.empty())
+        {
+            chosenRates.push_back(activeRate);
+        }
+        else if (activeRate > 0 &&
+                 std::find(chosenRates.begin(), chosenRates.end(), activeRate) == chosenRates.end())
+        {
+            chosenRates.push_back(activeRate);
+            dedupSort(chosenRates);
+        }
+        e->hwCapSupportedRates = std::move(chosenRates);
+        e->hwCapDirectMultiRate = (e->hwCapSupportedRates.size() > 1) || anyRate;
+        e->hwCapIsFixedClock = !anyRate && (e->hwCapSupportedRates.size() <= 1);
+    }
 #endif
 }
 
@@ -10752,6 +10895,47 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
             activeAlt = selected.alt;
             sampleRate = selected.sampleRate;
+            {
+                std::vector<int> dacRates;
+                bool hasContinuousRange = false;
+                int maxBitRes = static_cast<int>(activeAlt.bitResolution);
+                if (pUac2Rates != nullptr)
+                {
+                    for (int r : *pUac2Rates)
+                    {
+                        if (r >= 8000 && r <= 1536000) dacRates.push_back(r);
+                    }
+                }
+                for (const auto &alt : profile.altSettings)
+                {
+                    if (alt.isNativeDsd) continue;
+                    if (static_cast<int>(alt.bitResolution) > maxBitRes)
+                    {
+                        maxBitRes = static_cast<int>(alt.bitResolution);
+                    }
+                    if (alt.continuousRateMin > 0 && alt.continuousRateMax > alt.continuousRateMin)
+                    {
+                        hasContinuousRange = true;
+                    }
+                    for (int r : alt.supportedSampleRates)
+                    {
+                        if (r >= 8000 && r <= 1536000) dacRates.push_back(r);
+                    }
+                }
+                if (sampleRate >= 8000 && sampleRate <= 1536000)
+                {
+                    dacRates.push_back(sampleRate);
+                }
+                std::sort(dacRates.begin(), dacRates.end());
+                dacRates.erase(std::unique(dacRates.begin(), dacRates.end()), dacRates.end());
+                std::lock_guard<std::mutex> hwk(e->hwCapMutex);
+                e->hwCapNativeSampleRate = sampleRate;
+                if (maxBitRes > 0) e->hwCapMaxBitDepth = maxBitRes;
+                e->hwCapIsBluetooth = false;
+                e->hwCapSupportedRates = std::move(dacRates);
+                e->hwCapDirectMultiRate = (e->hwCapSupportedRates.size() > 1) || hasContinuousRange;
+                e->hwCapIsFixedClock = (e->hwCapSupportedRates.size() == 1) && !hasContinuousRange;
+            }
             channels = static_cast<int>(activeAlt.channels);
             wireFormat = sautiflow::usb::uac_alt_to_ae_format(activeAlt);
             isNativeDsdMode = wantNativeDsd;
@@ -12138,6 +12322,7 @@ extern "C"
 
         // Sync actual device-negotiated values back into the engine struct.
         // Prefer internalSampleRate (true OS mixer / HAL rate) so r8brain resamples directly to it.
+        refresh_native_device_capabilities(e);
         {
             const int actualRate = (e->device.playback.internalSampleRate > 0)
                                        ? (int)e->device.playback.internalSampleRate
@@ -12152,11 +12337,12 @@ extern "C"
 #if defined(__ANDROID__)
             {
                 const int halRate = android_query_native_hal_sample_rate();
+                const int detectedRate = (halRate > 0) ? halRate : ((actualRate > 0) ? actualRate : 0);
                 std::lock_guard<std::mutex> hwk(e->hwCapMutex);
-                e->hwCapNativeSampleRate = (halRate > 0)
-                    ? halRate
-                    : ((actualRate > 0) ? actualRate : 48000);
-                e->hwCapIsFixedClock = true;
+                if (detectedRate > 0)
+                {
+                    e->hwCapNativeSampleRate = detectedRate;
+                }
             }
 #endif
 
@@ -15484,9 +15670,11 @@ extern "C"
             const bool castTapActive = e->castPcmTapEnabled.load(std::memory_order_relaxed);
             int targetOutputRate = (castTapActive && e->outputSampleRate > 0)
                                    ? e->outputSampleRate
-                                   : (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed)
-                                      ? e->outputSampleRate
-                                      : e->userOutputSampleRate);
+                                   : ((e->userOutputSampleRate > 0)
+                                      ? e->userOutputSampleRate
+                                      : (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed)
+                                         ? e->outputSampleRate
+                                         : 0));
             int curSrcDsdRate = e->sourceDsdRate.load(std::memory_order_acquire);
             int curSrcDsdChannels = e->sourceChannels;
             int desiredDsdMode = e->activeDsdMode.load(std::memory_order_acquire);
@@ -16096,6 +16284,7 @@ extern "C"
                 if (initOk)
                 {
                     sync_dac_valid_bit_depth(e);
+                    refresh_native_device_capabilities(e);
                     int reportedBackend = AE_BACKEND_AUTO;
                     if (e->device.pContext != nullptr)
                     {
@@ -16754,7 +16943,7 @@ extern "C"
         if (!engine || sample_rate < 0)
             return;
         const bool fromAutoConsume = engine->pendingAutoRateConsumeInFlight.exchange(false, std::memory_order_acq_rel);
-        if (!fromAutoConsume && !engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
+        if (!fromAutoConsume)
         {
             engine->userOutputSampleRate = sample_rate;
         }
@@ -16765,15 +16954,41 @@ extern "C"
         const int baseUserCh = (engine->userOutputChannels > 0) ? engine->userOutputChannels : ((engine->outputChannels > 0) ? engine->outputChannels : 2);
         const int targetCh = (targetBitMode != 0 && engine->sourceChannels > 0) ? engine->sourceChannels : baseUserCh;
         const bool castTap = engine->castPcmTapEnabled.load(std::memory_order_relaxed);
-        if (engine->outputSampleRate == sample_rate && targetBitMode == hwDsd && targetCh == hwCh &&
-            (!castTap || (sample_rate > 0 && engine->engineSampleRate == sample_rate)))
+
+        int effectiveTarget = sample_rate;
+        if (!castTap && !fromAutoConsume)
+        {
+            if (sample_rate > 0)
+            {
+                const int clamped = resolve_hardware_target_rate(engine, sample_rate);
+                if (clamped > 0)
+                {
+                    effectiveTarget = clamped;
+                }
+            }
+            else
+            {
+                const int curSrc = (engine->sourceSampleRate > 0) ? engine->sourceSampleRate : 0;
+                const int autoTarget = resolve_hardware_target_rate(engine, curSrc);
+                if (autoTarget > 0)
+                {
+                    effectiveTarget = autoTarget;
+                }
+            }
+        }
+
+        if (engine->outputSampleRate == effectiveTarget &&
+            (effectiveTarget <= 0 || engine->deviceSampleRate == effectiveTarget) &&
+            targetBitMode == hwDsd &&
+            targetCh == hwCh &&
+            (!castTap || (effectiveTarget > 0 && engine->engineSampleRate == effectiveTarget)))
             return;
-            
+
         // Fix: Do not use restart_device_rate_only because it does not recreate the decoder.
         // We must recreate the decoder so its targetRate matches the new outputSampleRate,
         // otherwise miniaudio will feed data at the old rate into the new device buffer rate,
         // causing pitch/speed shifts.
-        engine->outputSampleRate = sample_rate;
+        engine->outputSampleRate = effectiveTarget;
         restart_and_apply_config(engine);
     }
 
@@ -16839,14 +17054,25 @@ extern "C"
         }
 
         bool changed = false;
+        int loggedRatesCount = static_cast<int>(cleanRates.size());
         {
             std::lock_guard<std::mutex> hwk(engine->hwCapMutex);
+            bool preserveExistingRates = false;
+#if defined(__ANDROID__)
+            preserveExistingRates =
+                (engine->activeBackend.load(std::memory_order_acquire) == AE_BACKEND_USB_DIRECT) &&
+                cleanRates.empty() &&
+                !engine->hwCapSupportedRates.empty();
+#else
+            preserveExistingRates =
+                cleanRates.empty() && !btFlag && !fixedFlag && !engine->hwCapSupportedRates.empty();
+#endif
             changed = (engine->hwCapNativeSampleRate != cleanNativeRate) ||
                       (engine->hwCapMaxBitDepth != cleanBitDepth) ||
                       (engine->hwCapIsFixedClock != fixedFlag) ||
                       (engine->hwCapIsBluetooth != btFlag) ||
                       (engine->hwCapDirectMultiRate != multiRateFlag) ||
-                      (engine->hwCapSupportedRates != cleanRates);
+                      (!preserveExistingRates && engine->hwCapSupportedRates != cleanRates);
             if (changed)
             {
                 engine->hwCapNativeSampleRate = cleanNativeRate;
@@ -16854,8 +17080,12 @@ extern "C"
                 engine->hwCapIsFixedClock = fixedFlag;
                 engine->hwCapIsBluetooth = btFlag;
                 engine->hwCapDirectMultiRate = multiRateFlag;
-                engine->hwCapSupportedRates = std::move(cleanRates);
+                if (!preserveExistingRates)
+                {
+                    engine->hwCapSupportedRates = std::move(cleanRates);
+                }
             }
+            loggedRatesCount = static_cast<int>(engine->hwCapSupportedRates.size());
         }
 
         if (changed)
@@ -16866,14 +17096,16 @@ extern "C"
                        fixedFlag ? "true" : "false",
                        btFlag ? "true" : "false",
                        multiRateFlag ? "true" : "false",
-                       (supported_rates != nullptr && supported_rates_count > 0) ? ((supported_rates_count > 64) ? 64 : supported_rates_count) : 0);
+                       loggedRatesCount);
         }
 
         if (!engine->castPcmTapEnabled.load(std::memory_order_relaxed))
         {
             const int curSrc = (engine->sourceSampleRate > 0)
                                    ? engine->sourceSampleRate
-                                   : ((engine->deviceSampleRate > 0) ? engine->deviceSampleRate : 48000);
+                                   : ((engine->deviceSampleRate > 0)
+                                          ? engine->deviceSampleRate
+                                          : static_cast<int>(engine->device.sampleRate));
             const int resolvedNow = resolve_hardware_target_rate(engine, curSrc);
             const int activeDevRate = (engine->deviceSampleRate > 0)
                                           ? engine->deviceSampleRate
@@ -16886,6 +17118,25 @@ extern "C"
                 restart_and_apply_config(engine);
             }
         }
+    }
+
+    AE_API int ae_get_hardware_supported_sample_rates(
+        AudioEngineHandle *engine,
+        int *out_rates,
+        int max_count)
+    {
+        if (!engine)
+            return 0;
+        std::lock_guard<std::mutex> hwk(engine->hwCapMutex);
+        const int total = static_cast<int>(engine->hwCapSupportedRates.size());
+        if (out_rates == nullptr || max_count <= 0)
+            return total;
+        const int toCopy = (total < max_count) ? total : max_count;
+        for (int i = 0; i < toCopy; ++i)
+        {
+            out_rates[i] = engine->hwCapSupportedRates[static_cast<size_t>(i)];
+        }
+        return toCopy;
     }
 
     AE_API void ae_set_output_channels(AudioEngineHandle *engine, int channels)
