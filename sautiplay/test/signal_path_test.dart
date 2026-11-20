@@ -478,6 +478,174 @@ void main() {
       );
       expect(autoDacNoTrack.sampleRateHz, 0);
       expect(autoDacNoTrack.isUserOverride, isFalse);
+
+      // USB DAC capped at 24-bit/192 kHz playing 384 kHz clamps down to 192 kHz / S24
+      const dac192Specs = AudioHardwareSpecs(
+        backendName: 'AAudio / Android HAL',
+        deviceName: '24/192 USB DAC',
+        sampleRate: 192000,
+        bitDepth: 24,
+        isFloat: false,
+        channels: 2,
+        periodSizeFrames: 192,
+        periodCount: 2,
+        latencyMs: 2.0,
+        isExclusiveMode: false,
+        deviceType: 'USB DAC',
+        supportedSampleRates: [44100, 48000, 88200, 96000, 176400, 192000],
+        supportedBitDepths: [16, 24],
+        usbDacAttached: true,
+        isFixedClock: false,
+        directMultiRate: true,
+      );
+      final clamped384 = AudioOutputTargetResolver.resolve(
+        specs: dac192Specs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: 384000,
+      );
+      expect(clamped384.sampleRateHz, 192000);
+      expect(clamped384.format, AudioFormat.s24);
+
+      final native96On192 = AudioOutputTargetResolver.resolve(
+        specs: dac192Specs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: 96000,
+      );
+      expect(native96On192.sampleRateHz, 96000);
+      expect(native96On192.format, AudioFormat.s24);
+    });
+
+    test('fixed-clock 32/48 kHz phone clamps 96k/44.1k to 48k for r8brain SRC and matches 48k 1:1', () {
+      const phoneSpecs = AudioHardwareSpecs(
+        backendName: 'AAudio / Android HAL',
+        deviceName: 'Built-in Speaker',
+        sampleRate: 48000,
+        bitDepth: 32,
+        isFloat: true,
+        channels: 2,
+        periodSizeFrames: 192,
+        periodCount: 2,
+        latencyMs: 8.0,
+        isExclusiveMode: false,
+        deviceType: 'Built-in Speaker',
+        supportedSampleRates: [48000],
+        isFixedClock: true,
+        directMultiRate: false,
+      );
+
+      final target96 = AudioOutputTargetResolver.resolve(
+        specs: phoneSpecs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: 96000,
+      );
+      expect(target96.sampleRateHz, 48000);
+      expect(target96.isUserOverride, isFalse);
+
+      final target44 = AudioOutputTargetResolver.resolve(
+        specs: phoneSpecs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: 44100,
+      );
+      expect(target44.sampleRateHz, 48000);
+
+      final target48 = AudioOutputTargetResolver.resolve(
+        specs: phoneSpecs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: 48000,
+      );
+      expect(target48.sampleRateHz, 48000);
+
+      final targetNull = AudioOutputTargetResolver.resolve(
+        specs: phoneSpecs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: null,
+      );
+      expect(targetNull.sampleRateHz, 48000);
+
+      final sig96to48 = buildSignalPath(
+        {
+          'hardware': {'outputFormat': 0, 'bitDepth': 32},
+          'fileType': 'FLAC',
+          'inputSampleRate': 96000,
+          'inputBitDepth': 24,
+          'engineSampleRate': 48000,
+          'processingSampleRate': 48000,
+          'processingChannels': 2,
+          'outputSampleRate': 48000,
+          'decoderSrcActive': true,
+          'deviceSrcActive': false,
+          'resampleAlgorithm': 'r8brain24MinimumPhase',
+        },
+        phoneSpecs,
+        activeDeviceType: 'Built-in Speaker',
+        isCastingOut: false,
+        castMode: CastAudioMode.dspProcessed,
+        castMaxSampleRateHz: 96000,
+      );
+      expect(sig96to48.srcLabel, 'ON (96.0 kHz → 48.0 kHz)');
+      expect(sig96to48.resamplerLabel, contains('r8brain'));
+      expect(
+        sig96to48.nodes.any((n) => n.kind == ChainNodeKind.deviceSrc),
+        isFalse,
+      );
+      final out96 = sig96to48.nodes.firstWhere((n) => n.kind == ChainNodeKind.output);
+      expect(out96.liveParams['OS / HAL SRC'], 'None (1:1 Matched)');
+
+      final sig48Matched = buildSignalPath(
+        {
+          'hardware': {'outputFormat': 0, 'bitDepth': 32},
+          'fileType': 'FLAC',
+          'inputSampleRate': 48000,
+          'inputBitDepth': 24,
+          'engineSampleRate': 48000,
+          'processingSampleRate': 48000,
+          'processingChannels': 2,
+          'outputSampleRate': 48000,
+          'decoderSrcActive': false,
+          'deviceSrcActive': false,
+        },
+        phoneSpecs,
+        activeDeviceType: 'Built-in Speaker',
+        isCastingOut: false,
+        castMode: CastAudioMode.dspProcessed,
+        castMaxSampleRateHz: 96000,
+      );
+      expect(sig48Matched.srcLabel, 'OFF (Matched 48.0 kHz)');
+    });
+
+    test('AudioHardwareSpecs.fromAndroidMap parses isFixedClock and directMultiRate flags', () {
+      final fixedSpecs = AudioHardwareSpecs.fromAndroidMap({
+        'deviceName': 'Phone Speaker',
+        'sampleRate': 48000,
+        'bitDepth': 32,
+        'isFloat': true,
+        'deviceType': 'Built-in Speaker',
+        'isFixedClock': true,
+        'directMultiRate': false,
+        'supportedSampleRates': [48000],
+      });
+      expect(fixedSpecs.isFixedClock, isTrue);
+      expect(fixedSpecs.directMultiRate, isFalse);
+      expect(fixedSpecs.sampleRate, 48000);
+
+      final directDapSpecs = AudioHardwareSpecs.fromAndroidMap({
+        'deviceName': 'LG Quad DAC',
+        'sampleRate': 48000,
+        'bitDepth': 24,
+        'isFloat': false,
+        'deviceType': '3.5mm Headphones',
+        'isFixedClock': false,
+        'directMultiRate': true,
+        'supportedSampleRates': [44100, 48000, 88200, 96000, 192000],
+      });
+      expect(directDapSpecs.isFixedClock, isFalse);
+      expect(directDapSpecs.directMultiRate, isTrue);
     });
   });
 

@@ -23,6 +23,8 @@ class AudioHardwareSpecs {
   final String? dspHardware; // e.g. "Qualcomm Hexagon v73 aDSP", "MediaTek Tensilica HiFi 5"
   final String? socName; // e.g. "Snapdragon 8 Gen 2", "Dimensity 9200"
   final bool isDirectPcm; // True if direct bit-perfect HAL output
+  final bool isFixedClock; // True when hardware/HAL/A2DP/mixer clock is fixed
+  final bool directMultiRate; // True when multiple hardware rates are directly supported
 
   // ── Bluetooth-specific fields ─────────────────────────────────────────────
   final String? bluetoothCodec; // e.g. "LDAC", "aptX HD", "AAC", "SBC", "LC3"
@@ -57,6 +59,8 @@ class AudioHardwareSpecs {
     this.dspHardware,
     this.socName,
     this.isDirectPcm = false,
+    this.isFixedClock = false,
+    this.directMultiRate = false,
     this.bluetoothCodec,
     this.bluetoothDeviceName,
     this.btSampleRate,
@@ -107,6 +111,13 @@ class AudioHardwareSpecs {
     final bool usbAttached =
         m['usbDacAttached'] == true || rawDevType.toLowerCase().contains('usb');
 
+    final bool isFixedClock = m['isFixedClock'] is bool
+        ? m['isFixedClock'] as bool
+        : (isBt || (!usbAttached && supportedRates.length <= 1));
+    final bool directMultiRate = m['directMultiRate'] is bool
+        ? m['directMultiRate'] as bool
+        : (usbAttached || (!isBt && !isFixedClock && supportedRates.length > 1));
+
     return AudioHardwareSpecs(
       backendName: 'AAudio / Android HAL',
       deviceName: devName,
@@ -122,6 +133,8 @@ class AudioHardwareSpecs {
       dspHardware: m['dspHardware']?.toString(),
       socName: m['socName']?.toString(),
       isDirectPcm: m['isDirectPcm'] == true,
+      isFixedClock: isFixedClock,
+      directMultiRate: directMultiRate,
       bluetoothCodec: m['bluetoothCodec']?.toString(),
       bluetoothDeviceName: m['bluetoothDeviceName']?.toString(),
       btSampleRate: btRate,
@@ -178,6 +191,8 @@ class AudioHardwareSpecs {
       dspHardware: native.dspHardware.isNotEmpty ? native.dspHardware : null,
       socName: native.socName.isNotEmpty ? native.socName : null,
       isDirectPcm: native.isDirectPcm,
+      isFixedClock: !native.isExclusiveMode,
+      directMultiRate: native.isExclusiveMode,
     );
   }
 
@@ -511,6 +526,8 @@ class AudioHardwareInspector {
             : base.dspHardware,
         socName: nativeHw.socName.isNotEmpty ? nativeHw.socName : base.socName,
         isDirectPcm: true,
+        isFixedClock: false,
+        directMultiRate: true,
         supportedSampleRates: mergedRates,
         usbDacAttached: base.usbDacAttached || hasSpecificNativeName,
         usbHasPermission: base.usbHasPermission || hasSpecificNativeName,
@@ -520,6 +537,10 @@ class AudioHardwareInspector {
     }
 
     if (isNativeDirect || nativeHw.bitDepth > 0 || nativeHw.sampleRate > 0) {
+      final bool verifiedMultiRate = isUsbDirect ||
+          nativeHw.backendName == 'DAP Hi-Res' ||
+          (nativeHw.isDirectPcm && base.directMultiRate) ||
+          base.directMultiRate;
       return AudioHardwareSpecs(
         backendName: isNativeDirect && nativeHw.backendName.isNotEmpty
             ? nativeHw.backendName
@@ -529,7 +550,7 @@ class AudioHardwareInspector {
                 base.deviceName == 'Default Soundcard')
             ? nativeHw.deviceName
             : base.deviceName,
-        sampleRate: (isNativeDirect && nativeHw.sampleRate > 0)
+        sampleRate: (verifiedMultiRate && nativeHw.sampleRate > 0)
             ? nativeHw.sampleRate
             : base.sampleRate,
         bitDepth: nativeHw.bitDepth > 0 ? nativeHw.bitDepth : base.bitDepth,
@@ -551,6 +572,8 @@ class AudioHardwareInspector {
             : base.dspHardware,
         socName: nativeHw.socName.isNotEmpty ? nativeHw.socName : base.socName,
         isDirectPcm: isNativeDirect ? nativeHw.isDirectPcm : base.isDirectPcm,
+        isFixedClock: verifiedMultiRate ? false : base.isFixedClock,
+        directMultiRate: verifiedMultiRate,
         bluetoothCodec: base.bluetoothCodec,
         bluetoothDeviceName: base.bluetoothDeviceName,
         btSampleRate: base.btSampleRate,

@@ -3903,6 +3903,15 @@ struct AudioEngineHandle
     int outputChannels = 2;       // Active hardware output channels (default stereo)
     int userOutputChannels = 2;   // User-selected preferred output channels (default stereo)
 
+    // Monitored hardware output capabilities (populated by platform inspector / HAL)
+    std::mutex hwCapMutex;
+    int hwCapNativeSampleRate = 0;
+    int hwCapMaxBitDepth = 0;
+    bool hwCapIsFixedClock = false;
+    bool hwCapIsBluetooth = false;
+    bool hwCapDirectMultiRate = false;
+    std::vector<int> hwCapSupportedRates;
+
     bool multibandEqEnabled = false;
     int eqBandCount = 0;
     std::mutex eqMutex; // Protect EQ config changes
@@ -4493,11 +4502,117 @@ extern "C"
     static void restart_and_apply_config(AudioEngineHandle *e);
 }
 
+#if defined(__ANDROID__)
+static int android_query_native_hal_sample_rate();
+static void android_aaudio_get_hw_rate_and_sharing(const ma_device *pDev, int *outHwRate, int *outSharingMode);
+#endif
+
+static int resolve_hardware_target_rate(AudioEngineHandle *e, int sourceRate)
+{
+    if (!e) return sourceRate > 0 ? sourceRate : 48000;
+    if (e->castPcmTapEnabled.load(std::memory_order_relaxed) && e->outputSampleRate > 0)
+    {
+        return e->outputSampleRate;
+    }
+
+    int nativeRate = 0;
+    bool isFixedClock = false;
+    bool isBluetooth = false;
+    bool directMultiRate = false;
+    std::vector<int> supportedRates;
+    {
+        std::lock_guard<std::mutex> lk(e->hwCapMutex);
+        nativeRate = e->hwCapNativeSampleRate;
+        isFixedClock = e->hwCapIsFixedClock;
+        isBluetooth = e->hwCapIsBluetooth;
+        directMultiRate = e->hwCapDirectMultiRate;
+        supportedRates = e->hwCapSupportedRates;
+    }
+
+    const int userRate = e->userOutputSampleRate;
+    const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed);
+    const int cfgBackend = e->configuredBackend.load(std::memory_order_relaxed);
+
+#if defined(__ANDROID__)
+    const bool canMultiRate = (cfgBackend == AE_BACKEND_USB_DIRECT) ||
+                              (cfgBackend == AE_BACKEND_DAP_HIRES) ||
+                              (directMultiRate && !isFixedClock && !isBluetooth);
+#else
+    (void)cfgBackend;
+    const bool canMultiRate = wantExclusive || (directMultiRate && !isFixedClock);
+#endif
+
+    if (canMultiRate)
+    {
+        const int desired = (userRate > 0) ? userRate : sourceRate;
+        if (!supportedRates.empty() && desired > 0)
+        {
+            if (std::find(supportedRates.begin(), supportedRates.end(), desired) != supportedRates.end())
+            {
+                return desired;
+            }
+            for (int r : supportedRates)
+            {
+                if (r >= desired && (r % desired) == 0)
+                {
+                    return r;
+                }
+            }
+            for (int r : supportedRates)
+            {
+                if (r >= desired)
+                {
+                    return r;
+                }
+            }
+            return supportedRates.back();
+        }
+        return (desired > 0) ? desired : 0;
+    }
+
+    if (isBluetooth)
+    {
+        return (nativeRate > 0) ? nativeRate : 44100;
+    }
+
+    if (nativeRate > 0)
+    {
+        return nativeRate;
+    }
+
+#if defined(__ANDROID__)
+    const int halRate = android_query_native_hal_sample_rate();
+    if (halRate > 0)
+    {
+        return halRate;
+    }
+    return (e->device.sampleRate > 0) ? (int)e->device.sampleRate : 48000;
+#else
+    if (e->device.playback.internalSampleRate > 0)
+    {
+        return (int)e->device.playback.internalSampleRate;
+    }
+    return (e->device.sampleRate > 0) ? (int)e->device.sampleRate : 0;
+#endif
+}
+
 static inline bool is_audiotrack_family_backend(int bk)
 {
     return bk == AE_BACKEND_AUDIOTRACK ||
            bk == AE_BACKEND_DIRECT_HIRES ||
            bk == AE_BACKEND_DAP_HIRES;
+}
+
+static inline uint32_t effective_user_rate_for_active_path(AudioEngineHandle *e, uint32_t actualDeviceRate)
+{
+    if (!e || e->userOutputSampleRate <= 0)
+        return 0;
+    const uint32_t userRate = static_cast<uint32_t>(e->userOutputSampleRate);
+    // Once hardware is open at actualDeviceRate, letting engineRate diverge from it
+    // only forces Linear LPF4 / OS HAL SRC instead of single-stage off-thread r8brain.
+    if (actualDeviceRate > 0 && userRate != actualDeviceRate)
+        return 0;
+    return userRate;
 }
 
 static inline bool is_direct_hires_family_backend(int bk)
@@ -6092,10 +6207,17 @@ static void worker_loop(AudioEngineHandle *e)
                 }
                 if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
                 {
-                    if (dsdAwareNativeRate > 0 && dsdAwareNativeRate != e->outputSampleRate)
+                    const int targetHwRate = resolve_hardware_target_rate(e, dsdAwareNativeRate);
+                    if (targetHwRate > 0 &&
+                        ((e->deviceSampleRate > 0 && targetHwRate != e->deviceSampleRate) ||
+                         (e->deviceSampleRate <= 0 && targetHwRate != e->outputSampleRate)))
                     {
-                        e->outputSampleRate = dsdAwareNativeRate;
+                        e->outputSampleRate = targetHwRate;
                         needRestart = true;
+                    }
+                    else if (targetHwRate > 0 && e->outputSampleRate != targetHwRate)
+                    {
+                        e->outputSampleRate = targetHwRate;
                     }
                 }
                 if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
@@ -6174,12 +6296,18 @@ static void worker_loop(AudioEngineHandle *e)
                     ma_uint32 nativeRate = 0;
                     (void)get_decoder_native_format(newCurrent, &nativeFmt, &nativeCh, &nativeRate);
                     uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)newCurrent->outputSampleRate;
+                    const bool castTap = e->castPcmTapEnabled.load(std::memory_order_relaxed);
+                    const uint32_t castReq = (e->outputSampleRate > 0)
+                        ? (uint32_t)e->outputSampleRate
+                        : (uint32_t)e->userOutputSampleRate;
                     AudioRatePlan plan = calculateRatePlan(
                         srcRate,
                         (uint32_t)e->deviceSampleRate,
-                        (uint32_t)e->userOutputSampleRate,
+                        effective_user_rate_for_active_path(e, (uint32_t)e->deviceSampleRate),
                         e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
-                        e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+                        e->exclusiveModeEnabled.load(std::memory_order_relaxed),
+                        castTap,
+                        castReq
                     );
                     applyRatePlan(e, plan);
                 }
@@ -7441,11 +7569,16 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                     e->ratePlan.sourceRate = nativeRate;
                                     e->ratePlan.decoderSRC = (nativeRate != (ma_uint32)e->engineSampleRate);
                                 }
-                                if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) &&
-                                    nativeRate > 0 && (int)nativeRate != e->outputSampleRate)
+                                if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && nativeRate > 0)
                                 {
-                                    engine_log("Auto Sample-Rate Match: Early crossfade track native rate is %u Hz (current hardware rate: %d Hz). Requesting deferred DAC switch...", nativeRate, e->outputSampleRate);
-                                    e->pendingAutoSampleRateMatchRate.store((int)nativeRate, std::memory_order_release);
+                                    const int targetHwRate = resolve_hardware_target_rate(e, (int)nativeRate);
+                                    if (targetHwRate > 0 &&
+                                        ((e->deviceSampleRate > 0 && targetHwRate != e->deviceSampleRate) ||
+                                         (e->deviceSampleRate <= 0 && targetHwRate != e->outputSampleRate)))
+                                    {
+                                        engine_log("Auto Sample-Rate Match: Early crossfade track resolves to %d Hz (current hardware rate: %d Hz). Requesting deferred DAC switch...", targetHwRate, e->deviceSampleRate);
+                                        e->pendingAutoSampleRateMatchRate.store(targetHwRate, std::memory_order_release);
+                                    }
                                 }
                             }
 
@@ -7870,10 +8003,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->ratePlan.sourceRate = nativeRate;
                             e->ratePlan.decoderSRC = (nativeRate != (ma_uint32)e->engineSampleRate);
                         }
-                        if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) &&
-                            nativeRate > 0 && (int)nativeRate != e->outputSampleRate)
+                        if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && nativeRate > 0)
                         {
-                            e->pendingAutoSampleRateMatchRate.store((int)nativeRate, std::memory_order_release);
+                            const int targetHwRate = resolve_hardware_target_rate(e, (int)nativeRate);
+                            if (targetHwRate > 0 &&
+                                ((e->deviceSampleRate > 0 && targetHwRate != e->deviceSampleRate) ||
+                                 (e->deviceSampleRate <= 0 && targetHwRate != e->outputSampleRate)))
+                            {
+                                e->pendingAutoSampleRateMatchRate.store(targetHwRate, std::memory_order_release);
+                            }
                         }
                     }
 
@@ -9828,6 +9966,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 }
 
 #if defined(__ANDROID__)
+    #include <dlfcn.h>
     #include <jni.h>
     #include <sys/system_properties.h>
     #include <sys/resource.h>
@@ -10070,6 +10209,78 @@ static void decode_producer_loop(AudioEngineHandle *e)
             }
         }
     };
+
+    static int android_query_native_hal_sample_rate_jni(JNIEnv *env)
+    {
+        if (!env) return 0;
+        int rate = 0;
+        jclass trackClass = env->FindClass("android/media/AudioTrack");
+        if (env->ExceptionCheck())
+        {
+            env->ExceptionClear();
+            return 0;
+        }
+        if (trackClass)
+        {
+            jmethodID getNatMethod = env->GetStaticMethodID(trackClass, "getNativeOutputSampleRate", "(I)I");
+            if (env->ExceptionCheck())
+            {
+                env->ExceptionClear();
+                getNatMethod = nullptr;
+            }
+            if (getNatMethod)
+            {
+                jint r = env->CallStaticIntMethod(trackClass, getNatMethod, 3 /* STREAM_MUSIC */);
+                if (env->ExceptionCheck())
+                {
+                    env->ExceptionClear();
+                }
+                else if (r > 0)
+                {
+                    rate = static_cast<int>(r);
+                }
+            }
+            env->DeleteLocalRef(trackClass);
+        }
+        return rate;
+    }
+
+    static int android_query_native_hal_sample_rate()
+    {
+        AndroidJniAttachGuard guard;
+        if (!guard.env) return 0;
+        return android_query_native_hal_sample_rate_jni(guard.env);
+    }
+
+    static void android_aaudio_get_hw_rate_and_sharing(const ma_device *pDev, int *outHwRate, int *outSharingMode)
+    {
+        if (outHwRate) *outHwRate = 0;
+        if (outSharingMode) *outSharingMode = -1;
+        if (!pDev || !pDev->pContext || pDev->pContext->backend != ma_backend_aaudio) return;
+        void *stream = pDev->aaudio.pStreamPlayback;
+        if (!stream) return;
+        void *libHandle = pDev->pContext->aaudio.hAAudio ? pDev->pContext->aaudio.hAAudio : RTLD_DEFAULT;
+
+        using PfnGetRate = int32_t (*)(void *);
+        using PfnGetSharing = int32_t (*)(void *);
+        if (outHwRate)
+        {
+            PfnGetRate fnHwRate = reinterpret_cast<PfnGetRate>(dlsym(libHandle, "AAudioStream_getHardwareSampleRate"));
+            if (fnHwRate)
+            {
+                int32_t r = fnHwRate(stream);
+                if (r > 0) *outHwRate = static_cast<int>(r);
+            }
+        }
+        if (outSharingMode)
+        {
+            PfnGetSharing fnSharing = reinterpret_cast<PfnGetSharing>(dlsym(libHandle, "AAudioStream_getSharingMode"));
+            if (fnSharing)
+            {
+                *outSharingMode = static_cast<int>(fnSharing(stream));
+            }
+        }
+    }
 
     static jobject getAndroidApplicationContext(JNIEnv *env)
     {
@@ -11494,6 +11705,28 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     break;
                 }
 
+                const int nativeHalRate = android_query_native_hal_sample_rate_jni(env);
+                int fallbackMixerRate = nativeHalRate;
+                if (this->engine != nullptr)
+                {
+                    std::lock_guard<std::mutex> hwk(this->engine->hwCapMutex);
+                    if (this->engine->hwCapIsBluetooth && this->engine->hwCapNativeSampleRate > 0)
+                    {
+                        fallbackMixerRate = this->engine->hwCapNativeSampleRate;
+                    }
+                    else if (fallbackMixerRate <= 0 && this->engine->hwCapNativeSampleRate > 0)
+                    {
+                        fallbackMixerRate = this->engine->hwCapNativeSampleRate;
+                    }
+                }
+                if (!directSupportedFound && !this->bitPerfectMixerActive && !wantDapHiRes &&
+                    fallbackMixerRate > 0 && this->sampleRate != fallbackMixerRate)
+                {
+                    engine_log("AndroidAudioTrackSink: Direct HAL not confirmed at %d Hz -> clamping shared AudioTrack to HAL rate %d Hz (engine SRC)",
+                               this->sampleRate, fallbackMixerRate);
+                    this->sampleRate = fallbackMixerRate;
+                }
+
                 jmethodID getMinBuf = env->GetStaticMethodID(trackClass, "getMinBufferSize", "(III)I");
                 jobject localTrack = nullptr;
 
@@ -11916,12 +12149,23 @@ extern "C"
                 if (e->outputChannels <= 0) e->outputChannels = actualCh;
             }
 
+#if defined(__ANDROID__)
+            {
+                const int halRate = android_query_native_hal_sample_rate();
+                std::lock_guard<std::mutex> hwk(e->hwCapMutex);
+                e->hwCapNativeSampleRate = (halRate > 0)
+                    ? halRate
+                    : ((actualRate > 0) ? actualRate : 48000);
+                e->hwCapIsFixedClock = true;
+            }
+#endif
+
             uint32_t devRate = (actualRate > 0) ? (uint32_t)actualRate : (uint32_t)sample_rate;
             uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : devRate;
             AudioRatePlan plan = calculateRatePlan(
                 srcRate,
                 devRate,
-                (uint32_t)e->userOutputSampleRate,
+                effective_user_rate_for_active_path(e, devRate),
                 e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
                 e->exclusiveModeEnabled.load(std::memory_order_relaxed)
             );
@@ -12604,10 +12848,17 @@ extern "C"
             }
             if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
             {
-                if (dsdAwareNativeRate > 0 && dsdAwareNativeRate != e->outputSampleRate)
+                const int targetHwRate = resolve_hardware_target_rate(e, dsdAwareNativeRate);
+                if (targetHwRate > 0 &&
+                    ((e->deviceSampleRate > 0 && targetHwRate != e->deviceSampleRate) ||
+                     (e->deviceSampleRate <= 0 && targetHwRate != e->outputSampleRate)))
                 {
-                    e->outputSampleRate = dsdAwareNativeRate;
+                    e->outputSampleRate = targetHwRate;
                     needRestart = true;
+                }
+                else if (targetHwRate > 0 && e->outputSampleRate != targetHwRate)
+                {
+                    e->outputSampleRate = targetHwRate;
                 }
             }
             if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
@@ -12654,12 +12905,18 @@ extern "C"
             ma_uint32 nativeRate = 0;
             (void)get_decoder_native_format(newCurrent, &nativeFmt, &nativeCh, &nativeRate);
             uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)newCurrent->outputSampleRate;
+            const bool castTap = e->castPcmTapEnabled.load(std::memory_order_relaxed);
+            const uint32_t castReq = (e->outputSampleRate > 0)
+                ? (uint32_t)e->outputSampleRate
+                : (uint32_t)e->userOutputSampleRate;
             AudioRatePlan plan = calculateRatePlan(
                 srcRate,
                 (uint32_t)e->deviceSampleRate,
-                (uint32_t)e->userOutputSampleRate,
+                effective_user_rate_for_active_path(e, (uint32_t)e->deviceSampleRate),
                 e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
-                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+                e->exclusiveModeEnabled.load(std::memory_order_relaxed),
+                castTap,
+                castReq
             );
             applyRatePlan(e, plan);
         }
@@ -12773,12 +13030,15 @@ extern "C"
                 {
                     return false;
                 }
-                if (!nextIsDsd && e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) &&
-                    nNativeRate > 0 &&
-                    (int)nNativeRate != e->deviceSampleRate &&
-                    (int)nNativeRate != e->outputSampleRate)
+                if (!nextIsDsd && e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && nNativeRate > 0)
                 {
-                    return false;
+                    const int targetHwRate = resolve_hardware_target_rate(e, (int)nNativeRate);
+                    if (targetHwRate > 0 &&
+                        ((e->deviceSampleRate > 0 && targetHwRate != e->deviceSampleRate) ||
+                         (e->deviceSampleRate <= 0 && targetHwRate != e->outputSampleRate)))
+                    {
+                        return false;
+                    }
                 }
             }
             if (e->hasCurrent && e->currentDecoder != nullptr)
@@ -12823,12 +13083,18 @@ extern "C"
         }
         if (promotedSrcRate > 0)
         {
+            const bool castTap = e->castPcmTapEnabled.load(std::memory_order_relaxed);
+            const uint32_t castReq = (e->outputSampleRate > 0)
+                ? (uint32_t)e->outputSampleRate
+                : (uint32_t)e->userOutputSampleRate;
             AudioRatePlan plan = calculateRatePlan(
                 promotedSrcRate,
                 (uint32_t)e->deviceSampleRate,
-                (uint32_t)e->userOutputSampleRate,
+                effective_user_rate_for_active_path(e, (uint32_t)e->deviceSampleRate),
                 e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
-                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+                e->exclusiveModeEnabled.load(std::memory_order_relaxed),
+                castTap,
+                castReq
             );
             applyRatePlan(e, plan);
         }
@@ -15461,6 +15727,11 @@ extern "C"
                 if (initOk)
                 {
                     e->activeBackend.store(AE_BACKEND_USB_DIRECT, std::memory_order_release);
+                    if (usbSink->sampleRate > 0)
+                    {
+                        e->device.sampleRate = static_cast<ma_uint32>(usbSink->sampleRate);
+                        e->device.playback.internalSampleRate = static_cast<ma_uint32>(usbSink->sampleRate);
+                    }
                     engine_log("USB Direct DAC sink initialized successfully (rate=%d, ch=%d, bits=%d)",
                                usbSink->sampleRate, usbSink->channels, usbSink->bitDepth);
                 }
@@ -15505,6 +15776,7 @@ extern "C"
                             initOk = true;
                             e->device.playback.format = (sink->encoding == 21) ? ma_format_s24 : ma_format_s32;
                             e->device.sampleRate = (ma_uint32)sink->sampleRate;
+                            e->device.playback.internalSampleRate = (ma_uint32)sink->sampleRate;
                             e->activeBackend.store(targetBackend, std::memory_order_release);
                             engine_log("AudioTrack DoP sink initialized (rate=%d, enc=%d, dap=%s)",
                                        sink->sampleRate, sink->encoding, wantDapHiRes ? "true" : "false");
@@ -15533,9 +15805,14 @@ extern "C"
                         if (sink->init(e, targetRate, newCh, wantDirect, wantDapHiRes))
                         {
                             initOk = true;
+                            if (sink->sampleRate > 0)
+                            {
+                                e->device.sampleRate = static_cast<ma_uint32>(sink->sampleRate);
+                                e->device.playback.internalSampleRate = static_cast<ma_uint32>(sink->sampleRate);
+                            }
                             e->activeBackend.store(targetBackend, std::memory_order_release);
                             engine_log("AudioTrack D2P sink initialized (direct=%s, dap=%s, rate=%d)",
-                                       wantDirect ? "true" : "false", wantDapHiRes ? "true" : "false", targetRate);
+                                       wantDirect ? "true" : "false", wantDapHiRes ? "true" : "false", sink->sampleRate);
                         }
                         else
                         {
@@ -15545,7 +15822,9 @@ extern "C"
                 }
                 else
                 {
-                    int targetRate = (wantDirect && e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit;
+                    const int resolvedAtRate = resolve_hardware_target_rate(
+                        e, (e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit);
+                    int targetRate = (resolvedAtRate > 0) ? resolvedAtRate : srForFilterInit;
 
                     // AudioTrack sink internally consumes float PCM from data_callback and converts to S24/S32 if required
                     e->device.playback.format = ma_format_f32;
@@ -15556,9 +15835,15 @@ extern "C"
                     if (sink->init(e, targetRate, newCh, wantDirect, wantDapHiRes))
                     {
                         initOk = true;
+                        if (sink->sampleRate > 0)
+                        {
+                            e->device.sampleRate = static_cast<ma_uint32>(sink->sampleRate);
+                            e->device.playback.internalSampleRate = static_cast<ma_uint32>(sink->sampleRate);
+                        }
                         e->activeBackend.store(targetBackend, std::memory_order_release);
-                        engine_log("AudioTrack sink initialized successfully (direct=%s, dap=%s, rate=%d)",
-                                   wantDirect ? "true" : "false", wantDapHiRes ? "true" : "false", targetRate);
+                        engine_log("AudioTrack sink initialized successfully (direct=%s, dap=%s, directHal=%s, rate=%d)",
+                                   wantDirect ? "true" : "false", wantDapHiRes ? "true" : "false",
+                                   sink->directHalActive ? "true" : "false", sink->sampleRate);
                     }
                     else
                     {
@@ -15631,6 +15916,18 @@ extern "C"
 
                     apply_buffer_policy(e, cfg);
 
+#if defined(__ANDROID__)
+                    if (!(isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP))
+                    {
+                        const int resolvedHwRate = resolve_hardware_target_rate(
+                            e, (newRate > 0) ? newRate : ((e->sourceSampleRate > 0) ? e->sourceSampleRate : 48000));
+                        if (resolvedHwRate > 0)
+                        {
+                            cfg.sampleRate = static_cast<ma_uint32>(resolvedHwRate);
+                        }
+                    }
+#endif
+
                     if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
                     {
                         if (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP &&
@@ -15645,8 +15942,35 @@ extern "C"
                         }
                         else
                         {
+#if defined(__ANDROID__)
+                            int aaHwRate = 0;
+                            int aaSharing = -1;
+                            android_aaudio_get_hw_rate_and_sharing(&e->device, &aaHwRate, &aaSharing);
+                            bool isBtCap = false;
+                            bool directMultiCap = false;
+                            {
+                                std::lock_guard<std::mutex> hwk(e->hwCapMutex);
+                                isBtCap = e->hwCapIsBluetooth;
+                                directMultiCap = e->hwCapDirectMultiRate && !e->hwCapIsFixedClock;
+                            }
+                            if ((aaHwRate > 0 && e->device.sampleRate > 0 && static_cast<ma_uint32>(aaHwRate) != e->device.sampleRate) ||
+                                (aaSharing == 1 && cfg.sampleRate != 0 && !isBtCap && !directMultiCap))
+                            {
+                                engine_log("Android Exclusive AAudio mismatched HAL hwRate=%d sharing=%d (requested=%u) -> tearing down to Shared HAL",
+                                           aaHwRate, aaSharing, cfg.sampleRate);
+                                ma_device_uninit(&e->device);
+                                initOk = false;
+                            }
+                            else
+                            {
+                                initOk = true;
+                                engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz (aaHwRate=%d, sharing=%d).",
+                                           e->device.sampleRate, aaHwRate, aaSharing);
+                            }
+#else
                             initOk = true;
                             engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
+#endif
                         }
                     }
                     else if (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP)
@@ -15704,14 +16028,34 @@ extern "C"
                     apply_buffer_policy(e, cfg);
 
 #if defined(__ANDROID__)
-                    if (newRate > 0)
+                    bool isBtCap = false;
+                    int btNativeRate = 0;
                     {
-                        cfg.sampleRate = (ma_uint32)newRate;
+                        std::lock_guard<std::mutex> hwk(e->hwCapMutex);
+                        isBtCap = e->hwCapIsBluetooth;
+                        btNativeRate = e->hwCapNativeSampleRate;
+                    }
+                    if (isBtCap && btNativeRate > 0)
+                    {
+                        cfg.sampleRate = static_cast<ma_uint32>(btNativeRate);
                         if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
                         {
-                            initOk = true;
-                            engine_log("Android Shared Mode initialized at requested rate %u Hz (actual=%u Hz).",
-                                       cfg.sampleRate, e->device.sampleRate);
+                            int aaHwRate = 0;
+                            android_aaudio_get_hw_rate_and_sharing(&e->device, &aaHwRate, nullptr);
+                            if (aaHwRate > 0 && e->device.sampleRate > 0 &&
+                                static_cast<ma_uint32>(aaHwRate) != e->device.sampleRate)
+                            {
+                                engine_log("Android BT Shared AAudio HAL rate %d != device rate %u -> tearing down to HAL native",
+                                           aaHwRate, e->device.sampleRate);
+                                ma_device_uninit(&e->device);
+                                initOk = false;
+                            }
+                            else
+                            {
+                                initOk = true;
+                                engine_log("Android BT Shared Mode initialized at codec rate %u Hz (actual=%u Hz, aaHwRate=%d).",
+                                           cfg.sampleRate, e->device.sampleRate, aaHwRate);
+                            }
                         }
                     }
                     if (!initOk)
@@ -15819,34 +16163,28 @@ extern "C"
                        e->device.sampleRate, e->device.playback.internalSampleRate);
 
             {
-                const uint32_t actualRate = (e->device.sampleRate > 0)
-                                                ? e->device.sampleRate
-                                                : e->device.playback.internalSampleRate;
+                uint32_t actualRate = (e->device.pContext != nullptr && e->device.playback.internalSampleRate > 0)
+                                          ? e->device.playback.internalSampleRate
+                                          : ((e->device.sampleRate > 0)
+                                                 ? e->device.sampleRate
+                                                 : e->device.playback.internalSampleRate);
+#if defined(__ANDROID__)
+                {
+                    int aaHwRate = 0;
+                    android_aaudio_get_hw_rate_and_sharing(&e->device, &aaHwRate, nullptr);
+                    if (aaHwRate > 0)
+                    {
+                        actualRate = static_cast<uint32_t>(aaHwRate);
+                        e->device.sampleRate = actualRate;
+                        e->device.playback.internalSampleRate = actualRate;
+                    }
+                }
+#endif
                 uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : actualRate;
                 const uint32_t castReqRate = (e->outputSampleRate > 0)
                                                  ? (uint32_t)e->outputSampleRate
                                                  : (uint32_t)e->userOutputSampleRate;
-                uint32_t effectiveUserRate = (uint32_t)e->userOutputSampleRate;
-#if defined(__ANDROID__)
-                const int actBkNow = e->activeBackend.load(std::memory_order_acquire);
-                const bool isSharedFallback = (actBkNow != AE_BACKEND_USB_DIRECT) &&
-                                              !is_direct_hires_family_backend(actBkNow) &&
-                                              !e->exclusiveModeEnabled.load(std::memory_order_relaxed);
-                // Do not force 384 kHz / hi-res USB DAC sample rates onto Android's shared mixer
-                // when no USB DAC / exclusive path is active (avoids 44.1k->384k->48k double SRC).
-                if (isSharedFallback && !castTapActive && actualRate > 0 && effectiveUserRate > actualRate)
-                {
-                    effectiveUserRate = 0;
-                }
-#else
-                // On desktop Shared Mode (WASAPI/CoreAudio/ALSA), the OS mixer clock is fixed at actualRate.
-                // Resample once off-thread via r8brain directly to actualRate so Linear LPF4 and OS SRC never run.
-                if (!wantExclusive && !castTapActive && actualRate > 0 &&
-                    effectiveUserRate > 0 && effectiveUserRate != actualRate)
-                {
-                    effectiveUserRate = 0;
-                }
-#endif
+                const uint32_t effectiveUserRate = effective_user_rate_for_active_path(e, actualRate);
                 AudioRatePlan plan = calculateRatePlan(
                     srcRate,
                     actualRate,
@@ -15860,6 +16198,10 @@ extern "C"
                            plan.sourceRate, plan.engineRate, plan.deviceRate,
                            plan.decoderSRC ? "true" : "false", plan.deviceSRC ? "true" : "false");
                 applyRatePlan(e, plan);
+                if (!castTapActive && e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && plan.deviceRate > 0)
+                {
+                    e->outputSampleRate = static_cast<int>(plan.deviceRate);
+                }
             }
 
             // Cleanly reset pitch resampler state and buffers for new sample rate
@@ -16441,7 +16783,11 @@ extern "C"
             return 0;
         if (engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
         {
-            return engine->outputSampleRate;
+            if (engine->deviceSampleRate > 0)
+                return engine->deviceSampleRate;
+            if (engine->outputSampleRate > 0)
+                return engine->outputSampleRate;
+            return static_cast<int>(engine->device.sampleRate);
         }
         // 0 = native/unset: report the ACTIVE hardware rate instead of the
         // unset sentinel, so callers never see a bogus 0 Hz on a fresh engine.
@@ -16450,6 +16796,96 @@ extern "C"
         if (engine->outputSampleRate != 0)
             return engine->outputSampleRate;
         return (int)engine->device.sampleRate;
+    }
+
+    AE_API void ae_set_hardware_output_capabilities(
+        AudioEngineHandle *engine,
+        int native_sample_rate,
+        int max_bit_depth,
+        int is_fixed_clock,
+        int is_bluetooth,
+        int direct_multi_rate,
+        const int *supported_rates,
+        int supported_rates_count)
+    {
+        if (!engine)
+            return;
+
+        const int cleanNativeRate = (native_sample_rate >= 8000 && native_sample_rate <= 1536000)
+                                        ? native_sample_rate
+                                        : 0;
+        const int cleanBitDepth = (max_bit_depth == 8 || max_bit_depth == 16 || max_bit_depth == 24 || max_bit_depth == 32)
+                                      ? max_bit_depth
+                                      : 0;
+        const bool fixedFlag = (is_fixed_clock != 0);
+        const bool btFlag = (is_bluetooth != 0);
+        const bool multiRateFlag = (direct_multi_rate != 0);
+
+        std::vector<int> cleanRates;
+        if (supported_rates != nullptr && supported_rates_count > 0)
+        {
+            const int cappedCount = (supported_rates_count > 64) ? 64 : supported_rates_count;
+            cleanRates.reserve(static_cast<size_t>(cappedCount));
+            for (int i = 0; i < cappedCount; ++i)
+            {
+                const int r = supported_rates[i];
+                if (r >= 8000 && r <= 1536000)
+                {
+                    cleanRates.push_back(r);
+                }
+            }
+            std::sort(cleanRates.begin(), cleanRates.end());
+            cleanRates.erase(std::unique(cleanRates.begin(), cleanRates.end()), cleanRates.end());
+        }
+
+        bool changed = false;
+        {
+            std::lock_guard<std::mutex> hwk(engine->hwCapMutex);
+            changed = (engine->hwCapNativeSampleRate != cleanNativeRate) ||
+                      (engine->hwCapMaxBitDepth != cleanBitDepth) ||
+                      (engine->hwCapIsFixedClock != fixedFlag) ||
+                      (engine->hwCapIsBluetooth != btFlag) ||
+                      (engine->hwCapDirectMultiRate != multiRateFlag) ||
+                      (engine->hwCapSupportedRates != cleanRates);
+            if (changed)
+            {
+                engine->hwCapNativeSampleRate = cleanNativeRate;
+                engine->hwCapMaxBitDepth = cleanBitDepth;
+                engine->hwCapIsFixedClock = fixedFlag;
+                engine->hwCapIsBluetooth = btFlag;
+                engine->hwCapDirectMultiRate = multiRateFlag;
+                engine->hwCapSupportedRates = std::move(cleanRates);
+            }
+        }
+
+        if (changed)
+        {
+            engine_log("HW capabilities updated: nativeRate=%d maxBits=%d fixedClock=%s bluetooth=%s directMultiRate=%s supportedRates=%d",
+                       cleanNativeRate,
+                       cleanBitDepth,
+                       fixedFlag ? "true" : "false",
+                       btFlag ? "true" : "false",
+                       multiRateFlag ? "true" : "false",
+                       (supported_rates != nullptr && supported_rates_count > 0) ? ((supported_rates_count > 64) ? 64 : supported_rates_count) : 0);
+        }
+
+        if (!engine->castPcmTapEnabled.load(std::memory_order_relaxed))
+        {
+            const int curSrc = (engine->sourceSampleRate > 0)
+                                   ? engine->sourceSampleRate
+                                   : ((engine->deviceSampleRate > 0) ? engine->deviceSampleRate : 48000);
+            const int resolvedNow = resolve_hardware_target_rate(engine, curSrc);
+            const int activeDevRate = (engine->deviceSampleRate > 0)
+                                          ? engine->deviceSampleRate
+                                          : static_cast<int>(engine->device.sampleRate);
+            if (resolvedNow > 0 && activeDevRate > 0 && resolvedNow != activeDevRate)
+            {
+                engine_log("HW capabilities require sample rate sync: active=%d Hz -> target=%d Hz",
+                           activeDevRate, resolvedNow);
+                engine->outputSampleRate = resolvedNow;
+                restart_and_apply_config(engine);
+            }
+        }
     }
 
     AE_API void ae_set_output_channels(AudioEngineHandle *engine, int channels)

@@ -126,7 +126,42 @@ abstract final class AudioOutputTargetResolver {
       );
     }
 
-    // 4. Built-in / Wired output
+    // 4. Built-in / Wired / Desktop output
+    if (specs.isFixedClock && !specs.directMultiRate) {
+      final int halRate = specs.sampleRate > 0 ? specs.sampleRate : 48000;
+      final bool matched =
+          sourceSampleRateHz != null && sourceSampleRateHz == halRate;
+      return ResolvedOutputTarget(
+        sampleRateHz: halRate,
+        format: formatForBitDepth(specs.bitDepth, preferFloat: specs.isFloat),
+        reason: matched
+            ? 'Fixed-clock HAL native match (${(halRate / 1000.0).toStringAsFixed(1)} kHz)'
+            : 'Fixed-clock HAL (${(halRate / 1000.0).toStringAsFixed(1)} kHz · engine SRC)',
+        isUserOverride: false,
+      );
+    }
+
+    if (specs.directMultiRate &&
+        specs.supportedSampleRates.isNotEmpty &&
+        sourceSampleRateHz != null &&
+        sourceSampleRateHz > 0) {
+      final int picked = specs.supportedSampleRates.contains(sourceSampleRateHz)
+          ? sourceSampleRateHz
+          : _pickBestSupportedRate(
+              sourceSampleRateHz,
+              specs.supportedSampleRates,
+            );
+      final bool matched = picked == sourceSampleRateHz;
+      return ResolvedOutputTarget(
+        sampleRateHz: picked,
+        format: formatForBitDepth(specs.bitDepth, preferFloat: specs.isFloat),
+        reason: matched
+            ? 'Hardware native match (${(picked / 1000.0).toStringAsFixed(1)} kHz)'
+            : 'Hardware best supported (${(picked / 1000.0).toStringAsFixed(1)} kHz)',
+        isUserOverride: false,
+      );
+    }
+
     if (sourceSampleRateHz != null &&
         sourceSampleRateHz > 0 &&
         specs.supportedSampleRates.contains(sourceSampleRateHz)) {

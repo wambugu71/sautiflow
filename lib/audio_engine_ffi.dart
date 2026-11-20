@@ -1984,6 +1984,27 @@ typedef _GetActiveDspNodesJsonDart = int Function(
   int,
 );
 
+typedef _SetHardwareOutputCapabilitiesNative = ffi.Void Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Pointer<ffi.Int32>,
+  ffi.Int32,
+);
+typedef _SetHardwareOutputCapabilitiesDart = void Function(
+  ffi.Pointer<ffi.Void>,
+  int,
+  int,
+  int,
+  int,
+  int,
+  ffi.Pointer<ffi.Int32>,
+  int,
+);
+
 typedef _GetLastErrorNative = ffi.Pointer<ffi.Char> Function(
   ffi.Pointer<ffi.Void>,
 );
@@ -3261,6 +3282,15 @@ class AudioEngineFFI {
     } catch (_) {
       _getActiveDspNodesJson = null;
     }
+    try {
+      _setHardwareOutputCapabilities = _lib.lookupFunction<
+          _SetHardwareOutputCapabilitiesNative,
+          _SetHardwareOutputCapabilitiesDart>(
+        'ae_set_hardware_output_capabilities',
+      );
+    } catch (_) {
+      _setHardwareOutputCapabilities = null;
+    }
     _getLastError = _lib.lookupFunction<_GetLastErrorNative, _GetLastErrorDart>(
       'ae_get_last_error',
     );
@@ -4361,6 +4391,7 @@ class AudioEngineFFI {
   late final _GetStatusDart _getStatus;
   late final _GetPipelineStateDart _getPipelineState;
   _GetActiveDspNodesJsonDart? _getActiveDspNodesJson;
+  _SetHardwareOutputCapabilitiesDart? _setHardwareOutputCapabilities;
   late final _GetLastErrorDart _getLastError;
   late final _ClearLastErrorDart _clearLastError;
   late final _SetIntDart _setLoopMode;
@@ -6905,6 +6936,44 @@ class AudioEngineFFI {
   void setOutputSampleRate(int rate) {
     if (_engine == ffi.nullptr) return;
     _setOutputSampleRate(_engine, rate);
+  }
+
+  /// Registers the active device/OS HAL hardware capabilities with the native
+  /// engine so fixed-clock outputs clamp sample-rate matching and resample cleanly
+  /// via the engine's resampler rather than silent OS mixer SRC.
+  void setHardwareOutputCapabilities({
+    required int nativeSampleRate,
+    required int maxBitDepth,
+    required bool isFixedClock,
+    required bool isBluetooth,
+    required bool directMultiRate,
+    List<int> supportedRates = const [],
+  }) {
+    final fn = _setHardwareOutputCapabilities;
+    if (_engine == ffi.nullptr || fn == null) return;
+    ffi.Pointer<ffi.Int32> ratesPtr = ffi.nullptr;
+    try {
+      if (supportedRates.isNotEmpty) {
+        ratesPtr = calloc<ffi.Int32>(supportedRates.length);
+        for (int i = 0; i < supportedRates.length; i++) {
+          ratesPtr[i] = supportedRates[i];
+        }
+      }
+      fn(
+        _engine,
+        nativeSampleRate,
+        maxBitDepth,
+        isFixedClock ? 1 : 0,
+        isBluetooth ? 1 : 0,
+        directMultiRate ? 1 : 0,
+        ratesPtr,
+        supportedRates.length,
+      );
+    } finally {
+      if (ratesPtr != ffi.nullptr) {
+        calloc.free(ratesPtr);
+      }
+    }
   }
 
   int getOutputSampleRate() {

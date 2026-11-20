@@ -389,6 +389,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   AudioFormat _outputFormat = AudioFormat.f32;
   int _outputSampleRate = 0; // 0=Native
   ResolvedOutputTarget? _lastResolvedOutputTarget;
+  String? _lastPushedHwCapSignature;
   int _outputChannels = 2; // Stereo
   bool _crossfadeEnabled = false;
   int _crossfadeDurationMs = 250;
@@ -935,10 +936,28 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   }
 
   void _syncEngineToHardwareSpecs(AudioHardwareSpecs specs) {
-    if (!Platform.isAndroid) return;
     final isCasting = ChromecastService.instance.activeDevice != null ||
         DlnaService.instance.activeRenderer != null;
     if (isCasting) return;
+
+    final int nativeRate = specs.isBluetooth && (specs.btSampleRate ?? 0) > 0
+        ? specs.btSampleRate!
+        : specs.sampleRate;
+    final String capSignature =
+        '$nativeRate|${specs.bitDepth}|${specs.isFixedClock}|${specs.isBluetooth}|${specs.directMultiRate}|${specs.supportedSampleRates.join(",")}';
+    if (capSignature != _lastPushedHwCapSignature) {
+      _lastPushedHwCapSignature = capSignature;
+      _player.setHardwareOutputCapabilities(
+        nativeSampleRate: nativeRate,
+        maxBitDepth: specs.bitDepth,
+        isFixedClock: specs.isFixedClock,
+        isBluetooth: specs.isBluetooth,
+        directMultiRate: specs.directMultiRate,
+        supportedRates: specs.supportedSampleRates,
+      );
+    }
+
+    if (!Platform.isAndroid) return;
     // Do not fight USB Direct kernel-bypass driver which manages its own UAC2 stream.
     if (specs.isUsbDirectBypass) return;
 
@@ -955,7 +974,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     // or when syncing format to a Bluetooth / USB DAC sink.
     if (!target.isUserOverride) {
       _player.setOutputFormat(target.format);
-      if (target.sampleRateHz > 0) {
+      if (target.sampleRateHz > 0 &&
+          (!specs.isFixedClock || specs.isBluetooth)) {
         _player.setOutputSampleRate(target.sampleRateHz);
       }
     }

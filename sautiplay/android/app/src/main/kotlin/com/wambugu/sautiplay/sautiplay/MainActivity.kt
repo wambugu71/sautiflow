@@ -17,9 +17,12 @@ import android.content.pm.PackageManager
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioTrack
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.provider.MediaStore
@@ -465,13 +468,59 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    private fun queryDirectSupportedSampleRates(candidateRates: List<Int>): List<Int> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptyList()
+        val ratesToCheck = (if (candidateRates.isNotEmpty()) candidateRates else listOf(
+            44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000
+        )).filter { it in 8000..768000 }.distinct().sorted()
+        val attrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+        val encodings = mutableListOf<Int>()
+        if (Build.VERSION.SDK_INT >= 31 /* Build.VERSION_CODES.S */) {
+            encodings.add(21 /* ENCODING_PCM_24BIT_PACKED */)
+            encodings.add(22 /* ENCODING_PCM_32BIT */)
+        }
+        encodings.add(AudioFormat.ENCODING_PCM_FLOAT)
+        encodings.add(AudioFormat.ENCODING_PCM_16BIT)
+
+        val supported = mutableListOf<Int>()
+        for (rate in ratesToCheck) {
+            var isRateSupported = false
+            for (enc in encodings) {
+                try {
+                    val fmt = AudioFormat.Builder()
+                        .setEncoding(enc)
+                        .setSampleRate(rate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .build()
+                    if (AudioTrack.isDirectPlaybackSupported(fmt, attrs)) {
+                        isRateSupported = true
+                        break
+                    }
+                } catch (_: Exception) {}
+            }
+            if (isRateSupported) {
+                supported.add(rate)
+            }
+        }
+        return supported
+    }
+
     private fun buildSpecsMap(): Map<String, Any?> {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val defaultHalSampleRate = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 48000
+        val trackNativeRate = try {
+            AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC)
+        } catch (_: Exception) {
+            0
+        }
+        val nativeHalSampleRate = if (trackNativeRate > 0) trackNativeRate else defaultHalSampleRate
         val periodFrames = audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)?.toIntOrNull() ?: 192
 
         var deviceName = "Built-in Speaker"
-        var sampleRate = defaultHalSampleRate
+        var sampleRate = nativeHalSampleRate
         var bitDepth = 32
         var isFloat = true
         var deviceType = "Built-in Speaker"
@@ -551,10 +600,12 @@ class MainActivity : AudioServiceActivity() {
         }
 
         // Bluetooth codec details when BT route is active
-        if (!isAudioMgrUsb && usbAudioDev == null && (selectedDeviceTypeCode == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+        val isUsbRoute = isAudioMgrUsb || usbAudioDev != null
+        val isBluetoothRoute = !isUsbRoute && (selectedDeviceTypeCode == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
             selectedDeviceTypeCode == 26 /* TYPE_BLUETOOTH_LE */ ||
             selectedDeviceTypeCode == 23 /* TYPE_HEARING_AID */)
-        ) {
+
+        if (isBluetoothRoute) {
             val btInfo = queryBluetoothCodec(
                 isLeAudio = (selectedDeviceTypeCode == 26 /* TYPE_BLUETOOTH_LE */),
                 fallbackName = deviceName
@@ -577,11 +628,37 @@ class MainActivity : AudioServiceActivity() {
             }
         }
 
+        val isFixedClock: Boolean
+        val directMultiRate: Boolean
+        if (isUsbRoute) {
+            isFixedClock = false
+            directMultiRate = true
+        } else if (isBluetoothRoute) {
+            isFixedClock = true
+            directMultiRate = false
+            supportedSampleRates = listOf(sampleRate)
+        } else {
+            val directRates = queryDirectSupportedSampleRates(supportedSampleRates)
+            if (directRates.size > 1) {
+                isFixedClock = false
+                directMultiRate = true
+                supportedSampleRates = directRates
+            } else {
+                isFixedClock = true
+                directMultiRate = false
+                sampleRate = nativeHalSampleRate
+                supportedSampleRates = listOf(nativeHalSampleRate)
+            }
+        }
+
         val latencyMs = (periodFrames.toDouble() * 2.0 / sampleRate.toDouble()) * 1000.0
 
         return mapOf(
             "deviceName" to deviceName,
             "sampleRate" to sampleRate,
+            "nativeHalSampleRate" to nativeHalSampleRate,
+            "isFixedClock" to isFixedClock,
+            "directMultiRate" to directMultiRate,
             "bitDepth" to bitDepth,
             "isFloat" to isFloat,
             "channels" to 2,

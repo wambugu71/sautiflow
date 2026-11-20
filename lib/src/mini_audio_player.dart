@@ -737,6 +737,26 @@ class MiniAudioPlayer {
   /// This may cause the audio engine to restart.
   void setOutputSampleRate(int rate) => _engine.setOutputSampleRate(rate);
 
+  /// Informs the native audio engine of the active device/OS HAL hardware capabilities
+  /// so fixed-clock speakers/headphones/Bluetooth paths clamp and resample cleanly
+  /// via the engine's resampler rather than triggering hidden OS mixer SRC.
+  void setHardwareOutputCapabilities({
+    required int nativeSampleRate,
+    required int maxBitDepth,
+    required bool isFixedClock,
+    required bool isBluetooth,
+    required bool directMultiRate,
+    List<int> supportedRates = const [],
+  }) =>
+      _engine.setHardwareOutputCapabilities(
+        nativeSampleRate: nativeSampleRate,
+        maxBitDepth: maxBitDepth,
+        isFixedClock: isFixedClock,
+        isBluetooth: isBluetooth,
+        directMultiRate: directMultiRate,
+        supportedRates: supportedRates,
+      );
+
   /// Get the current output sample rate (0 usually means native/auto).
   int getOutputSampleRate() => _engine.getOutputSampleRate();
 

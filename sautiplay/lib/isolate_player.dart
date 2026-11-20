@@ -1686,6 +1686,23 @@ class IsolateAudioPlayer {
       _send({'cmd': 'setOutputFormat', 'format': format.index});
   void setOutputSampleRate(int rate) =>
       _send({'cmd': 'setOutputSampleRate', 'rate': rate});
+  void setHardwareOutputCapabilities({
+    required int nativeSampleRate,
+    required int maxBitDepth,
+    required bool isFixedClock,
+    required bool isBluetooth,
+    required bool directMultiRate,
+    List<int> supportedRates = const [],
+  }) =>
+      _send({
+        'cmd': 'setHardwareOutputCapabilities',
+        'nativeSampleRate': nativeSampleRate,
+        'maxBitDepth': maxBitDepth,
+        'isFixedClock': isFixedClock,
+        'isBluetooth': isBluetooth,
+        'directMultiRate': directMultiRate,
+        'supportedRates': supportedRates,
+      });
   void setOutputChannels(int channels) =>
       _send({'cmd': 'setOutputChannels', 'channels': channels});
 
@@ -2800,6 +2817,20 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'setOutputSampleRate':
           player.setOutputSampleRate(message['rate']);
+          break;
+        case 'setHardwareOutputCapabilities':
+          player.setHardwareOutputCapabilities(
+            nativeSampleRate: (message['nativeSampleRate'] as num?)?.toInt() ?? 0,
+            maxBitDepth: (message['maxBitDepth'] as num?)?.toInt() ?? 0,
+            isFixedClock: message['isFixedClock'] == true,
+            isBluetooth: message['isBluetooth'] == true,
+            directMultiRate: message['directMultiRate'] == true,
+            supportedRates: (message['supportedRates'] as List?)
+                    ?.whereType<num>()
+                    .map((n) => n.toInt())
+                    .toList(growable: false) ??
+                const [],
+          );
           break;
         case 'setOutputChannels':
           player.setOutputChannels(message['channels']);
