@@ -98,6 +98,10 @@ struct StereoImagerBiquad {
         return static_cast<float>(svf_.processSample(static_cast<double>(x), 0));
     }
 
+    inline double process(double x) {
+        return svf_.processSample(x, 0);
+    }
+
     // 2nd-Order Butterworth Highpass (Q = 0.7071)
     void setHighpass(double fs, double fc) {
         if (fc <= 20.0 || fs <= 0.0) {
@@ -151,7 +155,7 @@ public:
 
         // Reallocate delay buffer for Velvet Noise decorrelator (~20 ms max tap)
         const size_t maxDelaySamples = static_cast<size_t>(0.020f * sample_rate_) + 16u;
-        velvet_buffer_.assign(maxDelaySamples, 0.0f);
+        velvet_buffer_.assign(maxDelaySamples, 0.0);
         velvet_write_ = 0;
 
         initVelvetTaps();
@@ -229,6 +233,17 @@ public:
 
     // Process interleaved 32-bit float stereo samples: [L0, R0, L1, R1, ...]
     void process(float *samples, uint32_t frameCount, int channels) {
+        processImpl(samples, frameCount, channels);
+    }
+
+    // Process interleaved 64-bit double stereo samples: [L0, R0, L1, R1, ...]
+    void process(double *samples, uint32_t frameCount, int channels) {
+        processImpl(samples, frameCount, channels);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T *samples, uint32_t frameCount, int channels) {
         if (channels < 2 || !enabled_ || samples == nullptr || frameCount == 0) {
             return;
         }
@@ -245,7 +260,7 @@ public:
         bool blockHasSide = false;
         for (uint32_t i = 0; i < frameCount; ++i) {
             const size_t idx = (size_t)i * (size_t)channels;
-            if (std::fabs(samples[idx] - samples[idx + 1]) > 1.0e-7f) {
+            if (std::fabs(static_cast<double>(samples[idx]) - static_cast<double>(samples[idx + 1])) > 1.0e-9) {
                 blockHasSide = true;
                 break;
             }
@@ -263,32 +278,32 @@ public:
 
         for (uint32_t i = 0; i < frameCount; ++i) {
             const size_t idx = (size_t)i * (size_t)channels;
-            const float in_l = samples[idx];
-            const float in_r = samples[idx + 1];
+            const double in_l = static_cast<double>(samples[idx]);
+            const double in_r = static_cast<double>(samples[idx + 1]);
 
             // 1. Parameter de-zippering
             current_width_ += (target_width_ - current_width_) * smooth_coeff_;
+            const double cur_w = static_cast<double>(current_width_);
 
             // 2. Symmetric Mid/Side decomposition
-            float mid  = 0.5f * (in_l + in_r);
-            float side = 0.5f * (in_l - in_r);
+            double mid  = 0.5 * (in_l + in_r);
+            double side = 0.5 * (in_l - in_r);
 
             // 3. Sub-Bass Mono Anchor (64-Bit Linkwitz-Riley 4th-Order Crossover on Side + Phase-Matched Allpass on Mid)
             if (hasMonoAnchor) {
-                const double s_hp1 = elliptical_filter_.process(static_cast<double>(side));
+                const double s_hp1 = elliptical_filter_.process(side);
                 const double s_hp2 = elliptical_filter2_.process(s_hp1);
-                side = static_cast<float>(s_hp2);
-                const double m_ap = mid_allpass_filter_.process(static_cast<double>(mid));
+                side = s_hp2;
+                const double m_ap = mid_allpass_filter_.process(mid);
                 if (blockHasSide && !hasVelvet) {
-                    mid = static_cast<float>(m_ap);
+                    mid = m_ap;
                 }
             }
 
             // 4. Mode-Specific Spatialization
             if (hasVelvet) {
                 // Mode 1: Transient-Gated Velvet Noise Decorrelator
-                // Compute envelope follower on Mid channel
-                const float abs_mid = std::fabs(mid);
+                const float abs_mid = static_cast<float>(std::fabs(mid));
                 if (abs_mid > transient_env_) {
                     transient_env_ += (abs_mid - transient_env_) * attack_coeff_;
                 } else {
@@ -306,40 +321,28 @@ public:
                 // Write mid to velvet delay buffer
                 velvet_buffer_[velvet_write_] = mid;
 
-                // Vectorized 12-tap Velvet Noise convolution (3 chunks x 4 taps)
-                SimdFloat4 v_decorr(0.0f);
-                for (int t = 0; t < 12; t += 4) {
-                    int r0 = static_cast<int>(velvet_write_) - velvet_taps_[t + 0];
-                    int r1 = static_cast<int>(velvet_write_) - velvet_taps_[t + 1];
-                    int r2 = static_cast<int>(velvet_write_) - velvet_taps_[t + 2];
-                    int r3 = static_cast<int>(velvet_write_) - velvet_taps_[t + 3];
-
-                    if (r0 < 0) r0 += static_cast<int>(bufSize);
-                    if (r1 < 0) r1 += static_cast<int>(bufSize);
-                    if (r2 < 0) r2 += static_cast<int>(bufSize);
-                    if (r3 < 0) r3 += static_cast<int>(bufSize);
-
-                    const SimdFloat4 v_samples(velvet_buffer_[r0], velvet_buffer_[r1], velvet_buffer_[r2], velvet_buffer_[r3]);
-                    const SimdFloat4 v_signs = SimdFloat4::load_u(&velvet_signs_[t]);
-                    v_decorr = SimdFloat4::fma(v_samples, v_signs, v_decorr);
+                // 12-tap Velvet Noise convolution in 64-bit precision
+                double decorr = 0.0;
+                for (int t = 0; t < 12; ++t) {
+                    int r = static_cast<int>(velvet_write_) - velvet_taps_[t];
+                    if (r < 0) r += static_cast<int>(bufSize);
+                    decorr += velvet_buffer_[r] * static_cast<double>(velvet_signs_[t]);
                 }
-                float decorr = v_decorr.reduce_sum();
 
                 // Normalize and scale by transient gate (low comb-ripple level, only active when widening > 1.0)
-                decorr *= (0.045f * transient_gate_);
+                decorr *= (0.045 * static_cast<double>(transient_gate_));
 
                 // Inject decorrelation symmetrically into the side channel when widening > 1.0
-                // Side energy spreads outward; cancels 100% when mono summed (L+R = 2M)
-                side = (side * current_width_) + (decorr * std::clamp(current_width_ - 1.0f, 0.0f, 1.5f));
+                side = (side * cur_w) + (decorr * std::clamp(cur_w - 1.0, 0.0, 1.5));
 
                 velvet_write_++;
                 if (velvet_write_ >= bufSize) velvet_write_ = 0;
             } else if (hasShuffler) {
                 // Mode 2: Blumlein / Gerzon low-frequency shuffler
-                side = shuffler_shelf_filter_.process(side) * current_width_;
+                side = shuffler_shelf_filter_.process(side) * cur_w;
             } else {
                 // Mode 0: Clean Mastering (Pure symmetric Mid/Side expansion)
-                side = side * current_width_;
+                side = side * cur_w;
             }
 
             // 5. High-Frequency Air Presence Contour (>8.5 kHz on Side)
@@ -348,22 +351,22 @@ public:
             }
 
             // 6. Recombine to Stereo L / R
-            float out_l = mid + side;
-            float out_r = mid - side;
+            double out_l = mid + side;
+            double out_r = mid - side;
 
             // 7. Knee-limited Soft Saturation Guard (Prevents digital overs >0.98)
             out_l = softClip(out_l);
             out_r = softClip(out_r);
 
-            samples[idx]     = out_l;
-            samples[idx + 1] = out_r;
+            samples[idx]     = static_cast<T>(out_l);
+            samples[idx + 1] = static_cast<T>(out_r);
 
             // Accumulate metrics
-            sum_lr += static_cast<double>(out_l * out_r);
-            sum_l2 += static_cast<double>(out_l * out_l);
-            sum_r2 += static_cast<double>(out_r * out_r);
-            sum_m2 += static_cast<double>(mid * mid);
-            sum_s2 += static_cast<double>(side * side);
+            sum_lr += out_l * out_r;
+            sum_l2 += out_l * out_l;
+            sum_r2 += out_r * out_r;
+            sum_m2 += mid * mid;
+            sum_s2 += side * side;
         }
 
         // Update block-averaged telemetry for UI
@@ -381,7 +384,6 @@ public:
         }
     }
 
-private:
     float sample_rate_ = 48000.0f;
     float sample_period_ = 1.0f / 48000.0f;
     bool initialized_ = false;
@@ -408,8 +410,8 @@ private:
     StereoImagerBiquad air_shelf_filter_;
     StereoImagerBiquad shuffler_shelf_filter_;
 
-    // Velvet Noise Decorrelator states
-    std::vector<float> velvet_buffer_;
+    // Velvet Noise Decorrelator states (64-bit precision)
+    std::vector<double> velvet_buffer_;
     size_t velvet_write_ = 0;
     int velvet_taps_[12] = {0};
     float velvet_signs_[12] = {0.0f};
@@ -454,11 +456,11 @@ private:
         shuffler_shelf_filter_.setLowShelf(sample_rate_, 650.0, 4.0);
     }
 
-    inline float softClip(float x) {
-        if (x > 0.935f) {
-            return 0.935f + 0.050f * std::tanh((x - 0.935f) / 0.050f);
-        } else if (x < -0.935f) {
-            return -0.935f + 0.050f * std::tanh((x + 0.935f) / 0.050f);
+    inline double softClip(double x) {
+        if (x > 0.935) {
+            return 0.935 + 0.050 * std::tanh((x - 0.935) / 0.050);
+        } else if (x < -0.935) {
+            return -0.935 + 0.050 * std::tanh((x + 0.935) / 0.050);
         }
         return x;
     }

@@ -175,6 +175,17 @@ public:
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
     void process(float* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+    // Process interleaved stereo 64-bit double samples: [L0, R0, L1, R1, ...]
+    void process(double* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T* interleaved_samples, uint32_t frame_count) {
         if (!interleaved_samples || frame_count == 0) return;
 
         // If disabled and fully smoothed to identity pass, return early
@@ -205,16 +216,16 @@ public:
                 if (anti_pop_ < 0.001f) anti_pop_ = 0.0f;
             }
 
-            float in_l = interleaved_samples[2 * i];
-            float in_r = interleaved_samples[2 * i + 1];
+            const double in_l = static_cast<double>(interleaved_samples[2 * i]);
+            const double in_r = static_cast<double>(interleaved_samples[2 * i + 1]);
 
             // 1. Sidechain High-Pass Filtering (to reject turntable rumble / sub-bass)
-            float sc_l = in_l;
-            float sc_r = in_r;
+            float sc_l = static_cast<float>(in_l);
+            float sc_r = static_cast<float>(in_r);
 
             if (sidechain_hpf_hz_ >= 15.0f) {
                 // Vectorized stereo Direct Form I biquad in 64-bit double precision
-                const SimdDouble2 v_in(static_cast<double>(in_l), static_cast<double>(in_r));
+                const SimdDouble2 v_in(in_l, in_r);
                 const SimdDouble2 y = (vb0 * v_in) + (vb1 * hp_x1_) + (vb2 * hp_x2_) - (va1 * hp_y1_) - (va2 * hp_y2_);
                 hp_x2_ = hp_x1_; hp_x1_ = v_in;
                 hp_y2_ = hp_y1_; hp_y1_ = y;
@@ -266,14 +277,14 @@ public:
             // 4. Per-sample smooth gain application (eliminates zipper noise)
             gain_linear_ += smoothing_coeff_ * (target_gain_linear - gain_linear_);
 
-            interleaved_samples[2 * i]     *= gain_linear_;
-            interleaved_samples[2 * i + 1] *= gain_linear_;
+            const double g = static_cast<double>(gain_linear_);
+            interleaved_samples[2 * i]     = static_cast<T>(in_l * g);
+            interleaved_samples[2 * i + 1] = static_cast<T>(in_r * g);
         }
 
         current_gr_db_ = (gain_linear_ > 1e-4f) ? 20.0f * std::log10(gain_linear_) : -80.0f;
     }
 
-private:
     void updateTimeConstants() {
         attack_coeff_  = 1.0f - std::exp(-1.0f / (std::max(attack_ms_, 0.1f) * 0.001f * sample_rate_));
         release_coeff_ = 1.0f - std::exp(-1.0f / (std::max(release_ms_, 1.0f) * 0.001f * sample_rate_));

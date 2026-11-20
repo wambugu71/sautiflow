@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:sautiflow/sautiflow.dart';
 import 'package:sautiplay/isolate_player.dart';
 import 'package:sautiplay/services/audio_hardware_inspector.dart';
+import 'package:sautiplay/services/audio_output_target_resolver.dart';
 import 'package:sautiplay/services/chromecast_service.dart';
 import 'package:sautiplay/widgets/audio_engine_diagnostic_panel.dart';
 import 'package:sautiplay/widgets/signal_path.dart';
@@ -170,7 +172,7 @@ void main() {
       expect(devSrc.outgoingArrow?.note, 'SRC downcast');
     });
 
-    test('Z5 float island emits F64 -> F32 -> F64 warning arrow', () {
+    test('Reverb under 64-bit DSP stays uniformly F64 with no float island', () {
       final result = buildSignalPath(
         {
           'hardware': {'outputFormat': 4, 'bitDepth': 24},
@@ -182,12 +184,12 @@ void main() {
           'processingChannels': 2,
           'outputSampleRate': 48000,
           'precision64Reasons': Precision64Reason.user,
-          'float64EndToEnd': false,
+          'float64EndToEnd': true,
           'decoderSrcActive': false,
           'deviceSrcActive': false,
           'reverbEnabled': true,
           'reverbEngine': 'Dattorro Plate',
-          'activeNodeMask': ActiveNodeMask.z5Spatial | ActiveNodeMask.floatIslandZ5,
+          'activeNodeMask': ActiveNodeMask.z5Spatial,
         },
         _specs(sampleRate: 48000, bitDepth: 24),
         activeDeviceType: 'Headphones',
@@ -196,10 +198,10 @@ void main() {
         castMaxSampleRateHz: 96000,
       );
 
-      final z5 = result.nodes.firstWhere((n) => n.badge == 'Z5');
-      expect(z5.isWarning, isTrue);
-      expect(z5.outgoingArrow?.formatLabel, 'F64 → F32 → F64');
-      expect(z5.outgoingArrow?.note, 'float island');
+      final reverb = result.nodes.firstWhere((n) => n.title == 'REVERB');
+      expect(reverb.isWarning, isFalse);
+      expect(reverb.badge, 'F64');
+      expect(reverb.outgoingArrow?.formatLabel, 'F64');
     });
 
     test('DSD DoP passthrough collapses chain to Source -> DoP -> Output', () {
@@ -225,36 +227,262 @@ void main() {
       expect(result.srcLabel, 'OFF (DSD Bit-Perfect)');
     });
 
-    test('Z1 Restoration only lists actually enabled sub-nodes', () {
+    test('activeDspNodes renders real individual DSP effects without zone grouping', () {
       final result = buildSignalPath(
         {
-          'hardware': {'outputFormat': 's16', 'bitDepth': 16},
+          'hardware': {'outputFormat': 's24', 'bitDepth': 24},
           'fileType': 'FLAC',
-          'inputSampleRate': 48000,
-          'inputBitDepth': 16,
+          'inputSampleRate': 96000,
+          'inputBitDepth': 24,
+          'engineSampleRate': 96000,
+          'processingSampleRate': 96000,
+          'processingChannels': 2,
+          'outputSampleRate': 96000,
+          'activeDspNodes': [
+            {
+              'id': 'harmonic_bass',
+              'name': 'Harmonic Bass',
+              'precision': 'F32',
+              'summary': '80 Hz · +4.5 dB · Boost 45%',
+              'params': {'Cutoff': '80 Hz', 'Gain': '+4.5 dB', 'Harmonic Boost': '45%'},
+            },
+            {
+              'id': 'clarity',
+              'name': 'Audio Clarity',
+              'precision': 'F32',
+              'summary': 'Intensity 60% · 2x OS',
+              'params': {'Intensity': '60%', 'Oversampling': '2x'},
+            },
+            {
+              'id': 'lookahead_limiter',
+              'name': 'Look-Ahead Limiter',
+              'precision': 'F64',
+              'summary': 'Ceiling -1.0 dBTP · GR -0.5 dB',
+              'latencyMs': 2.0,
+              'params': {'Ceiling': '-1.0 dBTP', 'Live GR': '-0.5 dB'},
+            },
+          ],
+        },
+        _specs(sampleRate: 96000, bitDepth: 24),
+        activeDeviceType: 'USB DAC',
+        isCastingOut: false,
+        castMode: CastAudioMode.dspProcessed,
+        castMaxSampleRateHz: 192000,
+      );
+
+      expect(result.nodes.any((n) => n.kind == ChainNodeKind.zone), isFalse);
+      final bass = result.nodes.firstWhere((n) => n.id == 'harmonic_bass');
+      final clarity = result.nodes.firstWhere((n) => n.id == 'clarity');
+      final limiter = result.nodes.firstWhere((n) => n.id == 'lookahead_limiter');
+      expect(bass.title, 'HARMONIC BASS');
+      expect(bass.liveParams['Cutoff'], '80 Hz');
+      expect(clarity.title, 'AUDIO CLARITY');
+      expect(clarity.liveParams['Intensity'], '60%');
+      expect(limiter.latencyMs, 2.0);
+      expect(result.srcLabel, 'OFF (Matched 96.0 kHz)');
+    });
+
+    test('24-bit 44.1 kHz FLAC into 32-bit 48.0 kHz output always reports Decoder SRC ON and zero OS/HAL SRC', () {
+      final result = buildSignalPath(
+        {
+          'hardware': {'outputFormat': 0, 'bitDepth': 32},
+          'fileType': 'FLAC',
+          'inputSampleRate': 44100,
+          'inputBitDepth': 24,
           'engineSampleRate': 48000,
           'processingSampleRate': 48000,
           'processingChannels': 2,
           'outputSampleRate': 48000,
-          'activeNodeMask':
-              ActiveNodeMask.z1Restoration | ActiveNodeMask.z1Subsonic,
+          'outputFormat': 0,
+          'decoderSrcActive': false,
+          'deviceSrcActive': false,
+          'resampleAlgorithm': 'r8brain24MinimumPhase',
+          'resampleLatencyMs': 1.4,
         },
-        _specs(sampleRate: 48000, bitDepth: 16),
-        activeDeviceType: 'Speaker',
+        _specs(sampleRate: 48000, bitDepth: 32, isFloat: true),
+        activeDeviceType: 'Speakers',
         isCastingOut: false,
         castMode: CastAudioMode.dspProcessed,
         castMaxSampleRateHz: 96000,
       );
 
-      final z1 = result.nodes.firstWhere((n) => n.badge == 'Z1');
-      expect(z1.detail, 'Subsonic / Protection Filter');
-      expect(z1.detail, isNot(contains('Noise Gate')));
-      expect(z1.detail, isNot(contains('Expander')));
+      expect(result.srcLabel, 'ON (44.1 kHz → 48.0 kHz)');
+      expect(result.resamplerLabel, contains('r8brain'));
+      final decSrc =
+          result.nodes.firstWhere((n) => n.kind == ChainNodeKind.decoderSrc);
+      expect(decSrc.detail, contains('44.1 kHz → 48.0 kHz'));
+      expect(
+        result.nodes.any((n) => n.kind == ChainNodeKind.deviceSrc),
+        isFalse,
+      );
+      final outNode =
+          result.nodes.firstWhere((n) => n.kind == ChainNodeKind.output);
+      expect(outNode.liveParams['OS / HAL SRC'], 'None (1:1 Matched)');
+    });
+
+    test('online streams show FFmpeg SwrContext while local files show r8brain', () {
+      final streamResult = buildSignalPath(
+        {
+          'hardware': {'outputFormat': 0, 'bitDepth': 32},
+          'fileType': 'AAC',
+          'isNetworkStream': true,
+          'inputSampleRate': 44100,
+          'inputBitDepth': 16,
+          'engineSampleRate': 48000,
+          'processingSampleRate': 48000,
+          'processingChannels': 2,
+          'outputSampleRate': 48000,
+          'resampleAlgorithm': 'r8brain24MinimumPhase',
+        },
+        _specs(sampleRate: 48000, bitDepth: 32, isFloat: true),
+        activeDeviceType: 'Speakers',
+        isCastingOut: false,
+        castMode: CastAudioMode.dspProcessed,
+        castMaxSampleRateHz: 96000,
+      );
+
+      expect(streamResult.resamplerLabel, 'FFmpeg SwrContext (Stream)');
+      expect(streamResult.resamplerLabel, isNot(contains('r8brain')));
+      final streamDecSrc = streamResult.nodes
+          .firstWhere((n) => n.kind == ChainNodeKind.decoderSrc);
+      expect(streamDecSrc.liveParams['Algorithm'], 'FFmpeg SwrContext');
+      expect(
+        streamDecSrc.liveParams['Pipeline'],
+        'FFmpeg Decoder + SwrContext',
+      );
+      expect(streamDecSrc.liveParams.containsKey('Phase'), isFalse);
+
+      final localResult = buildSignalPath(
+        {
+          'hardware': {'outputFormat': 0, 'bitDepth': 32},
+          'fileType': 'OPUS',
+          'isNetworkStream': false,
+          'inputSampleRate': 44100,
+          'inputBitDepth': 24,
+          'engineSampleRate': 48000,
+          'processingSampleRate': 48000,
+          'processingChannels': 2,
+          'outputSampleRate': 48000,
+          'resampleAlgorithm': 'r8brain24MinimumPhase',
+        },
+        _specs(sampleRate: 48000, bitDepth: 32, isFloat: true),
+        activeDeviceType: 'Speakers',
+        isCastingOut: false,
+        castMode: CastAudioMode.dspProcessed,
+        castMaxSampleRateHz: 96000,
+      );
+
+      expect(localResult.resamplerLabel, 'r8brain Minimum Phase (Decoder)');
+      final localDecSrc = localResult.nodes
+          .firstWhere((n) => n.kind == ChainNodeKind.decoderSrc);
+      expect(localDecSrc.liveParams['Algorithm'], 'r8brain Minimum Phase');
+      expect(localDecSrc.liveParams['Phase'], 'Minimum Phase');
+    });
+  });
+
+  group('AudioOutputTargetResolver', () {
+    test('matches Bluetooth SBC 16/44.1 and LDAC 24/96 automatically', () {
+      const sbcSpecs = AudioHardwareSpecs(
+        backendName: 'AAudio / Android HAL',
+        deviceName: 'BT Earbuds',
+        sampleRate: 44100,
+        bitDepth: 16,
+        isFloat: false,
+        channels: 2,
+        periodSizeFrames: 192,
+        periodCount: 2,
+        latencyMs: 8.7,
+        isExclusiveMode: false,
+        deviceType: 'Bluetooth Wireless',
+        bluetoothCodec: 'SBC',
+        btSampleRate: 44100,
+        btBitDepth: 16,
+      );
+      final sbcTarget = AudioOutputTargetResolver.resolve(
+        specs: sbcSpecs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: 48000,
+      );
+      expect(sbcTarget.sampleRateHz, 44100);
+      expect(sbcTarget.format, AudioFormat.s16);
+      expect(sbcTarget.isUserOverride, isFalse);
+
+      const ldacSpecs = AudioHardwareSpecs(
+        backendName: 'AAudio / Android HAL',
+        deviceName: 'Sony WH-1000XM5',
+        sampleRate: 96000,
+        bitDepth: 24,
+        isFloat: false,
+        channels: 2,
+        periodSizeFrames: 192,
+        periodCount: 2,
+        latencyMs: 4.0,
+        isExclusiveMode: false,
+        deviceType: 'Bluetooth Wireless',
+        bluetoothCodec: 'LDAC',
+        btSampleRate: 96000,
+        btBitDepth: 24,
+      );
+      final ldacTarget = AudioOutputTargetResolver.resolve(
+        specs: ldacSpecs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: 44100,
+      );
+      expect(ldacTarget.sampleRateHz, 96000);
+      expect(ldacTarget.format, AudioFormat.s24);
+    });
+
+    test('matches USB DAC native track rate (zero SRC) and 32/384 capability', () {
+      const dacSpecs = AudioHardwareSpecs(
+        backendName: 'AAudio / Android HAL',
+        deviceName: 'FiiO KA17',
+        sampleRate: 384000,
+        bitDepth: 32,
+        isFloat: false,
+        channels: 2,
+        periodSizeFrames: 192,
+        periodCount: 2,
+        latencyMs: 2.0,
+        isExclusiveMode: false,
+        deviceType: 'USB DAC',
+        supportedSampleRates: [44100, 48000, 88200, 96000, 176400, 192000, 384000],
+        supportedBitDepths: [16, 24, 32],
+        usbDacAttached: true,
+      );
+
+      final native192 = AudioOutputTargetResolver.resolve(
+        specs: dacSpecs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: 192000,
+      );
+      expect(native192.sampleRateHz, 192000);
+      expect(native192.format, AudioFormat.s32);
+
+      final userOverride = AudioOutputTargetResolver.resolve(
+        specs: dacSpecs,
+        userSampleRateHz: 384000,
+        userFormat: AudioFormat.s32,
+        sourceSampleRateHz: 44100,
+      );
+      expect(userOverride.sampleRateHz, 384000);
+      expect(userOverride.isUserOverride, isTrue);
+
+      final autoDacNoTrack = AudioOutputTargetResolver.resolve(
+        specs: dacSpecs,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.f32,
+        sourceSampleRateHz: null,
+      );
+      expect(autoDacNoTrack.sampleRateHz, 0);
+      expect(autoDacNoTrack.isUserOverride, isFalse);
     });
   });
 
   group('SignalPathCard & AudioEngineDiagnosticPanel widgets', () {
-    testWidgets('collapses inactive stages, omits 0.00 ms, scales at 2.0x',
+    testWidgets('collapses inactive stages, taps node to reveal live params, scales at 2.0x',
         (tester) async {
       final player = _FakeDiagPlayer({
         'hardware': {'outputFormat': 1, 'bitDepth': 16},
@@ -273,13 +501,31 @@ void main() {
         'lookaheadLimiterEnabled': true,
         'limiterGainReductionDB': -0.4,
         'deviceLatencyMs': 10.5,
-        'activeNodeMask': ActiveNodeMask.z4DynamicsEq,
-        'eqEnabled': true,
+        'activeDspNodes': [
+          {
+            'id': 'harmonic_bass',
+            'name': 'Harmonic Bass',
+            'precision': 'F32',
+            'summary': '80 Hz · +4.0 dB',
+            'params': {'Cutoff': '80 Hz', 'Gain': '+4.0 dB'},
+          },
+          {
+            'id': 'lookahead_limiter',
+            'name': 'Look-Ahead Limiter',
+            'precision': 'F64',
+            'summary': 'Ceiling -1.0 dBTP · GR -0.4 dB',
+            'params': {'Ceiling': '-1.0 dBTP', 'Live GR': '-0.4 dB'},
+          },
+        ],
+        'eqEnabled': false,
       });
 
       await tester.pumpWidget(
         MediaQuery(
-          data: const MediaQueryData(textScaler: TextScaler.linear(2.0)),
+          data: const MediaQueryData(
+            size: Size(800, 900),
+            textScaler: TextScaler.linear(2.0),
+          ),
           child: MaterialApp(
             home: Scaffold(
               body: AudioEngineDiagnosticPanel(player: player),
@@ -288,10 +534,22 @@ void main() {
         ),
       );
 
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('Signal Path'), findsOneWidget);
       expect(find.text('0.00 ms'), findsNothing);
+      expect(find.text('HARMONIC BASS'), findsOneWidget);
+      expect(find.text('Cutoff'), findsNothing);
+
+      // Tap the Harmonic Bass node to expand its real-time queried parameters
+      await tester.ensureVisible(find.text('HARMONIC BASS'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('HARMONIC BASS'));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Cutoff'), findsOneWidget);
+      expect(find.text('80 Hz'), findsOneWidget);
       expect(find.textContaining('inactive stages'), findsOneWidget);
       expect(find.text('ON (Look-Ahead)'), findsOneWidget);
       expect(tester.takeException(), isNull);

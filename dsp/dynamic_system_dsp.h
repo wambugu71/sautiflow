@@ -179,6 +179,17 @@ public:
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
     void process(float* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+    // Process interleaved stereo 64-bit double samples: [L0, R0, L1, R1, ...]
+    void process(double* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
         for (uint32_t i = 0; i < frame_count; i++) {
@@ -191,62 +202,63 @@ public:
             current_low_ang_y_   += smoothing_coeff_ * (target_low_ang_y_ - current_low_ang_y_);
             current_upp_ang_y_   += smoothing_coeff_ * (target_upp_ang_y_ - current_upp_ang_y_);
 
-            float in_l = interleaved_samples[2 * i];
-            float in_r = interleaved_samples[2 * i + 1];
+            const double in_l = static_cast<double>(interleaved_samples[2 * i]);
+            const double in_r = static_cast<double>(interleaved_samples[2 * i + 1]);
 
-            float out_l = in_l;
-            float out_r = in_r;
+            double out_l = in_l;
+            double out_r = in_r;
 
             if (x_low_ <= 120.0f) {
                 // Sub-120Hz dynamic resonant path: variable-Q low-pass bass injection (64-bit precision)
-                const double mono_in = (static_cast<double>(in_l) + static_cast<double>(in_r)) * 0.5;
-                const float low_out = static_cast<float>(dynamic_lp_biquad_.process(mono_in));
-                out_l = in_l + low_out * (current_bass_gain_ - 1.0f);
-                out_r = in_r + low_out * (current_bass_gain_ - 1.0f);
+                const double mono_in = (in_l + in_r) * 0.5;
+                const double low_out = dynamic_lp_biquad_.process(mono_in);
+                const double bg = static_cast<double>(current_bass_gain_) - 1.0;
+                out_l = in_l + low_out * bg;
+                out_r = in_r + low_out * bg;
             } else {
-                // 2. Stage 1: 4-Pole Ladder X (Vectorized Stereo Multi-Band Decomposition)
-                const SimdFloat4 vin(in_l, in_r, 0.0f, 0.0f);
-                SimdFloat4 x1, x2, x3;
-                processLadderStereo(&ladder_x_, vin, current_low_ang_x_, current_upp_ang_x_, x1, x2, x3);
+                // 2. Stage 1: 4-Pole Ladder X (Vectorized Stereo Multi-Band Decomposition in 64-bit)
+                const SimdDouble2 vin(in_l, in_r);
+                SimdDouble2 x1, x2, x3;
+                processLadderStereo(&ladder_x_, vin, static_cast<double>(current_low_ang_x_), static_cast<double>(current_upp_ang_x_), x1, x2, x3);
 
                 // 3. Stage 2: 4-Pole Ladder Y (Dynamic Bass Resonance & Transducer Excitation)
-                SimdFloat4 y1, y2, y3;
-                const SimdFloat4 v_bass_gain(current_bass_gain_);
-                processLadderStereo(&ladder_y_, v_bass_gain * x1, current_low_ang_y_, current_upp_ang_y_, y1, y2, y3);
+                SimdDouble2 y1, y2, y3;
+                const SimdDouble2 v_bass_gain(static_cast<double>(current_bass_gain_));
+                processLadderStereo(&ladder_y_, v_bass_gain * x1, static_cast<double>(current_low_ang_y_), static_cast<double>(current_upp_ang_y_), y1, y2, y3);
 
-                // 4. Phase-Aligned Matrix Reconstruction in SIMD
-                const SimdFloat4 v_side_x(current_side_gain_x_);
-                const SimdFloat4 v_side_y(current_side_gain_y_);
-                const SimdFloat4 v_out = x2 + y3 + (v_side_x * y2) + (v_side_y * y1) + x3;
+                // 4. Phase-Aligned Matrix Reconstruction in 64-bit SIMD
+                const SimdDouble2 v_side_x(static_cast<double>(current_side_gain_x_));
+                const SimdDouble2 v_side_y(static_cast<double>(current_side_gain_y_));
+                const SimdDouble2 v_out = x2 + y3 + (v_side_x * y2) + (v_side_y * y1) + x3;
 
-                out_l = v_out.get(0);
-                out_r = v_out.get(1);
+                out_l = v_out.get_low();
+                out_r = v_out.get_high();
             }
 
             // 5. Anti-pop smooth crossfade on activation / profile change
             if (anti_pop_ < 1.0f) {
-                out_l = in_l + anti_pop_ * (out_l - in_l);
-                out_r = in_r + anti_pop_ * (out_r - in_r);
+                const double ap = static_cast<double>(anti_pop_);
+                out_l = in_l + ap * (out_l - in_l);
+                out_r = in_r + ap * (out_r - in_r);
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
             }
 
             // 6. Direct output assignment without base-rate soft-clipping aliasing
-            interleaved_samples[2 * i]     = out_l;
-            interleaved_samples[2 * i + 1] = out_r;
+            interleaved_samples[2 * i]     = static_cast<T>(out_l);
+            interleaved_samples[2 * i + 1] = static_cast<T>(out_r);
         }
     }
 
-private:
     struct LadderChannelStereo {
-        SimdFloat4 in[3]{};
-        SimdFloat4 x[4]{};
-        SimdFloat4 y[4]{};
+        SimdDouble2 in[3]{};
+        SimdDouble2 x[4]{};
+        SimdDouble2 y[4]{};
 
         void reset() {
-            for (int i = 0; i < 3; ++i) in[i] = SimdFloat4(0.0f);
+            for (int i = 0; i < 3; ++i) in[i] = SimdDouble2(0.0);
             for (int i = 0; i < 4; ++i) {
-                x[i] = SimdFloat4(0.0f);
-                y[i] = SimdFloat4(0.0f);
+                x[i] = SimdDouble2(0.0);
+                y[i] = SimdDouble2(0.0);
             }
         }
     };
@@ -343,15 +355,15 @@ private:
         return v * (shaped / drive);
     }
 
-    inline void processLadderStereo(LadderChannelStereo* ch, const SimdFloat4& sample, float low_ang, float upp_ang,
-                                    SimdFloat4& out1, SimdFloat4& out2, SimdFloat4& out3) {
+    inline void processLadderStereo(LadderChannelStereo* ch, const SimdDouble2& sample, double low_ang, double upp_ang,
+                                    SimdDouble2& out1, SimdDouble2& out2, SimdDouble2& out3) {
         ch->in[2] = ch->in[1];
         ch->in[1] = ch->in[0];
         ch->in[0] = sample;
 
-        const SimdFloat4 v_low_ang(low_ang);
-        const SimdFloat4 v_upp_ang(upp_ang);
-        const SimdFloat4 v_denormal(kDenormal);
+        const SimdDouble2 v_low_ang(low_ang);
+        const SimdDouble2 v_upp_ang(upp_ang);
+        const SimdDouble2 v_denormal(static_cast<double>(kDenormal));
 
         // 4-Pole Low-Pass Ladder (x)
         ch->x[0] = ch->x[0] + (v_low_ang * (sample - ch->x[0])) + v_denormal;

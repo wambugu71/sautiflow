@@ -128,6 +128,16 @@ public:
     }
 
     void process(float *interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels);
+    }
+
+    void process(double *interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T *interleaved, uint32_t frames, int channels) {
         if (!interleaved || frames == 0 || channels < 2 || !buffersAllocated)
             return;
 
@@ -153,8 +163,10 @@ public:
             currentWidth += (targetWidth - currentWidth) * smoothCoeff;
 
             uint32_t idx = f * channels;
-            float inL = interleaved[idx];
-            float inR = interleaved[idx + 1];
+            const double rawInL = static_cast<double>(interleaved[idx]);
+            const double rawInR = static_cast<double>(interleaved[idx + 1]);
+            float inL = static_cast<float>(rawInL);
+            float inR = static_cast<float>(rawInR);
 
             // 1. Read delay outputs with subtle prime-rate sinusoidal modulation
             for (int i = 0; i < NUM_CHANNELS; ++i) {
@@ -247,12 +259,11 @@ public:
             float outL = mid + side;
             float outR = mid - side;
 
-            interleaved[idx]     = inL * currentDry + outL * currentWet;
-            interleaved[idx + 1] = inR * currentDry + outR * currentWet;
+            interleaved[idx]     = static_cast<T>(rawInL * static_cast<double>(currentDry) + static_cast<double>(outL) * static_cast<double>(currentWet));
+            interleaved[idx + 1] = static_cast<T>(rawInR * static_cast<double>(currentDry) + static_cast<double>(outR) * static_cast<double>(currentWet));
         }
     }
 
-private:
     void updateCoefficients() {
         if (sampleRate <= 0.0) return;
 

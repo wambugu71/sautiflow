@@ -44,6 +44,8 @@ class MainActivity : AudioServiceActivity() {
 
         private const val ACTION_CODEC_CONFIG_CHANGED =
             "android.bluetooth.a2dp.profile.action.CODEC_CONFIG_CHANGED"
+        private const val EXTRA_CODEC_STATUS =
+            "android.bluetooth.extra.CODEC_STATUS"
 
         init {
             try {
@@ -64,6 +66,8 @@ class MainActivity : AudioServiceActivity() {
 
     private var bluetoothA2dp: BluetoothA2dp? = null
     private var bluetoothAdapter: BluetoothAdapter? = null
+    private var cachedBtCodecConfig: BluetoothCodecConfig? = null
+    private var cachedBtDeviceName: String? = null
     private var audioDeviceCallback: AudioDeviceCallback? = null
     private var multicastLock: WifiManager.MulticastLock? = null
 
@@ -72,12 +76,29 @@ class MainActivity : AudioServiceActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             Log.d(TAG, "Hardware event received: ${intent.action}")
             when (intent.action) {
+                ACTION_CODEC_CONFIG_CHANGED -> {
+                    captureCodecConfigFromIntent(intent)
+                    pushCurrentSpecs()
+                }
+                BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED -> {
+                    val state = intent.getIntExtra(
+                        BluetoothProfile.EXTRA_STATE,
+                        BluetoothProfile.STATE_DISCONNECTED
+                    )
+                    if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                        cachedBtCodecConfig = null
+                        cachedBtDeviceName = null
+                    }
+                    pushCurrentSpecs()
+                }
+                BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                    cachedBtCodecConfig = null
+                    cachedBtDeviceName = null
+                    pushCurrentSpecs()
+                }
                 Intent.ACTION_HEADSET_PLUG,
-                BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED,
-                ACTION_CODEC_CONFIG_CHANGED,
                 BluetoothDevice.ACTION_NAME_CHANGED,
                 BluetoothDevice.ACTION_ACL_CONNECTED,
-                BluetoothDevice.ACTION_ACL_DISCONNECTED,
                 BluetoothAdapter.ACTION_STATE_CHANGED,
                 UsbManager.ACTION_USB_DEVICE_ATTACHED,
                 UsbManager.ACTION_USB_DEVICE_DETACHED,
@@ -458,8 +479,11 @@ class MainActivity : AudioServiceActivity() {
         var btDeviceName: String? = null
         var btSampleRate: Int? = null
         var btBitDepth: Int? = null
+        var btChannelMode: String? = null
+        var btQualityLabel: String? = null
         var selectedDeviceTypeCode = -1
         var supportedSampleRates: List<Int> = emptyList()
+        var supportedBitDepths: List<Int> = emptyList()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
@@ -489,28 +513,11 @@ class MainActivity : AudioServiceActivity() {
                 val (depth, float) = bestEncodingFromDevice(dev)
                 bitDepth = depth
                 isFloat = float
+                supportedBitDepths = supportedBitDepthsFromDevice(dev)
 
                 val devRates = dev.sampleRates
                 if (devRates.isNotEmpty()) {
                     supportedSampleRates = devRates.toList().sorted()
-                }
-
-                // If USB DAC or wired headset reports specific hardware sample rates:
-                if (selectedDeviceTypeCode == AudioDeviceInfo.TYPE_USB_DEVICE ||
-                    selectedDeviceTypeCode == AudioDeviceInfo.TYPE_USB_HEADSET ||
-                    selectedDeviceTypeCode == AudioDeviceInfo.TYPE_USB_ACCESSORY
-                ) {
-                    if (devRates.isNotEmpty()) {
-                        sampleRate = devRates.maxOrNull() ?: defaultHalSampleRate
-                    }
-                } else if (selectedDeviceTypeCode == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                    selectedDeviceTypeCode == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                    selectedDeviceTypeCode == AudioDeviceInfo.TYPE_LINE_ANALOG ||
-                    selectedDeviceTypeCode == 19 /* TYPE_AUX_LINE */
-                ) {
-                    if (devRates.isNotEmpty()) {
-                        sampleRate = devRates.maxOrNull() ?: defaultHalSampleRate
-                    }
                 }
             }
         }
@@ -538,7 +545,6 @@ class MainActivity : AudioServiceActivity() {
                         44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000, 705600, 768000
                     )
                 }
-                sampleRate = supportedSampleRates.maxOrNull() ?: 384000
             } else if ((deviceName == "USB Audio DAC" || deviceName.isBlank()) && usbProduct != null) {
                 deviceName = resolvedUsbName
             }
@@ -549,11 +555,16 @@ class MainActivity : AudioServiceActivity() {
             selectedDeviceTypeCode == 26 /* TYPE_BLUETOOTH_LE */ ||
             selectedDeviceTypeCode == 23 /* TYPE_HEARING_AID */)
         ) {
-            val btInfo = queryBluetoothCodec()
-            btCodec = btInfo?.first
-            btDeviceName = btInfo?.second
-            btSampleRate = btInfo?.third
-            btBitDepth = btInfo?.fourth
+            val btInfo = queryBluetoothCodec(
+                isLeAudio = (selectedDeviceTypeCode == 26 /* TYPE_BLUETOOTH_LE */),
+                fallbackName = deviceName
+            )
+            btCodec = btInfo?.codecName
+            btDeviceName = btInfo?.deviceName
+            btSampleRate = btInfo?.sampleRate
+            btBitDepth = btInfo?.bitDepth
+            btChannelMode = btInfo?.channelMode
+            btQualityLabel = btInfo?.qualityLabel
             if (!btDeviceName.isNullOrBlank()) {
                 deviceName = btDeviceName
             }
@@ -582,7 +593,10 @@ class MainActivity : AudioServiceActivity() {
             "bluetoothDeviceName" to btDeviceName,
             "btSampleRate" to btSampleRate,
             "btBitDepth" to btBitDepth,
+            "btChannelMode" to btChannelMode,
+            "btQualityLabel" to btQualityLabel,
             "supportedSampleRates" to supportedSampleRates,
+            "supportedBitDepths" to supportedBitDepths,
             "usbDacAttached" to (usbAudioDev != null),
             "usbHasPermission" to (if (usbAudioDev != null && usbManager != null) usbManager.hasPermission(usbAudioDev) else false),
             "androidVersion" to Build.VERSION.SDK_INT,
@@ -667,57 +681,193 @@ class MainActivity : AudioServiceActivity() {
         return Pair(maxBits, isFloat)
     }
 
+    private fun supportedBitDepthsFromDevice(dev: AudioDeviceInfo): List<Int> {
+        val bits = sortedSetOf<Int>()
+        for (enc in dev.encodings) {
+            when (enc) {
+                2  /* ENCODING_PCM_16BIT */        -> bits.add(16)
+                21 /* ENCODING_PCM_24BIT_PACKED */ -> bits.add(24)
+                22 /* ENCODING_PCM_32BIT */,
+                4  /* ENCODING_PCM_FLOAT */        -> bits.add(32)
+            }
+        }
+        return bits.toList()
+    }
+
+    private fun captureCodecConfigFromIntent(intent: Intent) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        try {
+            @Suppress("DEPRECATION")
+            val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+            if (device != null && hasBtPermission()) {
+                @Suppress("DEPRECATION")
+                cachedBtDeviceName = device.name ?: cachedBtDeviceName
+            }
+            @Suppress("DEPRECATION")
+            val codecStatus = intent.getParcelableExtra<android.os.Parcelable>(EXTRA_CODEC_STATUS)
+            if (codecStatus != null) {
+                val getConfigMethod = codecStatus.javaClass.getMethod("getCodecConfig")
+                val config = getConfigMethod.invoke(codecStatus) as? BluetoothCodecConfig
+                if (config != null) {
+                    cachedBtCodecConfig = config
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "captureCodecConfigFromIntent failed: ${e.message}")
+        }
+    }
+
+    private data class BluetoothCodecSnapshot(
+        val codecName: String,
+        val deviceName: String,
+        val sampleRate: Int,
+        val bitDepth: Int,
+        val channelMode: String? = null,
+        val qualityLabel: String? = null,
+    )
+
+    private fun parseBluetoothCodecConfig(
+        config: BluetoothCodecConfig,
+        deviceName: String
+    ): BluetoothCodecSnapshot {
+        // Check codecName / toString() first for vendor codecs (LHDC, aptX Adaptive, aptX Lossless, SSC, etc.)
+        val rawStr = config.toString().uppercase()
+        val codecName = when (config.codecType) {
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC     -> "SBC"
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_AAC     -> "AAC"
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX    -> "aptX"
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX_HD -> "aptX HD"
+            BluetoothCodecConfig.SOURCE_CODEC_TYPE_LDAC    -> "LDAC"
+            5 /* SOURCE_CODEC_TYPE_LC3 (API 33+) */        -> if (rawStr.contains("OPUS")) "Opus" else "LC3"
+            6 /* SOURCE_CODEC_TYPE_OPUS / LC3 */           -> when {
+                rawStr.contains("OPUS") -> "Opus"
+                rawStr.contains("LC3") -> "LC3"
+                rawStr.contains("APTX") && rawStr.contains("ADAPTIVE") -> "aptX Adaptive"
+                rawStr.contains("LHDC") -> "LHDC"
+                else -> "LC3"
+            }
+            7                                              -> when {
+                rawStr.contains("OPUS") -> "Opus"
+                rawStr.contains("LHDC") -> "LHDC"
+                rawStr.contains("APTX") && rawStr.contains("LOSSLESS") -> "aptX Lossless"
+                rawStr.contains("APTX") && rawStr.contains("ADAPTIVE") -> "aptX Adaptive"
+                else -> "Opus"
+            }
+            else                                           -> when {
+                rawStr.contains("APTX") && rawStr.contains("LOSSLESS") -> "aptX Lossless"
+                rawStr.contains("APTX") && rawStr.contains("ADAPTIVE") -> "aptX Adaptive"
+                rawStr.contains("APTX") && rawStr.contains("HD") -> "aptX HD"
+                rawStr.contains("APTX") -> "aptX"
+                rawStr.contains("LDAC") -> "LDAC"
+                rawStr.contains("LHDC") -> "LHDC"
+                rawStr.contains("SSC") || rawStr.contains("SCALABLE") -> "Samsung SSC"
+                rawStr.contains("LC3") -> "LC3"
+                rawStr.contains("OPUS") -> "Opus"
+                rawStr.contains("AAC") -> "AAC"
+                else -> "SBC"
+            }
+        }
+
+        val sampleRate = when (config.sampleRate) {
+            BluetoothCodecConfig.SAMPLE_RATE_44100  -> 44100
+            BluetoothCodecConfig.SAMPLE_RATE_48000  -> 48000
+            BluetoothCodecConfig.SAMPLE_RATE_88200  -> 88200
+            BluetoothCodecConfig.SAMPLE_RATE_96000  -> 96000
+            BluetoothCodecConfig.SAMPLE_RATE_176400 -> 176400
+            BluetoothCodecConfig.SAMPLE_RATE_192000 -> 192000
+            else                                    -> when (codecName) {
+                "aptX HD", "LDAC", "LHDC", "LC3", "Opus" -> 48000
+                else -> 44100
+            }
+        }
+
+        val bits = when (config.bitsPerSample) {
+            BluetoothCodecConfig.BITS_PER_SAMPLE_16 -> 16
+            BluetoothCodecConfig.BITS_PER_SAMPLE_24 -> 24
+            BluetoothCodecConfig.BITS_PER_SAMPLE_32 -> 32
+            else                                    -> when (codecName) {
+                "aptX HD", "LDAC", "LHDC", "aptX Adaptive", "aptX Lossless" -> 24
+                else -> 16
+            }
+        }
+
+        val channelMode = when (config.channelMode) {
+            BluetoothCodecConfig.CHANNEL_MODE_MONO   -> "Mono"
+            BluetoothCodecConfig.CHANNEL_MODE_STEREO -> "Stereo"
+            else                                     -> "Stereo"
+        }
+
+        var qualityLabel: String? = null
+        if (codecName == "LDAC") {
+            qualityLabel = when (config.codecSpecific1) {
+                1000L -> "990/909 kbps (Quality)"
+                1001L -> "660/606 kbps (Balanced)"
+                1002L -> "330/303 kbps (Connection)"
+                1003L -> "Adaptive Bitrate"
+                else  -> null
+            }
+        }
+
+        return BluetoothCodecSnapshot(
+            codecName = codecName,
+            deviceName = deviceName,
+            sampleRate = sampleRate,
+            bitDepth = bits,
+            channelMode = channelMode,
+            qualityLabel = qualityLabel,
+        )
+    }
+
     private fun queryBluetoothCodecViaReflection(
         a2dp: BluetoothA2dp,
         device: BluetoothDevice,
         deviceName: String
-    ): Quadruple<String, String, Int, Int> {
+    ): BluetoothCodecSnapshot {
         try {
             val method = a2dp.javaClass.getMethod("getCodecStatus", BluetoothDevice::class.java)
-            val codecStatus = method.invoke(a2dp, device) ?: return Quadruple("SBC", deviceName, 44100, 16)
-
-            val getConfigMethod = codecStatus.javaClass.getMethod("getCodecConfig")
-            val config = getConfigMethod.invoke(codecStatus) as? BluetoothCodecConfig
-                ?: return Quadruple("SBC", deviceName, 44100, 16)
-
-            val codecName = when (config.codecType) {
-                BluetoothCodecConfig.SOURCE_CODEC_TYPE_SBC     -> "SBC"
-                BluetoothCodecConfig.SOURCE_CODEC_TYPE_AAC     -> "AAC"
-                BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX    -> "aptX"
-                BluetoothCodecConfig.SOURCE_CODEC_TYPE_APTX_HD -> "aptX HD"
-                BluetoothCodecConfig.SOURCE_CODEC_TYPE_LDAC    -> "LDAC"
-                6 /* SOURCE_CODEC_TYPE_LC3 */                  -> "LC3"
-                7 /* SOURCE_CODEC_TYPE_OPUS */                  -> "Opus"
-                else                                           -> "SBC"
+            val codecStatus = method.invoke(a2dp, device)
+            if (codecStatus != null) {
+                val getConfigMethod = codecStatus.javaClass.getMethod("getCodecConfig")
+                val config = getConfigMethod.invoke(codecStatus) as? BluetoothCodecConfig
+                if (config != null) {
+                    cachedBtCodecConfig = config
+                    return parseBluetoothCodecConfig(config, deviceName)
+                }
             }
-
-            val sampleRate = when (config.sampleRate) {
-                BluetoothCodecConfig.SAMPLE_RATE_44100  -> 44100
-                BluetoothCodecConfig.SAMPLE_RATE_48000  -> 48000
-                BluetoothCodecConfig.SAMPLE_RATE_88200  -> 88200
-                BluetoothCodecConfig.SAMPLE_RATE_96000  -> 96000
-                BluetoothCodecConfig.SAMPLE_RATE_176400 -> 176400
-                BluetoothCodecConfig.SAMPLE_RATE_192000 -> 192000
-                else                                    -> 44100
-            }
-
-            val bits = when (config.bitsPerSample) {
-                BluetoothCodecConfig.BITS_PER_SAMPLE_16 -> 16
-                BluetoothCodecConfig.BITS_PER_SAMPLE_24 -> 24
-                BluetoothCodecConfig.BITS_PER_SAMPLE_32 -> 32
-                else                                    -> 16
-            }
-
-            return Quadruple(codecName, deviceName, sampleRate, bits)
         } catch (e: Exception) {
             Log.w(TAG, "Reflection getCodecStatus failed: ${e.message}")
-            return Quadruple("SBC", deviceName, 44100, 16)
         }
+        cachedBtCodecConfig?.let { return parseBluetoothCodecConfig(it, deviceName) }
+        return BluetoothCodecSnapshot("SBC", deviceName, 44100, 16, "Stereo", null)
     }
 
-    private fun queryBluetoothCodec(): Quadruple<String, String, Int, Int>? {
-        if (!hasBtPermission()) return null
-        val a2dp = bluetoothA2dp ?: return null
+    private fun queryBluetoothCodec(
+        isLeAudio: Boolean = false,
+        fallbackName: String = "Bluetooth Audio Device"
+    ): BluetoothCodecSnapshot? {
+        if (isLeAudio) {
+            return BluetoothCodecSnapshot(
+                codecName = "LC3",
+                deviceName = cachedBtDeviceName ?: fallbackName,
+                sampleRate = 48000,
+                bitDepth = 24,
+                channelMode = "Stereo",
+                qualityLabel = "LE Audio"
+            )
+        }
+        if (!hasBtPermission()) {
+            cachedBtCodecConfig?.let {
+                return parseBluetoothCodecConfig(it, cachedBtDeviceName ?: fallbackName)
+            }
+            return null
+        }
+        val a2dp = bluetoothA2dp
+        if (a2dp == null) {
+            cachedBtCodecConfig?.let {
+                return parseBluetoothCodecConfig(it, cachedBtDeviceName ?: fallbackName)
+            }
+            return null
+        }
 
         return try {
             var connectedDevices: List<BluetoothDevice> = emptyList()
@@ -738,19 +888,28 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
 
-            if (connectedDevices.isEmpty()) return null
+            if (connectedDevices.isEmpty()) {
+                cachedBtCodecConfig?.let {
+                    return parseBluetoothCodecConfig(it, cachedBtDeviceName ?: fallbackName)
+                }
+                return null
+            }
 
             val device = connectedDevices.first()
             @Suppress("DEPRECATION")
-            val name = device.name ?: "Bluetooth Audio Device"
+            val name = device.name ?: cachedBtDeviceName ?: fallbackName
+            cachedBtDeviceName = name
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 queryBluetoothCodecViaReflection(a2dp, device, name)
             } else {
-                Quadruple("SBC", name, 44100, 16)
+                BluetoothCodecSnapshot("SBC", name, 44100, 16, "Stereo", null)
             }
         } catch (e: Exception) {
             Log.w(TAG, "queryBluetoothCodec error: ${e.message}")
+            cachedBtCodecConfig?.let {
+                return parseBluetoothCodecConfig(it, cachedBtDeviceName ?: fallbackName)
+            }
             null
         }
     }

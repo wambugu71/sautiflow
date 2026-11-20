@@ -232,6 +232,17 @@ public:
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
     void process(float* samples, uint32_t frame_count) {
+        processImpl(samples, frame_count);
+    }
+
+    // Process interleaved stereo 64-bit double samples: [L0, R0, L1, R1, ...]
+    void process(double* samples, uint32_t frame_count) {
+        processImpl(samples, frame_count);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T* samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !samples) return;
 
         switch (profile_) {
@@ -255,8 +266,6 @@ public:
                 break;
         }
     }
-
-private:
     // =========================================================================
     // Direct Form I Biquad Implementation
     // =========================================================================
@@ -431,9 +440,9 @@ private:
     // 4-Pole Ladder Channel (for Dynamic Multi-Pole Resonator)
     // =========================================================================
     struct LadderChannel {
-        float in[3]{};
-        float x[4]{};
-        float y[4]{};
+        double in[3]{};
+        double x[4]{};
+        double y[4]{};
     };
 
     bool enabled_ = false;
@@ -453,24 +462,24 @@ private:
     float bass_factor_smoothed_ = 1.75f;
     float smoothing_coeff_ = 0.001f;
 
-    // 18 Hz DC Blocker states (Stereo)
+    // 18 Hz DC Blocker states (Stereo, 64-bit)
     float dc_block_coeff_ = 0.997f;
-    float dc_x1_[2] = {0.0f, 0.0f};
-    float dc_y1_[2] = {0.0f, 0.0f};
+    double dc_x1_[2] = {0.0, 0.0};
+    double dc_y1_[2] = {0.0, 0.0};
 
     // Direct Form I Butterworth Biquads (Natural & Pure Bass)
     BiquadDirectFormI mono_lp_biquad_;
     BiquadDirectFormI biquad_stereo_[2];
 
-    // Polyphase 63-Tap FIR Filter States (Pure Bass+)
-    float fir_hist_l_[126] = {0.0f};
-    float fir_hist_r_[126] = {0.0f};
+    // Polyphase 63-Tap FIR Filter States (Pure Bass+, 64-bit)
+    double fir_hist_l_[126] = {0.0};
+    double fir_hist_r_[126] = {0.0};
     size_t fir_head_l_ = 0;
     size_t fir_head_r_ = 0;
-    float polyphase_kernel_[64] = {0.0f};
+    double polyphase_kernel_[64] = {0.0};
 
-    // 63-Sample Latency Compensation Delay Line (Pure Bass+)
-    float bass_delay_ring_[63] = {0.0f};
+    // 63-Sample Latency Compensation Delay Line (Pure Bass+, 64-bit)
+    double bass_delay_ring_[63] = {0.0};
     size_t bass_delay_head_ = 0;
 
     // Subwoofer MultiBiquads (44Hz Peak + 80Hz LowPeak + 380Hz LowPass)
@@ -518,54 +527,58 @@ private:
     // =========================================================================
     // Rational Algebraic Soft-Clipper with Knee (clean, warm, zero harsh harmonics)
     // =========================================================================
-    static inline float softClip(const float v, const float knee) {
-        const float drive = std::fabs(v);
+    static inline double softClip(const double v, const double knee) {
+        const double drive = std::fabs(v);
         if (drive <= knee) return v;
-        const float over = drive - knee;
-        const float shaped = knee + over / std::sqrt(1.0f + over * over);
+        const double over = drive - knee;
+        const double shaped = knee + over / std::sqrt(1.0 + over * over);
         return v * (shaped / drive);
     }
 
     // =========================================================================
     // 18 Hz DC Blocker & Dual-Stage Soft Clip Mix
     // =========================================================================
-    inline void shapeMix(float bass, float* samples, const uint32_t i) {
+    template <typename T>
+    inline void shapeMix(double bass, T* samples, const uint32_t i) {
         // 1. 18 Hz High-Pass DC Blocker
-        const float y = dc_block_coeff_ * (dc_y1_[0] + bass - dc_x1_[0]);
+        const double y = static_cast<double>(dc_block_coeff_) * (dc_y1_[0] + bass - dc_x1_[0]);
         dc_x1_[0] = bass;
         dc_y1_[0] = y;
 
         // 2. Stage 1 Soft-Clip on DC-blocked bass signal alone (knee = 0.8)
-        bass = softClip(y, 0.8f);
+        bass = softClip(y, 0.8);
 
         // 3. Sum bass into full-band signal without base-rate HF soft-clipping
-        samples[2 * i]     += bass;
-        samples[2 * i + 1] += bass;
+        samples[2 * i]     = static_cast<T>(static_cast<double>(samples[2 * i]) + bass);
+        samples[2 * i + 1] = static_cast<T>(static_cast<double>(samples[2 * i + 1]) + bass);
     }
 
-    inline void shapeMixStereo(float bass_l, float bass_r, float* samples, const uint32_t i) {
+    template <typename T>
+    inline void shapeMixStereo(double bass_l, double bass_r, T* samples, const uint32_t i) {
         // 1. 18 Hz High-Pass DC Blocker per channel
-        const float y_l = dc_block_coeff_ * (dc_y1_[0] + bass_l - dc_x1_[0]);
+        const double dc_c = static_cast<double>(dc_block_coeff_);
+        const double y_l = dc_c * (dc_y1_[0] + bass_l - dc_x1_[0]);
         dc_x1_[0] = bass_l;
         dc_y1_[0] = y_l;
 
-        const float y_r = dc_block_coeff_ * (dc_y1_[1] + bass_r - dc_x1_[1]);
+        const double y_r = dc_c * (dc_y1_[1] + bass_r - dc_x1_[1]);
         dc_x1_[1] = bass_r;
         dc_y1_[1] = y_r;
 
         // 2. Stage 1 Soft-Clip on bass channels alone
-        bass_l = softClip(y_l, 0.8f);
-        bass_r = softClip(y_r, 0.8f);
+        bass_l = softClip(y_l, 0.8);
+        bass_r = softClip(y_r, 0.8);
 
         // 3. Inject bass without base-rate HF soft-clipping
-        samples[2 * i]     += bass_l;
-        samples[2 * i + 1] += bass_r;
+        samples[2 * i]     = static_cast<T>(static_cast<double>(samples[2 * i]) + bass_l);
+        samples[2 * i + 1] = static_cast<T>(static_cast<double>(samples[2 * i + 1]) + bass_r);
     }
 
     // =========================================================================
     // Mode 0: Natural Mono Bass (Mono Butterworth Q=0.53 + Soft Clip Injection)
     // =========================================================================
-    void processNaturalBass(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processNaturalBass(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             bass_factor_smoothed_ += (bass_factor_ - bass_factor_smoothed_) * smoothing_coeff_;
 
@@ -575,22 +588,23 @@ private:
                                         static_cast<double>(samples[2 * i + 1])) * 0.5;
 
                 // Direct Form I Biquad Lowpass
-                float bass = static_cast<float>(mono_lp_biquad_.process(mono_in)) * bass_factor_smoothed_;
+                double bass = mono_lp_biquad_.process(mono_in) * static_cast<double>(bass_factor_smoothed_);
 
                 // Anti-pop smooth ramp
                 if (anti_pop_ < 1.0f) {
-                    bass *= anti_pop_;
+                    bass *= static_cast<double>(anti_pop_);
                     anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
                 }
 
                 shapeMix(bass, samples, i);
             } else {
-                float bass_l = static_cast<float>(biquad_stereo_[0].process(samples[2 * i])) * bass_factor_smoothed_;
-                float bass_r = static_cast<float>(biquad_stereo_[1].process(samples[2 * i + 1])) * bass_factor_smoothed_;
+                double bass_l = biquad_stereo_[0].process(static_cast<double>(samples[2 * i])) * static_cast<double>(bass_factor_smoothed_);
+                double bass_r = biquad_stereo_[1].process(static_cast<double>(samples[2 * i + 1])) * static_cast<double>(bass_factor_smoothed_);
 
                 if (anti_pop_ < 1.0f) {
-                    bass_l *= anti_pop_;
-                    bass_r *= anti_pop_;
+                    const double ap = static_cast<double>(anti_pop_);
+                    bass_l *= ap;
+                    bass_r *= ap;
                     anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
                 }
 
@@ -602,65 +616,52 @@ private:
     // =========================================================================
     // Mode 1: Pure Bass+ Mono (63-Tap Polyphase FIR + Aligned Mono Bass)
     // =========================================================================
-    void processPureBassPlus(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processPureBassPlus(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
-            const float in_l = samples[2 * i];
-            const float in_r = samples[2 * i + 1];
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
             // 1. Mono summation and lowpass extraction
-            const double mono_in = (static_cast<double>(in_l) + static_cast<double>(in_r)) * 0.5;
-            const float lp_bass = static_cast<float>(mono_lp_biquad_.process(mono_in));
+            const double mono_in = (in_l + in_r) * 0.5;
+            const double lp_bass = mono_lp_biquad_.process(mono_in);
 
             // 2. Push lowpass bass into delay line and tap it at constant 31-sample group delay
             bass_delay_ring_[bass_delay_head_] = lp_bass;
             const size_t delayed_idx = (bass_delay_head_ + 32) % 63; // written 31 frames ago
-            const float delayed_bass = bass_delay_ring_[delayed_idx];
+            const double delayed_bass = bass_delay_ring_[delayed_idx];
             bass_delay_head_ = (bass_delay_head_ + 1) % 63;
 
-            // 3. Polyphase 63-tap FIR convolution on Left channel (SIMD 4-wide FMA unrolled + tail)
+            // 3. Polyphase 63-tap FIR convolution on Left channel (64-bit precision)
             fir_head_l_ = (fir_head_l_ == 0) ? 62 : (fir_head_l_ - 1);
             fir_hist_l_[fir_head_l_] = in_l;
             fir_hist_l_[fir_head_l_ + 63] = in_l;
 
-            SimdFloat4 acc_l(0.0f);
-            size_t j = 0;
-            for (; j < 60; j += 4) {
-                SimdFloat4 k = SimdFloat4::load_u(&polyphase_kernel_[j]);
-                SimdFloat4 h = SimdFloat4::load_u(&fir_hist_l_[fir_head_l_ + j]);
-                acc_l = SimdFloat4::fma(k, h, acc_l);
-            }
-            float fir_out_l = acc_l.reduce_sum();
-            for (; j < 63; ++j) {
+            double fir_out_l = 0.0;
+            for (size_t j = 0; j < 63; ++j) {
                 fir_out_l += polyphase_kernel_[j] * fir_hist_l_[fir_head_l_ + j];
             }
 
-            // 4. Polyphase 63-tap FIR convolution on Right channel (SIMD 4-wide FMA unrolled + tail)
+            // 4. Polyphase 63-tap FIR convolution on Right channel (64-bit precision)
             fir_head_r_ = (fir_head_r_ == 0) ? 62 : (fir_head_r_ - 1);
             fir_hist_r_[fir_head_r_] = in_r;
             fir_hist_r_[fir_head_r_ + 63] = in_r;
 
-            SimdFloat4 acc_r(0.0f);
-            j = 0;
-            for (; j < 60; j += 4) {
-                SimdFloat4 k = SimdFloat4::load_u(&polyphase_kernel_[j]);
-                SimdFloat4 h = SimdFloat4::load_u(&fir_hist_r_[fir_head_r_ + j]);
-                acc_r = SimdFloat4::fma(k, h, acc_r);
-            }
-            float fir_out_r = acc_r.reduce_sum();
-            for (; j < 63; ++j) {
+            double fir_out_r = 0.0;
+            for (size_t j = 0; j < 63; ++j) {
                 fir_out_r += polyphase_kernel_[j] * fir_hist_r_[fir_head_r_ + j];
             }
 
             // Write polyphase phase-shaped audio
-            samples[2 * i]     = fir_out_l;
-            samples[2 * i + 1] = fir_out_r;
+            samples[2 * i]     = static_cast<T>(fir_out_l);
+            samples[2 * i + 1] = static_cast<T>(fir_out_r);
 
             // 5. Smooth gain and inject time-aligned mono bass
             bass_factor_smoothed_ += (bass_factor_ - bass_factor_smoothed_) * smoothing_coeff_;
-            float driven_bass = delayed_bass * bass_factor_smoothed_;
+            double driven_bass = delayed_bass * static_cast<double>(bass_factor_smoothed_);
 
             if (anti_pop_ < 1.0f) {
-                driven_bass *= anti_pop_;
+                driven_bass *= static_cast<double>(anti_pop_);
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
             }
 
@@ -671,10 +672,11 @@ private:
     // =========================================================================
     // Mode 2: Subwoofer Mono (44Hz/80Hz Dual Peak + 380Hz Differential Lowpass)
     // =========================================================================
-    void processSubwoofer(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processSubwoofer(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
-            const float in_l = samples[2 * i];
-            const float in_r = samples[2 * i + 1];
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
             // 1. Dual-peaking excursion on Left channel
             double tmp_l = sub_peak_l_.process(in_l);
@@ -688,10 +690,10 @@ private:
 
             if (mono_mode_) {
                 // 3. Mono-anchored subwoofer excursion energy
-                float sub_mono = static_cast<float>((tmp_l + tmp_r) * 0.5) * 0.6f;
+                double sub_mono = ((tmp_l + tmp_r) * 0.5) * 0.6;
 
                 if (anti_pop_ < 1.0f) {
-                    sub_mono *= anti_pop_;
+                    sub_mono *= static_cast<double>(anti_pop_);
                     anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
                 }
 
@@ -699,12 +701,13 @@ private:
                 shapeMix(sub_mono, samples, i);
             } else {
                 // Stereo-preserving injection: keeps spatial cues for open-back headphones
-                float sub_l = static_cast<float>(tmp_l) * 0.6f;
-                float sub_r = static_cast<float>(tmp_r) * 0.6f;
+                double sub_l = tmp_l * 0.6;
+                double sub_r = tmp_r * 0.6;
 
                 if (anti_pop_ < 1.0f) {
-                    sub_l *= anti_pop_;
-                    sub_r *= anti_pop_;
+                    const double ap = static_cast<double>(anti_pop_);
+                    sub_l *= ap;
+                    sub_r *= ap;
                     anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
                 }
 
@@ -716,12 +719,13 @@ private:
     // =========================================================================
     // Mode 3: Psychoacoustic Bass (Envelope-Tracked Chebyshev 2f+3f Synthesizer)
     // =========================================================================
-    void processHarmonicExciter(float* samples, uint32_t frame_count) {
-        const float intensity = boost_ * 0.85f;
+    template <typename T>
+    void processHarmonicExciter(T* samples, uint32_t frame_count) {
+        const double intensity = static_cast<double>(boost_) * 0.85;
 
         for (uint32_t i = 0; i < frame_count; i++) {
-            const float in_l = samples[2 * i];
-            const float in_r = samples[2 * i + 1];
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
             // 1. Extract fundamental sub-bass
             const double bass_l = harm_lp_l_.process(in_l);
@@ -758,10 +762,10 @@ private:
             h_r = harm_hp_r_.process(h_r);
 
             // 6. Mono-summed harmonic injection
-            float mono_harm = static_cast<float>((h_l + h_r) * 0.5) * intensity;
+            double mono_harm = ((h_l + h_r) * 0.5) * intensity;
 
             if (anti_pop_ < 1.0f) {
-                mono_harm *= anti_pop_;
+                mono_harm *= static_cast<double>(anti_pop_);
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
             }
 
@@ -772,26 +776,27 @@ private:
     // =========================================================================
     // Mode 4: Pultec EQP-1A Low-End Trick in Mono Sub + Stereo Mud Scoop (64-bit SVF)
     // =========================================================================
-    void processPultecDeep(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processPultecDeep(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
-            const float in_l = samples[2 * i];
-            const float in_r = samples[2 * i + 1];
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
             // 1. Mono Sub-Bass 45 Hz Low-Shelf Boost (64-bit Cytomic TPT SVF)
-            const double mono_in = (static_cast<double>(in_l) + static_cast<double>(in_r)) * 0.5;
+            const double mono_in = (in_l + in_r) * 0.5;
             const double b_out = pultec_boost_svf_.processSample(mono_in, 0);
 
             // 2. Stereo 300 Hz Mud Scoop Bell Filter (64-bit Cytomic TPT SVF)
-            const float s_out_l = static_cast<float>(pultec_scoop_svf_.processSample(static_cast<double>(in_l), 0));
-            const float s_out_r = static_cast<float>(pultec_scoop_svf_.processSample(static_cast<double>(in_r), 1));
+            const double s_out_l = pultec_scoop_svf_.processSample(in_l, 0);
+            const double s_out_r = pultec_scoop_svf_.processSample(in_r, 1);
 
-            samples[2 * i]     = s_out_l;
-            samples[2 * i + 1] = s_out_r;
+            samples[2 * i]     = static_cast<T>(s_out_l);
+            samples[2 * i + 1] = static_cast<T>(s_out_r);
 
-            float mono_bass = static_cast<float>((b_out - mono_in) * 0.8);
+            double mono_bass = (b_out - mono_in) * 0.8;
 
             if (anti_pop_ < 1.0f) {
-                mono_bass *= anti_pop_;
+                mono_bass *= static_cast<double>(anti_pop_);
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
             }
 
@@ -802,23 +807,24 @@ private:
     // =========================================================================
     // Mode 5: Dynamic Multi-Pole Resonator (Cascaded 4-Pole Ladder Network)
     // =========================================================================
-    inline void processLadder(LadderChannel* ch, float sample, float low_ang, float upp_ang, float& out1, float& out2, float& out3) {
-        const float oldest_sample = ch->in[2];
+    inline void processLadder(LadderChannel* ch, double sample, double low_ang, double upp_ang, double& out1, double& out2, double& out3) {
+        const double oldest_sample = ch->in[2];
         ch->in[2] = ch->in[1];
         ch->in[1] = ch->in[0];
         ch->in[0] = sample;
 
         // 4-Pole Low-Pass Ladder
-        ch->x[0] += low_ang * (sample - ch->x[0]) + kDenormal;
-        ch->x[1] += low_ang * (ch->x[0] - ch->x[1]) + kDenormal;
-        ch->x[2] += low_ang * (ch->x[1] - ch->x[2]) + kDenormal;
-        ch->x[3] += low_ang * (ch->x[2] - ch->x[3]) + kDenormal;
+        const double den = static_cast<double>(kDenormal);
+        ch->x[0] += low_ang * (sample - ch->x[0]) + den;
+        ch->x[1] += low_ang * (ch->x[0] - ch->x[1]) + den;
+        ch->x[2] += low_ang * (ch->x[1] - ch->x[2]) + den;
+        ch->x[3] += low_ang * (ch->x[2] - ch->x[3]) + den;
 
         // 4-Pole High-Pass / Upper Ladder
-        ch->y[0] += upp_ang * (sample - ch->y[0]) + kDenormal;
-        ch->y[1] += upp_ang * (ch->y[0] - ch->y[1]) + kDenormal;
-        ch->y[2] += upp_ang * (ch->y[1] - ch->y[2]) + kDenormal;
-        ch->y[3] += upp_ang * (ch->y[2] - ch->y[3]) + kDenormal;
+        ch->y[0] += upp_ang * (sample - ch->y[0]) + den;
+        ch->y[1] += upp_ang * (ch->y[0] - ch->y[1]) + den;
+        ch->y[2] += upp_ang * (ch->y[1] - ch->y[2]) + den;
+        ch->y[3] += upp_ang * (ch->y[2] - ch->y[3]) + den;
 
         out1 = ch->x[3];                 // Low-pass sub-band (fundamental bass)
         (void)oldest_sample;
@@ -826,7 +832,8 @@ private:
         out3 = ch->y[3] - ch->x[3];      // Mid-frequency crossover band
     }
 
-    void processDynamicMultiPole(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processDynamicMultiPole(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             // Smooth parameters
             current_bass_gain_   += smoothing_coeff_ * (target_bass_gain_ - current_bass_gain_);
@@ -837,48 +844,59 @@ private:
             current_low_ang_y_   += smoothing_coeff_ * (target_low_ang_y_ - current_low_ang_y_);
             current_upp_ang_y_   += smoothing_coeff_ * (target_upp_ang_y_ - current_upp_ang_y_);
 
-            const float in_l = samples[2 * i];
-            const float in_r = samples[2 * i + 1];
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
             if (x_low_ <= 120.0f) {
-                const double mono_in = (static_cast<double>(in_l) + static_cast<double>(in_r)) * 0.5;
-                const float low_out = static_cast<float>(dynamic_lp_biquad_.process(mono_in));
-                float out_l = in_l + low_out * (current_bass_gain_ - 1.0f);
-                float out_r = in_r + low_out * (current_bass_gain_ - 1.0f);
+                const double mono_in = (in_l + in_r) * 0.5;
+                const double low_out = dynamic_lp_biquad_.process(mono_in);
+                const double bg = static_cast<double>(current_bass_gain_) - 1.0;
+                double out_l = in_l + low_out * bg;
+                double out_r = in_r + low_out * bg;
 
                 if (anti_pop_ < 1.0f) {
-                    out_l = in_l + anti_pop_ * (out_l - in_l);
-                    out_r = in_r + anti_pop_ * (out_r - in_r);
+                    const double ap = static_cast<double>(anti_pop_);
+                    out_l = in_l + ap * (out_l - in_l);
+                    out_r = in_r + ap * (out_r - in_r);
                     anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
                 }
 
-                samples[2 * i]     = out_l;
-                samples[2 * i + 1] = out_r;
+                samples[2 * i]     = static_cast<T>(out_l);
+                samples[2 * i + 1] = static_cast<T>(out_r);
             } else {
+                const double lax = static_cast<double>(current_low_ang_x_);
+                const double uax = static_cast<double>(current_upp_ang_x_);
+                const double lay = static_cast<double>(current_low_ang_y_);
+                const double uay = static_cast<double>(current_upp_ang_y_);
+                const double bg  = static_cast<double>(current_bass_gain_);
+                const double sgx = static_cast<double>(current_side_gain_x_);
+                const double sgy = static_cast<double>(current_side_gain_y_);
+
                 // 1. Stage 1 Ladder X (Channel Decomposition)
-                float x1_l, x2_l, x3_l;
-                processLadder(&ladder_x_[0], in_l, current_low_ang_x_, current_upp_ang_x_, x1_l, x2_l, x3_l);
-                float x1_r, x2_r, x3_r;
-                processLadder(&ladder_x_[1], in_r, current_low_ang_x_, current_upp_ang_x_, x1_r, x2_r, x3_r);
+                double x1_l, x2_l, x3_l;
+                processLadder(&ladder_x_[0], in_l, lax, uax, x1_l, x2_l, x3_l);
+                double x1_r, x2_r, x3_r;
+                processLadder(&ladder_x_[1], in_r, lax, uax, x1_r, x2_r, x3_r);
 
                 // 2. Stage 2 Ladder Y (Dynamic Bass Resonance)
-                float y1_l, y2_l, y3_l;
-                processLadder(&ladder_y_[0], current_bass_gain_ * x1_l, current_low_ang_y_, current_upp_ang_y_, y1_l, y2_l, y3_l);
-                float y1_r, y2_r, y3_r;
-                processLadder(&ladder_y_[1], current_bass_gain_ * x1_r, current_low_ang_y_, current_upp_ang_y_, y1_r, y2_r, y3_r);
+                double y1_l, y2_l, y3_l;
+                processLadder(&ladder_y_[0], bg * x1_l, lay, uay, y1_l, y2_l, y3_l);
+                double y1_r, y2_r, y3_r;
+                processLadder(&ladder_y_[1], bg * x1_r, lay, uay, y1_r, y2_r, y3_r);
 
                 // 3. Multi-Band Matrix Recombination
-                float out_l = x2_l + y3_l + current_side_gain_x_ * y2_l + current_side_gain_y_ * y1_l + x3_l;
-                float out_r = x2_r + y3_r + current_side_gain_x_ * y2_r + current_side_gain_y_ * y1_r + x3_r;
+                double out_l = x2_l + y3_l + sgx * y2_l + sgy * y1_l + x3_l;
+                double out_r = x2_r + y3_r + sgx * y2_r + sgy * y1_r + x3_r;
 
                 if (anti_pop_ < 1.0f) {
-                    out_l = in_l + anti_pop_ * (out_l - in_l);
-                    out_r = in_r + anti_pop_ * (out_r - in_r);
+                    const double ap = static_cast<double>(anti_pop_);
+                    out_l = in_l + ap * (out_l - in_l);
+                    out_r = in_r + ap * (out_r - in_r);
                     anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
                 }
 
-                samples[2 * i]     = out_l;
-                samples[2 * i + 1] = out_r;
+                samples[2 * i]     = static_cast<T>(out_l);
+                samples[2 * i + 1] = static_cast<T>(out_r);
             }
         }
     }
@@ -966,19 +984,19 @@ private:
                 - 0.5 * std::cos(2.0 * kPi * (double)n / (double)(N - 1))
                 + 0.08 * std::cos(4.0 * kPi * (double)n / (double)(N - 1));
             v *= w;
-            polyphase_kernel_[(size_t)n] = static_cast<float>(v);
+            polyphase_kernel_[(size_t)n] = v;
             sum += v;
         }
 
         if (sum > 1e-9) {
-            const float inv = static_cast<float>(1.0 / sum);
+            const double inv = 1.0 / sum;
             for (int n = 0; n < N; ++n) {
                 polyphase_kernel_[(size_t)n] *= inv;
             }
         } else {
             // Degenerate fallback: pure identity at the center tap.
             std::memset(polyphase_kernel_, 0, sizeof(polyphase_kernel_));
-            polyphase_kernel_[M] = 1.0f;
+            polyphase_kernel_[M] = 1.0;
         }
     }
 };

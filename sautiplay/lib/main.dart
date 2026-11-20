@@ -41,6 +41,7 @@ import 'models/recently_played_track.dart';
 import 'now_playing_screen.dart';
 import 'recently_played_screen.dart';
 import 'services/app_state_service.dart';
+import 'services/audio_output_target_resolver.dart';
 import 'services/cached_stream_service.dart';
 import 'services/lastfm_service.dart';
 import 'services/liked_songs_service.dart';
@@ -387,6 +388,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
   AudioFormat _outputFormat = AudioFormat.f32;
   int _outputSampleRate = 0; // 0=Native
+  ResolvedOutputTarget? _lastResolvedOutputTarget;
   int _outputChannels = 2; // Stereo
   bool _crossfadeEnabled = false;
   int _crossfadeDurationMs = 250;
@@ -887,8 +889,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _hardwareSubscription =
         AudioHardwareInspector.hardwareStream(_player).listen((specs) {
       if (!mounted) return;
-      // If a USB DAC was detached while USB Direct was active, revert to Auto
-      // so the engine doesn't stay armed for an absent DAC.
+      _syncEngineToHardwareSpecs(specs);
     });
 
     ChromecastService.instance.addListener(_onCastOutputConfigChanged);
@@ -931,6 +932,33 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
     // DLNA receiver (act as a cast target for other devices)
     unawaited(_initDlnaRenderer());
+  }
+
+  void _syncEngineToHardwareSpecs(AudioHardwareSpecs specs) {
+    if (!Platform.isAndroid) return;
+    final isCasting = ChromecastService.instance.activeDevice != null ||
+        DlnaService.instance.activeRenderer != null;
+    if (isCasting) return;
+    // Do not fight USB Direct kernel-bypass driver which manages its own UAC2 stream.
+    if (specs.isUsbDirectBypass) return;
+
+    final target = AudioOutputTargetResolver.resolve(
+      specs: specs,
+      userSampleRateHz: _outputSampleRate,
+      userFormat: _outputFormat,
+    );
+
+    if (target == _lastResolvedOutputTarget) return;
+    _lastResolvedOutputTarget = target;
+
+    // Only auto-retarget when user has not locked a manual sample rate,
+    // or when syncing format to a Bluetooth / USB DAC sink.
+    if (!target.isUserOverride) {
+      _player.setOutputFormat(target.format);
+      if (target.sampleRateHz > 0) {
+        _player.setOutputSampleRate(target.sampleRateHz);
+      }
+    }
   }
 
   /// Plays a URL pushed from a DLNA controller (receiver mode).

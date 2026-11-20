@@ -265,6 +265,8 @@ class MiniAudioPlayer {
   double get engineLatencySamples => _engine.getEngineLatencySamples();
   double get engineLatencyMs => _engine.getEngineLatencyMs();
   PipelineAudioState get pipelineState => _engine.getPipelineState();
+  List<Map<String, dynamic>> getActiveDspNodes() =>
+      _engine.getActiveDspNodes();
   String getLastError() => _engine.getLastError();
   void clearLastError() => _engine.clearLastError();
   TrackNativeInfo? inspectFile(String path) => _engine.inspectFile(path);

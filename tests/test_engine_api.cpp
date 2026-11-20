@@ -1813,6 +1813,52 @@ static void test_hires_384khz_and_fidelity_alignment()
         ae_destroy_engine(e);
         std::remove(wavPath);
     }
+
+    // 4. Uniform F32 / F64 Precision Policy (No auto-64-bit on int/exclusive; zero F32 hopping when 64-bit enabled)
+    {
+        AudioEngineHandle *e = ae_create_engine(48000, 2);
+        CHECK(e != nullptr, "engine created for precision policy verification");
+        if (e)
+        {
+            // Enable DSPs that previously forced F32 islands (Clarity, Analog Warmth, Reverb, Stereo Widen)
+            ae_dsp_set_clarity_enabled(e, 1);
+            ae_dsp_set_analog_warmth_enabled(e, 1);
+            ae_set_reverb_enabled(e, 1);
+            ae_set_stereo_widen(e, 1, 1.2f, 15.0f);
+
+            // With user 64-bit disabled (default), even S24 integer output stays uniformly 32-bit float
+            ae_set_64bit_processing_enabled(e, 0);
+            ae_set_output_format(e, AE_FORMAT_S24);
+            AEPipelineState ps32 = ae_get_pipeline_state(e);
+            CHECK(ps32.precision64_reasons == 0, "64-bit is NOT auto-enabled by S24 integer output when user 64-bit is off");
+            CHECK(ps32.processing_format == (int)AE_FORMAT_F32, "pipeline runs uniformly in F32 when user 64-bit is off");
+
+            char json32[8192] = {0};
+            ae_get_active_dsp_nodes_json(e, json32, sizeof(json32));
+            std::string s32(json32);
+            CHECK(s32.find("\"precision\":\"F32\"") != std::string::npos &&
+                  s32.find("\"precision\":\"F64\"") == std::string::npos,
+                  "all active DSP nodes report uniform F32 when 64-bit is off");
+
+            // With user 64-bit enabled, the entire chain including Clarity and Reverb runs in F64 with zero F32 islands
+            ae_set_64bit_processing_enabled(e, 1);
+            AEPipelineState ps64 = ae_get_pipeline_state(e);
+            CHECK(ps64.precision64_reasons == 1, "64-bit reason is strictly user-enabled (1)");
+            CHECK(ps64.processing_format == 64, "pipeline runs uniformly in F64 when user 64-bit is on");
+            CHECK(ps64.float64_end_to_end == 1, "float64_end_to_end is 1 even with Clarity + Warmth + Reverb + Imager active");
+            CHECK((ps64.active_node_mask & ((1u << 9) | (1u << 10) | (1u << 11))) == 0,
+                  "zero F32 island bits set in active_node_mask");
+
+            char json64[8192] = {0};
+            ae_get_active_dsp_nodes_json(e, json64, sizeof(json64));
+            std::string s64(json64);
+            CHECK(s64.find("\"precision\":\"F64\"") != std::string::npos &&
+                  s64.find("\"precision\":\"F32\"") == std::string::npos,
+                  "Clarity, Warmth, Reverb, and Stereo Imager all report uniform F64 with zero F32 hopping");
+
+            ae_destroy_engine(e);
+        }
+    }
 }
 
 int main()

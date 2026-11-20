@@ -171,6 +171,16 @@ public:
     }
 
     void process(float *interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels);
+    }
+
+    void process(double *interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T *interleaved, uint32_t frames, int channels) {
         if (!interleaved || frames == 0 || channels < 2 || !buffersAllocated)
             return;
 
@@ -191,8 +201,10 @@ public:
             currentWidth += (targetWidth - currentWidth) * smoothCoeff;
 
             uint32_t idx = f * channels;
-            float inL = interleaved[idx];
-            float inR = interleaved[idx + 1];
+            const double rawInL = static_cast<double>(interleaved[idx]);
+            const double rawInR = static_cast<double>(interleaved[idx + 1]);
+            float inL = static_cast<float>(rawInL);
+            float inR = static_cast<float>(rawInR);
 
             // 1. Process 4 Cascaded Input Diffusers per channel
             float diffInL = inL * 0.6f;
@@ -306,12 +318,11 @@ public:
             float outL = mid + side;
             float outR = mid - side;
 
-            interleaved[idx]     = inL * currentDry + outL * currentWet;
-            interleaved[idx + 1] = inR * currentDry + outR * currentWet;
+            interleaved[idx]     = static_cast<T>(rawInL * static_cast<double>(currentDry) + static_cast<double>(outL) * static_cast<double>(currentWet));
+            interleaved[idx + 1] = static_cast<T>(rawInR * static_cast<double>(currentDry) + static_cast<double>(outR) * static_cast<double>(currentWet));
         }
     }
 
-private:
     void updateCoefficients() {
         // Unify RoomSize -> RT60 mapping (0.35s .. 14.0s) across all reverb engines.
         // Total ring loop delay at 32.768 kHz is ~22315 samples (~0.6809s), or ~0.1702s per stage.

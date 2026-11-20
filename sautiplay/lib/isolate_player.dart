@@ -3077,6 +3077,7 @@ void _isolateEntry(_IsolateInitData initData) {
             int inputChannels = ps.inputChannels;
             int inputBitDepth = 16;
             bool inputBitDepthInferred = false;
+            bool isNetworkStream = false;
             String fileType = 'PCM';
             int bitrateKbps = 0;
             int fileSizeBytes = 0;
@@ -3148,6 +3149,7 @@ void _isolateEntry(_IsolateInitData initData) {
                   rgAlbum = src.replayGainAlbumDb ?? rgAlbum;
                 }
               } else {
+                isNetworkStream = true;
                 fileType = st.codecName.isNotEmpty
                     ? st.codecName.toUpperCase()
                     : 'STREAM';
@@ -3192,6 +3194,7 @@ void _isolateEntry(_IsolateInitData initData) {
             sendResponse(message, {
               'hardware': hw.toJson(),
               'fileType': fileType,
+              'isNetworkStream': isNetworkStream,
               'bitrateKbps': bitrateKbps,
               'fileSizeBytes': fileSizeBytes,
               'filePath': currentFilePath,
@@ -3220,6 +3223,7 @@ void _isolateEntry(_IsolateInitData initData) {
               'deviceResamplerAlgo': ps.deviceResamplerAlgo,
               'deviceFormatActual': ps.deviceFormatActual,
               'activeNodeMask': ps.activeNodeMask,
+              'activeDspNodes': player.getActiveDspNodes(),
               'fftConvolverEnabled': (ps.activeNodeMask & (1 << 5)) != 0,
               'levellerEnabled': (ps.activeNodeMask & (1 << 6)) != 0,
               'anyFxEnabled': dspOn,

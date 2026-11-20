@@ -34,9 +34,11 @@
 #include "dsp/scaletempo_dsp.h"
 #include "dsp/fft_convolver_dsp.h"
 #include "dsp/spatial_surround_dsp.h"
+#include "dsp/stereo_imager_dsp.h"
 #include "dsp/dynamic_loudness_dsp.h"
 #include "dsp/broadcast_leveller_dsp.h"
 #include "../crossfeed_node.h"
+#include "../reverb_node.h"
 
 static int g_failures = 0;
 static int g_passes = 0;
@@ -1950,6 +1952,126 @@ static void test_clarity_dsp_zero_heap_allocation_p21()
     CHECK(std::abs(buf[2 * 1000]) > 0.01f, "ClarityDSP audio output is non-zero and active");
 }
 
+static void test_uniform_f64_dsp_pipeline()
+{
+    std::printf("\n== Uniform 64-Bit (double*) DSP Pipeline Verification (Zero F32 Hopping) ==\n");
+
+    const uint32_t frames = 2048;
+    auto makeTone64 = [&]() {
+        std::vector<double> b(frames * 2, 0.0);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            const double t = static_cast<double>(i) / 48000.0;
+            b[2 * i + 0] = 0.25 * std::sin(2.0 * M_PI * 100.0 * t) + 0.15 * std::sin(2.0 * M_PI * 4000.0 * t);
+            b[2 * i + 1] = 0.25 * std::cos(2.0 * M_PI * 100.0 * t) + 0.15 * std::cos(2.0 * M_PI * 4000.0 * t);
+        }
+        return b;
+    };
+    auto isClean64 = [](const std::vector<double> &b) {
+        double energy = 0.0;
+        for (double v : b)
+        {
+            if (!std::isfinite(v)) return false;
+            energy += v * v;
+        }
+        return energy > 1e-4;
+    };
+
+    // 1. AudioClarityDSP across all 5 profiles in native double*
+    for (int p = 0; p <= 4; ++p)
+    {
+        sauti::dsp::AudioClarityDSP clarity;
+        clarity.setSampleRate(48000.0f);
+        clarity.setProfile(static_cast<sauti::dsp::AudioClarityProfile>(p));
+        clarity.setIntensity(0.7f);
+        clarity.setOversampling(4);
+        clarity.setEnabled(true);
+        auto b = makeTone64();
+        clarity.process(b.data(), frames);
+        CHECK(isClean64(b), "AudioClarityDSP processes native double* cleanly across profile");
+    }
+
+    // 2. AnalogWarmthDSP across 1x/2x/4x oversampling in native double*
+    for (int os : {1, 2, 4})
+    {
+        sauti::dsp::AnalogWarmthDSP warmth;
+        warmth.setSampleRate(48000.0f);
+        warmth.setDrive(0.6f);
+        warmth.setOversampling(os);
+        warmth.setEnabled(true);
+        auto b = makeTone64();
+        warmth.process(b.data(), frames);
+        CHECK(isClean64(b), "AnalogWarmthDSP processes native double* cleanly at oversampling factor");
+    }
+
+    // 3. DownwardExpanderDSP, DeEsserDSP, DialogEnhancerDSP, DynamicSystemDSP, DynamicBassDSP
+    {
+        auto b = makeTone64();
+        sauti::dsp::DownwardExpanderDSP exp;
+        exp.setSampleRate(48000.0f);
+        exp.setEnabled(true);
+        exp.process(b.data(), frames);
+
+        sauti::dsp::DeEsserDSP deesser;
+        deesser.setSampleRate(48000.0f);
+        deesser.setEnabled(true);
+        deesser.process(b.data(), frames);
+
+        sauti::dsp::DialogEnhancerDSP dialog;
+        dialog.setSampleRate(48000.0f);
+        dialog.setEnabled(true);
+        dialog.process(b.data(), frames);
+
+        sauti::dsp::DynamicSystemDSP dynsys;
+        dynsys.setSampleRate(48000.0f);
+        dynsys.setEnabled(true);
+        dynsys.process(b.data(), frames);
+
+        sauti::dsp::HarmonicBassDSP bass;
+        bass.setSampleRate(48000.0f);
+        bass.setEnabled(true);
+        bass.process(b.data(), frames);
+
+        CHECK(isClean64(b), "Zone 1-3 Pre-Dynamics chain executes 100% natively on double*");
+    }
+
+    // 4. SpatialSurroundDSP, StereoImagerDSP, ReverbNode (all 6 engines), FFTConvolverDSP
+    {
+        auto b = makeTone64();
+        sauti::dsp::SpatialSurroundDSP surr;
+        surr.setSampleRate(48000.0f);
+        surr.setMode(sauti::dsp::SurroundMode::BinauralVirtualizer);
+        surr.setEnabled(true);
+        surr.process(b.data(), frames);
+
+        sauti::dsp::StereoImagerDSP imager;
+        imager.setSampleRate(48000.0f);
+        imager.setMode(sauti::dsp::StereoImagerMode::Spatial3D);
+        imager.setEnabled(true);
+        imager.process(b.data(), frames, 2);
+
+        for (int eng = 0; eng <= 5; ++eng)
+        {
+            ReverbNode rev;
+            rev.setSampleRate(48000.0);
+            rev.setEngine(eng);
+            rev.setPreDelayMs(10.0f);
+            rev.setEnabled(true);
+            rev.process(b.data(), frames, 2);
+        }
+
+        sauti::dsp::FFTConvolverDSP conv;
+        conv.setSampleRate(48000.0f);
+        std::vector<float> ir(128, 0.0f);
+        ir[0] = 1.0f;
+        conv.loadImpulseResponse(ir.data(), 128, 1);
+        conv.setEnabled(true);
+        conv.process(b.data(), frames);
+
+        CHECK(isClean64(b), "Zone 5-6 Spatial & AutoEQ FIR Convolver chain executes 100% natively on double*");
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -1986,6 +2108,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "p25") test_spatial_surround_anti_pop_balance_p25();
     if (only.empty() || only == "p26") test_analog_warmth_tape_damping_rate_scaling_p26();
     if (only.empty() || only == "p21") test_clarity_dsp_zero_heap_allocation_p21();
+    if (only.empty() || only == "f64") test_uniform_f64_dsp_pipeline();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

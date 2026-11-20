@@ -2571,6 +2571,12 @@ namespace
             imager.process(interleaved, frames, channels);
         }
 
+        void process(double *interleaved, ma_uint32 frames, int channels)
+        {
+            imager.setEnabled(true);
+            imager.process(interleaved, frames, channels);
+        }
+
         void getTelemetry(float *correlation, float *sideMidRatio)
         {
             if (correlation)
@@ -2587,105 +2593,109 @@ namespace
     {
         unsigned int decimationCounter[5] = {1, 1, 1, 1, 1};
         unsigned int Sk[5] = {1, 1, 1, 1, 1};
-        float subbandData[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+        double subbandData[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
 
-        // Allpass warp delay chain states for 5 subbands
-        float dL[5][2] = {{0}};
-        float dR[5][2] = {{0}};
-        float warpingFactor = 0.65f;
+        // Allpass warp delay chain states for 5 subbands (64-bit precision)
+        double dL[5][2] = {{0}};
+        double dR[5][2] = {{0}};
+        double warpingFactor = 0.65;
     };
 
     static inline void initWarpedPFB(WarpedPFB *pfb, float sampleRate, int bands, int channels)
     {
+        (void)bands;
+        (void)channels;
         for (int i = 0; i < 5; i++)
         {
             pfb->decimationCounter[i] = 1;
             pfb->Sk[i] = 1;
-            pfb->subbandData[i] = 0.0f;
+            pfb->subbandData[i] = 0.0;
             for (int j = 0; j < 2; j++)
             {
-                pfb->dL[i][j] = 0.0f;
-                pfb->dR[i][j] = 0.0f;
+                pfb->dL[i][j] = 0.0;
+                pfb->dR[i][j] = 0.0;
             }
         }
         if (sampleRate >= 88200.0f)
-            pfb->warpingFactor = 0.82f;
+            pfb->warpingFactor = 0.82;
         else if (sampleRate >= 44100.0f)
-            pfb->warpingFactor = 0.65f;
+            pfb->warpingFactor = 0.65;
         else
-            pfb->warpingFactor = 0.50f;
+            pfb->warpingFactor = 0.50;
     }
 
     static inline void assignPtrWarpedPFB(WarpedPFB *pfb, int bands, int channels)
     {
+        (void)bands;
+        (void)channels;
         for (int i = 0; i < 5; i++)
         {
             pfb->decimationCounter[i] = 1;
             pfb->Sk[i] = 1;
-            pfb->subbandData[i] = 0.0f;
+            pfb->subbandData[i] = 0.0;
         }
     }
 
-    static inline void analysisWarpedPFBStereo(WarpedPFB *subband0, WarpedPFB *subband1, float *inL, float *inR)
+    static inline void analysisWarpedPFBStereo(WarpedPFB *subband0, WarpedPFB *subband1, const double *inL, const double *inR)
     {
-        float xL = *inL;
-        float xR = *inR;
-        const float lambda = subband0->warpingFactor;
+        const double xL = *inL;
+        const double xR = *inR;
+        const double lambda = subband0->warpingFactor;
 
         // Channel 0 (Left)
-        float wL0 = lambda * (xL - subband0->dL[0][0]) + subband0->dL[0][1];
+        double wL0 = lambda * (xL - subband0->dL[0][0]) + subband0->dL[0][1];
         subband0->dL[0][1] = xL; subband0->dL[0][0] = wL0;
-        float b0L = (xL + wL0) * 0.5f;
-        float h0L = (xL - wL0) * 0.5f;
+        double b0L = (xL + wL0) * 0.5;
+        double h0L = (xL - wL0) * 0.5;
 
-        float wL1 = lambda * (h0L - subband0->dL[1][0]) + subband0->dL[1][1];
+        double wL1 = lambda * (h0L - subband0->dL[1][0]) + subband0->dL[1][1];
         subband0->dL[1][1] = h0L; subband0->dL[1][0] = wL1;
-        float b1L = (h0L + wL1) * 0.5f;
-        float h1L = (h0L - wL1) * 0.5f;
+        double b1L = (h0L + wL1) * 0.5;
+        double h1L = (h0L - wL1) * 0.5;
 
-        float wL2 = lambda * (h1L - subband0->dL[2][0]) + subband0->dL[2][1];
+        double wL2 = lambda * (h1L - subband0->dL[2][0]) + subband0->dL[2][1];
         subband0->dL[2][1] = h1L; subband0->dL[2][0] = wL2;
-        float b2L = (h1L + wL2) * 0.5f;
+        double b2L = (h1L + wL2) * 0.5;
 
-        float wL3 = lambda * (b0L - subband0->dL[3][0]) + subband0->dL[3][1];
+        double wL3 = lambda * (b0L - subband0->dL[3][0]) + subband0->dL[3][1];
         subband0->dL[3][1] = b0L; subband0->dL[3][0] = wL3;
-        float b3L = (b0L + wL3) * 0.5f;
-        float h3L = (b0L - wL3) * 0.5f;
+        double b3L = (b0L + wL3) * 0.5;
+        double h3L = (b0L - wL3) * 0.5;
 
         subband0->subbandData[0] = h3L;
         subband0->subbandData[1] = b3L;
         subband0->subbandData[2] = b2L;
         subband0->subbandData[3] = b1L;
-        subband0->subbandData[4] = (h1L - wL2) * 0.5f;
+        subband0->subbandData[4] = (h1L - wL2) * 0.5;
 
         // Channel 1 (Right)
-        float wR0 = lambda * (xR - subband1->dL[0][0]) + subband1->dL[0][1];
+        double wR0 = lambda * (xR - subband1->dL[0][0]) + subband1->dL[0][1];
         subband1->dL[0][1] = xR; subband1->dL[0][0] = wR0;
-        float b0R = (xR + wR0) * 0.5f;
-        float h0R = (xR - wR0) * 0.5f;
+        double b0R = (xR + wR0) * 0.5;
+        double h0R = (xR - wR0) * 0.5;
 
-        float wR1 = lambda * (h0R - subband1->dL[1][0]) + subband1->dL[1][1];
+        double wR1 = lambda * (h0R - subband1->dL[1][0]) + subband1->dL[1][1];
         subband1->dL[1][1] = h0R; subband1->dL[1][0] = wR1;
-        float b1R = (h0R + wR1) * 0.5f;
-        float h1R = (h0R - wR1) * 0.5f;
+        double b1R = (h0R + wR1) * 0.5;
+        double h1R = (h0R - wR1) * 0.5;
 
-        float wR2 = lambda * (h1R - subband1->dL[2][0]) + subband1->dL[2][1];
+        double wR2 = lambda * (h1R - subband1->dL[2][0]) + subband1->dL[2][1];
         subband1->dL[2][1] = h1R; subband1->dL[2][0] = wR2;
-        float b2R = (h1R + wR2) * 0.5f;
+        double b2R = (h1R + wR2) * 0.5;
 
-        float wR3 = lambda * (b0R - subband1->dL[3][0]) + subband1->dL[3][1];
+        double wR3 = lambda * (b0R - subband1->dL[3][0]) + subband1->dL[3][1];
         subband1->dL[3][1] = b0R; subband1->dL[3][0] = wR3;
-        float b3R = (b0R + wR3) * 0.5f;
-        float h3R = (b0R - wR3) * 0.5f;
+        double b3R = (b0R + wR3) * 0.5;
+        double h3R = (b0R - wR3) * 0.5;
 
         subband1->subbandData[0] = h3R;
         subband1->subbandData[1] = b3R;
         subband1->subbandData[2] = b2R;
         subband1->subbandData[3] = b1R;
-        subband1->subbandData[4] = (h1R - wR2) * 0.5f;
+        subband1->subbandData[4] = (h1R - wR2) * 0.5;
     }
 
-    static inline void synthesisWarpedPFBStereo(WarpedPFB *subband0, WarpedPFB *subband1, float *outL, float *outR)
+    static inline void synthesisWarpedPFBStereo(WarpedPFB *subband0, WarpedPFB *subband1, double *outL, double *outR)
     {
         *outL = subband0->subbandData[0] + subband0->subbandData[1] + subband0->subbandData[2] + subband0->subbandData[3] + subband0->subbandData[4];
         *outR = subband1->subbandData[0] + subband1->subbandData[1] + subband1->subbandData[2] + subband1->subbandData[3] + subband1->subbandData[4];
@@ -2747,19 +2757,33 @@ namespace
 
         void process(float *interleaved, ma_uint32 frames, int channels)
         {
+            processImpl(interleaved, frames, channels);
+        }
+
+        void process(double *interleaved, ma_uint32 frames, int channels)
+        {
+            processImpl(interleaved, frames, channels);
+        }
+
+        template <typename T>
+        void processImpl(T *interleaved, ma_uint32 frames, int channels)
+        {
             if (channels < 2 || !initialized) return;
 
             unsigned int *samplingPeriod = subband0.decimationCounter;
             unsigned int *Sk = subband0.Sk;
-            float *bandLeft = subband0.subbandData;
-            float *bandRight = subband1.subbandData;
+            double *bandLeft = subband0.subbandData;
+            double *bandRight = subband1.subbandData;
+            const double mixD = static_cast<double>(mix);
+            const double minusMixD = static_cast<double>(minusMix);
+            const double gainD = static_cast<double>(gain);
 
             for (ma_uint32 i = 0; i < frames; i++)
             {
                 size_t base = (size_t)i * (size_t)channels;
-                float inL = interleaved[base];
-                float inR = interleaved[base + 1];
-                float y1, y2;
+                double inL = static_cast<double>(interleaved[base]);
+                double inR = static_cast<double>(interleaved[base + 1]);
+                double y1 = 0.0, y2 = 0.0;
 
                 analysisWarpedPFBStereo(&subband0, &subband1, &inL, &inR);
 
@@ -2767,29 +2791,30 @@ namespace
                 {
                     if (samplingPeriod[j] == Sk[j])
                     {
-                        float sum = bandLeft[j] + bandRight[j];
-                        float diff = bandLeft[j] - bandRight[j];
-                        float sumSq = sum * sum;
-                        float diffSq = diff * diff;
+                        const double sum = bandLeft[j] + bandRight[j];
+                        const double diff = bandLeft[j] - bandRight[j];
+                        const double sumSq = sum * sum;
+                        const double diffSq = diff * diff;
+                        const double alpha = static_cast<double>(emaAlpha[j]);
 
-                        sumStates[j] = sumStates[j] * (1.0f - emaAlpha[j]) + sumSq * emaAlpha[j];
-                        diffStates[j] = diffStates[j] * (1.0f - emaAlpha[j]) + diffSq * emaAlpha[j];
+                        sumStates[j] = static_cast<float>(static_cast<double>(sumStates[j]) * (1.0 - alpha) + sumSq * alpha);
+                        diffStates[j] = static_cast<float>(static_cast<double>(diffStates[j]) * (1.0 - alpha) + diffSq * alpha);
 
-                        float centre = 0.0f;
-                        if (sumSq > 1e-12f && sumStates[j] > 1e-12f)
+                        double centre = 0.0;
+                        if (sumSq > 1e-12 && sumStates[j] > 1e-12f)
                         {
-                            float ratio = std::sqrt(clampf(diffStates[j] / sumStates[j], 0.0f, 1.0f));
-                            centre = (0.5f - ratio * 0.5f) * sum;
+                            const double ratio = std::sqrt(clampd(static_cast<double>(diffStates[j]) / static_cast<double>(sumStates[j]), 0.0, 1.0));
+                            centre = (0.5 - ratio * 0.5) * sum;
                         }
 
-                        bandLeft[j] = (bandLeft[j] - centre) * mix + centre * minusMix;
-                        bandRight[j] = (bandRight[j] - centre) * mix + centre * minusMix;
+                        bandLeft[j] = (bandLeft[j] - centre) * mixD + centre * minusMixD;
+                        bandRight[j] = (bandRight[j] - centre) * mixD + centre * minusMixD;
                     }
                 }
 
                 synthesisWarpedPFBStereo(&subband0, &subband1, &y1, &y2);
-                interleaved[base] = y1 * gain;
-                interleaved[base + 1] = y2 * gain;
+                interleaved[base] = static_cast<T>(y1 * gainD);
+                interleaved[base + 1] = static_cast<T>(y2 * gainD);
             }
         }
     };
@@ -2861,15 +2886,19 @@ namespace
                 a2 = a2c;
             }
 
-            float process(float sample, int ch)
+            double process(double x0, int ch)
             {
-                double x0 = (double)sample;
                 double y0 = b0 * x0 + b1 * x1[ch] + b2 * x2[ch] - a1 * y1[ch] - a2 * y2[ch];
                 x2[ch] = x1[ch];
                 x1[ch] = x0;
                 y2[ch] = y1[ch];
                 y1[ch] = y0;
-                return (float)y0;
+                return y0;
+            }
+
+            float process(float sample, int ch)
+            {
+                return static_cast<float>(process(static_cast<double>(sample), ch));
             }
         } shelf;
 
@@ -2914,52 +2943,61 @@ namespace
 
         void process(float *interleaved, ma_uint32 frames, int channels)
         {
+            processImpl(interleaved, frames, channels);
+        }
+
+        void process(double *interleaved, ma_uint32 frames, int channels)
+        {
+            processImpl(interleaved, frames, channels);
+        }
+
+        template <typename T>
+        void processImpl(T *interleaved, ma_uint32 frames, int channels)
+        {
             if (intensity <= 0.0f || !interleaved || frames == 0)
                 return;
 
             const int ch = std::min(channels, 8);
+            const double intensD = static_cast<double>(intensity);
+            const double shelfBlend = intensD * 0.6; // max 60% blend at full intensity
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
                 for (int c = 0; c < ch; ++c)
                 {
                     const size_t idx = (size_t)i * (size_t)channels + (size_t)c;
-                    float x = interleaved[idx];
+                    double x = static_cast<double>(interleaved[idx]);
 
                     // Stage 1 — Dynamic Transient & Level-Adaptive High-Frequency Edge Emphasis
-                    const float diff = x - prevSample[c];
-                    prevSample[c] = x;
-                    const float absDiff = std::fabs(diff);
+                    const double diff = x - static_cast<double>(prevSample[c]);
+                    prevSample[c] = static_cast<float>(x);
+                    const float absDiff = static_cast<float>(std::fabs(diff));
                     envFast[c] += alphaFast * (absDiff - envFast[c]);
                     envSlow[c] += alphaSlow * (absDiff - envSlow[c]);
-                    const float crest = clampf(envFast[c] / (envSlow[c] + 1.0e-5f) - 1.0f, 0.0f, 2.0f);
-                    const float levelScale = envSlow[c] / (envSlow[c] + 0.02f);
-                    const float dynGain = intensity * (0.35f + 0.65f * levelScale + 0.50f * crest);
+                    const double crest = static_cast<double>(clampf(envFast[c] / (envSlow[c] + 1.0e-5f) - 1.0f, 0.0f, 2.0f));
+                    const double levelScale = static_cast<double>(envSlow[c] / (envSlow[c] + 0.02f));
+                    const double dynGain = intensD * (0.35 + 0.65 * levelScale + 0.50 * crest);
                     x = x + diff * dynGain;
 
                     // Stage 2 — High-shelf "air" enhancement (optional)
                     if (highShelfEnabled && intensity > 0.0f)
                     {
-                        // Blend the shelf in proportion to intensity for smooth feel
-                        const float shelfOut = shelf.process(x, c);
-                        const float shelfBlend = intensity * 0.6f; // max 60% blend at full intensity
-                        x = x * (1.0f - shelfBlend) + shelfOut * shelfBlend;
+                        const double shelfOut = shelf.process(x, c);
+                        x = x * (1.0 - shelfBlend) + shelfOut * shelfBlend;
                     }
 
-                    interleaved[idx] = x;
+                    interleaved[idx] = static_cast<T>(x);
                 }
             }
 
             // Stage 3 — Continuous Native Soft-Clip Guard
-            // Runs continuously with zero delay across all channels, avoiding the
-            // 26-sample group-delay time shift and stale filter state on block transitions.
             for (ma_uint32 i = 0; i < frames * channels; ++i)
             {
-                float x = interleaved[i];
-                if (x > 0.95f)
-                    interleaved[i] = 0.95f + 0.05f * std::tanh((x - 0.95f) / 0.05f);
-                else if (x < -0.95f)
-                    interleaved[i] = -0.95f + 0.05f * std::tanh((x + 0.95f) / 0.05f);
+                double x = static_cast<double>(interleaved[i]);
+                if (x > 0.95)
+                    interleaved[i] = static_cast<T>(0.95 + 0.05 * std::tanh((x - 0.95) / 0.05));
+                else if (x < -0.95)
+                    interleaved[i] = static_cast<T>(-0.95 + 0.05 * std::tanh((x + 0.95) / 0.05));
             }
         }
     };
@@ -4587,6 +4625,34 @@ static inline bool dsd_requires_hw_restart(AudioEngineHandle *e, int effectiveRa
     return false;
 }
 
+static inline bool get_decoder_native_format(
+    ma_decoder *dec,
+    ma_format *outFmt,
+    ma_uint32 *outCh,
+    ma_uint32 *outRate)
+{
+    ma_format fmt = ma_format_unknown;
+    ma_uint32 ch = 0;
+    ma_uint32 rate = 0;
+    if (dec != nullptr)
+    {
+        if (dec->pBackend != nullptr)
+        {
+            (void)ma_data_source_get_data_format(dec->pBackend, &fmt, &ch, &rate, nullptr, 0);
+        }
+        if (rate == 0 && dec->converter.sampleRateIn > 0) rate = dec->converter.sampleRateIn;
+        if (fmt == ma_format_unknown && dec->converter.formatIn != ma_format_unknown) fmt = dec->converter.formatIn;
+        if (ch == 0 && dec->converter.channelsIn > 0) ch = dec->converter.channelsIn;
+        if (rate == 0) rate = dec->outputSampleRate;
+        if (fmt == ma_format_unknown) fmt = dec->outputFormat;
+        if (ch == 0) ch = dec->outputChannels;
+    }
+    if (outFmt) *outFmt = fmt;
+    if (outCh) *outCh = ch;
+    if (outRate) *outRate = rate;
+    return (rate > 0);
+}
+
 static inline void sync_active_dsd_from_decoder(AudioEngineHandle *e, ma_decoder *dec)
 {
     if (!e) return;
@@ -4615,8 +4681,10 @@ static inline void sync_active_dsd_from_decoder(AudioEngineHandle *e, ma_decoder
         e->sourceDsdRate.store(0, std::memory_order_release);
         if (e->hwActiveDsdMode.load(std::memory_order_acquire) != 0)
         {
-            const int req = (dec && dec->outputSampleRate > 0)
-                ? static_cast<int>(dec->outputSampleRate)
+            ma_uint32 natRate = 0;
+            (void)get_decoder_native_format(dec, nullptr, nullptr, &natRate);
+            const int req = (natRate > 0)
+                ? static_cast<int>(natRate)
                 : (e->outputSampleRate > 0 ? e->outputSampleRate : 48000);
             e->pendingAutoSampleRateMatchRate.store(req, std::memory_order_release);
         }
@@ -5466,7 +5534,7 @@ static bool load_decoder_for_path(
     ma_format nativeFmt = ma_format_unknown;
     ma_uint32 nativeCh = 0;
     ma_uint32 nativeRate = 0;
-    (void)ma_decoder_get_data_format(tmp, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
+    (void)get_decoder_native_format(tmp, &nativeFmt, &nativeCh, &nativeRate);
 
     if (!isPreload)
     {
@@ -5998,7 +6066,7 @@ static void worker_loop(AudioEngineHandle *e)
                 ma_format nativeFmt = ma_format_unknown;
                 ma_uint32 nativeCh = 0;
                 ma_uint32 nativeRateVal = 0;
-                (void)ma_decoder_get_data_format(newCurrent, &nativeFmt, &nativeCh, &nativeRateVal, nullptr, 0);
+                (void)get_decoder_native_format(newCurrent, &nativeFmt, &nativeCh, &nativeRateVal);
                 const int effectiveNativeRate = (nativeRateVal > 0) ? (int)nativeRateVal : (int)newCurrent->outputSampleRate;
 
                 int dsdAwareNativeRate = effectiveNativeRate;
@@ -6104,7 +6172,7 @@ static void worker_loop(AudioEngineHandle *e)
                     ma_format nativeFmt = ma_format_unknown;
                     ma_uint32 nativeCh = 0;
                     ma_uint32 nativeRate = 0;
-                    (void)ma_decoder_get_data_format(newCurrent, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
+                    (void)get_decoder_native_format(newCurrent, &nativeFmt, &nativeCh, &nativeRate);
                     uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)newCurrent->outputSampleRate;
                     AudioRatePlan plan = calculateRatePlan(
                         srcRate,
@@ -7360,13 +7428,24 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             reset_playback_position(e, 0);
                             sync_active_dsd_from_decoder(e, e->currentDecoder);
 
-                            if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
+                            if (e->currentDecoder != nullptr)
                             {
-                                const int nativeRate = (int)e->currentDecoder->outputSampleRate;
-                                if (nativeRate > 0 && nativeRate != e->outputSampleRate)
+                                ma_format nativeFmt = ma_format_unknown;
+                                ma_uint32 nativeCh = 0;
+                                ma_uint32 nativeRate = 0;
+                                (void)get_decoder_native_format(e->currentDecoder, &nativeFmt, &nativeCh, &nativeRate);
+                                if (e->activeDsdMode.load(std::memory_order_acquire) == 0 && nativeRate > 0)
                                 {
-                                    engine_log("Auto Sample-Rate Match: Early crossfade track native rate is %d Hz (current hardware rate: %d Hz). Requesting deferred DAC switch...", nativeRate, e->outputSampleRate);
-                                    e->pendingAutoSampleRateMatchRate.store(nativeRate, std::memory_order_release);
+                                    e->sourceSampleRate = (int)nativeRate;
+                                    e->sourceFormat = nativeFmt;
+                                    e->ratePlan.sourceRate = nativeRate;
+                                    e->ratePlan.decoderSRC = (nativeRate != (ma_uint32)e->engineSampleRate);
+                                }
+                                if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) &&
+                                    nativeRate > 0 && (int)nativeRate != e->outputSampleRate)
+                                {
+                                    engine_log("Auto Sample-Rate Match: Early crossfade track native rate is %u Hz (current hardware rate: %d Hz). Requesting deferred DAC switch...", nativeRate, e->outputSampleRate);
+                                    e->pendingAutoSampleRateMatchRate.store((int)nativeRate, std::memory_order_release);
                                 }
                             }
 
@@ -7778,12 +7857,23 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->abRepeatEnabled.store(false, std::memory_order_release);
                     sync_active_dsd_from_decoder(e, e->currentDecoder);
 
-                    if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) && e->currentDecoder != nullptr)
+                    if (e->currentDecoder != nullptr)
                     {
-                        const int nativeRate = (int)e->currentDecoder->outputSampleRate;
-                        if (nativeRate > 0 && nativeRate != e->outputSampleRate)
+                        ma_format nativeFmt = ma_format_unknown;
+                        ma_uint32 nativeCh = 0;
+                        ma_uint32 nativeRate = 0;
+                        (void)get_decoder_native_format(e->currentDecoder, &nativeFmt, &nativeCh, &nativeRate);
+                        if (e->activeDsdMode.load(std::memory_order_acquire) == 0 && nativeRate > 0)
                         {
-                            e->pendingAutoSampleRateMatchRate.store(nativeRate, std::memory_order_release);
+                            e->sourceSampleRate = (int)nativeRate;
+                            e->sourceFormat = nativeFmt;
+                            e->ratePlan.sourceRate = nativeRate;
+                            e->ratePlan.decoderSRC = (nativeRate != (ma_uint32)e->engineSampleRate);
+                        }
+                        if (e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) &&
+                            nativeRate > 0 && (int)nativeRate != e->outputSampleRate)
+                        {
+                            e->pendingAutoSampleRateMatchRate.store((int)nativeRate, std::memory_order_release);
                         }
                     }
 
@@ -8012,15 +8102,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
     {
         if (e == nullptr)
             return 0;
-        int r = 0;
-        if (e->use64BitProcessing.load(std::memory_order_relaxed))
-            r |= AE_P64_USER;
-        if (e->exclusiveModeEnabled.load(std::memory_order_relaxed))
-            r |= AE_P64_EXCLUSIVE;
-        const AEAudioFormat f = e->outputFormat;
-        if (f == AE_FORMAT_U8 || f == AE_FORMAT_S16 || f == AE_FORMAT_S24 || f == AE_FORMAT_S32)
-            r |= AE_P64_INT_OUTPUT;
-        return r;
+        // Uniform precision policy: only engage the 64-bit DSP pipeline when
+        // explicitly enabled by the user. Otherwise the entire pipeline runs
+        // uniformly in 32-bit float and quantizes/dithers to the DAC bit depth.
+        return e->use64BitProcessing.load(std::memory_order_relaxed) ? AE_P64_USER : 0;
     }
 
     static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
@@ -8765,15 +8850,22 @@ static void decode_producer_loop(AudioEngineHandle *e)
             e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
         }
 
-        const size_t totalSamples = (size_t)produced * (size_t)e->channels;
+        const size_t producedSamples = (size_t)produced * (size_t)e->channels;
 
         if (use64)
         {
-            const size_t safeSamples = std::min(totalSamples, e->processBuffer64.size());
+            const size_t safeProduced = std::min(producedSamples, e->processBuffer64.size());
+            const size_t safeFrameSamples = std::min((size_t)totalSamples, e->processBuffer64.size());
             buf64 = e->processBuffer64.data();
-            for (size_t i = 0; i < safeSamples; ++i)
+            for (size_t i = 0; i < safeProduced; ++i)
             {
                 buf64[i] = static_cast<double>(processBuffer[i]);
+            }
+            // Zero any unfilled tail (short block on underrun, seek, or track end)
+            // so the output stage never replays stale samples from the prior callback.
+            if (safeProduced < safeFrameSamples)
+            {
+                std::memset(buf64 + safeProduced, 0, (safeFrameSamples - safeProduced) * sizeof(double));
             }
         }
 
@@ -8811,7 +8903,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
             }
             e->paramNormalizerGain.setTarget(normTarget);
-            e->paramNormalizerGain.prepareBlock((ma_uint32)totalSamples,
+            e->paramNormalizerGain.prepareBlock((ma_uint32)producedSamples,
                                                 e->parameterSmoothingMs.load(std::memory_order_relaxed),
                                                 e->sampleRate,
                                                 e->channels);
@@ -8825,12 +8917,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (use64)
                 {
                     const double rg64 = static_cast<double>(rg);
-                    for (size_t i = 0; i < totalSamples; ++i)
+                    for (size_t i = 0; i < producedSamples; ++i)
                         buf64[i] = buf64[i] * rg64 * static_cast<double>(e->paramNormalizerGain.next());
                 }
                 else
                 {
-                    for (size_t i = 0; i < totalSamples; ++i)
+                    for (size_t i = 0; i < producedSamples; ++i)
                         processBuffer[i] *= rg * e->paramNormalizerGain.next();
                 }
             }
@@ -8839,12 +8931,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (use64)
                 {
                     const double rg64 = static_cast<double>(rg);
-                    for (size_t i = 0; i < totalSamples; ++i)
+                    for (size_t i = 0; i < producedSamples; ++i)
                         buf64[i] *= rg64;
                 }
                 else
                 {
-                    for (size_t i = 0; i < totalSamples; ++i)
+                    for (size_t i = 0; i < producedSamples; ++i)
                         processBuffer[i] *= rg;
                 }
             }
@@ -8915,192 +9007,96 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // ZONE 2: CORRECTIVE TONE & RESONANCE CONTROL &
             // ZONE 3: HARMONIC GENERATION & NON-LINEAR CHARACTER
             // =================================================================
-            // Sits immediately post-Subsonic HPF on the pristine dry signal.
-            // Eliminates noise floor, hiss, harsh resonances, and sibilance BEFORE
-            // any saturation, compression, or spatial reverberation.
+            // Uniform native precision: 100% F64 when use64 is enabled, 100% F32
+            // otherwise — zero F64<->F32 hopping, identical canonical order for
+            // stereo and multichannel.
             if (e->channels >= 2)
             {
+                const bool isStereo = (e->channels == 2);
+                const bool hasStereoOnlyPre = e->downwardExpanderDsp.isEnabled() ||
+                                              e->deEsserDsp.isEnabled() ||
+                                              e->harmonicBassDsp.isEnabled() ||
+                                              e->dynamicSystemDsp.isEnabled() ||
+                                              e->analogWarmthDsp.isEnabled() ||
+                                              e->dialogEnhancerDsp.isEnabled() ||
+                                              e->clarityDsp.isEnabled();
+                const bool hasMultiChPre = e->noiseGateDsp.isEnabled() ||
+                                           e->dynamicEqDsp.isEnabled() ||
+                                           e->tapeDriftDsp.isEnabled();
+
+                if (hasStereoOnlyPre || hasMultiChPre)
                 {
-                    const bool isStereo = (e->channels == 2);
-                    const bool hasFloatPreDynamics = e->downwardExpanderDsp.isEnabled() ||
-                                                     e->deEsserDsp.isEnabled() ||
-                                                     e->harmonicBassDsp.isEnabled() ||
-                                                     e->dynamicSystemDsp.isEnabled() ||
-                                                     e->analogWarmthDsp.isEnabled() ||
-                                                     e->dialogEnhancerDsp.isEnabled() ||
-                                                     e->clarityDsp.isEnabled();
-                    const bool hasDoublePreDynamics = e->noiseGateDsp.isEnabled() ||
-                                                      e->dynamicEqDsp.isEnabled() ||
-                                                      e->tapeDriftDsp.isEnabled();
+                    auto runZone1To3 = [&](auto *buf, auto *stScratch) {
+                        using SampleT = std::remove_pointer_t<decltype(buf)>;
+                        const size_t ch = (size_t)e->channels;
 
-                    if (use64)
-                    {
-                        // 1.2 Studio Noise Gate (Dual-Threshold Hysteresis) - Native 64-bit
-                        if (e->noiseGateDsp.isEnabled())
-                            e->noiseGateDsp.process(buf64, produced, e->channels);
-
-                        if (hasFloatPreDynamics)
-                        {
+                        auto runStereoOp = [&](auto &&fn) {
                             if (isStereo)
                             {
-                                for (size_t i = 0; i < totalSamples; ++i)
-                                    processBuffer[i] = static_cast<float>(buf64[i]);
-
-                                // Zone 1.3: Downward Expander (Vinyl Clean / Tape De-Hiss)
-                                if (e->downwardExpanderDsp.isEnabled())
-                                    e->downwardExpanderDsp.process(processBuffer, produced);
-
-                                // Zone 2.1: Dynamic EQ (Frequency-Specific Resonance Taming)
-                                if (e->dynamicEqDsp.isEnabled())
-                                    e->dynamicEqDsp.process(processBuffer, produced, e->channels);
-
-                                // Zone 2.2: Split-Band De-Esser (4-9 kHz Sibilance Clamping before Reverb/Exciters)
-                                if (e->deEsserDsp.isEnabled())
-                                    e->deEsserDsp.process(processBuffer, produced);
-
-                                // Zone 3.1: Harmonic Bass Synthesizer (Sub-120 Hz Fundamental Injection)
-                                if (e->harmonicBassDsp.isEnabled())
-                                    e->harmonicBassDsp.process(processBuffer, produced);
-
-                                // Zone 3.2: Dynamic System (Multiband Ladder Dynamics)
-                                if (e->dynamicSystemDsp.isEnabled())
-                                    e->dynamicSystemDsp.process(processBuffer, produced);
-
-                                // Zone 3.3: Analog Warmth (Oversampled Triode/Tape Saturation)
-                                if (e->analogWarmthDsp.isEnabled())
-                                    e->analogWarmthDsp.process(processBuffer, produced);
-
-                                // Zone 3.4: Vintage Tape Drift (Wow/Flutter Modulation)
-                                if (e->tapeDriftDsp.isEnabled())
-                                    e->tapeDriftDsp.process(processBuffer, produced, e->channels);
-
-                                // Zone 3.5: Dialog Enhancer (Vocal Formant Clarity)
-                                if (e->dialogEnhancerDsp.isEnabled())
-                                    e->dialogEnhancerDsp.process(processBuffer, produced);
-
-                                // Zone 3.6: Audio Clarity (Air Shelf & Harmonic Brilliance)
-                                if (e->clarityDsp.isEnabled())
-                                    e->clarityDsp.process(processBuffer, produced);
-
-                                for (size_t i = 0; i < totalSamples; ++i)
-                                    buf64[i] = static_cast<double>(processBuffer[i]);
+                                fn(buf);
                             }
                             else
                             {
-                                // Multichannel (5.1 / 7.1): De-interleave front Left/Right pair (ch 0 & 1)
-                                // into stereo scratch buffer. Channels 2..N-1 (Center, LFE, Surrounds) remain
-                                // strictly untouched in pristine 64-bit precision.
-                                const size_t ch = (size_t)e->channels;
-                                float *stBuf = e->dspStereoBuffer.data();
-
                                 for (ma_uint32 i = 0; i < produced; ++i)
                                 {
-                                    stBuf[i * 2 + 0] = static_cast<float>(buf64[i * ch + 0]);
-                                    stBuf[i * 2 + 1] = static_cast<float>(buf64[i * ch + 1]);
+                                    stScratch[i * 2 + 0] = buf[i * ch + 0];
+                                    stScratch[i * 2 + 1] = buf[i * ch + 1];
                                 }
-
-                                if (e->downwardExpanderDsp.isEnabled())
-                                    e->downwardExpanderDsp.process(stBuf, produced);
-                                if (e->deEsserDsp.isEnabled())
-                                    e->deEsserDsp.process(stBuf, produced);
-                                if (e->harmonicBassDsp.isEnabled())
-                                    e->harmonicBassDsp.process(stBuf, produced);
-                                if (e->dynamicSystemDsp.isEnabled())
-                                    e->dynamicSystemDsp.process(stBuf, produced);
-                                if (e->analogWarmthDsp.isEnabled())
-                                    e->analogWarmthDsp.process(stBuf, produced);
-                                if (e->dialogEnhancerDsp.isEnabled())
-                                    e->dialogEnhancerDsp.process(stBuf, produced);
-                                if (e->clarityDsp.isEnabled())
-                                    e->clarityDsp.process(stBuf, produced);
-
+                                fn(stScratch);
                                 for (ma_uint32 i = 0; i < produced; ++i)
                                 {
-                                    buf64[i * ch + 0] = static_cast<double>(stBuf[i * 2 + 0]);
-                                    buf64[i * ch + 1] = static_cast<double>(stBuf[i * 2 + 1]);
+                                    buf[i * ch + 0] = stScratch[i * 2 + 0];
+                                    buf[i * ch + 1] = stScratch[i * 2 + 1];
                                 }
-
-                                if (e->dynamicEqDsp.isEnabled())
-                                    e->dynamicEqDsp.process(buf64, produced, e->channels);
-                                if (e->tapeDriftDsp.isEnabled())
-                                    e->tapeDriftDsp.process(buf64, produced, e->channels);
                             }
-                        }
-                        else if (hasDoublePreDynamics)
-                        {
-                            // Pure 64-bit path: NO float downcasting! Full 53-bit mantissa preserved.
-                            if (e->dynamicEqDsp.isEnabled())
-                                e->dynamicEqDsp.process(buf64, produced, e->channels);
-                            if (e->tapeDriftDsp.isEnabled())
-                                e->tapeDriftDsp.process(buf64, produced, e->channels);
-                        }
-                    }
-                    else if (hasFloatPreDynamics || hasDoublePreDynamics)
-                    {
-                        // 32-bit Float Pipeline
+                        };
+                        (void)sizeof(SampleT);
+
+                        // Zone 1.2: Studio Noise Gate (Dual-Threshold Hysteresis)
                         if (e->noiseGateDsp.isEnabled())
-                            e->noiseGateDsp.process(processBuffer, produced, e->channels);
+                            e->noiseGateDsp.process(buf, produced, e->channels);
 
-                        if (isStereo)
-                        {
-                            if (e->downwardExpanderDsp.isEnabled())
-                                e->downwardExpanderDsp.process(processBuffer, produced);
-                            if (e->dynamicEqDsp.isEnabled())
-                                e->dynamicEqDsp.process(processBuffer, produced, e->channels);
-                            if (e->deEsserDsp.isEnabled())
-                                e->deEsserDsp.process(processBuffer, produced);
-                            if (e->harmonicBassDsp.isEnabled())
-                                e->harmonicBassDsp.process(processBuffer, produced);
-                            if (e->dynamicSystemDsp.isEnabled())
-                                e->dynamicSystemDsp.process(processBuffer, produced);
-                            if (e->analogWarmthDsp.isEnabled())
-                                e->analogWarmthDsp.process(processBuffer, produced);
-                            if (e->tapeDriftDsp.isEnabled())
-                                e->tapeDriftDsp.process(processBuffer, produced, e->channels);
-                            if (e->dialogEnhancerDsp.isEnabled())
-                                e->dialogEnhancerDsp.process(processBuffer, produced);
-                            if (e->clarityDsp.isEnabled())
-                                e->clarityDsp.process(processBuffer, produced);
-                        }
-                        else
-                        {
-                            // Multichannel (5.1 / 7.1)
-                            const size_t ch = (size_t)e->channels;
-                            float *stBuf = e->dspStereoBuffer.data();
+                        // Zone 1.3: Downward Expander (Vinyl Clean / Tape De-Hiss)
+                        if (e->downwardExpanderDsp.isEnabled())
+                            runStereoOp([&](auto *s) { e->downwardExpanderDsp.process(s, produced); });
 
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
-                                stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
-                            }
+                        // Zone 2.1: Dynamic EQ (Frequency-Specific Resonance Taming)
+                        if (e->dynamicEqDsp.isEnabled())
+                            e->dynamicEqDsp.process(buf, produced, e->channels);
 
-                            if (e->downwardExpanderDsp.isEnabled())
-                                e->downwardExpanderDsp.process(stBuf, produced);
-                            if (e->deEsserDsp.isEnabled())
-                                e->deEsserDsp.process(stBuf, produced);
-                            if (e->harmonicBassDsp.isEnabled())
-                                e->harmonicBassDsp.process(stBuf, produced);
-                            if (e->dynamicSystemDsp.isEnabled())
-                                e->dynamicSystemDsp.process(stBuf, produced);
-                            if (e->analogWarmthDsp.isEnabled())
-                                e->analogWarmthDsp.process(stBuf, produced);
-                            if (e->dialogEnhancerDsp.isEnabled())
-                                e->dialogEnhancerDsp.process(stBuf, produced);
-                            if (e->clarityDsp.isEnabled())
-                                e->clarityDsp.process(stBuf, produced);
+                        // Zone 2.2: Split-Band De-Esser (4-9 kHz Sibilance Clamping)
+                        if (e->deEsserDsp.isEnabled())
+                            runStereoOp([&](auto *s) { e->deEsserDsp.process(s, produced); });
 
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
-                                processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
-                            }
+                        // Zone 3.1: Harmonic Bass Synthesizer (Sub-120 Hz Fundamental Injection)
+                        if (e->harmonicBassDsp.isEnabled())
+                            runStereoOp([&](auto *s) { e->harmonicBassDsp.process(s, produced); });
 
-                            if (e->dynamicEqDsp.isEnabled())
-                                e->dynamicEqDsp.process(processBuffer, produced, e->channels);
-                            if (e->tapeDriftDsp.isEnabled())
-                                e->tapeDriftDsp.process(processBuffer, produced, e->channels);
-                        }
-                    }
+                        // Zone 3.2: Dynamic System (Multiband Ladder Dynamics)
+                        if (e->dynamicSystemDsp.isEnabled())
+                            runStereoOp([&](auto *s) { e->dynamicSystemDsp.process(s, produced); });
+
+                        // Zone 3.3: Analog Warmth (Oversampled Triode/Tape Saturation)
+                        if (e->analogWarmthDsp.isEnabled())
+                            runStereoOp([&](auto *s) { e->analogWarmthDsp.process(s, produced); });
+
+                        // Zone 3.4: Vintage Tape Drift (Wow/Flutter Modulation)
+                        if (e->tapeDriftDsp.isEnabled())
+                            e->tapeDriftDsp.process(buf, produced, e->channels);
+
+                        // Zone 3.5: Dialog Enhancer (Vocal Formant Clarity)
+                        if (e->dialogEnhancerDsp.isEnabled())
+                            runStereoOp([&](auto *s) { e->dialogEnhancerDsp.process(s, produced); });
+
+                        // Zone 3.6: Audio Clarity (Air Shelf & Harmonic Brilliance)
+                        if (e->clarityDsp.isEnabled())
+                            runStereoOp([&](auto *s) { e->clarityDsp.process(s, produced); });
+                    };
+
+                    if (use64)
+                        runZone1To3(buf64, e->dspStereoBuffer64.data());
+                    else
+                        runZone1To3(processBuffer, e->dspStereoBuffer.data());
                 }
             }
 
@@ -9159,61 +9155,48 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // =================================================================
             // ZONE 5: SPATIALIZATION, VIRTUALIZATION & ACOUSTIC ENVIRONMENT
             // =================================================================
-            // Sits post-dynamics and post-EQ. Wraps the shaped and compressed stereo
-            // image in a lush, physical acoustic environment. Reverb tails decay cleanly
-            // into quiet black without downstream gating flutter or saturation IMD.
+            // Uniform native precision: 100% F64 when use64 is enabled, 100% F32
+            // otherwise — zero F64<->F32 hopping.
             const bool isStereoSpatial = (e->channels == 2);
-            const bool hasFloatOnlySpatialFx = e->stereoWidenEnabled ||
-                                               e->stereoEnhancementEnabled ||
-                                               (isStereoSpatial && e->surroundDsp.isEnabled()) ||
-                                               e->reverbEnabled ||
-                                               e->crystalizerEnabled;
-            const bool hasSpatialFx = e->crossfeedEnabled || hasFloatOnlySpatialFx;
+            const bool hasSpatialFx = e->crossfeedEnabled ||
+                                      e->stereoWidenEnabled ||
+                                      e->stereoEnhancementEnabled ||
+                                      (isStereoSpatial && e->surroundDsp.isEnabled()) ||
+                                      e->reverbEnabled ||
+                                      e->crystalizerEnabled;
             if (hasSpatialFx)
             {
                 std::unique_lock<std::mutex> fxLock(e->fxMutex, std::try_to_lock);
                 if (fxLock.owns_lock())
                 {
-                    if (use64 && !hasFloatOnlySpatialFx)
-                    {
-                        // 5.1 Binaural Headphone Crossfeed / OpenStage (native 64-bit path)
-                        if (e->crossfeedEnabled)
-                            e->crossfeedNode.process(buf64, produced, e->channels);
-                    }
-                    else
-                    {
-                        if (use64)
-                        {
-                            for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
-                        }
-
+                    auto runZone5 = [&](auto *buf) {
                         // 5.1 Binaural Headphone Crossfeed / OpenStage
                         if (e->crossfeedEnabled)
-                            e->crossfeedNode.process(processBuffer, produced, e->channels);
+                            e->crossfeedNode.process(buf, produced, e->channels);
 
                         // 5.2 3D Surround & HRTF Virtualizer (Stereo only)
                         if (isStereoSpatial && e->surroundDsp.isEnabled())
-                            e->surroundDsp.process(processBuffer, produced);
+                            e->surroundDsp.process(buf, produced);
 
                         // 5.3 Stereo Soundstage Widening & M/S Enhancement
                         if (e->stereoWidenEnabled)
-                            e->stereoWiden.process(processBuffer, produced, e->channels);
+                            e->stereoWiden.process(buf, produced, e->channels);
                         if (e->stereoEnhancementEnabled)
-                            e->stereoEnhancement.process(processBuffer, produced, e->channels);
+                            e->stereoEnhancement.process(buf, produced, e->channels);
 
-                        // 5.4 Studio-Grade Dattorro Diffuse Tank Reverb
+                        // 5.4 Studio-Grade Multi-Engine Reverb
                         if (e->reverbEnabled)
-                            e->reverbNode.process(processBuffer, produced, e->channels);
+                            e->reverbNode.process(buf, produced, e->channels);
 
                         // 5.5 Crystalizer (High-Frequency Air & Transient Dispersion)
                         if (e->crystalizerEnabled)
-                            e->crystalizer.process(processBuffer, produced, e->channels);
+                            e->crystalizer.process(buf, produced, e->channels);
+                    };
 
-                        if (use64)
-                        {
-                            for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
-                        }
-                    }
+                    if (use64)
+                        runZone5(buf64);
+                    else
+                        runZone5(processBuffer);
                 }
             }
 
@@ -9221,49 +9204,36 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // ZONE 6: TRANSDUCER CALIBRATION & DELIVERY STAGE
             // =================================================================
             // 6.1 Headphone AutoEQ FIR Correction (FFT Convolver)
-            // Applied across the fully spatialized and reverberated acoustic mix.
+            // Runs natively in F64 when use64 is enabled, F32 otherwise — zero hopping.
             if (e->channels >= 2 && e->fftConvolverDsp.isEnabled())
             {
-                {
-                    const bool isStereo = (e->channels == 2);
+                const bool isStereo = (e->channels == 2);
+                auto runConvolver = [&](auto *buf, auto *stScratch) {
                     if (isStereo)
                     {
-                        if (use64)
-                        {
-                            for (size_t i = 0; i < totalSamples; ++i) processBuffer[i] = static_cast<float>(buf64[i]);
-                            e->fftConvolverDsp.process(processBuffer, produced);
-                            for (size_t i = 0; i < totalSamples; ++i) buf64[i] = static_cast<double>(processBuffer[i]);
-                        }
-                        else
-                        {
-                            e->fftConvolverDsp.process(processBuffer, produced);
-                        }
+                        e->fftConvolverDsp.process(buf, produced);
                     }
                     else
                     {
                         const size_t ch = (size_t)e->channels;
-                        float *stBuf = e->dspStereoBuffer.data();
                         for (ma_uint32 i = 0; i < produced; ++i)
                         {
-                            stBuf[i * 2 + 0] = use64 ? static_cast<float>(buf64[i * ch + 0]) : processBuffer[i * ch + 0];
-                            stBuf[i * 2 + 1] = use64 ? static_cast<float>(buf64[i * ch + 1]) : processBuffer[i * ch + 1];
+                            stScratch[i * 2 + 0] = buf[i * ch + 0];
+                            stScratch[i * 2 + 1] = buf[i * ch + 1];
                         }
-                        e->fftConvolverDsp.process(stBuf, produced);
+                        e->fftConvolverDsp.process(stScratch, produced);
                         for (ma_uint32 i = 0; i < produced; ++i)
                         {
-                            if (use64)
-                            {
-                                buf64[i * ch + 0] = static_cast<double>(stBuf[i * 2 + 0]);
-                                buf64[i * ch + 1] = static_cast<double>(stBuf[i * 2 + 1]);
-                            }
-                            else
-                            {
-                                processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
-                                processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
-                            }
+                            buf[i * ch + 0] = stScratch[i * 2 + 0];
+                            buf[i * ch + 1] = stScratch[i * 2 + 1];
                         }
                     }
-                }
+                };
+
+                if (use64)
+                    runConvolver(buf64, e->dspStereoBuffer64.data());
+                else
+                    runConvolver(processBuffer, e->dspStereoBuffer.data());
             }
 
             // 6.2 Broadcast Leveller (Real-Time EBU R128 / BS.1770 Slow-Window AGC)
@@ -9295,7 +9265,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 e->analyzerEnabled.load(std::memory_order_relaxed);
         if (use64 && needMeters)
         {
-            for (size_t i = 0; i < totalSamples; ++i)
+            for (size_t i = 0; i < producedSamples; ++i)
                 processBuffer[i] = static_cast<float>(buf64[i]);
         }
         if (e->truePeakMeterEnabled.load(std::memory_order_relaxed))
@@ -9307,12 +9277,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
         // =====================================================================
         // Stage 3: Master Volume Stage (User Master Gain Fader)
-        // Applied in 64-bit float precision with automated de-zippering / ramping.
+        // Applied in active pipeline precision (F64 or F32) with automated de-zippering.
         // In Bit-Perfect / Exclusive mode with unity gain (1.0), PCM passes unscaled.
         // =====================================================================
         {
             e->paramUserGain.setTarget(e->gain.load(std::memory_order_relaxed));
-            e->paramUserGain.prepareBlock((ma_uint32)totalSamples,
+            e->paramUserGain.prepareBlock((ma_uint32)producedSamples,
                                           e->parameterSmoothingMs.load(std::memory_order_relaxed),
                                           e->sampleRate,
                                           e->channels);
@@ -9329,12 +9299,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 {
                     if (use64)
                     {
-                        for (size_t i = 0; i < totalSamples; ++i)
+                        for (size_t i = 0; i < producedSamples; ++i)
                             buf64[i] *= static_cast<double>(e->paramUserGain.next());
                     }
                     else
                     {
-                        for (size_t i = 0; i < totalSamples; ++i)
+                        for (size_t i = 0; i < producedSamples; ++i)
                             processBuffer[i] *= e->paramUserGain.next();
                     }
                 }
@@ -9764,7 +9734,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     int sourceBits = 0;
     if (isDspActive)
     {
-        sourceBits = (use64 && buf64 != nullptr) ? 53 : 32;
+        sourceBits = (use64 && buf64 != nullptr && !needsDeviceSRC) ? 53 : 32;
     }
     else
     {
@@ -11904,8 +11874,8 @@ extern "C"
         e->castWorkBuffer64.resize(preallocSamples);
         e->automixEchoBuffer.assign(384000, 0.0f);
 
-        // Initialize advanced settings
-        e->outputSampleRate = sample_rate;
+        // Initialize advanced settings (0 = native OS/DAC rate by default)
+        e->outputSampleRate = 0;
         e->outputChannels = channels;
         e->userOutputChannels = channels;
         // Default format is F32
@@ -11914,7 +11884,9 @@ extern "C"
         ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
         cfg.playback.format = ma_format_f32;
         cfg.playback.channels = (ma_uint32)channels;
-        cfg.sampleRate = (ma_uint32)sample_rate;
+        cfg.sampleRate = 0; // Open at OS mixer / DAC native rate to prevent OS/HAL linear SRC
+        cfg.wasapi.noAutoConvertSRC = 1;
+        cfg.wasapi.noDefaultQualitySRC = 1;
         cfg.dataCallback = data_callback;
         cfg.pUserData = e;
         apply_buffer_policy(e, cfg);
@@ -11932,9 +11904,11 @@ extern "C"
         }
 
         // Sync actual device-negotiated values back into the engine struct.
-        // ma_device_init may adjust channels/rate to what the hardware supports.
+        // Prefer internalSampleRate (true OS mixer / HAL rate) so r8brain resamples directly to it.
         {
-            const int actualRate = (int)e->device.sampleRate;
+            const int actualRate = (e->device.playback.internalSampleRate > 0)
+                                       ? (int)e->device.playback.internalSampleRate
+                                       : (int)e->device.sampleRate;
             const int actualCh   = (int)e->device.playback.channels;
             if (actualCh > 0)
             {
@@ -11952,6 +11926,14 @@ extern "C"
                 e->exclusiveModeEnabled.load(std::memory_order_relaxed)
             );
             applyRatePlan(e, plan);
+
+            if (actualRate > 0 && actualRate != sample_rate)
+            {
+                e->update_eq_filters();
+                e->update_multiband_fx_filters();
+                std::lock_guard<std::mutex> fx(e->fxMutex);
+                reinit_advanced_fx_filters(e);
+            }
         }
 
         sync_dac_valid_bit_depth(e);
@@ -12596,7 +12578,7 @@ extern "C"
             ma_format nativeFmt = ma_format_unknown;
             ma_uint32 nativeCh = 0;
             ma_uint32 nativeRateVal = 0;
-            (void)ma_decoder_get_data_format(newCurrent, &nativeFmt, &nativeCh, &nativeRateVal, nullptr, 0);
+            (void)get_decoder_native_format(newCurrent, &nativeFmt, &nativeCh, &nativeRateVal);
             const int effectiveNativeRate = (nativeRateVal > 0) ? (int)nativeRateVal : (int)newCurrent->outputSampleRate;
 
             int dsdAwareNativeRate = effectiveNativeRate;
@@ -12670,7 +12652,7 @@ extern "C"
             ma_format nativeFmt = ma_format_unknown;
             ma_uint32 nativeCh = 0;
             ma_uint32 nativeRate = 0;
-            (void)ma_decoder_get_data_format(newCurrent, &nativeFmt, &nativeCh, &nativeRate, nullptr, 0);
+            (void)get_decoder_native_format(newCurrent, &nativeFmt, &nativeCh, &nativeRate);
             uint32_t srcRate = (nativeRate > 0) ? nativeRate : (uint32_t)newCurrent->outputSampleRate;
             AudioRatePlan plan = calculateRatePlan(
                 srcRate,
@@ -12712,10 +12694,6 @@ extern "C"
             request_crossfade_abort(e);
 
             e->currentDecoder = newCurrent;
-            if (newCurrent != nullptr && newCurrent->outputSampleRate > 0)
-            {
-                e->sourceSampleRate = (int)newCurrent->outputSampleRate;
-            }
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
             e->currentStream = newCurrentStream;
 #endif
@@ -12771,21 +12749,34 @@ extern "C"
     // directly instead of tearing it down and re-opening the URL from scratch.
     static bool try_promote_preloaded_next(AudioEngineHandle *e, int idx)
     {
+        uint32_t promotedSrcRate = 0;
         {
             std::lock_guard<std::mutex> d(e->decoderMutex);
             if (!e->hasNext || e->nextDecoder == nullptr || e->nextIndex != idx)
             {
                 return false;
             }
+            ma_format nNativeFmt = ma_format_unknown;
+            ma_uint32 nNativeCh = 0;
+            ma_uint32 nNativeRate = 0;
+            (void)get_decoder_native_format(e->nextDecoder, &nNativeFmt, &nNativeCh, &nNativeRate);
+            bool nextIsDsd = false;
             {
                 AEDsdOutputMode nMode = AE_DSD_MODE_D2P;
                 uint32_t nRate = 0;
                 ma_format nFmt = ma_format_unknown;
                 uint32_t nCh = 0;
-                const bool nextIsDsd = sautiflow::dsd::query_dsd_decoder_info(e->nextDecoder, &nMode, nullptr, &nRate, &nFmt, &nCh);
+                nextIsDsd = sautiflow::dsd::query_dsd_decoder_info(e->nextDecoder, &nMode, nullptr, &nRate, &nFmt, &nCh);
                 const int targetBitMode = (nextIsDsd && (nMode == AE_DSD_MODE_DOP || nMode == AE_DSD_MODE_NATIVE)) ? static_cast<int>(nMode) : 0;
                 if (targetBitMode != e->hwActiveDsdMode.load(std::memory_order_acquire) ||
                     (targetBitMode != 0 && (static_cast<uint32_t>(nRate) != e->device.sampleRate || nFmt != e->device.playback.format || (nCh > 0 && nCh != e->device.playback.channels))))
+                {
+                    return false;
+                }
+                if (!nextIsDsd && e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) &&
+                    nNativeRate > 0 &&
+                    (int)nNativeRate != e->deviceSampleRate &&
+                    (int)nNativeRate != e->outputSampleRate)
                 {
                     return false;
                 }
@@ -12809,7 +12800,14 @@ extern "C"
             e->currentLengthFrames = e->nextLengthFrames;
             e->currentIndex = idx;
             e->hasCurrent = true;
+            if (!nextIsDsd && nNativeRate > 0)
+            {
+                e->sourceSampleRate = (int)nNativeRate;
+                e->sourceFormat = nNativeFmt;
+                e->sourceChannels = (int)nNativeCh;
+            }
             sync_active_dsd_from_decoder(e, e->currentDecoder);
+            promotedSrcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : nNativeRate;
             e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
             e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
             e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
@@ -12822,6 +12820,17 @@ extern "C"
             e->pcmDirectRingBuffer.reset();
             e->flushCastRing();
             arm_transition_fade_in(e);
+        }
+        if (promotedSrcRate > 0)
+        {
+            AudioRatePlan plan = calculateRatePlan(
+                promotedSrcRate,
+                (uint32_t)e->deviceSampleRate,
+                (uint32_t)e->userOutputSampleRate,
+                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+            );
+            applyRatePlan(e, plan);
         }
         {
             std::lock_guard<std::mutex> pl(e->playlistMutex);
@@ -13559,8 +13568,40 @@ extern "C"
         ps.processing_sample_rate = e->sampleRate;
         ps.processing_channels = e->channels;
 
+        ps.device_format_actual = -1;
+        int actualDevRate = (e->deviceSampleRate > 0)
+                                ? e->deviceSampleRate
+                                : ((e->outputSampleRate > 0) ? e->outputSampleRate : e->sampleRate);
+        {
+            std::unique_lock<std::mutex> devLock(e->deviceMutex, std::try_to_lock);
+            if (devLock.owns_lock())
+            {
+                const ma_device *pDev = &e->device;
+                if (pDev->pContext != nullptr &&
+                    ma_device_get_state(pDev) != ma_device_state_uninitialized)
+                {
+                    if (pDev->playback.format != ma_format_unknown)
+                    {
+                        ps.device_format_actual = (int)ma_format_to_ae_format(pDev->playback.format);
+                    }
+                    if (pDev->sampleRate > 0)
+                    {
+                        actualDevRate = (int)pDev->sampleRate;
+                    }
+                    else if (pDev->playback.internalSampleRate > 0)
+                    {
+                        actualDevRate = (int)pDev->playback.internalSampleRate;
+                    }
+                }
+                else if (pDev->sampleRate > 0)
+                {
+                    actualDevRate = (int)pDev->sampleRate;
+                }
+            }
+        }
+
         ps.output_format = (int)e->outputFormat;
-        ps.output_sample_rate = (e->outputSampleRate > 0) ? e->outputSampleRate : e->sampleRate;
+        ps.output_sample_rate = (actualDevRate > 0) ? actualDevRate : e->sampleRate;
         ps.output_channels = (e->outputChannels > 0) ? e->outputChannels : e->channels;
 
         const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
@@ -13568,7 +13609,7 @@ extern "C"
              e->castBypassDsp.load(std::memory_order_relaxed));
 
         const int engRate = (e->engineSampleRate > 0) ? e->engineSampleRate : e->sampleRate;
-        const int devRate = (e->deviceSampleRate > 0) ? e->deviceSampleRate : ps.output_sample_rate;
+        const int devRate = ps.output_sample_rate;
         const bool decoderSrcActive = (ps.input_sample_rate > 0 && engRate > 0 && ps.input_sample_rate != engRate);
         const bool deviceSrcActive = (engRate > 0 && devRate > 0 && engRate != devRate);
 
@@ -13587,21 +13628,6 @@ extern "C"
             else
             {
                 ps.device_resampler_algo = 0;
-            }
-        }
-
-        ps.device_format_actual = -1;
-        {
-            std::unique_lock<std::mutex> devLock(e->deviceMutex, std::try_to_lock);
-            if (devLock.owns_lock())
-            {
-                const ma_device *pDev = &e->device;
-                if (pDev->pContext != nullptr &&
-                    ma_device_get_state(pDev) != ma_device_state_uninitialized &&
-                    pDev->playback.format != ma_format_unknown)
-                {
-                    ps.device_format_actual = (int)ma_format_to_ae_format(pDev->playback.format);
-                }
             }
         }
 
@@ -13641,24 +13667,16 @@ extern "C"
             ps.active_limiter = 0;
         }
 
-        const bool hasFloatPreDynamics = (e->channels >= 2) && (
-            e->downwardExpanderDsp.isEnabled() ||
-            e->deEsserDsp.isEnabled() ||
-            e->harmonicBassDsp.isEnabled() ||
-            e->dynamicSystemDsp.isEnabled() ||
-            e->analogWarmthDsp.isEnabled() ||
-            e->dialogEnhancerDsp.isEnabled() ||
-            e->clarityDsp.isEnabled());
         const bool isStereoSpatial = (e->channels == 2);
-        const bool hasFloatOnlySpatialFx = e->stereoWidenEnabled ||
+        const bool hasSpatialOther = e->stereoWidenEnabled ||
             e->stereoEnhancementEnabled ||
             (isStereoSpatial && e->surroundDsp.isEnabled()) ||
             e->reverbEnabled ||
             e->crystalizerEnabled;
         const bool hasFftConvolver = (e->channels >= 2 && e->fftConvolverDsp.isEnabled());
-        const bool hasFloatIsland = !bypassAppDsp && (hasFloatPreDynamics || hasFloatOnlySpatialFx || hasFftConvolver);
 
-        ps.float64_end_to_end = (is64Active && !deviceSrcActive && !hasFloatIsland) ? 1 : 0;
+        // All DSP zones natively support both F32 and F64 with zero F64<->F32 hopping.
+        ps.float64_end_to_end = (is64Active && !deviceSrcActive) ? 1 : 0;
 
         unsigned int mask = 0;
         if (!bypassAppDsp)
@@ -13683,7 +13701,7 @@ extern "C"
             const bool mbFxActive = e->multibandFxEnabled && e->has_active_multiband_fx();
             if (e->compressorEnabled || e->multibandEqEnabled || mbFxActive || e->eqEnabled || e->toneCrossoverDsp.isEnabled())
                 mask |= (1u << 3); // Z4 Dynamics & Master EQ
-            if (e->crossfeedEnabled || hasFloatOnlySpatialFx)
+            if (e->crossfeedEnabled || hasSpatialOther)
                 mask |= (1u << 4); // Z5 Spatial
             if (hasFftConvolver)
                 mask |= (1u << 5); // Z6 AutoEQ FIR
@@ -13696,18 +13714,541 @@ extern "C"
         const bool normActive = e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed);
         if (rgActive || normActive)
             mask |= (1u << 8); // Stage 1 Pre-Gain
-        if (!bypassAppDsp)
-        {
-            if (hasFloatPreDynamics)
-                mask |= (1u << 9);  // F32 island in Z1..Z3
-            if (hasFloatOnlySpatialFx)
-                mask |= (1u << 10); // F32 island in Z5
-            if (hasFftConvolver)
-                mask |= (1u << 11); // F32 island in Z6 AutoEQ FIR
-        }
         ps.active_node_mask = mask;
 
         return ps;
+    }
+
+    AE_API int ae_get_active_dsp_nodes_json(AudioEngineHandle *e, char *out_buf, int buf_size)
+    {
+        if (e == nullptr || out_buf == nullptr || buf_size <= 2)
+            return 0;
+
+        auto jsonEscape = [](const std::string &s) -> std::string {
+            std::string out;
+            out.reserve(s.size() + 8);
+            for (char c : s)
+            {
+                if (c == '"' || c == '\\')
+                {
+                    out.push_back('\\');
+                    out.push_back(c);
+                }
+                else if (c == '\n')
+                {
+                    out += "\\n";
+                }
+                else if (c == '\r')
+                {
+                    out += "\\r";
+                }
+                else if (c == '\t')
+                {
+                    out += "\\t";
+                }
+                else
+                {
+                    out.push_back(c);
+                }
+            }
+            return out;
+        };
+
+        auto fmtFloat = [](double v, int decimals = 1) -> std::string {
+            char b[64];
+            if (!std::isfinite(v))
+                v = 0.0;
+            std::snprintf(b, sizeof(b), "%.*f", decimals, v);
+            return std::string(b);
+        };
+
+        auto fmtSignedDb = [](double v, int decimals = 1) -> std::string {
+            char b[64];
+            if (!std::isfinite(v))
+                v = 0.0;
+            if (v >= 0.0)
+                std::snprintf(b, sizeof(b), "+%.*f dB", decimals, v);
+            else
+                std::snprintf(b, sizeof(b), "%.*f dB", decimals, v);
+            return std::string(b);
+        };
+
+        std::string json = "[";
+        bool firstNode = true;
+
+        auto appendNode = [&](const char *id,
+                              const char *name,
+                              const char *precision,
+                              const std::string &summary,
+                              double latencyMs,
+                              const std::vector<std::pair<std::string, std::string>> &params) {
+            if (!firstNode)
+                json += ",";
+            firstNode = false;
+            json += "{\"id\":\"";
+            json += jsonEscape(id);
+            json += "\",\"name\":\"";
+            json += jsonEscape(name);
+            json += "\",\"precision\":\"";
+            json += precision;
+            json += "\",\"summary\":\"";
+            json += jsonEscape(summary);
+            json += "\"";
+            if (latencyMs > 0.001 && std::isfinite(latencyMs))
+            {
+                json += ",\"latencyMs\":";
+                json += fmtFloat(latencyMs, 2);
+            }
+            json += ",\"params\":{";
+            for (size_t i = 0; i < params.size(); ++i)
+            {
+                if (i > 0)
+                    json += ",";
+                json += "\"";
+                json += jsonEscape(params[i].first);
+                json += "\":\"";
+                json += jsonEscape(params[i].second);
+                json += "\"";
+            }
+            json += "}}";
+        };
+
+        const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+            (e->castPcmTapEnabled.load(std::memory_order_relaxed) &&
+             e->castBypassDsp.load(std::memory_order_relaxed));
+
+        const bool use64 = (precision64_reasons(e) != 0);
+        const char *nativePrec = use64 ? "F64" : "F32";
+        const double sr = (double)((e->engineSampleRate > 0) ? e->engineSampleRate : (e->sampleRate > 0 ? e->sampleRate : 48000));
+
+        if (!bypassAppDsp)
+        {
+            std::lock_guard<std::mutex> fx(e->fxMutex);
+
+            // 1. Subsonic Filter
+            if (e->subsonicFilter.isEnabled())
+            {
+                const double cutoff = e->subsonicFilter.getCutoffHz();
+                appendNode("subsonic_filter", "Subsonic Filter", nativePrec,
+                           "HPF " + fmtFloat(cutoff, 1) + " Hz", 0.0,
+                           {{"Type", "Butterworth HPF"}, {"Cutoff", fmtFloat(cutoff, 1) + " Hz"}, {"Precision", nativePrec}});
+            }
+
+            // 2. Ultrasonic Filter
+            if (e->ultrasonicFilter.isEnabled())
+            {
+                const double cutoff = e->ultrasonicFilter.getCutoffHz();
+                appendNode("ultrasonic_filter", "Ultrasonic Filter", nativePrec,
+                           "LPF " + fmtFloat(cutoff / 1000.0, 1) + " kHz", 0.0,
+                           {{"Type", "Butterworth LPF"}, {"Cutoff", fmtFloat(cutoff / 1000.0, 2) + " kHz"}, {"Precision", nativePrec}});
+            }
+
+            if (e->channels >= 2)
+            {
+                // 3. Noise Gate
+                if (e->noiseGateDsp.isEnabled())
+                {
+                    float openDb = -50.0f, closeDb = -55.0f, holdMs = 50.0f, attMs = 5.0f, relMs = 100.0f, hpfHz = 80.0f, floorDb = -80.0f;
+                    e->noiseGateDsp.getParams(&openDb, &closeDb, &holdMs, &attMs, &relMs, &hpfHz, &floorDb);
+                    const float gr = e->noiseGateDsp.getGainReductionDb();
+                    appendNode("noise_gate", "Noise Gate", nativePrec,
+                               "Open " + fmtFloat(openDb, 1) + " dB · GR " + fmtFloat(gr, 1) + " dB", 0.0,
+                               {{"Open Thresh", fmtFloat(openDb, 1) + " dB"},
+                                {"Close Thresh", fmtFloat(closeDb, 1) + " dB"},
+                                {"Hold", fmtFloat(holdMs, 0) + " ms"},
+                                {"Attack / Release", fmtFloat(attMs, 1) + " / " + fmtFloat(relMs, 0) + " ms"},
+                                {"Sidechain HPF", fmtFloat(hpfHz, 0) + " Hz"},
+                                {"Floor", fmtFloat(floorDb, 1) + " dB"},
+                                {"Live GR", fmtFloat(gr, 1) + " dB"}});
+                }
+
+                // 4. Downward Expander
+                if (e->downwardExpanderDsp.isEnabled())
+                {
+                    const float th = e->downwardExpanderDsp.getThresholdDb();
+                    const float ratio = e->downwardExpanderDsp.getRatio();
+                    const float range = e->downwardExpanderDsp.getRangeDb();
+                    const float gr = e->downwardExpanderDsp.getCurrentGainReductionDb();
+                    appendNode("downward_expander", "Downward Expander", nativePrec,
+                               fmtFloat(th, 1) + " dB · " + fmtFloat(ratio, 1) + ":1 · GR " + fmtFloat(gr, 1) + " dB", 0.0,
+                               {{"Threshold", fmtFloat(th, 1) + " dB"},
+                                {"Ratio", fmtFloat(ratio, 2) + ":1"},
+                                {"Max Range", fmtFloat(range, 1) + " dB"},
+                                {"Attack / Release", fmtFloat(e->downwardExpanderDsp.getAttackMs(), 1) + " / " + fmtFloat(e->downwardExpanderDsp.getReleaseMs(), 0) + " ms"},
+                                {"Knee", fmtFloat(e->downwardExpanderDsp.getKneeDb(), 1) + " dB"},
+                                {"Sidechain HPF", fmtFloat(e->downwardExpanderDsp.getSidechainHpfHz(), 0) + " Hz"},
+                                {"Live GR", fmtFloat(gr, 1) + " dB"}});
+                }
+
+                // 5. Dynamic EQ
+                if (e->dynamicEqDsp.isEnabled())
+                {
+                    int activeBands = 0;
+                    float maxOffset = 0.0f;
+                    for (size_t b = 0; b < 8; ++b)
+                    {
+                        if (e->dynamicEqDsp.isBandEnabled(b))
+                        {
+                            activeBands++;
+                            const float off = e->dynamicEqDsp.getBandGainOffsetDb(b);
+                            if (std::fabs(off) > std::fabs(maxOffset))
+                                maxOffset = off;
+                        }
+                    }
+                    appendNode("dynamic_eq", "Dynamic EQ", nativePrec,
+                               std::to_string(activeBands) + " active bands · Peak " + fmtSignedDb(maxOffset, 1), 0.0,
+                               {{"Active Bands", std::to_string(activeBands)},
+                                {"Peak Dynamic Offset", fmtSignedDb(maxOffset, 2)},
+                                {"Sample Rate", fmtFloat(e->dynamicEqDsp.getSampleRate() / 1000.0, 1) + " kHz"}});
+                }
+
+                // 6. De-Esser
+                if (e->deEsserDsp.isEnabled())
+                {
+                    const float freq = e->deEsserDsp.getFrequencyHz();
+                    const float th = e->deEsserDsp.getThresholdDb();
+                    const float gr = e->deEsserDsp.getGainReductionDb();
+                    appendNode("de_esser", "De-Esser", nativePrec,
+                               fmtFloat(freq / 1000.0, 1) + " kHz · Thresh " + fmtFloat(th, 1) + " dB · GR " + fmtFloat(gr, 1) + " dB", 0.0,
+                               {{"Center Freq", fmtFloat(freq, 0) + " Hz"},
+                                {"Intensity", fmtFloat(e->deEsserDsp.getIntensity() * 100.0, 0) + "%"},
+                                {"Threshold", fmtFloat(th, 1) + " dB"},
+                                {"Ratio", fmtFloat(e->deEsserDsp.getRatio(), 1) + ":1"},
+                                {"Max Reduction", fmtFloat(e->deEsserDsp.getMaxReductionDb(), 1) + " dB"},
+                                {"Live GR", fmtFloat(gr, 1) + " dB"}});
+                }
+
+                // 7. Harmonic Bass
+                if (e->harmonicBassDsp.isEnabled())
+                {
+                    const float cutoff = e->harmonicBassDsp.getCutoffFrequency();
+                    const float boost = e->harmonicBassDsp.getBoost();
+                    const float gainDb = e->harmonicBassDsp.getGainDb();
+                    appendNode("harmonic_bass", "Harmonic Bass", nativePrec,
+                               fmtFloat(cutoff, 0) + " Hz · " + fmtSignedDb(gainDb, 1) + " · Boost " + fmtFloat(boost * 100.0, 0) + "%", 0.0,
+                               {{"Cutoff", fmtFloat(cutoff, 0) + " Hz"},
+                                {"Gain", fmtSignedDb(gainDb, 1)},
+                                {"Harmonic Boost", fmtFloat(boost * 100.0, 0) + "%"},
+                                {"Preset", std::to_string(e->harmonicBassDsp.getPreset())},
+                                {"Mono Sub", e->harmonicBassDsp.isMonoMode() ? "ON" : "OFF"},
+                                {"Anti-Pop", e->harmonicBassDsp.isAntiPopEnabled() ? "ON" : "OFF"}});
+                }
+
+                // 8. Dynamic System
+                if (e->dynamicSystemDsp.isEnabled())
+                {
+                    const float strength = e->dynamicSystemDsp.getStrength();
+                    const int preset = e->dynamicSystemDsp.getPreset();
+                    appendNode("dynamic_system", "Dynamic System", nativePrec,
+                               "Strength " + fmtFloat(strength * 100.0, 0) + "% · Preset #" + std::to_string(preset), 0.0,
+                               {{"Strength", fmtFloat(strength * 100.0, 0) + "%"},
+                                {"Preset", std::to_string(preset)}});
+                }
+
+                // 9. Analog Warmth
+                if (e->analogWarmthDsp.isEnabled())
+                {
+                    const float drive = e->analogWarmthDsp.getDrive();
+                    const int os = e->analogWarmthDsp.getOversampling();
+                    const float damp = e->analogWarmthDsp.getTapeDamping();
+                    appendNode("analog_warmth", "Analog Warmth", nativePrec,
+                               "Drive " + fmtFloat(drive * 100.0, 0) + "% · " + std::to_string(os) + "x OS", 0.0,
+                               {{"Drive", fmtFloat(drive * 100.0, 0) + "%"},
+                                {"Oversampling", std::to_string(os) + "x"},
+                                {"Tape Damping", fmtFloat(damp * 100.0, 0) + "%"}});
+                }
+
+                // 10. Vintage Tape Drift
+                if (e->tapeDriftDsp.isEnabled())
+                {
+                    float wowRate = 0.0f, wowDepth = 0.0f, flutRate = 0.0f, flutDepth = 0.0f, driftDepth = 0.0f, phaseDeg = 0.0f, hfDamp = 0.0f;
+                    e->tapeDriftDsp.getParams(&wowRate, &wowDepth, &flutRate, &flutDepth, &driftDepth, &phaseDeg, &hfDamp);
+                    appendNode("tape_drift", "Vintage Tape Drift", nativePrec,
+                               "Wow " + fmtFloat(wowDepth, 2) + " ms · Flutter " + fmtFloat(flutDepth, 2) + " ms", 0.0,
+                               {{"Wow Rate / Depth", fmtFloat(wowRate, 2) + " Hz / " + fmtFloat(wowDepth, 2) + " ms"},
+                                {"Flutter Rate / Depth", fmtFloat(flutRate, 1) + " Hz / " + fmtFloat(flutDepth, 2) + " ms"},
+                                {"Drift Depth", fmtFloat(driftDepth, 2) + " ms"},
+                                {"HF Damping", fmtFloat(hfDamp / 1000.0, 1) + " kHz"}});
+                }
+
+                // 11. Dialog Enhancer
+                if (e->dialogEnhancerDsp.isEnabled())
+                {
+                    const float amt = e->dialogEnhancerDsp.getAmount();
+                    const float gr = e->dialogEnhancerDsp.getGainReductionDb();
+                    appendNode("dialog_enhancer", "Dialog Enhancer", nativePrec,
+                               "Amount " + fmtFloat(amt * 100.0, 0) + "% · Ducking " + fmtFloat(e->dialogEnhancerDsp.getDucking() * 100.0, 0) + "%", 0.0,
+                               {{"Amount", fmtFloat(amt * 100.0, 0) + "%"},
+                                {"Ducking", fmtFloat(e->dialogEnhancerDsp.getDucking() * 100.0, 0) + "%"},
+                                {"Vocal Clarity", fmtFloat(e->dialogEnhancerDsp.getClarity() * 100.0, 0) + "%"},
+                                {"Center Focus", fmtFloat(e->dialogEnhancerDsp.getCenterFocus() * 100.0, 0) + "%"},
+                                {"Live GR", fmtFloat(gr, 1) + " dB"}});
+                }
+
+                // 12. Audio Clarity
+                if (e->clarityDsp.isEnabled())
+                {
+                    const float intensity = e->clarityDsp.getIntensity();
+                    const int os = e->clarityDsp.getOversampling();
+                    appendNode("clarity", "Audio Clarity", nativePrec,
+                               "Intensity " + fmtFloat(intensity * 100.0, 0) + "% · " + std::to_string(os) + "x OS", 0.0,
+                               {{"Intensity", fmtFloat(intensity * 100.0, 0) + "%"},
+                                {"Oversampling", std::to_string(os) + "x"},
+                                {"Warmth Density", fmtFloat(e->clarityDsp.getWarmthDensity() * 100.0, 0) + "%"},
+                                {"Presence Sheen", fmtFloat(e->clarityDsp.getPresenceSheen() * 100.0, 0) + "%"},
+                                {"Transient Snap", fmtFloat(e->clarityDsp.getTransientSnap() * 100.0, 0) + "%"},
+                                {"De-Mask", fmtFloat(e->clarityDsp.getDeMaskAmount() * 100.0, 0) + "%"}});
+                }
+            }
+
+            // 13. Compressor
+            if (e->compressorEnabled)
+            {
+                const float gr = e->compressor.currentGainReductionDB.load(std::memory_order_relaxed);
+                appendNode("compressor", "Compressor", nativePrec,
+                           fmtFloat(e->compressor.thresholdDb, 1) + " dB · " + fmtFloat(e->compressor.ratio, 1) + ":1 · GR " + fmtFloat(gr, 1) + " dB", 0.0,
+                           {{"Threshold", fmtFloat(e->compressor.thresholdDb, 1) + " dB"},
+                            {"Ratio", fmtFloat(e->compressor.ratio, 1) + ":1"},
+                            {"Knee", fmtFloat(e->compressor.kneeDb, 1) + " dB"},
+                            {"Attack / Release", fmtFloat(e->compressor.attackMs, 1) + " / " + fmtFloat(e->compressor.releaseMs, 0) + " ms"},
+                            {"Makeup", e->compressor.autoMakeup ? "Auto" : fmtSignedDb(e->compressor.makeupGainDb, 1)},
+                            {"Mix", fmtFloat(e->compressor.mix * 100.0, 0) + "%"},
+                            {"Live GR", fmtFloat(gr, 1) + " dB"}});
+            }
+
+            // 14..17 EQ block (under eqMutex)
+            {
+                std::lock_guard<std::mutex> eqLock(e->eqMutex);
+                if (e->multibandEqEnabled)
+                {
+                    int nonZeroBands = 0;
+                    float peakGain = 0.0f;
+                    for (float g : e->eqGains)
+                    {
+                        if (std::fabs(g) > 0.05f)
+                            nonZeroBands++;
+                        if (std::fabs(g) > std::fabs(peakGain))
+                            peakGain = g;
+                    }
+                    appendNode("multiband_eq", "Multiband EQ", nativePrec,
+                               std::to_string(e->eqBandCount) + " bands (" + std::to_string(nonZeroBands) + " active) · Peak " + fmtSignedDb(peakGain, 1), 0.0,
+                               {{"Band Count", std::to_string(e->eqBandCount)},
+                                {"Modified Bands", std::to_string(nonZeroBands)},
+                                {"Peak Band Gain", fmtSignedDb(peakGain, 1)},
+                                {"Precision", nativePrec}});
+                }
+
+                if (e->multibandFxEnabled && e->has_active_multiband_fx())
+                {
+                    appendNode("multiband_fx", "Multiband FX", nativePrec,
+                               "Active", 0.0,
+                               {{"Precision", nativePrec}});
+                }
+
+                if (e->eqEnabled)
+                {
+                    const double lowDb = (e->eq.lowGain > 1e-6f) ? 20.0 * std::log10(e->eq.lowGain) : -60.0;
+                    const double midDb = (e->eq.midGain > 1e-6f) ? 20.0 * std::log10(e->eq.midGain) : -60.0;
+                    const double highDb = (e->eq.highGain > 1e-6f) ? 20.0 * std::log10(e->eq.highGain) : -60.0;
+                    appendNode("three_band_eq", "3-Band EQ", nativePrec,
+                               "L " + fmtSignedDb(lowDb, 1) + " · M " + fmtSignedDb(midDb, 1) + " · H " + fmtSignedDb(highDb, 1), 0.0,
+                               {{"Low", fmtSignedDb(lowDb, 1)},
+                                {"Mid", fmtSignedDb(midDb, 1)},
+                                {"High", fmtSignedDb(highDb, 1)},
+                                {"Precision", nativePrec}});
+                }
+
+                if (e->toneCrossoverDsp.isEnabled())
+                {
+                    const float bass = e->toneCrossoverDsp.getBassGainDb();
+                    const float mid = e->toneCrossoverDsp.getMidGainDb();
+                    const float treb = e->toneCrossoverDsp.getTrebleGainDb();
+                    const float tilt = e->toneCrossoverDsp.getTiltDb();
+                    appendNode("tone_crossover", "Tone Crossover", nativePrec,
+                               "B " + fmtSignedDb(bass, 1) + " · M " + fmtSignedDb(mid, 1) + " · T " + fmtSignedDb(treb, 1), 0.0,
+                               {{"Bass", fmtSignedDb(bass, 1)},
+                                {"Mid", fmtSignedDb(mid, 1)},
+                                {"Treble", fmtSignedDb(treb, 1)},
+                                {"Tilt", fmtSignedDb(tilt, 1)},
+                                {"Crossovers", fmtFloat(e->toneCrossoverDsp.getLowCrossoverHz(), 0) + " Hz / " + fmtFloat(e->toneCrossoverDsp.getHighCrossoverHz(), 0) + " Hz"}});
+                }
+            }
+
+            // 18..23 Spatial & Environment
+            const bool isStereoSpatial = (e->channels == 2);
+
+            if (e->crossfeedEnabled)
+            {
+                const int algoInt = static_cast<int>(e->crossfeedNode.getAlgorithm());
+                const char *algoName = "Crossfeed";
+                switch (algoInt)
+                {
+                    case 1: algoName = "Simple ITD"; break;
+                    case 2: algoName = "BS2B Chu Moy"; break;
+                    case 3: algoName = "Jan Meier"; break;
+                    case 4: algoName = "Natural"; break;
+                    case 5: algoName = "Ambiophonics RACE"; break;
+                    case 6: algoName = "OpenStage"; break;
+                    default: algoName = "Crossfeed"; break;
+                }
+                const float mix = e->crossfeedNode.getMix();
+                const double latMs = (sr > 0.0) ? (e->crossfeedNode.getLatencySamples() * 1000.0 / sr) : 0.0;
+                appendNode("crossfeed", "Crossfeed", nativePrec,
+                           std::string(algoName) + " · Mix " + fmtFloat(mix * 100.0, 0) + "%", latMs,
+                           {{"Algorithm", algoName},
+                            {"Mix", fmtFloat(mix * 100.0, 0) + "%"},
+                            {"Cutoff", fmtFloat(e->crossfeedNode.getCutoffHz(), 0) + " Hz"},
+                            {"Delay", fmtFloat(e->crossfeedNode.getDelayMs(), 2) + " ms"},
+                            {"Compensation", e->crossfeedNode.getOutputCompensation() ? "ON" : "OFF"}});
+            }
+
+            if (isStereoSpatial && e->surroundDsp.isEnabled())
+            {
+                appendNode("surround_3d", "3D Surround", nativePrec,
+                           "Width " + fmtFloat(e->surroundDsp.getStageWidth() * 100.0, 0) + "% · Depth " + fmtFloat(e->surroundDsp.getStageDepth() * 100.0, 0) + "%", 0.0,
+                           {{"Stage Width", fmtFloat(e->surroundDsp.getStageWidth() * 100.0, 0) + "%"},
+                            {"Stage Depth", fmtFloat(e->surroundDsp.getStageDepth() * 100.0, 0) + "%"},
+                            {"Center Focus", fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "%"},
+                            {"Surround Boost", fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%"},
+                            {"Delay", fmtFloat(e->surroundDsp.getSurroundDelayMs(), 1) + " ms"}});
+            }
+
+            if (e->stereoWidenEnabled)
+            {
+                appendNode("stereo_widen", "Stereo Imager", nativePrec,
+                           "Width " + fmtFloat(e->stereoWiden.width * 100.0, 0) + "% · Mono <" + fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz", 0.0,
+                           {{"Width", fmtFloat(e->stereoWiden.width * 100.0, 0) + "%"},
+                            {"Mono Below", fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz"},
+                            {"Air Boost", fmtSignedDb(e->stereoWiden.airBoostDb, 1)},
+                            {"Phase Corr", fmtFloat(e->stereoWiden.imager.getTelemetryPhaseCorrelation(), 2)}});
+            }
+
+            if (e->stereoEnhancementEnabled)
+            {
+                appendNode("stereo_enhance", "Stereo Enhancement", nativePrec,
+                           "Mix " + fmtFloat(e->stereoEnhancement.mix * 100.0, 0) + "% · Gain ×" + fmtFloat(e->stereoEnhancement.gain, 2), 0.0,
+                           {{"Mix", fmtFloat(e->stereoEnhancement.mix * 100.0, 0) + "%"},
+                            {"Gain", "×" + fmtFloat(e->stereoEnhancement.gain, 2)}});
+            }
+
+            if (e->reverbEnabled)
+            {
+                const int eng = e->reverbNode.getEngine();
+                const char *engName = "Dattorro Tank";
+                switch (eng)
+                {
+                    case 1: engName = "Lattice Reverb"; break;
+                    case 2: engName = "Diffusion Reverb"; break;
+                    case 3: engName = "Hadamard FDN"; break;
+                    case 4: engName = "Keith Barr Ring"; break;
+                    case 5: engName = "Griesinger Tank"; break;
+                    default: engName = "Dattorro Tank"; break;
+                }
+                const double latMs = (sr > 0.0) ? (e->reverbNode.getLatencySamples() * 1000.0 / sr) : 0.0;
+                appendNode("reverb", "Reverb", nativePrec,
+                           std::string(engName) + " · Wet " + fmtFloat(e->reverbNode.getWet() * 100.0, 0) + "% · Room " + fmtFloat(e->reverbNode.getRoomSize() * 100.0, 0) + "%", latMs,
+                           {{"Engine", engName},
+                            {"Wet / Dry", fmtFloat(e->reverbNode.getWet() * 100.0, 0) + "% / " + fmtFloat(e->reverbNode.getDry() * 100.0, 0) + "%"},
+                            {"Room Size", fmtFloat(e->reverbNode.getRoomSize() * 100.0, 0) + "%"},
+                            {"Damping", fmtFloat(e->reverbNode.getDamping() * 100.0, 0) + "%"},
+                            {"Pre-Delay", fmtFloat(e->reverbNode.getPreDelayMs(), 1) + " ms"},
+                            {"Width", fmtFloat(e->reverbNode.getWidth() * 100.0, 0) + "%"}});
+            }
+
+            if (e->crystalizerEnabled)
+            {
+                appendNode("crystalizer", "Crystalizer", nativePrec,
+                           "Intensity " + fmtFloat(e->crystalizer.intensity * 100.0, 0) + "%" +
+                           (e->crystalizer.highShelfEnabled ? (" · Air " + fmtSignedDb(e->crystalizer.highShelfGainDb, 1)) : ""), 0.0,
+                           {{"Intensity", fmtFloat(e->crystalizer.intensity * 100.0, 0) + "%"},
+                            {"Air Shelf", e->crystalizer.highShelfEnabled ? fmtSignedDb(e->crystalizer.highShelfGainDb, 1) : "OFF"}});
+            }
+
+            // 24. AutoEQ FIR Convolver
+            if (e->channels >= 2 && e->fftConvolverDsp.isEnabled())
+            {
+                const size_t latSamp = e->fftConvolverDsp.getLatencySamples();
+                const double latMs = (sr > 0.0) ? ((double)latSamp * 1000.0 / sr) : 0.0;
+                appendNode("autoeq_fir", "AutoEQ FIR Convolver", nativePrec,
+                           std::to_string(e->fftConvolverDsp.getKernelLength()) + " taps · Wet " + fmtFloat(e->fftConvolverDsp.getWetLevel() * 100.0, 0) + "%", latMs,
+                           {{"Kernel Taps", std::to_string(e->fftConvolverDsp.getKernelLength())},
+                            {"Wet / Dry", fmtFloat(e->fftConvolverDsp.getWetLevel() * 100.0, 0) + "% / " + fmtFloat(e->fftConvolverDsp.getDryLevel() * 100.0, 0) + "%"},
+                            {"Latency", fmtFloat(latMs, 2) + " ms"}});
+            }
+
+            // 25. Broadcast Leveller
+            if (e->levellerDsp.isEnabled())
+            {
+                float targetLufs = -16.0f, rise = 2.0f, fall = 4.0f, maxBoost = 12.0f, maxAtten = 12.0f, gate = -50.0f;
+                e->levellerDsp.getParams(&targetLufs, &rise, &fall, &maxBoost, &maxAtten, &gate);
+                const float curGain = e->levellerDsp.getCurrentGainDb();
+                appendNode("broadcast_leveller", "Broadcast Leveller", nativePrec,
+                           "Target " + fmtFloat(targetLufs, 1) + " LUFS · Gain " + fmtSignedDb(curGain, 1), 0.0,
+                           {{"Target", fmtFloat(targetLufs, 1) + " LUFS"},
+                            {"Live Gain", fmtSignedDb(curGain, 1)},
+                            {"Max Boost / Cut", "+" + fmtFloat(maxBoost, 1) + " / -" + fmtFloat(maxAtten, 1) + " dB"},
+                            {"Silence Gate", fmtFloat(gate, 1) + " LUFS"}});
+            }
+
+            // 26. Dynamic Loudness (ISO 226)
+            if (e->dynamicLoudnessDsp.isEnabled())
+            {
+                float refDb = 80.0f, maxBass = 12.0f, maxTreb = 6.0f, bassHz = 100.0f, trebHz = 10000.0f;
+                e->dynamicLoudnessDsp.getParams(&refDb, &maxBass, &maxTreb, &bassHz, &trebHz);
+                float curBass = 0.0f, curTreb = 0.0f;
+                e->dynamicLoudnessDsp.getCurrentBoost(&curBass, &curTreb);
+                appendNode("dynamic_loudness", "Dynamic Loudness (ISO 226)", nativePrec,
+                           "Bass " + fmtSignedDb(curBass, 1) + " · Treble " + fmtSignedDb(curTreb, 1), 0.0,
+                           {{"Ref SPL", fmtFloat(refDb, 0) + " dB"},
+                            {"Live Bass Boost", fmtSignedDb(curBass, 1) + " @ " + fmtFloat(bassHz, 0) + " Hz"},
+                            {"Live Treble Boost", fmtSignedDb(curTreb, 1) + " @ " + fmtFloat(trebHz / 1000.0, 1) + " kHz"},
+                            {"Max Bass / Treble", "+" + fmtFloat(maxBass, 1) + " / +" + fmtFloat(maxTreb, 1) + " dB"}});
+            }
+
+            // 27. Active Limiter (exact data_callback priority)
+            if (e->masterLimiterDsp.isEnabled())
+            {
+                const float ceilDb = e->masterLimiterDsp.getCeilingDb();
+                const float gr = e->masterLimiterDsp.getCurrentGainReductionDb();
+                const double latMs = (sr > 0.0) ? ((double)e->masterLimiterDsp.getLatencySamples() * 1000.0 / sr) : 0.0;
+                appendNode("master_limiter", "Master Brickwall Limiter", nativePrec,
+                           "Ceiling " + fmtFloat(ceilDb, 2) + " dBTP · GR " + fmtFloat(gr, 1) + " dB", latMs,
+                           {{"Mode", "Master Brickwall (ISP)"},
+                            {"Ceiling", fmtFloat(ceilDb, 2) + " dBTP"},
+                            {"Output Gain", fmtSignedDb(e->masterLimiterDsp.getOutputGainDb(), 1)},
+                            {"Release", fmtFloat(e->masterLimiterDsp.getReleaseMs(), 0) + " ms"},
+                            {"Live GR", fmtFloat(gr, 1) + " dB"}});
+            }
+            else if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+            {
+                const float ceilDb = e->lookaheadLimiter.ceilingDBTP;
+                const float gr = e->lookaheadLimiter.currentGainReductionDB.load(std::memory_order_relaxed);
+                const double latMs = (sr > 0.0) ? ((double)e->lookaheadLimiter.getLatencySamples((int)sr) * 1000.0 / sr) : 0.0;
+                appendNode("lookahead_limiter", "Look-Ahead Limiter", nativePrec,
+                           "Ceiling " + fmtFloat(ceilDb, 1) + " dBTP · GR " + fmtFloat(gr, 1) + " dB", latMs,
+                           {{"Mode", "Look-Ahead True Peak"},
+                            {"Ceiling", fmtFloat(ceilDb, 1) + " dBTP"},
+                            {"Attack / Release", fmtFloat(e->lookaheadLimiter.attackMs, 1) + " / " + fmtFloat(e->lookaheadLimiter.releaseMs, 0) + " ms"},
+                            {"Live GR", fmtFloat(gr, 1) + " dB"}});
+            }
+            else if (e->limiterEnabled)
+            {
+                const double threshDb = (e->limiter.threshold > 1e-6f) ? 20.0 * std::log10(e->limiter.threshold) : -60.0;
+                const double grDb = (e->limiter.gainEnvelope > 1e-6f) ? 20.0 * std::log10(e->limiter.gainEnvelope) : 0.0;
+                appendNode("simple_limiter", "Anti-Clipping Limiter", nativePrec,
+                           "Thresh " + fmtFloat(threshDb, 1) + " dB · GR " + fmtFloat(grDb, 1) + " dB", 0.0,
+                           {{"Mode", "Zero-Latency Anti-Clip"},
+                            {"Threshold", fmtFloat(threshDb, 1) + " dB"},
+                            {"Attack / Release", fmtFloat(e->limiter.attackMs, 1) + " / " + fmtFloat(e->limiter.releaseMs, 0) + " ms"},
+                            {"Live GR", fmtFloat(grDb, 1) + " dB"}});
+            }
+        }
+
+        json += "]";
+        const int copyLen = std::min((int)json.size(), buf_size - 1);
+        std::memcpy(out_buf, json.data(), (size_t)copyLen);
+        out_buf[copyLen] = '\0';
+        return copyLen;
     }
 
     AE_API const char *ae_get_last_error(AudioEngineHandle *e)
@@ -15153,29 +15694,48 @@ extern "C"
                     cfg.playback.shareMode = ma_share_mode_shared;
                     // Maintain low-latency performance profile if exclusive or auto sample rate was requested!
                     cfg.performanceProfile = wantExclusive ? ma_performance_profile_low_latency : ma_performance_profile_conservative;
-                    cfg.sampleRate = 0;
                     cfg.periodSizeInMilliseconds = 0;
                     cfg.periodSizeInFrames = wantExclusive ? 256 : 0;
                     cfg.periods = wantExclusive ? 2 : 0;
-                    cfg.wasapi.noAutoConvertSRC = 0;
-                    cfg.wasapi.noDefaultQualitySRC = 0;
+                    cfg.wasapi.noAutoConvertSRC = 1;
+                    cfg.wasapi.noDefaultQualitySRC = 1;
                     cfg.noPreSilencedOutputBuffer = 0;
 
                     apply_buffer_policy(e, cfg);
 
-                    if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
+#if defined(__ANDROID__)
+                    if (newRate > 0)
+                    {
+                        cfg.sampleRate = (ma_uint32)newRate;
+                        if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
+                        {
+                            initOk = true;
+                            engine_log("Android Shared Mode initialized at requested rate %u Hz (actual=%u Hz).",
+                                       cfg.sampleRate, e->device.sampleRate);
+                        }
+                    }
+                    if (!initOk)
+                    {
+                        cfg.sampleRate = 0;
+                    }
+#else
+                    cfg.sampleRate = 0;
+#endif
+                    if (!initOk && ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
                     {
                         initOk = true;
                         engine_log("Shared Mode initialized successfully at DAC rate %u Hz (lowLatency=%s).",
                                    e->device.sampleRate, wantExclusive ? "true" : "false");
                     }
-                    else
+                    else if (!initOk)
                     {
                         engine_log("Hardware declined standard Shared Mode config. Attempting failsafe baseline config...");
                         ma_device_config safeCfg = ma_device_config_init(ma_device_type_playback);
                         safeCfg.playback.format = ma_format_f32;
                         safeCfg.playback.channels = 2;
                         safeCfg.sampleRate = 0;
+                        safeCfg.wasapi.noAutoConvertSRC = 1;
+                        safeCfg.wasapi.noDefaultQualitySRC = 1;
                         safeCfg.performanceProfile = ma_performance_profile_conservative;
                         safeCfg.dataCallback = data_callback;
                         safeCfg.notificationCallback = device_notification_callback;
@@ -15255,10 +15815,13 @@ extern "C"
                 e->hwActiveDsdMode.store(0, std::memory_order_release);
             }
 
-            engine_log("DEVICE INIT RESULT:\n  actualRate=%u", e->device.sampleRate);
+            engine_log("DEVICE INIT RESULT:\n  actualRate=%u internalRate=%u",
+                       e->device.sampleRate, e->device.playback.internalSampleRate);
 
             {
-                const uint32_t actualRate = e->device.sampleRate;
+                const uint32_t actualRate = (e->device.sampleRate > 0)
+                                                ? e->device.sampleRate
+                                                : e->device.playback.internalSampleRate;
                 uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : actualRate;
                 const uint32_t castReqRate = (e->outputSampleRate > 0)
                                                  ? (uint32_t)e->outputSampleRate
@@ -15272,6 +15835,14 @@ extern "C"
                 // Do not force 384 kHz / hi-res USB DAC sample rates onto Android's shared mixer
                 // when no USB DAC / exclusive path is active (avoids 44.1k->384k->48k double SRC).
                 if (isSharedFallback && !castTapActive && actualRate > 0 && effectiveUserRate > actualRate)
+                {
+                    effectiveUserRate = 0;
+                }
+#else
+                // On desktop Shared Mode (WASAPI/CoreAudio/ALSA), the OS mixer clock is fixed at actualRate.
+                // Resample once off-thread via r8brain directly to actualRate so Linear LPF4 and OS SRC never run.
+                if (!wantExclusive && !castTapActive && actualRate > 0 &&
+                    effectiveUserRate > 0 && effectiveUserRate != actualRate)
                 {
                     effectiveUserRate = 0;
                 }
@@ -15412,14 +15983,21 @@ extern "C"
                             reset_playback_position(e, 0);
                         }
 
-                        std::lock_guard<std::mutex> d(e->decoderMutex);
-                        e->currentDecoder = newDec;
-                        e->currentLengthFrames = newLen;
-                        e->currentIndex = resumeIndex;
-                        e->hasCurrent = true;
+                        {
+                            std::lock_guard<std::mutex> d(e->decoderMutex);
+                            e->currentDecoder = newDec;
+                            e->currentLengthFrames = newLen;
+                            e->currentIndex = resumeIndex;
+                            e->hasCurrent = true;
     #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                        e->currentStream = newSt;
+                            e->currentStream = newSt;
     #endif
+                        }
+                        if (e->sourceSampleRate > 0 && e->engineSampleRate > 0)
+                        {
+                            e->ratePlan.sourceRate = (uint32_t)e->sourceSampleRate;
+                            e->ratePlan.decoderSRC = (e->sourceSampleRate != e->engineSampleRate);
+                        }
                     }
                 }
             }

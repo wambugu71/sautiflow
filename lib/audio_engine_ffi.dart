@@ -1973,6 +1973,17 @@ typedef _GetPipelineStateNative = PipelineStateNative Function(
 typedef _GetPipelineStateDart = PipelineStateNative Function(
     ffi.Pointer<ffi.Void>);
 
+typedef _GetActiveDspNodesJsonNative = ffi.Int32 Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Pointer<ffi.Char>,
+  ffi.Int32,
+);
+typedef _GetActiveDspNodesJsonDart = int Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Pointer<ffi.Char>,
+  int,
+);
+
 typedef _GetLastErrorNative = ffi.Pointer<ffi.Char> Function(
   ffi.Pointer<ffi.Void>,
 );
@@ -3242,6 +3253,14 @@ class AudioEngineFFI {
         _lib.lookupFunction<_GetPipelineStateNative, _GetPipelineStateDart>(
       'ae_get_pipeline_state',
     );
+    try {
+      _getActiveDspNodesJson = _lib.lookupFunction<_GetActiveDspNodesJsonNative,
+          _GetActiveDspNodesJsonDart>(
+        'ae_get_active_dsp_nodes_json',
+      );
+    } catch (_) {
+      _getActiveDspNodesJson = null;
+    }
     _getLastError = _lib.lookupFunction<_GetLastErrorNative, _GetLastErrorDart>(
       'ae_get_last_error',
     );
@@ -4341,6 +4360,7 @@ class AudioEngineFFI {
   late final _GetEngineLatencyMsDart _getEngineLatencyMs;
   late final _GetStatusDart _getStatus;
   late final _GetPipelineStateDart _getPipelineState;
+  _GetActiveDspNodesJsonDart? _getActiveDspNodesJson;
   late final _GetLastErrorDart _getLastError;
   late final _ClearLastErrorDart _clearLastError;
   late final _SetIntDart _setLoopMode;
@@ -5655,6 +5675,32 @@ class AudioEngineFFI {
   PipelineAudioState getPipelineState() {
     if (_engine == ffi.nullptr) return PipelineAudioState.empty();
     return PipelineAudioState.fromNative(_getPipelineState(_engine));
+  }
+
+  /// Queries the engine for all currently enabled DSP effects in exact
+  /// processing order, with live working parameters queried from each DSP.
+  List<Map<String, dynamic>> getActiveDspNodes() {
+    final fn = _getActiveDspNodesJson;
+    if (_engine == ffi.nullptr || fn == null) return const [];
+    const int bufSize = 16384;
+    final ptr = calloc<ffi.Char>(bufSize);
+    try {
+      final written = fn(_engine, ptr, bufSize);
+      if (written <= 0) return const [];
+      final raw = ptr.cast<Utf8>().toDartString(length: written);
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((m) => m.cast<String, dynamic>())
+            .toList(growable: false);
+      }
+      return const [];
+    } catch (_) {
+      return const [];
+    } finally {
+      calloc.free(ptr);
+    }
   }
 
   String getLastError() {

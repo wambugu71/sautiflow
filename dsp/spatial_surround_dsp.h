@@ -53,6 +53,11 @@ inline float surround_sanitize(float v)
     return (std::fabs(v) < 1.0e-15f) ? 0.0f : v;
 }
 
+inline double surround_sanitize(double v)
+{
+    return (std::fabs(v) < 1.0e-25) ? 0.0 : v;
+}
+
 // ---------------------------------------------------------------------------
 // Direct Form I biquad (64-bit double precision)
 // ---------------------------------------------------------------------------
@@ -63,14 +68,18 @@ struct SurroundBiquad {
 
     void reset() { x1 = x2 = y1 = y2 = 0.0; }
 
-    inline float process(float x)
+    inline double process(double xd)
     {
-        const double xd = static_cast<double>(x);
         double y = b0 * xd + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
         if (std::fabs(y) < 1.0e-25) y = 0.0;
         x2 = x1; x1 = xd;
         y2 = y1; y1 = y;
-        return surround_sanitize(static_cast<float>(y1));
+        return y1;
+    }
+
+    inline float process(float x)
+    {
+        return surround_sanitize(static_cast<float>(process(static_cast<double>(x))));
     }
 };
 
@@ -91,14 +100,21 @@ struct SurroundBiquadStereo {
         a1 = in_a1; a2 = in_a2;
     }
 
-    inline void process(float xl, float xr, float &yl, float &yr) {
-        const SimdDouble2 in_s(static_cast<double>(xl), static_cast<double>(xr));
+    inline void process(double xl, double xr, double &yl, double &yr) {
+        const SimdDouble2 in_s(xl, xr);
         const SimdDouble2 vb0(b0), vb1(b1), vb2(b2), va1(a1), va2(a2);
         const SimdDouble2 y = (vb0 * in_s) + (vb1 * x1) + (vb2 * x2) - (va1 * y1) - (va2 * y2);
         x2 = x1; x1 = in_s;
         y2 = y1; y1 = y;
-        yl = surround_sanitize(static_cast<float>(y.get_low()));
-        yr = surround_sanitize(static_cast<float>(y.get_high()));
+        yl = surround_sanitize(y.get_low());
+        yr = surround_sanitize(y.get_high());
+    }
+
+    inline void process(float xl, float xr, float &yl, float &yr) {
+        double dl = 0.0, dr = 0.0;
+        process(static_cast<double>(xl), static_cast<double>(xr), dl, dr);
+        yl = surround_sanitize(static_cast<float>(dl));
+        yr = surround_sanitize(static_cast<float>(dr));
     }
 };
 
@@ -119,14 +135,21 @@ struct SurroundBiquadStereoDouble {
         a1 = in_a1; a2 = in_a2;
     }
 
-    inline void process(float xl, float xr, float &yl, float &yr) {
-        const SimdDouble2 in_s(static_cast<double>(xl), static_cast<double>(xr));
+    inline void process(double xl, double xr, double &yl, double &yr) {
+        const SimdDouble2 in_s(xl, xr);
         const SimdDouble2 vb0(b0), vb1(b1), vb2(b2), va1(a1), va2(a2);
         const SimdDouble2 y = (vb0 * in_s) + (vb1 * x1) + (vb2 * x2) - (va1 * y1) - (va2 * y2);
         x2 = x1; x1 = in_s;
         y2 = y1; y1 = y;
-        yl = surround_sanitize(static_cast<float>(y.get_low()));
-        yr = surround_sanitize(static_cast<float>(y.get_high()));
+        yl = surround_sanitize(y.get_low());
+        yr = surround_sanitize(y.get_high());
+    }
+
+    inline void process(float xl, float xr, float &yl, float &yr) {
+        double dl = 0.0, dr = 0.0;
+        process(static_cast<double>(xl), static_cast<double>(xr), dl, dr);
+        yl = surround_sanitize(static_cast<float>(dl));
+        yr = surround_sanitize(static_cast<float>(dr));
     }
 };
 
@@ -236,103 +259,103 @@ inline void surround_set_highshelf(SurroundBiquadStereo &bq, double fs, double f
     bq.setCoeffs(tmp.b0, tmp.b1, tmp.b2, tmp.a1, tmp.a2);
 }
 
-// First-order head-shadow shelf (Brown & Duda structural HRTF)
+// First-order head-shadow shelf (Brown & Duda structural HRTF, 64-bit precision)
 struct SurroundShelf1 {
-    float b0 = 1.0f, b1 = 0.0f, a1 = 0.0f;
-    float x1 = 0.0f, y1 = 0.0f;
+    double b0 = 1.0, b1 = 0.0, a1 = 0.0;
+    double x1 = 0.0, y1 = 0.0;
 
-    void reset() { x1 = y1 = 0.0f; }
+    void reset() { x1 = y1 = 0.0; }
 
     void setShadow(double alpha, double tau0, double T)
     {
         const double a0 = 2.0 * tau0 + T;
-        b0 = static_cast<float>((2.0 * alpha * tau0 + T) / a0);
-        b1 = static_cast<float>((T - 2.0 * alpha * tau0) / a0);
-        a1 = static_cast<float>((T - 2.0 * tau0) / a0);
+        b0 = (2.0 * alpha * tau0 + T) / a0;
+        b1 = (T - 2.0 * alpha * tau0) / a0;
+        a1 = (T - 2.0 * tau0) / a0;
     }
 
-    inline float process(float x)
+    inline double process(double x)
     {
-        const float y = b0 * x + b1 * x1 - a1 * y1;
+        const double y = b0 * x + b1 * x1 - a1 * y1;
         x1 = x;
         y1 = surround_sanitize(y);
         return y1;
     }
 };
 
-// Fractional delay line with linear interpolation
+// Fractional delay line with linear interpolation (64-bit precision)
 struct SurroundDelay {
-    std::vector<float> buf;
+    std::vector<double> buf;
     uint32_t w = 0;
 
     void init(uint32_t max_samples)
     {
-        buf.assign(max_samples + 4, 0.0f);
+        buf.assign(max_samples + 4, 0.0);
         w = 0;
     }
 
-    void clear() { std::fill(buf.begin(), buf.end(), 0.0f); w = 0; }
+    void clear() { std::fill(buf.begin(), buf.end(), 0.0); w = 0; }
 
-    inline float maxDelay() const { return static_cast<float>(buf.size() - 3); }
+    inline double maxDelay() const { return static_cast<double>(buf.size() - 3); }
 
-    inline float pushAndRead(float d, float x)
+    inline double pushAndRead(double d, double x)
     {
         buf[w] = x;
         const uint32_t n = static_cast<uint32_t>(buf.size());
-        float di = d; if (di < 1.0f) di = 1.0f;
+        double di = d; if (di < 1.0) di = 1.0;
         if (di > maxDelay()) di = maxDelay();
         const uint32_t i0 = static_cast<uint32_t>(di);
-        const float frac = di - static_cast<float>(i0);
+        const double frac = di - static_cast<double>(i0);
         const uint32_t r0 = (w + n - i0) % n;
         const uint32_t r1 = (r0 + n - 1) % n;
         w = (w + 1) % n;
         return buf[r0] + frac * (buf[r1] - buf[r0]);
     }
 
-    inline float read(float d) const
+    inline double read(double d) const
     {
         const uint32_t n = static_cast<uint32_t>(buf.size());
-        float di = d; if (di < 1.0f) di = 1.0f;
+        double di = d; if (di < 1.0) di = 1.0;
         if (di > maxDelay()) di = maxDelay();
         const uint32_t i0 = static_cast<uint32_t>(di);
-        const float frac = di - static_cast<float>(i0);
+        const double frac = di - static_cast<double>(i0);
         const uint32_t r0 = (w + n - 1 - i0 + n) % n;
         const uint32_t r1 = (r0 + n - 1) % n;
         return buf[r0] + frac * (buf[r1] - buf[r0]);
     }
 
-    inline void push(float x)
+    inline void push(double x)
     {
         buf[w] = x;
         w = (w + 1) % static_cast<uint32_t>(buf.size());
     }
 };
 
-// Cascaded first-order all-pass (quadrature phase networks)
+// Cascaded first-order all-pass (quadrature phase networks, 64-bit precision)
 struct SurroundAllpass1 {
-    float c = 0.0f;
-    float x1 = 0.0f, y1 = 0.0f;
+    double c = 0.0;
+    double x1 = 0.0, y1 = 0.0;
 
-    void reset() { x1 = y1 = 0.0f; }
-    inline float process(float x)
+    void reset() { x1 = y1 = 0.0; }
+    inline double process(double x)
     {
-        const float y = -c * x + x1 + c * y1;
+        const double y = -c * x + x1 + c * y1;
         x1 = x;
         y1 = surround_sanitize(y);
         return y1;
     }
 };
 
-// Schroeder-style all-pass diffuser with delay D
+// Schroeder-style all-pass diffuser with delay D (64-bit precision)
 struct SurroundDiffuserAP {
-    float g = 0.5f;
-    float delay_samples = 1.0f;
+    double g = 0.5;
+    double delay_samples = 1.0;
     SurroundDelay in_line, out_line;
 
     void init(float delay_samples_ref48k, float sr_scale)
     {
-        g = 0.5f;
-        delay_samples = std::max(1.0f, delay_samples_ref48k * sr_scale);
+        g = 0.5;
+        delay_samples = std::max(1.0, static_cast<double>(delay_samples_ref48k) * static_cast<double>(sr_scale));
         in_line.init(static_cast<uint32_t>(delay_samples) + 8u);
         out_line.init(static_cast<uint32_t>(delay_samples) + 8u);
     }
@@ -341,11 +364,11 @@ struct SurroundDiffuserAP {
         in_line.clear();
         out_line.clear();
     }
-    inline float process(float x)
+    inline double process(double x)
     {
-        const float xd = in_line.read(delay_samples);
-        const float yd = out_line.read(delay_samples);
-        const float y = -g * x + xd + g * yd;
+        const double xd = in_line.read(delay_samples);
+        const double yd = out_line.read(delay_samples);
+        const double y = -g * x + xd + g * yd;
         in_line.push(x);
         out_line.push(surround_sanitize(y));
         return y;
@@ -385,13 +408,13 @@ public:
         delay_.clear();
     }
 
-    inline void process(float in, float gain, float &out_l, float &out_r)
+    inline void process(double in, double gain, double &out_l, double &out_r)
     {
-        const float s = in * gain;
-        float s_contra = delay_.pushAndRead(itd_samples_, s);
+        const double s = in * gain;
+        double s_contra = delay_.pushAndRead(static_cast<double>(itd_samples_), s);
 
-        float ipsi   = pinna_ipsi_.process(shelf_ipsi_.process(s));
-        float contra = pinna_contra_.process(shelf_contra_.process(s_contra));
+        double ipsi   = pinna_ipsi_.process(shelf_ipsi_.process(s));
+        double contra = pinna_contra_.process(shelf_contra_.process(s_contra));
 
         if (azimuth_ >= 0.0f) {
             // Source on the right
@@ -567,6 +590,18 @@ public:
     // ---------------- Processing ----------------
     void process(float *interleaved, uint32_t frame_count)
     {
+        processImpl(interleaved, frame_count);
+    }
+
+    void process(double *interleaved, uint32_t frame_count)
+    {
+        processImpl(interleaved, frame_count);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T *interleaved, uint32_t frame_count)
+    {
         if (!enabled_ || frame_count == 0 || !interleaved) return;
         if (mode_ == SurroundMode::Off) return;
 
@@ -594,14 +629,14 @@ public:
         if (anti_pop_ < 1.0f) {
             const float inc = 20.0f / sample_rate_;
             for (uint32_t i = 0; i < frame_count; ++i) {
-                interleaved[2 * i]     *= anti_pop_;
-                interleaved[2 * i + 1] *= anti_pop_;
+                const double ap = static_cast<double>(anti_pop_);
+                interleaved[2 * i]     = static_cast<T>(static_cast<double>(interleaved[2 * i]) * ap);
+                interleaved[2 * i + 1] = static_cast<T>(static_cast<double>(interleaved[2 * i + 1]) * ap);
                 anti_pop_ = std::min(1.0f, anti_pop_ + inc);
             }
         }
     }
 
-private:
     static float clampf(float v, float lo, float hi) { return std::clamp(v, lo, hi); }
     static int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
     float srScale() const { return sample_rate_ / 48000.0f; }
@@ -609,18 +644,19 @@ private:
     // -------------------------------------------------------------------------
     // Mode 1: Cinema Matrix 5.1
     // -------------------------------------------------------------------------
-    void processMatrix(float *s, uint32_t frames)
+    template <typename T>
+    void processMatrix(T *s, uint32_t frames)
     {
         for (uint32_t i = 0; i < frames; ++i) {
             smooth_center_focus_   += smoothing_coeff_ * (center_focus_ - smooth_center_focus_);
             smooth_surround_boost_ += smoothing_coeff_ * (surround_boost_ - smooth_surround_boost_);
 
-            const float l_in = s[2 * i];
-            const float r_in = s[2 * i + 1];
+            const double l_in = static_cast<double>(s[2 * i]);
+            const double r_in = static_cast<double>(s[2 * i + 1]);
 
             // Quadrature networks (wideband 90-degree pairs)
-            float ql_l = l_in, qr_l = l_in;
-            float ql_r = r_in, qr_r = r_in;
+            double ql_l = l_in, qr_l = l_in;
+            double ql_r = r_in, qr_r = r_in;
             for (int k = 0; k < 3; ++k) {
                 ql_l = quad_chain_la_[k].process(ql_l);
                 qr_l = quad_chain_rb_[k].process(qr_l);
@@ -629,186 +665,178 @@ private:
             }
 
             // Passive-matrix surrounds: quadrature difference signal combining both A and B chains
-            const float q_a = (ql_l - qr_r);
-            const float q_b = (qr_l - ql_r);
-            const float rear_delay_samples = surround_delay_ms_ * 0.001f * sample_rate_;
-            const float ls = rear_line_l_.pushAndRead(rear_delay_samples,  0.70710678f * (q_a + q_b));
-            const float rs = rear_line_r_.pushAndRead(rear_delay_samples, -0.70710678f * (q_a - q_b));
+            const double q_a = (ql_l - qr_r);
+            const double q_b = (qr_l - ql_r);
+            const double rear_delay_samples = static_cast<double>(surround_delay_ms_) * 0.001 * static_cast<double>(sample_rate_);
+            const double ls = rear_line_l_.pushAndRead(rear_delay_samples,  0.7071067811865475 * (q_a + q_b));
+            const double rs = rear_line_r_.pushAndRead(rear_delay_samples, -0.7071067811865475 * (q_a - q_b));
 
             // Center dialogue & LFE isolation
-            const float mono = (l_in + r_in) * 0.5f;
-            const float c_band = center_lp_.process(center_hp_.process(mono * 1.41421356f));
-            const float c = c_band * smooth_center_focus_;
-            const float lfe = lfe_lpf_.process(mono);
+            const double mono = (l_in + r_in) * 0.5;
+            const double c_band = center_lp_.process(center_hp_.process(mono * 1.4142135623730951));
+            const double cf = static_cast<double>(smooth_center_focus_);
+            const double c = c_band * cf;
+            const double lfe = lfe_lpf_.process(mono);
 
             // Front channels: subtract center to maintain vocal separation
-            const float fl = l_in - 0.5f * c;
-            const float fr = r_in - 0.5f * c;
+            const double fl = l_in - 0.5 * c;
+            const double fr = r_in - 0.5 * c;
 
             // Render 5 virtual speaker positions through parametric HRTF
-            float out_l = 0.0f, out_r = 0.0f;
-            matrix_sources_[0].process(c,  0.55f * (0.4f + 0.6f * smooth_center_focus_), out_l, out_r); // Center @ 0 deg
-            matrix_sources_[1].process(fl, 0.62f, out_l, out_r);                                        // Left @ -30 deg
-            matrix_sources_[2].process(fr, 0.62f, out_l, out_r);                                        // Right @ +30 deg
-            const float rb = 0.55f * smooth_surround_boost_;
-            matrix_sources_[3].process(ls, rb, out_l, out_r);                                           // Left Surround @ -110 deg
-            matrix_sources_[4].process(rs, rb, out_l, out_r);                                           // Right Surround @ +110 deg
+            double out_l = 0.0, out_r = 0.0;
+            matrix_sources_[0].process(c,  0.55 * (0.4 + 0.6 * cf), out_l, out_r); // Center @ 0 deg
+            matrix_sources_[1].process(fl, 0.62, out_l, out_r);                    // Left @ -30 deg
+            matrix_sources_[2].process(fr, 0.62, out_l, out_r);                    // Right @ +30 deg
+            const double rb = 0.55 * static_cast<double>(smooth_surround_boost_);
+            matrix_sources_[3].process(ls, rb, out_l, out_r);                      // Left Surround @ -110 deg
+            matrix_sources_[4].process(rs, rb, out_l, out_r);                      // Right Surround @ +110 deg
 
             // Dual-mono LFE sum
-            const float lfe_out = 0.5f * lfe;
+            const double lfe_out = 0.5 * lfe;
             out_l += lfe_out;
             out_r += lfe_out;
 
-            s[2 * i]     = surround_sanitize(out_l * 1.10f);
-            s[2 * i + 1] = surround_sanitize(out_r * 1.10f);
+            s[2 * i]     = static_cast<T>(surround_sanitize(out_l * 1.10));
+            s[2 * i + 1] = static_cast<T>(surround_sanitize(out_r * 1.10));
         }
     }
 
     // -------------------------------------------------------------------------
     // Mode 2: Binaural HRTF Virtualizer (Reconstructed from analysis_dlby2)
     // -------------------------------------------------------------------------
-    void processBinaural(float *s, uint32_t frames)
+    template <typename T>
+    void processBinaural(T *s, uint32_t frames)
     {
         // ITD delay length scaled to current sample rate (~11 samples @ 48 kHz = 0.23 ms)
-        const float itd_samples = std::max(1.0f, 11.0f * srScale());
+        const double itd_samples = std::max(1.0, 11.0 * static_cast<double>(srScale()));
 
         for (uint32_t i = 0; i < frames; ++i) {
             smooth_binaural_boost_ += smoothing_coeff_ * (binaural_boost_ - smooth_binaural_boost_);
             smooth_binaural_room_  += smoothing_coeff_ * (binaural_room_mix_ - smooth_binaural_room_);
 
-            const float l_in = s[2 * i];
-            const float r_in = s[2 * i + 1];
+            const double l_in = static_cast<double>(s[2 * i]);
+            const double r_in = static_cast<double>(s[2 * i + 1]);
 
-            float out_l = l_in;
-            float out_r = r_in;
+            double out_l = l_in;
+            double out_r = r_in;
 
             if (binaural_mode_ == 0) {
                 // --- Headphone HRTF Spatializer ---
-                // Push into contralateral interaural delay lines
-                const float del_r = binaural_itd_r_.pushAndRead(itd_samples, r_in);
-                const float del_l = binaural_itd_l_.pushAndRead(itd_samples, l_in);
+                const double del_r = binaural_itd_r_.pushAndRead(itd_samples, r_in);
+                const double del_l = binaural_itd_l_.pushAndRead(itd_samples, l_in);
 
                 // Contralateral head-shadow filter (2nd order Butterworth lowpass at 3.5 kHz, stereo vector biquad)
-                float shadow_r, shadow_l;
+                double shadow_r = 0.0, shadow_l = 0.0;
                 binaural_shadow_.process(del_r, del_l, shadow_r, shadow_l);
 
                 // Binaural crossfeed injection (head-shadowed contralateral ITD + ILD)
-                const float b = smooth_binaural_boost_;
-                const float boost_gain = 1.0f + b * 0.15f;
-                const float l_binaural = l_in * (1.0f - 0.15f * b) + shadow_r * (0.38f * b);
-                const float r_binaural = r_in * (1.0f - 0.15f * b) + shadow_l * (0.38f * b);
+                const double b = static_cast<double>(smooth_binaural_boost_);
+                const double boost_gain = 1.0 + b * 0.15;
+                const double l_binaural = l_in * (1.0 - 0.15 * b) + shadow_r * (0.38 * b);
+                const double r_binaural = r_in * (1.0 - 0.15 * b) + shadow_l * (0.38 * b);
 
-                // High-frequency interaural decorrelation on un-shadowed HF band (preserves lowpass shadow_r/l crossfeed)
-                const float hf_r = del_r - shadow_r;
-                const float hf_l = del_l - shadow_l;
-                const float cross_gain = b * 0.18f;
+                // High-frequency interaural decorrelation on un-shadowed HF band
+                const double hf_r = del_r - shadow_r;
+                const double hf_l = del_l - shadow_l;
+                const double cross_gain = b * 0.18;
                 out_l = boost_gain * l_binaural - cross_gain * hf_r;
                 out_r = boost_gain * r_binaural - cross_gain * hf_l;
 
-                // 4-tap Room Acoustics Reverb (vectorized 4-wide early reflection diffusion)
+                // 4-tap Room Acoustics Reverb
                 if (smooth_binaural_room_ > 0.001f) {
-                    // Push current frame into 4-tap vector delay lines
                     binaural_room_delays_[0].push(l_in);
                     binaural_room_delays_[1].push(r_in);
-                    binaural_room_delays_[2].push(l_in + 0.5f * r_in);
-                    binaural_room_delays_[3].push(r_in + 0.5f * l_in);
+                    binaural_room_delays_[2].push(l_in + 0.5 * r_in);
+                    binaural_room_delays_[3].push(r_in + 0.5 * l_in);
 
-                    const float t0 = binaural_room_delays_[0].read(room_delay_samples_[0]);
-                    const float t1 = binaural_room_delays_[1].read(room_delay_samples_[1]);
-                    const float t2 = binaural_room_delays_[2].read(room_delay_samples_[2]);
-                    const float t3 = binaural_room_delays_[3].read(room_delay_samples_[3]);
+                    const double t0 = binaural_room_delays_[0].read(static_cast<double>(room_delay_samples_[0]));
+                    const double t1 = binaural_room_delays_[1].read(static_cast<double>(room_delay_samples_[1]));
+                    const double t2 = binaural_room_delays_[2].read(static_cast<double>(room_delay_samples_[2]));
+                    const double t3 = binaural_room_delays_[3].read(static_cast<double>(room_delay_samples_[3]));
 
-                    const SimdFloat4 v_tap(t0, t1, t2, t3);
-                    const SimdFloat4 v_wl(0.35f, 0.0f, 0.25f, 0.0f);
-                    const SimdFloat4 v_wr(0.0f, 0.35f, 0.0f, 0.25f);
-                    const float refl_l = (v_tap * v_wl).reduce_sum();
-                    const float refl_r = (v_tap * v_wr).reduce_sum();
+                    const double refl_l = 0.35 * t0 + 0.25 * t2;
+                    const double refl_r = 0.35 * t1 + 0.25 * t3;
 
                     // One-pole HF air damping on reflections
-                    const float damp_a = 0.70f;
-                    const float damp_b = 0.30f;
-                    binaural_reverb_state_l_ = damp_a * refl_l + damp_b * binaural_reverb_state_l_;
-                    binaural_reverb_state_r_ = damp_a * refl_r + damp_b * binaural_reverb_state_r_;
+                    binaural_reverb_state_l_ = static_cast<float>(0.70 * refl_l + 0.30 * static_cast<double>(binaural_reverb_state_l_));
+                    binaural_reverb_state_r_ = static_cast<float>(0.70 * refl_r + 0.30 * static_cast<double>(binaural_reverb_state_r_));
 
-                    const float room_wet = smooth_binaural_room_ * 0.45f;
-                    out_l += room_wet * binaural_reverb_state_l_;
-                    out_r += room_wet * binaural_reverb_state_r_;
+                    const double room_wet = static_cast<double>(smooth_binaural_room_) * 0.45;
+                    out_l += room_wet * static_cast<double>(binaural_reverb_state_l_);
+                    out_r += room_wet * static_cast<double>(binaural_reverb_state_r_);
                 }
             } else {
                 // --- Speaker Soundfield Virtualizer ---
-                const float b = smooth_binaural_boost_;
+                const double b = static_cast<double>(smooth_binaural_boost_);
 
-                // Speaker spread angle multiplier: Narrow (10 deg), Standard (30 deg), Wide (45 deg)
-                float angle_mult = 1.4f;
-                if (binaural_speaker_angle_ == 0) angle_mult = 0.9f;
-                else if (binaural_speaker_angle_ == 2) angle_mult = 2.0f;
+                double angle_mult = 1.4;
+                if (binaural_speaker_angle_ == 0) angle_mult = 0.9;
+                else if (binaural_speaker_angle_ == 2) angle_mult = 2.0;
 
-                const float mid  = 0.5f * (l_in + r_in);
-                float side = 0.5f * (l_in - r_in);
+                const double mid  = 0.5 * (l_in + r_in);
+                double side = 0.5 * (l_in - r_in);
 
-                // Side band all-pass phase decorrelation (dvs_decorrelate / ngcs_diffuse)
+                // Side band all-pass phase decorrelation
                 side = binaural_diffuser_l_.process(side);
-                side *= (1.0f + b * angle_mult);
+                side *= (1.0 + b * angle_mult);
 
                 // Speaker interaural cross-cancellation
-                const float cross_gain = b * 0.45f;
-                const float boost_gain = 1.0f + b * 0.35f;
+                const double cross_gain = b * 0.45;
+                const double boost_gain = 1.0 + b * 0.35;
 
                 out_l = boost_gain * (mid + side) - cross_gain * r_in;
                 out_r = boost_gain * (mid - side) - cross_gain * l_in;
             }
 
-            s[2 * i]     = surround_sanitize(out_l);
-            s[2 * i + 1] = surround_sanitize(out_r);
+            s[2 * i]     = static_cast<T>(surround_sanitize(out_l));
+            s[2 * i + 1] = static_cast<T>(surround_sanitize(out_r));
         }
     }
 
     // -------------------------------------------------------------------------
     // Mode 3: 3D Acoustic Stage 
     // -------------------------------------------------------------------------
-    void processStage(float *s, uint32_t frames)
+    template <typename T>
+    void processStage(T *s, uint32_t frames)
     {
         for (uint32_t i = 0; i < frames; ++i) {
             smooth_stage_width_  += smoothing_coeff_ * (stage_width_ - smooth_stage_width_);
             smooth_stage_depth_  += smoothing_coeff_ * (stage_depth_ - smooth_stage_depth_);
             smooth_stage_cancel_ += smoothing_coeff_ * (stage_cancellation_ - smooth_stage_cancel_);
 
-            const float l_in = s[2 * i];
-            const float r_in = s[2 * i + 1];
+            const double l_in = static_cast<double>(s[2 * i]);
+            const double r_in = static_cast<double>(s[2 * i + 1]);
 
-            // 1. Interaural Acoustic Cross-Talk Cancellation (zirene_dsp.c 0x1356d8)
-            // Normal (Studio, D=25000): base alpha = 0.28. Wide (Panoramic, D=10000): base alpha = 0.42.
-            const float base_alpha = (stage_mode_ == 1) ? 0.42f : 0.28f;
-            const float cross_coeff = base_alpha * (0.4f + 0.9f * smooth_stage_cancel_);
+            // 1. Interaural Acoustic Cross-Talk Cancellation
+            const double base_alpha = (stage_mode_ == 1) ? 0.42 : 0.28;
+            const double cross_coeff = base_alpha * (0.4 + 0.9 * static_cast<double>(smooth_stage_cancel_));
 
-            float l_stage = (1.0f + cross_coeff * 0.30f) * l_in - cross_coeff * r_in;
-            float r_stage = (1.0f + cross_coeff * 0.30f) * r_in - cross_coeff * l_in;
+            const double l_stage = (1.0 + cross_coeff * 0.30) * l_in - cross_coeff * r_in;
+            const double r_stage = (1.0 + cross_coeff * 0.30) * r_in - cross_coeff * l_in;
 
-            // 2. Stereo Soundstage Expander (Category 12)
-            const float width_factor = smooth_stage_width_;
-            const float depth_cross  = 0.12f * smooth_stage_depth_;
+            // 2. Stereo Soundstage Expander
+            const double width_factor = static_cast<double>(smooth_stage_width_);
+            const double depth_cross  = 0.12 * static_cast<double>(smooth_stage_depth_);
 
-            const float mid  = 0.5f * (l_stage + r_stage);
-            const float side = 0.5f * (l_stage - r_stage) * width_factor;
+            const double mid  = 0.5 * (l_stage + r_stage);
+            const double side = 0.5 * (l_stage - r_stage) * width_factor;
 
-            float out_l = mid + side - depth_cross * r_stage;
-            float out_r = mid - side - depth_cross * l_stage;
+            double out_l = mid + side - depth_cross * r_stage;
+            double out_r = mid - side - depth_cross * l_stage;
 
-            // 3. Sub-bass Fundamental Anchor (Category 13)
-            // 4th-order Linkwitz-Riley (LR4) low-pass mono anchor + high-pass crossover sums flat across crossover
-            const float mono_raw = 0.5f * (out_l + out_r);
-            const float anchor_bass = stage_bass_lp2_.process(stage_bass_lp1_.process(mono_raw));
+            // 3. Sub-bass Fundamental Anchor (LR4)
+            const double mono_raw = 0.5 * (out_l + out_r);
+            const double anchor_bass = stage_bass_lp2_.process(stage_bass_lp1_.process(mono_raw));
             stage_bass_hp1_.process(out_l, out_r, out_l, out_r);
             stage_bass_hp2_.process(out_l, out_r, out_l, out_r);
             out_l += anchor_bass;
             out_r += anchor_bass;
 
-            // 4. High-Frequency Air Presence Contour (Category 11)
-            // Restores airy highs and spatial micro-dynamics (vectorized stereo biquad)
+            // 4. High-Frequency Air Presence Contour
             stage_air_.process(out_l, out_r, out_l, out_r);
 
-            s[2 * i]     = surround_sanitize(out_l);
-            s[2 * i + 1] = surround_sanitize(out_r);
+            s[2 * i]     = static_cast<T>(surround_sanitize(out_l));
+            s[2 * i + 1] = static_cast<T>(surround_sanitize(out_r));
         }
     }
 

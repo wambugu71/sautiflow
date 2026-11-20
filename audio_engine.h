@@ -242,6 +242,7 @@ extern "C"
 
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);
     AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine);
+    AE_API int ae_get_active_dsp_nodes_json(AudioEngineHandle *engine, char *out_buf, int buf_size);
     AE_API const char *ae_get_last_error(AudioEngineHandle *engine);
     AE_API void ae_clear_last_error(AudioEngineHandle *engine);
 

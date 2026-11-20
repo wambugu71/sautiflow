@@ -164,6 +164,17 @@ public:
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
     void process(float* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+    // Process interleaved stereo 64-bit double samples: [L0, R0, L1, R1, ...]
+    void process(double* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
         ScopedDenormalsDisable denormals;
@@ -190,20 +201,20 @@ public:
                 anti_pop_ = std::min(1.0f, anti_pop_ + anti_pop_step);
             }
 
-            float in_l = interleaved_samples[2 * i];
-            float in_r = interleaved_samples[2 * i + 1];
+            const double in_l = static_cast<double>(interleaved_samples[2 * i]);
+            const double in_r = static_cast<double>(interleaved_samples[2 * i + 1]);
 
             // 2. Mid-Side decomposition
-            float mid = 0.5f * (in_l + in_r);
-            float side = 0.5f * (in_l - in_r);
+            const double mid = 0.5 * (in_l + in_r);
+            const double side = 0.5 * (in_l - in_r);
 
             // 3. Multi-stage vocal formant enhancement on center/mid channel (64-bit Cytomic SVF)
-            const double mid_formant = formant_svf_.processSample(static_cast<double>(mid), 0);
+            const double mid_formant = formant_svf_.processSample(mid, 0);
             const double mid_body = body_svf_.processSample(mid_formant, 0);
-            const float mid_enhanced = static_cast<float>(clarity_svf_.processSample(mid_body, 0));
+            const double mid_enhanced = clarity_svf_.processSample(mid_body, 0);
 
             // 4. Speech energy envelope detection for dynamic background ducking
-            float abs_speech = std::fabs(mid_enhanced);
+            const float abs_speech = static_cast<float>(std::fabs(mid_enhanced));
             if (abs_speech > speech_energy_env_) {
                 speech_energy_env_ += env_attack_coeff_ * (abs_speech - speech_energy_env_);
             } else {
@@ -220,7 +231,7 @@ public:
             float side_gain = current_side_gain * (1.0f - current_center_focus_ * 0.20f);
 
             // Dynamic headroom attenuation: prevents internal digital clipping on high-level voice tracks
-            const float estimated_mid_peak = std::max(speech_energy_env_, std::fabs(mid_enhanced)) * (mid_gain * headroom_comp_);
+            const float estimated_mid_peak = std::max(speech_energy_env_, abs_speech) * (mid_gain * headroom_comp_);
             float target_atten = 1.0f;
             if (estimated_mid_peak > 0.95f) {
                 target_atten = 0.95f / estimated_mid_peak;
@@ -232,19 +243,20 @@ public:
             } else {
                 peak_atten_ += atten_release_coeff * (target_atten - peak_atten_);
             }
-            const float dynamic_atten = peak_atten_;
+            const double dynamic_atten = static_cast<double>(peak_atten_);
 
             // Apply mid gain scaled by automatic headroom compensation and dynamic attenuation
-            float out_mid = mid_enhanced * (mid_gain * headroom_comp_ * dynamic_atten);
-            float out_side = side * side_gain;
+            const double out_mid = mid_enhanced * (static_cast<double>(mid_gain) * static_cast<double>(headroom_comp_) * dynamic_atten);
+            const double out_side = side * static_cast<double>(side_gain);
 
             // 5. Mid-Side synthesis back to Left & Right
-            float proc_l = out_mid + out_side;
-            float proc_r = out_mid - out_side;
+            const double proc_l = out_mid + out_side;
+            const double proc_r = out_mid - out_side;
 
             // 6. Anti-pop crossfade with dry signal
-            interleaved_samples[2 * i] = in_l + anti_pop_ * (proc_l - in_l);
-            interleaved_samples[2 * i + 1] = in_r + anti_pop_ * (proc_r - in_r);
+            const double ap = static_cast<double>(anti_pop_);
+            interleaved_samples[2 * i] = static_cast<T>(in_l + ap * (proc_l - in_l));
+            interleaved_samples[2 * i + 1] = static_cast<T>(in_r + ap * (proc_r - in_r));
         }
 
         // Store latest telemetry reduction
@@ -258,7 +270,6 @@ public:
         }
     }
 
-private:
     void applyProfileDefaults() {
         switch (profile_) {
             case DialogEnhancerProfile::Cinema:

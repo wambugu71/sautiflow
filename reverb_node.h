@@ -300,6 +300,18 @@ public:
 
     void process(float *interleaved, uint32_t frames, int channels)
     {
+        processImpl(interleaved, frames, channels);
+    }
+
+    void process(double *interleaved, uint32_t frames, int channels)
+    {
+        processImpl(interleaved, frames, channels);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T *interleaved, uint32_t frames, int channels)
+    {
         if (!interleaved || frames == 0 || channels < 2)
             return;
 
@@ -334,8 +346,15 @@ public:
                 return;
             }
 
-            if (scratchPreDelay.size() < (size_t)frames * (size_t)channels)
-                scratchPreDelay.resize((size_t)frames * (size_t)channels, 0.0f);
+            auto &scratch = [&]() -> std::vector<T>& {
+                if constexpr (std::is_same_v<T, double>)
+                    return scratchPreDelay64;
+                else
+                    return scratchPreDelay;
+            }();
+
+            if (scratch.size() < (size_t)frames * (size_t)channels)
+                scratch.resize((size_t)frames * (size_t)channels, static_cast<T>(0));
 
             for (uint32_t i = 0; i < frames; ++i)
             {
@@ -345,16 +364,16 @@ public:
                     (size_t)((currentPreDelayMs * 0.001f) * (float)sampleRate));
 
                 const size_t base = (size_t)i * (size_t)channels;
-                const float inL = interleaved[base];
-                const float inR = interleaved[base + 1];
+                const float inL = static_cast<float>(interleaved[base]);
+                const float inR = static_cast<float>(interleaved[base + 1]);
 
                 preDelayBuf[0][preDelayWriteIdx[0]] = inL;
                 preDelayBuf[1][preDelayWriteIdx[1]] = inR;
 
-                scratchPreDelay[base] = preDelayBuf[0]
-                    [(preDelayWriteIdx[0] + preDelayLen - delaySamples) % preDelayLen];
-                scratchPreDelay[base + 1] = preDelayBuf[1]
-                    [(preDelayWriteIdx[1] + preDelayLen - delaySamples) % preDelayLen];
+                scratch[base] = static_cast<T>(preDelayBuf[0]
+                    [(preDelayWriteIdx[0] + preDelayLen - delaySamples) % preDelayLen]);
+                scratch[base + 1] = static_cast<T>(preDelayBuf[1]
+                    [(preDelayWriteIdx[1] + preDelayLen - delaySamples) % preDelayLen]);
 
                 preDelayWriteIdx[0] = (preDelayWriteIdx[0] + 1) % preDelayLen;
                 preDelayWriteIdx[1] = (preDelayWriteIdx[1] + 1) % preDelayLen;
@@ -363,14 +382,14 @@ public:
             auto processWithPreDelay = [&](auto& dsp) {
                 const float savedDry = dsp.getDry();
                 dsp.setDry(0.0f);
-                dsp.process(scratchPreDelay.data(), frames, channels);
+                dsp.process(scratch.data(), frames, channels);
                 dsp.setDry(savedDry);
                 for (uint32_t i = 0; i < frames; ++i)
                 {
                     currentDry += alphaSmooth * (savedDry - currentDry);
                     const size_t base = (size_t)i * (size_t)channels;
-                    interleaved[base]     = interleaved[base]     * currentDry + scratchPreDelay[base];
-                    interleaved[base + 1] = interleaved[base + 1] * currentDry + scratchPreDelay[base + 1];
+                    interleaved[base]     = static_cast<T>(static_cast<double>(interleaved[base])     * static_cast<double>(currentDry) + static_cast<double>(scratch[base]));
+                    interleaved[base + 1] = static_cast<T>(static_cast<double>(interleaved[base + 1]) * static_cast<double>(currentDry) + static_cast<double>(scratch[base + 1]));
                 }
             };
 
@@ -420,29 +439,19 @@ public:
             currentPreDelayMs += alphaSmooth * (targetPreDelayMs - currentPreDelayMs);
             currentWidth += alphaSmooth * (targetWidth - currentWidth);
 
-            // Perceptually smooth mapping of Room Size (0.0 .. 1.0) to physically accurate RT60 (0.35s .. 14.0s)
-            // RoomSize 0.0 -> 0.35s (tight vocal/studio booth)
-            // RoomSize 0.3 -> ~0.95s (small live room / club)
-            // RoomSize 0.5 -> ~2.2s (concert hall / studio plate)
-            // RoomSize 0.7 -> ~4.6s (spacious cathedral)
-            // RoomSize 1.0 -> 14.0s (infinite ambient wash)
             const float targetRT60 = 0.35f * std::pow(40.0f, currentRoomSize);
-            // Dattorro figure-8 tank loop delay T_loop is ~0.7254s. In one round-trip, gain is decay^2.
-            // RT60 = -60 dB (gain drops to 0.001) -> decay = 10^(-1.0881 / RT60)
             const float decay = std::min(0.985f, std::pow(10.0f, -1.0881f / targetRT60));
 
-            // Frequency-dependent damping filter cutoff:
-            // 0.0 damping -> ~18.0 kHz cutoff (crystal-clear airy shimmer)
-            // 0.5 damping -> ~4.5 kHz cutoff (natural acoustic room absorption)
-            // 1.0 damping -> ~1.2 kHz cutoff (warm, plush, dark space)
             const float dampHz = 18000.0f * std::pow(0.0667f, currentDamping);
             const float nyquistSafe = (float)(M_PI * 0.95);
             const float wDamp = std::min(nyquistSafe, (float)(2.0 * M_PI * dampHz / sampleRate));
             const float dampCoeff = 1.0f - std::exp(-wDamp);
 
             const size_t base = (size_t)i * (size_t)channels;
-            const float inL = interleaved[base];
-            const float inR = interleaved[base + 1];
+            const double rawInL = static_cast<double>(interleaved[base]);
+            const double rawInR = static_cast<double>(interleaved[base + 1]);
+            const float inL = static_cast<float>(rawInL);
+            const float inR = static_cast<float>(rawInR);
 
             // 1. Pre-Delay
             float pdL = inL;
@@ -566,12 +575,11 @@ public:
             const float wetR = mid - side * sideGain;
 
             // 7. Final Wet/Dry Mix
-            interleaved[base] = inL * currentDry + wetL * currentWet;
-            interleaved[base + 1] = inR * currentDry + wetR * currentWet;
+            interleaved[base]     = static_cast<T>(rawInL * static_cast<double>(currentDry) + static_cast<double>(wetL) * static_cast<double>(currentWet));
+            interleaved[base + 1] = static_cast<T>(rawInR * static_cast<double>(currentDry) + static_cast<double>(wetR) * static_cast<double>(currentWet));
         }
     }
 
-private:
     static inline float flushDenormal(float val)
     {
         return (std::abs(val) < 1.0e-15f) ? 0.0f : val;
@@ -773,6 +781,7 @@ private:
     std::vector<float> preDelayBuf[2];
     size_t preDelayWriteIdx[2] = {0, 0};
     std::vector<float> scratchPreDelay;
+    std::vector<double> scratchPreDelay64;
 
     // Abbey Road input filter states
     float hpPrevIn[2] = {0.0f, 0.0f};

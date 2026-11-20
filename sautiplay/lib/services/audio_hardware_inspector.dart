@@ -30,8 +30,11 @@ class AudioHardwareSpecs {
       bluetoothDeviceName; // Actual BT device name (e.g. "Sony WH-1000XM5")
   final int? btSampleRate; // BT codec negotiated sample rate
   final int? btBitDepth; // BT codec bit depth
+  final String? btChannelMode; // e.g. "Stereo", "Mono"
+  final String? btQualityLabel; // e.g. "990/909 kbps (Quality)"
 
   final List<int> supportedSampleRates;
+  final List<int> supportedBitDepths;
   final bool usbDacAttached;
   final bool usbHasPermission;
 
@@ -58,7 +61,10 @@ class AudioHardwareSpecs {
     this.bluetoothDeviceName,
     this.btSampleRate,
     this.btBitDepth,
+    this.btChannelMode,
+    this.btQualityLabel,
     this.supportedSampleRates = const [],
+    this.supportedBitDepths = const [],
     this.usbDacAttached = false,
     this.usbHasPermission = false,
     this.androidVersion,
@@ -93,6 +99,11 @@ class AudioHardwareSpecs {
         ? supportedRatesRaw.map((e) => (e as num).toInt()).toList()
         : const <int>[];
 
+    final supportedBitsRaw = m['supportedBitDepths'];
+    final List<int> supportedBits = (supportedBitsRaw is List)
+        ? supportedBitsRaw.map((e) => (e as num).toInt()).toList()
+        : const <int>[];
+
     final bool usbAttached =
         m['usbDacAttached'] == true || rawDevType.toLowerCase().contains('usb');
 
@@ -115,7 +126,10 @@ class AudioHardwareSpecs {
       bluetoothDeviceName: m['bluetoothDeviceName']?.toString(),
       btSampleRate: btRate,
       btBitDepth: btBits,
+      btChannelMode: m['btChannelMode']?.toString(),
+      btQualityLabel: m['btQualityLabel']?.toString(),
       supportedSampleRates: supportedRates,
+      supportedBitDepths: supportedBits,
       usbDacAttached: usbAttached,
       usbHasPermission: m['usbHasPermission'] == true,
       androidVersion: (m['androidVersion'] as num?)?.toInt(),
@@ -205,16 +219,20 @@ class AudioHardwareSpecs {
   /// Human-readable latency string
   String get formattedLatency => '${latencyMs.toStringAsFixed(2)} ms';
 
-  /// Bluetooth codec + quality string, e.g. "LDAC 96kHz / 24-bit"
+  /// Bluetooth codec + quality string, e.g. "LDAC 96kHz / 24-bit · 990/909 kbps"
   String? get formattedBtCodec {
     if (bluetoothCodec == null) return null;
     final codec = bluetoothCodec!;
+    final parts = <String>[codec];
     if (btSampleRate != null && btBitDepth != null) {
       final kHz = (btSampleRate! / 1000.0)
           .toStringAsFixed(btSampleRate! % 1000 == 0 ? 0 : 1);
-      return '$codec ${kHz}kHz / $btBitDepth-bit';
+      parts.add('${kHz}kHz / $btBitDepth-bit');
     }
-    return codec;
+    if (btQualityLabel != null && btQualityLabel!.isNotEmpty) {
+      parts.add(btQualityLabel!);
+    }
+    return parts.join(' · ');
   }
 
   /// Node 1: Track Source File / Stream
@@ -537,7 +555,10 @@ class AudioHardwareInspector {
         bluetoothDeviceName: base.bluetoothDeviceName,
         btSampleRate: base.btSampleRate,
         btBitDepth: base.btBitDepth,
+        btChannelMode: base.btChannelMode,
+        btQualityLabel: base.btQualityLabel,
         supportedSampleRates: base.supportedSampleRates,
+        supportedBitDepths: base.supportedBitDepths,
         usbDacAttached: base.usbDacAttached,
         usbHasPermission: base.usbHasPermission,
         androidVersion: base.androidVersion,

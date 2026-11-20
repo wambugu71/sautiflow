@@ -189,6 +189,16 @@ public:
     }
 
     void process(float *interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels);
+    }
+
+    void process(double *interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T *interleaved, uint32_t frames, int channels) {
         if (!interleaved || frames == 0 || channels < 2 || !buffersAllocated)
             return;
 
@@ -214,8 +224,10 @@ public:
             currentWidth += (targetWidth - currentWidth) * smoothCoeff;
 
             uint32_t idx = f * channels;
-            float inL = interleaved[idx];
-            float inR = interleaved[idx + 1];
+            const double rawInL = static_cast<double>(interleaved[idx]);
+            const double rawInR = static_cast<double>(interleaved[idx + 1]);
+            float inL = static_cast<float>(rawInL);
+            float inR = static_cast<float>(rawInR);
 
             // 1. Input Diffusion (4 cascaded Schroeder allpasses per channel)
             float dInL = inL;
@@ -372,12 +384,11 @@ public:
             float outL = mid + side;
             float outR = mid - side;
 
-            interleaved[idx]     = inL * currentDry + outL * currentWet;
-            interleaved[idx + 1] = inR * currentDry + outR * currentWet;
+            interleaved[idx]     = static_cast<T>(rawInL * static_cast<double>(currentDry) + static_cast<double>(outL) * static_cast<double>(currentWet));
+            interleaved[idx + 1] = static_cast<T>(rawInR * static_cast<double>(currentDry) + static_cast<double>(outR) * static_cast<double>(currentWet));
         }
     }
 
-private:
     void updateCoefficients() {
         // Map roomSize (0..1) to RT60 (0.35s .. 14.0s) matching Dattorro.
         // Figure-8 tank round-trip delay at 29.761 kHz is ~21589 samples (~0.7254s, ~0.3627s per half-tank).

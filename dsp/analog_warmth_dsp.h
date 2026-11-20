@@ -37,6 +37,8 @@ public:
         updateTapeFilter();
         oversampler_.init(static_cast<int>(sample_rate_), 4096);
         oversampler4x_.init(static_cast<int>(sample_rate_), 4096);
+        oversampler64_.init(static_cast<int>(sample_rate_), 4096);
+        oversampler4x64_.init(static_cast<int>(sample_rate_), 4096);
         initialized_ = true;
     }
 
@@ -69,14 +71,16 @@ public:
 
     void reset() {
         current_drive_ = target_drive_;
-        tape_prev_l_ = 0.0f;
-        tape_prev_r_ = 0.0f;
-        dc_x_l_ = 0.0f; dc_y_l_ = 0.0f;
-        dc_x_r_ = 0.0f; dc_y_r_ = 0.0f;
+        tape_prev_l_ = 0.0;
+        tape_prev_r_ = 0.0;
+        dc_x_l_ = 0.0; dc_y_l_ = 0.0;
+        dc_x_r_ = 0.0; dc_y_r_ = 0.0;
         anti_pop_ = 0.0f;
         oversampler_.reset();
         oversampler4x_.reset();
-        std::fill(dry_ring_.begin(), dry_ring_.end(), 0.0f);
+        oversampler64_.reset();
+        oversampler4x64_.reset();
+        std::fill(dry_ring_.begin(), dry_ring_.end(), 0.0);
         dry_pos_ = 0;
     }
 
@@ -93,6 +97,16 @@ public:
     // the oversampler's pre-allocated capacity. The history is also kept warm
     // while disabled so enabling crossfades from real preceding audio.
     void process(float* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+    void process(double* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T* interleaved_samples, uint32_t frame_count) {
         if (frame_count == 0 || !interleaved_samples) return;
 
         if (!enabled_) {
@@ -115,86 +129,60 @@ public:
         }
     }
 
-private:
-    void processChunk(float* interleaved_samples, uint32_t frame_count, uint32_t chunk_start) {
+    template <typename T>
+    void processNonlinearBlock(T* buf, uint32_t frames) {
+        for (uint32_t i = 0; i < frames; i++) {
+            current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
+            const double in_l = static_cast<double>(buf[2 * i]);
+            const double in_r = static_cast<double>(buf[2 * i + 1]);
+            double out_l = in_l;
+            double out_r = in_r;
+
+            switch (profile_) {
+                case AnalogWarmthProfile::Triode12AX7:
+                    processTriodeStereo(in_l, in_r, out_l, out_r);
+                    break;
+                case AnalogWarmthProfile::MagneticTape:
+                    processTapeStereo(in_l, in_r, out_l, out_r);
+                    break;
+                case AnalogWarmthProfile::VintagePreamp:
+                    processPreampStereo(in_l, in_r, out_l, out_r);
+                    break;
+            }
+            buf[2 * i]     = static_cast<T>(out_l);
+            buf[2 * i + 1] = static_cast<T>(out_r);
+        }
+    }
+
+    template <typename T>
+    void processChunk(T* interleaved_samples, uint32_t frame_count, uint32_t chunk_start) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
         if (oversampling_factor_ == 1) {
-            // 1x Native processing
-            for (uint32_t i = 0; i < frame_count; i++) {
-                current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
-                float in_l = interleaved_samples[2 * i];
-                float in_r = interleaved_samples[2 * i + 1];
-                float out_l = in_l;
-                float out_r = in_r;
-
-                switch (profile_) {
-                    case AnalogWarmthProfile::Triode12AX7:
-                        processTriodeStereo(in_l, in_r, out_l, out_r);
-                        break;
-                    case AnalogWarmthProfile::MagneticTape:
-                        processTapeStereo(in_l, in_r, out_l, out_r);
-                        break;
-                    case AnalogWarmthProfile::VintagePreamp:
-                        processPreampStereo(in_l, in_r, out_l, out_r);
-                        break;
-                }
-                interleaved_samples[2 * i]     = out_l;
-                interleaved_samples[2 * i + 1] = out_r;
-            }
+            processNonlinearBlock(interleaved_samples, frame_count);
         } else if (oversampling_factor_ == 4) {
-            // 4x Polyphase Oversampled processing
-            oversampler4x_.process(interleaved_samples, frame_count, [this](float* oversampled, uint32_t oversampled_frames) {
-                for (uint32_t i = 0; i < oversampled_frames; i++) {
-                    current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
-                    float in_l = oversampled[2 * i];
-                    float in_r = oversampled[2 * i + 1];
-                    float out_l = in_l;
-                    float out_r = in_r;
-
-                    switch (profile_) {
-                        case AnalogWarmthProfile::Triode12AX7:
-                            processTriodeStereo(in_l, in_r, out_l, out_r);
-                            break;
-                        case AnalogWarmthProfile::MagneticTape:
-                            processTapeStereo(in_l, in_r, out_l, out_r);
-                            break;
-                        case AnalogWarmthProfile::VintagePreamp:
-                            processPreampStereo(in_l, in_r, out_l, out_r);
-                            break;
-                    }
-                    oversampled[2 * i]     = out_l;
-                    oversampled[2 * i + 1] = out_r;
-                }
-            });
+            if constexpr (std::is_same_v<T, double>) {
+                oversampler4x64_.process(interleaved_samples, frame_count, [this](double* oversampled, uint32_t oversampled_frames) {
+                    processNonlinearBlock(oversampled, oversampled_frames);
+                });
+            } else {
+                oversampler4x_.process(interleaved_samples, frame_count, [this](float* oversampled, uint32_t oversampled_frames) {
+                    processNonlinearBlock(oversampled, oversampled_frames);
+                });
+            }
         } else {
-            // 2x Polyphase Oversampled processing
-            float* oversampled = oversampler_.upsample(interleaved_samples, frame_count);
-            if (oversampled) {
-                const uint32_t oversampled_frames = frame_count * 2;
-                for (uint32_t i = 0; i < oversampled_frames; i++) {
-                    current_drive_ += smoothing_coeff_ * (target_drive_ - current_drive_);
-                    float in_l = oversampled[2 * i];
-                    float in_r = oversampled[2 * i + 1];
-                    float out_l = in_l;
-                    float out_r = in_r;
-
-                    switch (profile_) {
-                        case AnalogWarmthProfile::Triode12AX7:
-                            processTriodeStereo(in_l, in_r, out_l, out_r);
-                            break;
-                        case AnalogWarmthProfile::MagneticTape:
-                            processTapeStereo(in_l, in_r, out_l, out_r);
-                            break;
-                        case AnalogWarmthProfile::VintagePreamp:
-                            processPreampStereo(in_l, in_r, out_l, out_r);
-                            break;
-                    }
-
-                    oversampled[2 * i]     = out_l;
-                    oversampled[2 * i + 1] = out_r;
+            if constexpr (std::is_same_v<T, double>) {
+                double* oversampled = oversampler64_.upsample(interleaved_samples, frame_count);
+                if (oversampled) {
+                    processNonlinearBlock(oversampled, frame_count * 2);
+                    oversampler64_.downsample(oversampled, interleaved_samples, frame_count);
                 }
-                oversampler_.downsample(oversampled, interleaved_samples, frame_count);
+            } else {
+                float* oversampled = oversampler_.upsample(interleaved_samples, frame_count);
+                if (oversampled) {
+                    processNonlinearBlock(oversampled, frame_count * 2);
+                    oversampler_.downsample(oversampled, interleaved_samples, frame_count);
+                }
             }
         }
 
@@ -202,14 +190,14 @@ private:
         uint32_t tap_a = 0, tap_b = 0;
         getDryTaps(tap_a, tap_b);
         for (uint32_t i = 0; i < frame_count; i++) {
-            float out_l = interleaved_samples[2 * i];
-            float out_r = interleaved_samples[2 * i + 1];
+            double out_l = static_cast<double>(interleaved_samples[2 * i]);
+            double out_r = static_cast<double>(interleaved_samples[2 * i + 1]);
 
             if (profile_ == AnalogWarmthProfile::Triode12AX7) {
                 // The asymmetric triode transfer injects a DC bias. Block it per
                 // channel with a gentle 10 Hz one-pole highpass.
-                out_l = dc_block(out_l, dc_x_l_, dc_y_l_, dc_r_);
-                out_r = dc_block(out_r, dc_x_r_, dc_y_r_, dc_r_);
+                out_l = dc_block(out_l, dc_x_l_, dc_y_l_, static_cast<double>(dc_r_));
+                out_r = dc_block(out_r, dc_x_r_, dc_y_r_, static_cast<double>(dc_r_));
             }
 
             // Anti-pop smooth crossfade on activation / preset change. The dry
@@ -218,19 +206,19 @@ private:
             if (anti_pop_ < 1.0f) {
                 const uint32_t pa = (chunk_start + i - tap_a) & kDryRingMask;
                 const uint32_t pb = (chunk_start + i - tap_b) & kDryRingMask;
-                const float dry_l = 0.5f * (dry_ring_[2 * pa] + dry_ring_[2 * pb]);
-                const float dry_r = 0.5f * (dry_ring_[2 * pa + 1] + dry_ring_[2 * pb + 1]);
-                out_l = dry_l + anti_pop_ * (out_l - dry_l);
-                out_r = dry_r + anti_pop_ * (out_r - dry_r);
+                const double dry_l = 0.5 * (dry_ring_[2 * pa] + dry_ring_[2 * pb]);
+                const double dry_r = 0.5 * (dry_ring_[2 * pa + 1] + dry_ring_[2 * pb + 1]);
+                const double ap = static_cast<double>(anti_pop_);
+                out_l = dry_l + ap * (out_l - dry_l);
+                out_r = dry_r + ap * (out_r - dry_r);
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
             }
 
-            interleaved_samples[2 * i]     = out_l;
-            interleaved_samples[2 * i + 1] = out_r;
+            interleaved_samples[2 * i]     = static_cast<T>(out_l);
+            interleaved_samples[2 * i + 1] = static_cast<T>(out_r);
         }
     }
 
-private:
     bool enabled_ = false;
     bool initialized_ = false;
     AnalogWarmthProfile profile_ = AnalogWarmthProfile::Triode12AX7;
@@ -242,19 +230,21 @@ private:
     float smoothing_coeff_ = 0.001f;
     float anti_pop_ = 0.0f;
 
-    // 2x and 4x Polyphase Half-Band Oversamplers
+    // 2x and 4x Polyphase Half-Band Oversamplers (F32 and F64)
     PolyphaseOversampler2x oversampler_;
     PolyphaseOversampler4x oversampler4x_;
+    PolyphaseOversampler2x64 oversampler64_;
+    PolyphaseOversampler4x64 oversampler4x64_;
     int oversampling_factor_ = 2;
 
     // Tape simulation high-frequency damping
-    float tape_prev_l_ = 0.0f;
-    float tape_prev_r_ = 0.0f;
+    double tape_prev_l_ = 0.0;
+    double tape_prev_r_ = 0.0;
     float tape_damping_ = 0.15f;
 
     // Per-channel DC blocker (10 Hz one-pole highpass) for the triode stage
-    float dc_x_l_ = 0.0f, dc_y_l_ = 0.0f;
-    float dc_x_r_ = 0.0f, dc_y_r_ = 0.0f;
+    double dc_x_l_ = 0.0, dc_y_l_ = 0.0;
+    double dc_x_r_ = 0.0, dc_y_r_ = 0.0;
     float dc_r_ = 0.99869f;
 
     // Dry-path history ring (stereo interleaved) used to align the dry signal
@@ -262,14 +252,15 @@ private:
     static constexpr uint32_t kDryRingFrames = 16384; // power of two
     static constexpr uint32_t kDryRingMask = kDryRingFrames - 1;
     static constexpr uint32_t kChunkFrames = 4096;   // matches oversampler init() capacity
-    std::vector<float> dry_ring_ = std::vector<float>(static_cast<size_t>(kDryRingFrames) * 2, 0.0f);
+    std::vector<double> dry_ring_ = std::vector<double>(static_cast<size_t>(kDryRingFrames) * 2, 0.0);
     uint32_t dry_pos_ = 0;
 
-    void pushDry(const float* samples, uint32_t frames) {
+    template <typename T>
+    void pushDry(const T* samples, uint32_t frames) {
         for (uint32_t i = 0; i < frames; ++i) {
             const uint32_t p = (dry_pos_ + i) & kDryRingMask;
-            dry_ring_[2 * p] = samples[2 * i];
-            dry_ring_[2 * p + 1] = samples[2 * i + 1];
+            dry_ring_[2 * p] = static_cast<double>(samples[2 * i]);
+            dry_ring_[2 * p + 1] = static_cast<double>(samples[2 * i + 1]);
         }
         dry_pos_ = (dry_pos_ + frames) & kDryRingMask;
     }
@@ -283,108 +274,76 @@ private:
     }
 
     // y[n] = x[n] - x[n-1] + R * y[n-1]
-    static inline float dc_block(float x, float& x1, float& y1, float R) {
-        const float y = x - x1 + R * y1 + 1.0e-20f; // denormal flush
+    static inline double dc_block(double x, double& x1, double& y1, double R) {
+        const double y = x - x1 + R * y1 + 1.0e-25; // denormal flush
         x1 = x;
         y1 = y;
         return y;
     }
 
     // Fast rational Padé approximation for hyperbolic tangent (~5x faster than std::tanh)
-    static inline float fast_tanh(float x) {
-        if (x < -3.0f) return -1.0f;
-        if (x > 3.0f) return 1.0f;
-        float x2 = x * x;
-        return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+    static inline double fast_tanh(double x) {
+        if (x < -3.0) return -1.0;
+        if (x > 3.0) return 1.0;
+        const double x2 = x * x;
+        return x * (27.0 + x2) / (27.0 + 9.0 * x2);
     }
 
     // 1. 12AX7 Triode Vacuum Tube (Asymmetric Even-Order Harmonics)
-    inline float processTriode(float x) {
-        float gain = 1.0f + current_drive_ * 2.5f;
-        float driven = x * gain;
+    inline double processTriode(double x) {
+        const double drive = static_cast<double>(current_drive_);
+        const double gain = 1.0 + drive * 2.5;
+        const double driven = x * gain;
 
         // Asymmetric transfer function: positive swings compress differently than negative swings
         // Generates musical 2nd (octave) & 3rd harmonics
-        float out;
-        if (driven > 0.0f) {
+        double out;
+        if (driven > 0.0) {
             out = fast_tanh(driven);
         } else {
             // Negative swing has a softer, extended knee (classic triode grid characteristic)
-            float neg = driven * 0.85f;
-            out = fast_tanh(neg) / 0.85f;
+            const double neg = driven * 0.85;
+            out = fast_tanh(neg) / 0.85;
         }
 
         // Add subtle quadratic even-harmonic warmth
-        out += (driven * driven * 0.08f * current_drive_);
+        out += (driven * driven * 0.08 * drive);
 
         // Level compensation so volume stays consistent
-        float comp = 1.0f / (1.0f + current_drive_ * 0.5f);
+        const double comp = 1.0 / (1.0 + drive * 0.5);
         return out * comp;
     }
 
-    // 2. Magnetic Tape Saturation (Symmetric Soft Hysteresis Compression + High-Frequency Smoothing)
-    inline float processTape(float x, float& prev_state) {
-        float gain = 1.0f + current_drive_ * 2.0f;
-        float driven = x * gain;
-
-        // Tape S-curve saturation
-        float sat = fast_tanh(driven);
-
-        // Gentle high-frequency damping (simulating tape head magnetic gap losses at 2x rate)
-        float smoothed = sat * (1.0f - tape_damping_) + prev_state * tape_damping_;
-        prev_state = sat;
-
-        float comp = 1.0f / (1.0f + current_drive_ * 0.4f);
-        return smoothed * comp;
-    }
-
-    // 3. Vintage Console Preamp (Subtle Class-A Harmonic Excitation)
-    inline float processPreamp(float x) {
-        float drive_scale = current_drive_ * 0.5f;
-        float x2 = x * x;
-        float x3 = x2 * x;
-
-        // 3-term polynomial saturation: y = x - 0.15*x^2 - 0.1*x^3
-        float out = x - (x2 * 0.15f * drive_scale) - (x3 * 0.10f * drive_scale);
-        return std::clamp(out, -1.0f, 1.0f);
-    }
-
-    inline void processTriodeStereo(float in_l, float in_r, float& out_l, float& out_r) {
+    inline void processTriodeStereo(double in_l, double in_r, double& out_l, double& out_r) {
         out_l = processTriode(in_l);
         out_r = processTriode(in_r);
     }
 
-    inline void processTapeStereo(float in_l, float in_r, float& out_l, float& out_r) {
-        const float gain = 1.0f + current_drive_ * 2.0f;
-        const SimdFloat4 in_v(in_l, in_r, 0.0f, 0.0f);
-        const SimdFloat4 driven = in_v * SimdFloat4(gain);
-        const SimdFloat4 sat = SimdFloat4::fast_tanh(driven);
-        alignas(16) float sat_arr[4];
-        sat.store_u(sat_arr);
+    inline void processTapeStereo(double in_l, double in_r, double& out_l, double& out_r) {
+        const double drive = static_cast<double>(current_drive_);
+        const double gain = 1.0 + drive * 2.0;
+        const double sat_l = fast_tanh(in_l * gain);
+        const double sat_r = fast_tanh(in_r * gain);
 
-        const float smoothed_l = sat_arr[0] * (1.0f - tape_damping_) + tape_prev_l_ * tape_damping_;
-        const float smoothed_r = sat_arr[1] * (1.0f - tape_damping_) + tape_prev_r_ * tape_damping_;
-        tape_prev_l_ = sat_arr[0];
-        tape_prev_r_ = sat_arr[1];
+        const double damp = static_cast<double>(tape_damping_);
+        const double smoothed_l = sat_l * (1.0 - damp) + tape_prev_l_ * damp;
+        const double smoothed_r = sat_r * (1.0 - damp) + tape_prev_r_ * damp;
+        tape_prev_l_ = sat_l;
+        tape_prev_r_ = sat_r;
 
-        const float comp = 1.0f / (1.0f + current_drive_ * 0.4f);
+        const double comp = 1.0 / (1.0 + drive * 0.4);
         out_l = smoothed_l * comp;
         out_r = smoothed_r * comp;
     }
 
-    inline void processPreampStereo(float in_l, float in_r, float& out_l, float& out_r) {
-        const float drive_scale = current_drive_ * 0.5f;
-        const SimdFloat4 x(in_l, in_r, 0.0f, 0.0f);
-        const SimdFloat4 x2 = x * x;
-        const SimdFloat4 x3 = x2 * x;
-        const SimdFloat4 c15(0.15f * drive_scale);
-        const SimdFloat4 c10(0.10f * drive_scale);
-        SimdFloat4 out_v = x - (x2 * c15) - (x3 * c10);
-        out_v = SimdFloat4::max(SimdFloat4(-1.0f), SimdFloat4::min(SimdFloat4(1.0f), out_v));
-        alignas(16) float res[4];
-        out_v.store_u(res);
-        out_l = res[0];
-        out_r = res[1];
+    inline void processPreampStereo(double in_l, double in_r, double& out_l, double& out_r) {
+        const double drive_scale = static_cast<double>(current_drive_) * 0.5;
+        const double c15 = 0.15 * drive_scale;
+        const double c10 = 0.10 * drive_scale;
+        const double x2_l = in_l * in_l;
+        const double x2_r = in_r * in_r;
+        out_l = std::clamp(in_l - (x2_l * c15) - (x2_l * in_l * c10), -1.0, 1.0);
+        out_r = std::clamp(in_r - (x2_r * c15) - (x2_r * in_r * c10), -1.0, 1.0);
     }
 
     void updateTapeFilter() {

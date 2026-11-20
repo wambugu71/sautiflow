@@ -233,6 +233,17 @@ public:
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
     void process(float* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+    // Process interleaved stereo 64-bit double samples: [L0, R0, L1, R1, ...]
+    void process(double* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
         const SimdDouble2 v_sc_b0(sc_b0_);
@@ -251,11 +262,11 @@ public:
                 current_threshold_db_ = target_threshold_db_;
             }
 
-            const float in_l = interleaved_samples[2 * i];
-            const float in_r = interleaved_samples[2 * i + 1];
+            const double in_l = static_cast<double>(interleaved_samples[2 * i]);
+            const double in_r = static_cast<double>(interleaved_samples[2 * i + 1]);
 
             // 1. Sidechain High-Pass Filter (vectorized stereo Direct Form I in 64-bit precision)
-            const SimdDouble2 v_sc_in(static_cast<double>(in_l), static_cast<double>(in_r));
+            const SimdDouble2 v_sc_in(in_l, in_r);
             const SimdDouble2 sc_y = (v_sc_b0 * v_sc_in) + (v_sc_b1 * sc_x1_) + (v_sc_b2 * sc_x2_)
                                    - (v_sc_a1 * sc_y1_) - (v_sc_a2 * sc_y2_);
             sc_x2_ = sc_x1_; sc_x1_ = v_sc_in;
@@ -297,8 +308,8 @@ public:
                 current_gr_db_ += gain_smooth_coeff_ * (target_gr_db - current_gr_db_); // Smooth release
             }
 
-            float out_l = in_l;
-            float out_r = in_r;
+            double out_l = in_l;
+            double out_r = in_r;
 
             // 4. Output Processing based on Mode
             if (mode_ == DeEsserMode::SplitBand) {
@@ -306,28 +317,28 @@ public:
                 updateShelfCoeffs(-current_gr_db_);
                 shelf_b0_ = tgt_shelf_b0_;
 
-                out_l = static_cast<float>(shelf_svf_.processSample(static_cast<double>(in_l), 0));
-                out_r = static_cast<float>(shelf_svf_.processSample(static_cast<double>(in_r), 1));
+                out_l = shelf_svf_.processSample(in_l, 0);
+                out_r = shelf_svf_.processSample(in_r, 1);
             } else {
                 // WideBand Mode: Direct linear attenuation
-                float lin_gain = std::pow(10.0f, -current_gr_db_ / 20.0f);
+                const double lin_gain = std::pow(10.0, static_cast<double>(-current_gr_db_) / 20.0);
                 out_l = in_l * lin_gain;
                 out_r = in_r * lin_gain;
             }
 
             // Anti-pop crossfade on enable / reset
             if (anti_pop_ < 1.0f) {
-                out_l = in_l + anti_pop_ * (out_l - in_l);
-                out_r = in_r + anti_pop_ * (out_r - in_r);
+                const double ap = static_cast<double>(anti_pop_);
+                out_l = in_l + ap * (out_l - in_l);
+                out_r = in_r + ap * (out_r - in_r);
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 50.0f);
             }
 
-            interleaved_samples[2 * i]     = out_l;
-            interleaved_samples[2 * i + 1] = out_r;
+            interleaved_samples[2 * i]     = static_cast<T>(out_l);
+            interleaved_samples[2 * i + 1] = static_cast<T>(out_r);
         }
     }
 
-private:
     bool enabled_ = false;
     DeEsserMode mode_ = DeEsserMode::SplitBand;
     DeEsserPreset preset_ = DeEsserPreset::GentleVocal;

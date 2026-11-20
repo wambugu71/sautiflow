@@ -63,9 +63,11 @@ public:
         updateFilters();
         oversampler_.init(static_cast<int>(sample_rate_), 8192);
         oversampler4x_.init(static_cast<int>(sample_rate_), 8192);
-        sidechain_buf_.assign(16384 * 2, 0.0f);
-        highband_buf_.assign(16384 * 2, 0.0f);
-        dry_ring_.assign(512, 0.0f);
+        oversampler64_.init(static_cast<int>(sample_rate_), 8192);
+        oversampler4x64_.init(static_cast<int>(sample_rate_), 8192);
+        sidechain_buf_.assign(16384 * 2, 0.0);
+        highband_buf_.assign(16384 * 2, 0.0);
+        dry_ring_.assign(512, 0.0);
         dry_pos_ = 0;
 
         // Pre-calculate envelope filter coefficients
@@ -138,9 +140,9 @@ public:
         e_pres_l_ = e_pres_r_ = 0.0f;
 
         // Reset DC blocker and Chebyshev envelope states
-        dc_x_l_ = dc_x_r_ = 0.0f;
-        dc_y_l_ = dc_y_r_ = 0.0f;
-        cheb_env_sq_l_ = cheb_env_sq_r_ = 0.0f;
+        dc_x_l_ = dc_x_r_ = 0.0;
+        dc_y_l_ = dc_y_r_ = 0.0;
+        cheb_env_sq_l_ = cheb_env_sq_r_ = 0.0;
 
         // Reset SVF filters
         air_shelf_svf_.reset();
@@ -168,14 +170,27 @@ public:
         anti_pop_ = 1.0f;
         oversampler_.reset();
         oversampler4x_.reset();
+        oversampler64_.reset();
+        oversampler4x64_.reset();
         if (!dry_ring_.empty()) {
-            std::fill(dry_ring_.begin(), dry_ring_.end(), 0.0f);
+            std::fill(dry_ring_.begin(), dry_ring_.end(), 0.0);
         }
         dry_pos_ = 0;
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
     void process(float* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+    // Process interleaved stereo 64-bit double samples: [L0, R0, L1, R1, ...]
+    void process(double* interleaved_samples, uint32_t frame_count) {
+        processImpl(interleaved_samples, frame_count);
+    }
+
+private:
+    template <typename T>
+    void processImpl(T* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
 
         switch (profile_) {
@@ -196,8 +211,6 @@ public:
                 break;
         }
     }
-
-private:
     float calcAlpha(float time_sec) const {
         return 1.0f - std::exp(-1.0f / (sample_rate_ * time_sec));
     }
@@ -205,20 +218,21 @@ private:
     // =========================================================================
     // 1. Differential Envelope Transient Articulator (Profile 0)
     // =========================================================================
-    void processTransientArticulator(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processTransientArticulator(T* samples, uint32_t frame_count) {
         constexpr float kEps = 1.0e-6f;
         for (uint32_t i = 0; i < frame_count; ++i) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
             const float max_boost_db = 2.5f * current_intensity_ * transient_snap_;
 
-            float in_l = samples[2 * i];
-            float in_r = samples[2 * i + 1];
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
             // 1. Isolate 2.5 kHz to 12 kHz transient detection band
             double side_l = transient_band_lp_[0].processSample(
-                                transient_band_hp_[0].processSample(static_cast<double>(in_l)));
+                                transient_band_hp_[0].processSample(in_l));
             double side_r = transient_band_lp_[1].processSample(
-                                transient_band_hp_[1].processSample(static_cast<double>(in_r)));
+                                transient_band_hp_[1].processSample(in_r));
 
             float mag_l = static_cast<float>(std::abs(side_l));
             float mag_r = static_cast<float>(std::abs(side_r));
@@ -263,18 +277,19 @@ private:
                 last_boost_r_ = boost_r;
             }
 
-            float out_l = static_cast<float>(transient_shelf_[0].processSample(static_cast<double>(in_l)));
-            float out_r = static_cast<float>(transient_shelf_[1].processSample(static_cast<double>(in_r)));
+            const double out_l = transient_shelf_[0].processSample(in_l);
+            const double out_r = transient_shelf_[1].processSample(in_r);
 
-            samples[2 * i]     = out_l;
-            samples[2 * i + 1] = out_r;
+            samples[2 * i]     = static_cast<T>(out_l);
+            samples[2 * i + 1] = static_cast<T>(out_r);
         }
     }
 
     // =========================================================================
     // 2. Air Shelf (Profile 1) - 64-bit Cytomic SVF with Nyquist De-Cramping
     // =========================================================================
-    void processAirShelf(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processAirShelf(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
             if (std::abs(current_intensity_ - last_air_intensity_) > 0.002f) {
@@ -298,15 +313,16 @@ private:
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 100.0f);
             }
 
-            samples[2 * i]     = static_cast<float>(out_l);
-            samples[2 * i + 1] = static_cast<float>(out_r);
+            samples[2 * i]     = static_cast<T>(out_l);
+            samples[2 * i + 1] = static_cast<T>(out_r);
         }
     }
 
     // =========================================================================
     // 3. Presence Exciter (Profile 2) - 64-bit Cytomic SVF Flat-Sum Crossover
     // =========================================================================
-    void processPresenceExciter(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processPresenceExciter(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
             const double mid_gain = 1.0 + static_cast<double>(current_intensity_) * 0.4;
@@ -335,15 +351,16 @@ private:
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 100.0f);
             }
 
-            samples[2 * i]     = static_cast<float>(out_l);
-            samples[2 * i + 1] = static_cast<float>(out_r);
+            samples[2 * i]     = static_cast<T>(out_l);
+            samples[2 * i + 1] = static_cast<T>(out_r);
         }
     }
 
     // =========================================================================
     // 4. 4x Oversampled Chebyshev Polynomial Exciter (Profile 3)
     // =========================================================================
-    void processChebyshevHarmonicExciter(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processChebyshevHarmonicExciter(T* samples, uint32_t frame_count) {
         if (!samples || frame_count == 0) return;
         const uint32_t max_block = static_cast<uint32_t>(sidechain_buf_.size() / 2);
         for (uint32_t offset = 0; offset < frame_count; offset += max_block) {
@@ -352,50 +369,51 @@ private:
         }
     }
 
-    void processChebyshevBlock(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processChebyshevBlock(T* samples, uint32_t frame_count) {
         // 1. 4th-Order Linkwitz-Riley Crossover at 3.2 kHz (High-Pass Sidechain)
         for (uint32_t i = 0; i < frame_count; ++i) {
-            double in_l = static_cast<double>(samples[2 * i]);
-            double in_r = static_cast<double>(samples[2 * i + 1]);
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
-            double hp_l = lr4_hp2_[0].processSample(lr4_hp1_[0].processSample(in_l));
-            double hp_r = lr4_hp2_[1].processSample(lr4_hp1_[1].processSample(in_r));
+            const double hp_l = lr4_hp2_[0].processSample(lr4_hp1_[0].processSample(in_l));
+            const double hp_r = lr4_hp2_[1].processSample(lr4_hp1_[1].processSample(in_r));
 
-            sidechain_buf_[2 * i]     = static_cast<float>(hp_l);
-            sidechain_buf_[2 * i + 1] = static_cast<float>(hp_r);
+            sidechain_buf_[2 * i]     = hp_l;
+            sidechain_buf_[2 * i + 1] = hp_r;
         }
 
         // 2. Chebyshev Polynomial Waveshaping with DC Blocking & Fundamental Cancellation in Oversampled Domain
-        const float g2 = g2_warmth_ * 0.40f;
-        const float g3 = g3_presence_ * 0.30f;
-        const float dc_r = dc_block_r_;
-        const float env_alpha = 1.0f - dc_r;
+        const double g2 = static_cast<double>(g2_warmth_) * 0.40;
+        const double g3 = static_cast<double>(g3_presence_) * 0.30;
+        const double dc_r = static_cast<double>(dc_block_r_);
+        const double env_alpha = 1.0 - dc_r;
 
-        auto apply_chebyshev = [this, g2, g3, dc_r, env_alpha](float* buf, uint32_t num_frames) {
+        auto apply_chebyshev = [this, g2, g3, dc_r, env_alpha](double* buf, uint32_t num_frames) {
             for (uint32_t i = 0; i < num_frames; ++i) {
-                float xl = std::clamp(buf[2 * i], -1.0f, 1.0f);
-                float xr = std::clamp(buf[2 * i + 1], -1.0f, 1.0f);
+                const double xl = std::clamp(buf[2 * i], -1.0, 1.0);
+                const double xr = std::clamp(buf[2 * i + 1], -1.0, 1.0);
 
-                const float xl2 = xl * xl;
-                const float xr2 = xr * xr;
+                const double xl2 = xl * xl;
+                const double xr2 = xr * xr;
 
                 // Track mean-square amplitude (A^2 / 2 for sine of amplitude A -> 2*mean(x^2) = A^2)
-                cheb_env_sq_l_ += env_alpha * (2.0f * xl2 - cheb_env_sq_l_);
-                cheb_env_sq_r_ += env_alpha * (2.0f * xr2 - cheb_env_sq_r_);
+                cheb_env_sq_l_ += env_alpha * (2.0 * xl2 - cheb_env_sq_l_);
+                cheb_env_sq_r_ += env_alpha * (2.0 * xr2 - cheb_env_sq_r_);
 
                 // Chebyshev 2nd Harmonic: 2x^2 with DC blocker removes offset (0 at silence)
-                float t2_raw_l = 2.0f * xl2;
-                float t2_raw_r = 2.0f * xr2;
+                const double t2_raw_l = 2.0 * xl2;
+                const double t2_raw_r = 2.0 * xr2;
 
-                float dc_out_l = t2_raw_l - dc_x_l_ + dc_r * dc_y_l_;
+                const double dc_out_l = t2_raw_l - dc_x_l_ + dc_r * dc_y_l_;
                 dc_x_l_ = t2_raw_l; dc_y_l_ = dc_out_l;
 
-                float dc_out_r = t2_raw_r - dc_x_r_ + dc_r * dc_y_r_;
+                const double dc_out_r = t2_raw_r - dc_x_r_ + dc_r * dc_y_r_;
                 dc_x_r_ = t2_raw_r; dc_y_r_ = dc_out_r;
 
                 // Envelope-normalized Chebyshev T3(x): 4x^3 - 3*A^2*x cancels fundamental cos(wt) leaving pure cos(3wt)
-                float t3_l = 4.0f * ((xl2 * xl) - 0.75f * cheb_env_sq_l_ * xl);
-                float t3_r = 4.0f * ((xr2 * xr) - 0.75f * cheb_env_sq_r_ * xr);
+                const double t3_l = 4.0 * ((xl2 * xl) - 0.75 * cheb_env_sq_l_ * xl);
+                const double t3_r = 4.0 * ((xr2 * xr) - 0.75 * cheb_env_sq_r_ * xr);
 
                 buf[2 * i]     = (g2 * dc_out_l) + (g3 * t3_l);
                 buf[2 * i + 1] = (g2 * dc_out_r) + (g3 * t3_r);
@@ -405,21 +423,21 @@ private:
         if (oversampling_factor_ == 1) {
             apply_chebyshev(sidechain_buf_.data(), frame_count);
         } else if (oversampling_factor_ == 4) {
-            oversampler4x_.process(sidechain_buf_.data(), frame_count, apply_chebyshev);
+            oversampler4x64_.process(sidechain_buf_.data(), frame_count, apply_chebyshev);
         } else {
-            float* os_hp = oversampler_.upsample(sidechain_buf_.data(), frame_count);
+            double* os_hp = oversampler64_.upsample(sidechain_buf_.data(), frame_count);
             if (os_hp) {
                 apply_chebyshev(os_hp, frame_count * 2);
-                oversampler_.downsample(os_hp, sidechain_buf_.data(), frame_count);
+                oversampler64_.downsample(os_hp, sidechain_buf_.data(), frame_count);
             }
         }
 
         // Post-waveshaper LR4 high-pass filter at 3.2 kHz strips demodulated AM baseband envelopes
         for (uint32_t i = 0; i < frame_count; ++i) {
-            double h_l = cheb_post_hp2_[0].processSample(cheb_post_hp1_[0].processSample(static_cast<double>(sidechain_buf_[2 * i])));
-            double h_r = cheb_post_hp2_[1].processSample(cheb_post_hp1_[1].processSample(static_cast<double>(sidechain_buf_[2 * i + 1])));
-            sidechain_buf_[2 * i]     = static_cast<float>(h_l);
-            sidechain_buf_[2 * i + 1] = static_cast<float>(h_r);
+            const double h_l = cheb_post_hp2_[0].processSample(cheb_post_hp1_[0].processSample(sidechain_buf_[2 * i]));
+            const double h_r = cheb_post_hp2_[1].processSample(cheb_post_hp1_[1].processSample(sidechain_buf_[2 * i + 1]));
+            sidechain_buf_[2 * i]     = h_l;
+            sidechain_buf_[2 * i + 1] = h_r;
         }
 
         // 3. Mix back into dry signal at -20 dB nominal blend with group delay compensation (39.9 -> 40 for 4x)
@@ -427,34 +445,35 @@ private:
         constexpr int kRingFrames = 256;
         for (uint32_t i = 0; i < frame_count; ++i) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
-            const float mix = current_intensity_ * 0.125f * anti_pop_; // -18 dB to -24 dB range
+            const double mix = static_cast<double>(current_intensity_) * 0.125 * static_cast<double>(anti_pop_); // -18 dB to -24 dB range
 
-            float in_l = samples[2 * i];
-            float in_r = samples[2 * i + 1];
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
             dry_ring_[dry_pos_ * 2]     = in_l;
             dry_ring_[dry_pos_ * 2 + 1] = in_r;
-            int del_idx = (dry_pos_ - delay_frames + kRingFrames) % kRingFrames;
-            float del_l = dry_ring_[del_idx * 2];
-            float del_r = dry_ring_[del_idx * 2 + 1];
+            const int del_idx = (dry_pos_ - delay_frames + kRingFrames) % kRingFrames;
+            const double del_l = dry_ring_[del_idx * 2];
+            const double del_r = dry_ring_[del_idx * 2 + 1];
             dry_pos_ = (dry_pos_ + 1) % kRingFrames;
 
-            float out_l = del_l + sidechain_buf_[2 * i] * mix;
-            float out_r = del_r + sidechain_buf_[2 * i + 1] * mix;
+            const double out_l = del_l + sidechain_buf_[2 * i] * mix;
+            const double out_r = del_r + sidechain_buf_[2 * i + 1] * mix;
 
             if (anti_pop_ < 1.0f) {
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 100.0f);
             }
 
-            samples[2 * i]     = out_l;
-            samples[2 * i + 1] = out_r;
+            samples[2 * i]     = static_cast<T>(out_l);
+            samples[2 * i + 1] = static_cast<T>(out_r);
         }
     }
 
     // =========================================================================
     // 5. Full Psychoacoustic Clarity Master (Profile 4)
     // =========================================================================
-    void processPsychoacousticMaster(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processPsychoacousticMaster(T* samples, uint32_t frame_count) {
         // Step 1: Dynamic Low-Mid De-Masking (240 Hz Anti-Mud Peaking Cut)
         processDeMasking(samples, frame_count);
 
@@ -465,13 +484,14 @@ private:
         processChebyshevHarmonicExciter(samples, frame_count);
     }
 
-    void processDeMasking(float* samples, uint32_t frame_count) {
+    template <typename T>
+    void processDeMasking(T* samples, uint32_t frame_count) {
         if (demask_amount_ <= 0.01f) return;
         constexpr float kEps = 1.0e-5f;
 
         for (uint32_t i = 0; i < frame_count; ++i) {
-            double in_l = static_cast<double>(samples[2 * i]);
-            double in_r = static_cast<double>(samples[2 * i + 1]);
+            const double in_l = static_cast<double>(samples[2 * i]);
+            const double in_r = static_cast<double>(samples[2 * i + 1]);
 
             // Measure Mud band (180-350 Hz) vs Vocal Presence band (1-4 kHz)
             double mud_l = std::abs(demask_mud_bpf_[0].processSample(in_l));
@@ -506,8 +526,8 @@ private:
                 last_cut_r_ = cut_r;
             }
 
-            samples[2 * i]     = static_cast<float>(demask_peaking_[0].processSample(in_l));
-            samples[2 * i + 1] = static_cast<float>(demask_peaking_[1].processSample(in_r));
+            samples[2 * i]     = static_cast<T>(demask_peaking_[0].processSample(in_l));
+            samples[2 * i + 1] = static_cast<T>(demask_peaking_[1].processSample(in_r));
         }
     }
 
@@ -585,19 +605,21 @@ private:
     float e_mud_l_  = 0.0f, e_mud_r_  = 0.0f;
     float e_pres_l_ = 0.0f, e_pres_r_ = 0.0f;
 
-    // Chebyshev DC blocker & envelope tracker
+    // Chebyshev DC blocker & envelope tracker (64-bit precision)
     float dc_block_r_ = 0.999f;
-    float dc_x_l_ = 0.0f, dc_x_r_ = 0.0f;
-    float dc_y_l_ = 0.0f, dc_y_r_ = 0.0f;
-    float cheb_env_sq_l_ = 0.0f, cheb_env_sq_r_ = 0.0f;
+    double dc_x_l_ = 0.0, dc_x_r_ = 0.0;
+    double dc_y_l_ = 0.0, dc_y_r_ = 0.0;
+    double cheb_env_sq_l_ = 0.0, cheb_env_sq_r_ = 0.0;
 
-    // 2x and 4x Polyphase Half-Band Oversamplers
+    // 2x and 4x Polyphase Half-Band Oversamplers (F32 and F64)
     PolyphaseOversampler2x oversampler_;
     PolyphaseOversampler4x oversampler4x_;
+    PolyphaseOversampler2x64 oversampler64_;
+    PolyphaseOversampler4x64 oversampler4x64_;
     int oversampling_factor_ = 4;
-    std::vector<float> sidechain_buf_;
-    std::vector<float> highband_buf_;
-    std::vector<float> dry_ring_;
+    std::vector<double> sidechain_buf_;
+    std::vector<double> highband_buf_;
+    std::vector<double> dry_ring_;
     int dry_pos_ = 0;
 
     // Cytomic SVFs for High Precision Dynamics
