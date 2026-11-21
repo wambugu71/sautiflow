@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.6.33 — 2026-11-22
+## v1.0.0 — 2026-11-22
 
 - **[Android Oboe Sink & DAP Hi-Res Driver]** Added `OboeAudioSink` (`android_oboe_sink.h`) with AAudio/OpenSLES output (`MA_NO_DEVICE_IO`) and dedicated Hi-Res audio driver support for selected DAPs, resolving JNI crashes when enabling the DAP Hi-Res driver.
 - **[Direct USB DAC Driver (libusb)]** Added direct `libusb` UAC 1.0/2.0 hardware driver with SautiPlay Hi-Res USB DAC controls, bypassing Android OS mixing.

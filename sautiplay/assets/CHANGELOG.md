@@ -1,4 +1,4 @@
-## v0.6.33 — 2026-11-22
+## v1.0.0 — 2026-11-22
 - Android Oboe & DAP Hi-Res Driver: Native AAudio/OpenSLES Oboe sink and dedicated Hi-Res audio driver support for selected DAPs
 - Direct USB DAC Driver: Direct libusb UAC 1.0/2.0 output with Hi-Res USB DAC controls bypassing OS resampling
 - Multi-Channel DSD & DoP: Seamless multi-channel Native DSD and DoP channel switching

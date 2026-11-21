@@ -1221,7 +1221,7 @@ packages:
       path: ".."
       relative: true
     source: path
-    version: "0.6.33"
+    version: "1.0.0"
   share_plus:
     dependency: "direct main"
     description:
