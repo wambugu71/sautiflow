@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.6.33 — 2026-11-22
+
+- **[Android Oboe Sink & DAP Hi-Res Driver]** Added `OboeAudioSink` (`android_oboe_sink.h`) with AAudio/OpenSLES output (`MA_NO_DEVICE_IO`) and dedicated Hi-Res audio driver support for selected DAPs, resolving JNI crashes when enabling the DAP Hi-Res driver.
+- **[Direct USB DAC Driver (libusb)]** Added direct `libusb` UAC 1.0/2.0 hardware driver with SautiPlay Hi-Res USB DAC controls, bypassing Android OS mixing.
+- **[Multi-Channel DSD & DoP]** Added seamless multi-channel Native DSD and DoP channel switching in `dsd_processor.h` and `audio_engine.cpp`.
+- **[Dynamic Sample-Rate Clamping & Output Bit-Depth]** Derived sample-rate clamping dynamically from hardware/DAC capabilities and user settings to prevent unintended OS SRC; enforced selected output bit depth across engine, platforms, and Now Playing UI.
+- **[Uniform F32/F64 DSP Pipeline & Signal Path Diagnostics]** Enforced uniform F32/F64 pipeline precision with zero F32 islands; added interactive Signal Path chain UI (`signal_path_test.dart`) and fixed engine telemetry accuracy, DMA burst starvation, and audible clock continuity. Upgraded crossfeed to a 64-bit path, resolved mathematical issues across EQ, clarity, de-esser, convolver, bass, and dynamics, added Custom preset & multi-band controls to Dynamic System, and enabled Master Peak Limiter with AGC disabled in Bass Extreme.
+- **[Chromecast 24-bit/192 kHz, DLNA & Network Sources]** Added Chromecast 24-bit/192 kHz output with Bit-Perfect and DSP modes and polished the Cast Output M3E bottom sheet and DLNA bit-depth reporting; added Network Sources for SFTP (`dartssh2`), SMB (`smb_connect`), Subsonic, WebDAV, and an HTTP-to-FTP/remote byte-range streaming relay.
+- **[libprojectM Visualizer Integration]** Integrated `libprojectM` Milkdrop visualizer and optimized the GPU/CPU pipeline with zero-alloc FFT/waveforms, uniform caching, and reduced mobile memory usage.
+- **[Audiophile Auto DJ & Automix DSP]** Added smart hybrid mixing with LR4 phase-aligned bass swap, Camelot wheel harmonic analysis, seamless tempo glide, space echo, and safety verification.
+- **[CUE Sheets, Smart Playlists & Metadata Intelligence]** Added external and embedded CUE sheet parsing with virtual sub-track playback; added Drift-backed playlists, smart playlist rules, M3U playlist updates, metadata intelligence service, and windowed lazy loading with decoupled playback reactivity.
+- **[Now Playing, M3E & Streaming Stability]** Added M3E album art shapes on mobile, adaptive marquee with isolated `RepaintBoundary`, transparent Material wrappers for M3E dialogs/sheets, mobile queue layout polish, Android media notification metadata fixes, and stabilized YouTube Music stream extraction and in-app session sync.
+
 ## v0.6.32 — 2026-10-19
 
 - **[Cytomic SVF 64-Bit Parametric EQ & Orfanidis De-Cramping]** Implemented Andy Simper (Cytomic) linear trapezoidal integrated state variable filters in 64-bit double precision across multiband EQ and mastering stages (`dsp/cytomic_svf_dsp.h`). Added Orfanidis prescribed-Nyquist-gain cramping correction for $f_c > 8\text{ kHz}$ at $f_s \le 48\text{ kHz}$, eliminating high-frequency phase and amplitude warping near Nyquist. Provides click-free orthogonal frequency/Q/gain modulation, 30 Hz noise-floor rejection at 192 kHz, and synchronized interactive curve visualization in `parametric_eq_graph.dart`.

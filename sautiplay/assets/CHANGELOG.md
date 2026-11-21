@@ -1,3 +1,15 @@
+## v0.6.33 — 2026-11-22
+- Android Oboe & DAP Hi-Res Driver: Native AAudio/OpenSLES Oboe sink and dedicated Hi-Res audio driver support for selected DAPs
+- Direct USB DAC Driver: Direct libusb UAC 1.0/2.0 output with Hi-Res USB DAC controls bypassing OS resampling
+- Multi-Channel DSD & DoP: Seamless multi-channel Native DSD and DoP channel switching
+- Dynamic Sample-Rate Clamping & Bit-Depth: Hardware/DAC-aware sample-rate clamping and enforced output bit depth across engine and UI
+- Uniform F32/F64 DSP & Signal Path UI: Zero F32 islands in the 64-bit DSP chain, interactive Signal Path diagnostics, 64-bit crossfeed, and Custom Dynamic System controls
+- Chromecast 24-bit/192 kHz & Network Sources: Bit-Perfect/DSP Chromecast output, DLNA fixes, and SFTP, SMB, Subsonic, WebDAV, and FTP streaming relay
+- libprojectM Visualizer: Integrated Milkdrop-compatible visualizer with optimized zero-alloc FFT/waveform pipeline
+- Audiophile Auto DJ: Smart hybrid mixing, LR4 phase-aligned bass swap, Camelot wheel harmonic analysis, and seamless tempo glide
+- CUE Sheets & Smart Playlists: External/embedded CUE virtual sub-tracks, Drift-backed playlists, smart playlist rules, and metadata intelligence
+- UI & Streaming Polish: M3E mobile album art shapes, adaptive marquee, Cached Streams multi-select/playlist creation, and YouTube stream stability
+
 ## v0.6.32 — 2026-10-19
 - Cytomic SVF 64-Bit Parametric EQ: Andy Simper trapezoidal SVF filters with Orfanidis Nyquist de-cramping and zero zipper noise
 - Matrix-Compensated Graphic EQ: Matrix-inverted band interaction compensation, monotonic PCHIP spline graph, dual-channel L/R controls, and slider coupling
