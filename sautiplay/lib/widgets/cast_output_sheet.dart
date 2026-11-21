@@ -233,51 +233,56 @@ class _ModeChoiceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
+    return Material(
+      type: MaterialType.transparency,
       borderRadius: BorderRadius.circular(14),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? primary.withAlpha(38) : Colors.white.withAlpha(10),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? primary : Colors.white.withAlpha(20),
-            width: selected ? 1.4 : 1.0,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: selected ? primary : Colors.white70),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: selected ? primary : Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12.5,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white60,
-                      fontSize: 10.5,
-                    ),
-                  ),
-                ],
-              ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? primary.withAlpha(38) : Colors.white.withAlpha(10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? primary : Colors.white.withAlpha(20),
+              width: selected ? 1.4 : 1.0,
             ),
-          ],
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 18, color: selected ? primary : Colors.white70),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: selected ? primary : Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

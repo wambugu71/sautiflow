@@ -319,6 +319,7 @@ class AppSubScreenScaffold extends StatelessWidget {
   final Widget? bottomNavigationBar;
   final double maxWidth;
   final Widget? leading;
+  final bool showAppBar;
 
   const AppSubScreenScaffold({
     super.key,
@@ -328,6 +329,7 @@ class AppSubScreenScaffold extends StatelessWidget {
     this.bottomNavigationBar,
     this.maxWidth = 800.0,
     this.leading,
+    this.showAppBar = true,
   });
 
   @override
@@ -341,33 +343,35 @@ class AppSubScreenScaffold extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: bg,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: leading ??
-            IconButton(
-              icon: Icon(
-                Icons.arrow_back_rounded,
-                color: textPrimary,
-                size: 24,
+      appBar: showAppBar
+          ? AppBar(
+              backgroundColor: bg,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              leading: leading ??
+                  IconButton(
+                    icon: Icon(
+                      Icons.arrow_back_rounded,
+                      color: textPrimary,
+                      size: 24,
+                    ),
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+              title: Text(
+                title,
+                style: TextStyle(
+                  color: textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: isCompact ? 18 : 20,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              tooltip: 'Back',
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-        title: Text(
-          title,
-          style: TextStyle(
-            color: textPrimary,
-            fontWeight: FontWeight.bold,
-            fontSize: isCompact ? 18 : 20,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        centerTitle: true,
-        actions: actions,
-      ),
+              centerTitle: true,
+              actions: actions,
+            )
+          : null,
       bottomNavigationBar: bottomNavigationBar,
       body: SafeArea(
         top: false,

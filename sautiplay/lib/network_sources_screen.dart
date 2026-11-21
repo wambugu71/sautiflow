@@ -1,24 +1,36 @@
-import 'dart:io';
-import 'package:material_ui/material_ui.dart';
-import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
-import 'widgets/m3e_modal_helpers.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-
-import 'package:sautiflow/sautiflow.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'database/preferences_store.dart';
-
 import 'isolate_player.dart';
 import 'services/app_theme_service.dart';
 import 'services/chromecast_service.dart';
 import 'services/dlna_renderer_service.dart';
 import 'services/dlna_service.dart';
 import 'services/ftp_service.dart';
+import 'services/sftp_service.dart';
+import 'services/smb_service.dart';
+import 'services/subsonic_service.dart';
+import 'services/webdav_service.dart';
+import 'widgets/app_m3e_widgets.dart';
 import 'widgets/cast_output_sheet.dart';
+import 'widgets/network/chromecast_page.dart';
+import 'widgets/network/dlna_renderers_page.dart';
+import 'widgets/network/dlna_servers_page.dart';
+import 'widgets/network/ftp_page.dart';
 import 'widgets/network/remote_browser_tab.dart';
 import 'widgets/network/subsonic_tab.dart';
+
+enum _NetworkDestination {
+  chromecast,
+  dlnaRenderers,
+  navidrome,
+  smb,
+  webdav,
+  sftp,
+  ftp,
+  dlnaServers,
+}
 
 class NetworkSourcesScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
@@ -40,1151 +52,595 @@ class NetworkSourcesScreen extends StatefulWidget {
   State<NetworkSourcesScreen> createState() => _NetworkSourcesScreenState();
 }
 
-class _NetworkSourcesScreenState extends State<NetworkSourcesScreen>
-    with SingleTickerProviderStateMixin {
-  // Dynamic theme colors from BuildContext
-  Color get _bgDark => context.bgDark;
-  Color get _cardDark => context.cardDark;
-  Color get _primary => context.primaryColor;
-  Color get _textDark => context.textMuted;
+class _NetworkSourcesScreenState extends State<NetworkSourcesScreen> {
+  _NetworkDestination _selectedPane = _NetworkDestination.chromecast;
 
-  late TabController _tabController;
-
-  // FTP State
-  List<FtpConfig> _ftpConfigs = [];
-  FtpConfig? _selectedFtpConfig;
-  String _currentFtpPath = '/';
-  List<FtpFileEntry> _ftpEntries = [];
-  bool _isLoadingFtp = false;
-  final List<String> _ftpPathHistory = ['/'];
+  int _subsonicCount = 0;
+  String? _subsonicPrimaryHost;
+  int _smbCount = 0;
+  int _webdavCount = 0;
+  int _sftpCount = 0;
+  int _ftpCount = 0;
 
   @override
   void initState() {
     super.initState();
-    final initialTab = PreferencesStore.instance
-        .getInt('network_sources_tab_index', defaultValue: 0)!
-        .clamp(0, 6);
-    _tabController =
-        TabController(length: 7, vsync: this, initialIndex: initialTab);
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
-        PreferencesStore.instance
-            .setInt('network_sources_tab_index', _tabController.index);
-      }
-    });
-    _loadFtpConfigs();
-    DlnaService.instance.addListener(_onDlnaStateChanged);
-    ChromecastService.instance.addListener(_onDlnaStateChanged);
+    _loadSourceCounts();
+    DlnaService.instance.addListener(_onServiceStateChanged);
+    ChromecastService.instance.addListener(_onServiceStateChanged);
+    DlnaRendererService.instance.addListener(_onServiceStateChanged);
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
-    DlnaService.instance.removeListener(_onDlnaStateChanged);
-    ChromecastService.instance.removeListener(_onDlnaStateChanged);
+    DlnaService.instance.removeListener(_onServiceStateChanged);
+    ChromecastService.instance.removeListener(_onServiceStateChanged);
+    DlnaRendererService.instance.removeListener(_onServiceStateChanged);
     super.dispose();
   }
 
-  void _onDlnaStateChanged() {
+  void _onServiceStateChanged() {
     if (mounted) setState(() {});
   }
 
-  Future<void> _loadFtpConfigs() async {
-    final configs = await FtpService.getSavedConfigs();
-    if (!mounted) return;
-    setState(() {
-      _ftpConfigs = configs;
-      if (_selectedFtpConfig != null) {
-        final matches = configs.where((c) => c.id == _selectedFtpConfig!.id);
-        if (matches.isNotEmpty) {
-          _selectedFtpConfig = matches.first;
-        } else {
-          _selectedFtpConfig = configs.isNotEmpty ? configs.first : null;
-        }
-      } else if (configs.isNotEmpty) {
-        _selectedFtpConfig = configs.first;
-      }
-    });
-    if (_selectedFtpConfig != null) {
-      _loadFtpDirectory(_currentFtpPath);
-    }
-  }
-
-  Future<void> _loadFtpDirectory(String path) async {
-    if (_selectedFtpConfig == null) return;
-    setState(() {
-      _isLoadingFtp = true;
-      _currentFtpPath = path;
-    });
-
-    final entries = await FtpService.listDirectory(
-      _selectedFtpConfig!,
-      dirPath: path,
-    );
+  Future<void> _loadSourceCounts() async {
+    final results = await Future.wait([
+      SubsonicService.getSavedConfigs(),
+      SmbService.getSavedConfigs(),
+      WebDavService.getSavedConfigs(),
+      SftpService.getSavedConfigs(),
+      FtpService.getSavedConfigs(),
+    ]);
 
     if (!mounted) return;
+    final subsonic = results[0] as List<SubsonicConfig>;
     setState(() {
-      _ftpEntries = entries;
-      _isLoadingFtp = false;
+      _subsonicCount = subsonic.length;
+      _subsonicPrimaryHost = subsonic.isNotEmpty
+          ? (Uri.tryParse(subsonic.first.normalizedBaseUrl)?.host ??
+              subsonic.first.name)
+          : null;
+      _smbCount = results[1].length;
+      _webdavCount = results[2].length;
+      _sftpCount = results[3].length;
+      _ftpCount = results[4].length;
     });
-  }
-
-  void _navigateToFtpSubdir(String path) {
-    _ftpPathHistory.add(path);
-    _loadFtpDirectory(path);
-  }
-
-  void _navigateFtpUp() {
-    if (_ftpPathHistory.length > 1) {
-      _ftpPathHistory.removeLast();
-      _loadFtpDirectory(_ftpPathHistory.last);
-    }
-  }
-
-  Future<void> _playFtpAudioFile(FtpFileEntry fileEntry) async {
-    if (_selectedFtpConfig == null) return;
-
-    if (widget.onPlayFtpFolder != null) {
-      final audioEntries = _ftpEntries
-          .where((e) => !e.isDirectory && e.isAudioFile)
-          .toList();
-      final initialIndex =
-          audioEntries.indexWhere((e) => e.path == fileEntry.path);
-      widget.onPlayFtpFolder!(audioEntries, _selectedFtpConfig,
-          initialIndex >= 0 ? initialIndex : 0);
-      return;
-    }
-
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text('Downloading ${fileEntry.name} from FTP…'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
-
-    try {
-      final supportDir = await getApplicationSupportDirectory();
-      final cachePath = p.join(
-        supportDir.path,
-        'ftp_cache',
-        _selectedFtpConfig!.id,
-        fileEntry.name,
-      );
-      final localFile = File(cachePath);
-
-      final success = await FtpService.downloadFile(
-        _selectedFtpConfig!,
-        fileEntry.path,
-        localFile,
-      );
-
-      if (success && localFile.existsSync()) {
-        if (mounted) {
-          Navigator.of(context).popUntil((route) => route.isFirst);
-        }
-        if (widget.onPlayNetworkFile != null) {
-          widget.onPlayNetworkFile!(
-            localFile.path,
-            fileEntry.name,
-            _selectedFtpConfig!.name,
-          );
-        } else {
-          widget.player.load(AudioSource.file(localFile.path));
-          widget.player.play();
-        }
-
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text('Playing ${fileEntry.name}'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Failed to download audio file from FTP server'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('[NetworkSources] Error playing FTP track: $e');
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bgDark,
-      appBar: AppBar(
-        leading: M3EIconButton(
-            icon: Icon(Icons.keyboard_arrow_down),
-            onPressed: () => Navigator.of(context).pop()),
-        backgroundColor: _bgDark,
-        elevation: 0,
-        title: const Text(
-          'Network Sources',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          indicatorColor: _primary,
-          labelColor: _primary,
-          unselectedLabelColor: _textDark,
-          tabs: const [
-            Tab(icon: Icon(Icons.cast_rounded), text: 'Chromecast'),
-            Tab(icon: Icon(Icons.cast_connected_rounded), text: 'DLNA / UPnP'),
-            Tab(icon: Icon(Icons.album_rounded), text: 'Navidrome'),
-            Tab(icon: Icon(Icons.storage_rounded), text: 'SMB / NAS'),
-            Tab(icon: Icon(Icons.cloud_queue_rounded), text: 'WebDAV'),
-            Tab(icon: Icon(Icons.lock_outline_rounded), text: 'SFTP'),
-            Tab(icon: Icon(Icons.folder_zip_rounded), text: 'FTP'),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isExpanded = constraints.maxWidth >= 840;
+
+        return Scaffold(
+          backgroundColor: context.bgDark,
+          appBar: AppBar(
+            backgroundColor: context.bgDark,
+            elevation: 0,
+            leading: IconButton(
+              icon: Icon(Icons.arrow_back_rounded, color: context.textPrimary),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+            title: Text(
+              'Local & Network',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+          ),
+          body: isExpanded
+              ? Row(
+                  children: [
+                    SizedBox(
+                      width: 360,
+                      child: _buildHubList(context, isExpanded: true),
+                    ),
+                    VerticalDivider(width: 1, color: context.outlineColor),
+                    Expanded(child: _buildDetailPane(context)),
+                  ],
+                )
+              : _buildHubList(context, isExpanded: false),
+        );
+      },
+    );
+  }
+
+  Widget _buildHubList(BuildContext context, {required bool isExpanded}) {
+    final cast = ChromecastService.instance;
+    final dlna = DlnaService.instance;
+    final renderer = DlnaRendererService.instance;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      children: [
+        if (cast.activeDevice != null || dlna.activeRenderer != null) ...[
+          _buildNowCastingBanner(context, cast, dlna),
+          const SizedBox(height: 16),
+        ],
+        const AppSectionHeader('Play to'),
+        AppCardContainer(
+          children: [
+            _buildHubTile(
+              context,
+              title: 'Chromecast',
+              subtitle: _chromecastSummary(cast),
+              icon: Icons.cast_rounded,
+              selected:
+                  isExpanded && _selectedPane == _NetworkDestination.chromecast,
+              onTap: () =>
+                  _openDestination(_NetworkDestination.chromecast, isExpanded),
+            ),
+            const M3EDivider(),
+            _buildHubTile(
+              context,
+              title: 'DLNA speakers',
+              subtitle: _dlnaRendererSummary(dlna),
+              icon: Icons.cast_connected_rounded,
+              selected: isExpanded &&
+                  _selectedPane == _NetworkDestination.dlnaRenderers,
+              onTap: () => _openDestination(
+                  _NetworkDestination.dlnaRenderers, isExpanded),
+            ),
+            const M3EDivider(),
+            AppSettingsTile(
+              title: 'Receive casts',
+              subtitle: renderer.isRunning
+                  ? 'Visible as "${renderer.friendlyName}"'
+                  : 'Act as a DLNA speaker on Wi-Fi',
+              leading: _buildIconBadge(
+                context,
+                Icons.speaker_rounded,
+                active: renderer.isRunning,
+              ),
+              trailing: Switch(
+                value: renderer.isRunning,
+                activeThumbColor: context.primaryColor,
+                onChanged: (v) async {
+                  await PreferencesStore.instance
+                      .setBool('dlna_receiver_enabled', v);
+                  if (v) {
+                    await DlnaRendererService.instance.start();
+                  } else {
+                    await DlnaRendererService.instance.stop();
+                  }
+                },
+              ),
+            ),
+            const M3EDivider(),
+            _buildHubTile(
+              context,
+              title: 'Cast quality',
+              subtitle: _castQualitySummary(cast),
+              icon: Icons.high_quality_rounded,
+              selected: false,
+              onTap: () => _showCastQualitySheet(context),
+            ),
           ],
         ),
+        const SizedBox(height: 16),
+        const AppSectionHeader('Browse'),
+        AppCardContainer(
+          children: [
+            _buildHubTile(
+              context,
+              title: 'Navidrome',
+              subtitle: _subsonicCount == 0
+                  ? 'Not set up'
+                  : _subsonicCount == 1 && _subsonicPrimaryHost != null
+                      ? _subsonicPrimaryHost!
+                      : '$_subsonicCount servers',
+              icon: Icons.album_rounded,
+              selected:
+                  isExpanded && _selectedPane == _NetworkDestination.navidrome,
+              onTap: () =>
+                  _openDestination(_NetworkDestination.navidrome, isExpanded),
+            ),
+            const M3EDivider(),
+            _buildHubTile(
+              context,
+              title: 'SMB / NAS',
+              subtitle: _countLabel(_smbCount, 'share', 'shares'),
+              icon: Icons.storage_rounded,
+              selected: isExpanded && _selectedPane == _NetworkDestination.smb,
+              onTap: () => _openDestination(_NetworkDestination.smb, isExpanded),
+            ),
+            const M3EDivider(),
+            _buildHubTile(
+              context,
+              title: 'WebDAV',
+              subtitle: _countLabel(_webdavCount, 'server', 'servers'),
+              icon: Icons.cloud_queue_rounded,
+              selected:
+                  isExpanded && _selectedPane == _NetworkDestination.webdav,
+              onTap: () =>
+                  _openDestination(_NetworkDestination.webdav, isExpanded),
+            ),
+            const M3EDivider(),
+            _buildHubTile(
+              context,
+              title: 'SFTP',
+              subtitle: _countLabel(_sftpCount, 'server', 'servers'),
+              icon: Icons.lock_outline_rounded,
+              selected: isExpanded && _selectedPane == _NetworkDestination.sftp,
+              onTap: () =>
+                  _openDestination(_NetworkDestination.sftp, isExpanded),
+            ),
+            const M3EDivider(),
+            _buildHubTile(
+              context,
+              title: 'FTP / FTPS',
+              subtitle: _countLabel(_ftpCount, 'server', 'servers'),
+              icon: Icons.folder_zip_rounded,
+              selected: isExpanded && _selectedPane == _NetworkDestination.ftp,
+              onTap: () => _openDestination(_NetworkDestination.ftp, isExpanded),
+            ),
+            const M3EDivider(),
+            _buildHubTile(
+              context,
+              title: 'DLNA media servers',
+              subtitle: dlna.isSearching
+                  ? 'Scanning network…'
+                  : dlna.mediaServers.isEmpty
+                      ? 'Tap to scan'
+                      : '${dlna.mediaServers.length} on network',
+              icon: Icons.dns_rounded,
+              selected: isExpanded &&
+                  _selectedPane == _NetworkDestination.dlnaServers,
+              onTap: () =>
+                  _openDestination(_NetworkDestination.dlnaServers, isExpanded),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNowCastingBanner(
+    BuildContext context,
+    ChromecastService cast,
+    DlnaService dlna,
+  ) {
+    final primary = context.primaryColor;
+    final textTheme = Theme.of(context).textTheme;
+    final isCast = cast.activeDevice != null;
+    final deviceName = isCast
+        ? cast.activeDevice!.friendlyName
+        : dlna.activeRenderer!.name;
+    final modeText = isCast
+        ? (cast.isStreamingLiveTap ? '24-bit WAV Tap' : 'Pass-Through')
+        : 'DLNA';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: primary.withAlpha(22),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: primary.withAlpha(100)),
       ),
-      body: TabBarView(
-        controller: _tabController,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildChromecastTab(),
-          _buildDlnaTab(),
-          SubsonicTab(onPlayQueue: widget.onPlayRemoteQueue),
-          RemoteBrowserTab(
+          Row(
+            children: [
+              Icon(Icons.speaker_rounded, color: primary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  deviceName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.titleSmall?.copyWith(
+                    color: context.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              AppStatusBadge(
+                text: modeText,
+                color: primary,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              ),
+            ],
+          ),
+          if (isCast) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(
+                    cast.isMuted
+                        ? Icons.volume_off_rounded
+                        : Icons.volume_up_rounded,
+                    color: primary,
+                    size: 20,
+                  ),
+                  onPressed: () => cast.setMuted(!cast.isMuted),
+                ),
+                Expanded(
+                  child: Slider(
+                    value: cast.volumeLevel.clamp(0.0, 1.0),
+                    activeColor: primary,
+                    inactiveColor: context.outlineColor,
+                    onChanged: cast.setVolume,
+                  ),
+                ),
+                Text(
+                  '${(cast.volumeLevel * 100).round()}%',
+                  style: textTheme.labelMedium?.copyWith(
+                    color: context.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ] else
+            const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: M3EButton.tonal(
+              onPressed: () async {
+                if (isCast) {
+                  await cast.disconnect();
+                } else {
+                  try {
+                    await dlna.stop();
+                  } catch (_) {}
+                  dlna.setActiveRenderer(null);
+                }
+              },
+              child: const Text('Disconnect'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHubTile(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final primary = context.primaryColor;
+    return Container(
+      decoration: selected
+          ? BoxDecoration(
+              color: primary.withAlpha(24),
+              borderRadius: BorderRadius.circular(12),
+            )
+          : null,
+      child: AppSettingsTile(
+        title: title,
+        subtitle: subtitle,
+        leading: _buildIconBadge(context, icon, active: selected),
+        trailing: Icon(
+          Icons.chevron_right_rounded,
+          color: selected ? primary : context.textMuted,
+          size: 20,
+        ),
+        onTap: onTap,
+      ),
+    );
+  }
+
+  Widget _buildIconBadge(
+    BuildContext context,
+    IconData icon, {
+    bool active = false,
+  }) {
+    final primary = context.primaryColor;
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        color: primary.withAlpha(active ? 40 : 22),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(icon, color: primary, size: 20),
+    );
+  }
+
+  void _openDestination(_NetworkDestination dest, bool isExpanded) async {
+    if (isExpanded) {
+      setState(() => _selectedPane = dest);
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (ctx) => _buildFullScreenPage(ctx, dest),
+      ),
+    );
+    _loadSourceCounts();
+  }
+
+  Widget _buildFullScreenPage(BuildContext context, _NetworkDestination dest) {
+    switch (dest) {
+      case _NetworkDestination.chromecast:
+        return const ChromecastPage();
+      case _NetworkDestination.dlnaRenderers:
+        return const DlnaRenderersPage();
+      case _NetworkDestination.dlnaServers:
+        return const DlnaServersPage();
+      case _NetworkDestination.ftp:
+        return FtpPage(
+          player: widget.player,
+          onPlayNetworkFile: widget.onPlayNetworkFile,
+          onPlayFtpFolder: widget.onPlayFtpFolder,
+        );
+      case _NetworkDestination.navidrome:
+        return _wrapTabInScaffold(
+          context,
+          title: 'Navidrome / Subsonic',
+          child: SubsonicTab(onPlayQueue: widget.onPlayRemoteQueue),
+        );
+      case _NetworkDestination.smb:
+        return _wrapTabInScaffold(
+          context,
+          title: 'SMB / NAS',
+          child: RemoteBrowserTab(
             protocol: RemoteProtocolKind.smb,
             onPlayQueue: widget.onPlayRemoteQueue,
           ),
-          RemoteBrowserTab(
+        );
+      case _NetworkDestination.webdav:
+        return _wrapTabInScaffold(
+          context,
+          title: 'WebDAV',
+          child: RemoteBrowserTab(
             protocol: RemoteProtocolKind.webdav,
             onPlayQueue: widget.onPlayRemoteQueue,
           ),
-          RemoteBrowserTab(
+        );
+      case _NetworkDestination.sftp:
+        return _wrapTabInScaffold(
+          context,
+          title: 'SFTP',
+          child: RemoteBrowserTab(
             protocol: RemoteProtocolKind.sftp,
             onPlayQueue: widget.onPlayRemoteQueue,
           ),
-          _buildFtpTab(),
-        ],
+        );
+    }
+  }
+
+  Widget _buildDetailPane(BuildContext context) {
+    switch (_selectedPane) {
+      case _NetworkDestination.chromecast:
+        return const ChromecastPage(showAppBar: false);
+      case _NetworkDestination.dlnaRenderers:
+        return const DlnaRenderersPage(showAppBar: false);
+      case _NetworkDestination.dlnaServers:
+        return const DlnaServersPage(showAppBar: false);
+      case _NetworkDestination.ftp:
+        return FtpPage(
+          player: widget.player,
+          onPlayNetworkFile: widget.onPlayNetworkFile,
+          onPlayFtpFolder: widget.onPlayFtpFolder,
+          showAppBar: false,
+        );
+      case _NetworkDestination.navidrome:
+        return SubsonicTab(onPlayQueue: widget.onPlayRemoteQueue);
+      case _NetworkDestination.smb:
+        return RemoteBrowserTab(
+          protocol: RemoteProtocolKind.smb,
+          onPlayQueue: widget.onPlayRemoteQueue,
+        );
+      case _NetworkDestination.webdav:
+        return RemoteBrowserTab(
+          protocol: RemoteProtocolKind.webdav,
+          onPlayQueue: widget.onPlayRemoteQueue,
+        );
+      case _NetworkDestination.sftp:
+        return RemoteBrowserTab(
+          protocol: RemoteProtocolKind.sftp,
+          onPlayQueue: widget.onPlayRemoteQueue,
+        );
+    }
+  }
+
+  Widget _wrapTabInScaffold(
+    BuildContext context, {
+    required String title,
+    required Widget child,
+  }) {
+    return Scaffold(
+      backgroundColor: context.bgDark,
+      appBar: AppBar(
+        backgroundColor: context.bgDark,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_rounded, color: context.textPrimary),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: context.textPrimary,
+                fontWeight: FontWeight.bold,
+              ),
+        ),
       ),
+      body: child,
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // TAB 1: FTP Remote Explorer
-  // ---------------------------------------------------------------------------
-
-  Widget _buildFtpTab() {
-    return Column(
-      children: [
-        // FTP Server Selector & Add Header
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          color: _cardDark,
-          child: Row(
+  void _showCastQualitySheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: context.cardDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetCtx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.dns_rounded, color: _primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ftpConfigs.isEmpty
-                    ? Text(
-                        'No FTP servers configured',
-                        style: TextStyle(color: _textDark),
-                      )
-                    : DropdownButtonHideUnderline(
-                        child: DropdownButton<FtpConfig>(
-                          value: _selectedFtpConfig,
-                          dropdownColor: _cardDark,
-                          isExpanded: true,
-                          style: const TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.w600),
-                          items: _ftpConfigs.map((c) {
-                            return DropdownMenuItem(
-                              value: c,
-                              child: Text('${c.name} (${c.host})'),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() {
-                                _selectedFtpConfig = val;
-                                _ftpPathHistory.clear();
-                                _ftpPathHistory.add(val.rootPath);
-                              });
-                              _loadFtpDirectory(val.rootPath);
-                            }
-                          },
-                        ),
-                      ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Cast Audio Quality',
+                      style: Theme.of(sheetCtx).textTheme.titleLarge?.copyWith(
+                            color: sheetCtx.textPrimary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close_rounded, color: sheetCtx.textMuted),
+                    onPressed: () => Navigator.of(sheetCtx).pop(),
+                  ),
+                ],
               ),
-              IconButton(
-                icon: Icon(Icons.add_circle_outline_rounded, color: _primary),
-                tooltip: 'Add FTP Server',
-                onPressed: () => _showAddFtpDialog(),
-              ),
-              if (_selectedFtpConfig != null)
-                IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded,
-                      color: Colors.redAccent),
-                  tooltip: 'Delete Server',
-                  onPressed: () async {
-                    await FtpService.deleteConfig(_selectedFtpConfig!.id);
-                    _loadFtpConfigs();
-                  },
-                ),
+              const SizedBox(height: 12),
+              const CastModeAndRateCard(),
             ],
           ),
-        ),
-
-        // Path Breadcrumb Navigation
-        if (_selectedFtpConfig != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.black26,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back_rounded,
-                      color: Colors.white70, size: 20),
-                  onPressed: _ftpPathHistory.length > 1 ? _navigateFtpUp : null,
-                ),
-                Expanded(
-                  child: Text(
-                    _currentFtpPath,
-                    style: TextStyle(color: _textDark, fontFamily: 'monospace'),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.refresh_rounded, color: _primary, size: 20),
-                  onPressed: () => _loadFtpDirectory(_currentFtpPath),
-                ),
-              ],
-            ),
-          ),
-
-        // Directory Explorer List
-        Expanded(
-          child: _selectedFtpConfig == null
-              ? _buildEmptyState(
-                  icon: Icons.cloud_off_rounded,
-                  title: 'No FTP Server Selected',
-                  subtitle:
-                      'Tap the "+" button above to connect your FTP music server.',
-                )
-              : _isLoadingFtp
-                  ? Center(child: CircularProgressIndicator(color: _primary))
-                  : _ftpEntries.isEmpty
-                      ? _buildEmptyState(
-                          icon: Icons.folder_open_rounded,
-                          title: 'Directory is Empty',
-                          subtitle:
-                              'No compatible audio files found in this folder.',
-                        )
-                      : M3EList.scrollable(
-                          itemCount: _ftpEntries.length,
-                          itemBuilder: (context, index) {
-                            final item = _ftpEntries[index];
-                            if (item.isDirectory) {
-                              return M3EListItem(
-                                leading: M3EContainer(
-                                  Shapes.pill,
-                                  width: 40,
-                                  height: 40,
-                                  color: _primary.withAlpha(25),
-                                  child: Center(
-                                    child: Icon(Icons.folder_rounded,
-                                        color: _primary, size: 20),
-                                  ),
-                                ),
-                                headline: item.name,
-                                trailing: Icon(Icons.chevron_right_rounded,
-                                    color: _textDark, size: 20),
-                                onTap: () => _navigateToFtpSubdir(item.path),
-                              );
-                            } else {
-                              return M3EListItem(
-                                leading: M3EContainer(
-                                  Shapes.pill,
-                                  width: 40,
-                                  height: 40,
-                                  color: Colors.amber.withAlpha(25),
-                                  child: const Center(
-                                    child: Icon(Icons.audiotrack_rounded,
-                                        color: Colors.amber, size: 20),
-                                  ),
-                                ),
-                                headline: item.name,
-                                supportingText: _formatBytes(item.sizeBytes),
-                                trailing: IconButton(
-                                  icon: Icon(Icons.play_circle_fill_rounded,
-                                      color: _primary, size: 32),
-                                  onPressed: () => _playFtpAudioFile(item),
-                                ),
-                                onTap: () => _playFtpAudioFile(item),
-                              );
-                            }
-                          },
-                        ),
-        ),
-      ],
+        );
+      },
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // TAB 2: DLNA / UPnP Explorer & Casting
-  // ---------------------------------------------------------------------------
-
-  Widget _buildChromecastTab() {
-    final cast = ChromecastService.instance;
-    final devices = cast.devices;
-    final active = cast.activeDevice;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: _cardDark,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withAlpha(12)),
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _primary.withAlpha(30),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.cast_connected_rounded,
-                          color: _primary, size: 28),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Google Cast Hi-Res Audio',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            cast.isScanning
-                                ? 'Scanning LAN via mDNS (up to 24-bit / 192 kHz)...'
-                                : '${devices.length} Cast device(s) • 24-bit / up to ${cast.maxSampleRate.label}',
-                            style: TextStyle(color: _textDark, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _primary,
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: () {
-                        if (cast.isScanning) {
-                          cast.stopDiscovery();
-                        } else {
-                          cast.startDiscovery();
-                        }
-                      },
-                      icon: Icon(cast.isScanning
-                          ? Icons.stop_rounded
-                          : Icons.radar_rounded),
-                      label: Text(cast.isScanning ? 'Stop' : 'Scan'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _primary,
-                        side: BorderSide(color: _primary.withAlpha(120)),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: () => showAddManualCastIpDialog(context),
-                      icon: const Icon(Icons.add_link_rounded, size: 18),
-                      label: const Text('+ Add Cast IP'),
-                    ),
-                    if (active != null) ...[
-                      const Spacer(),
-                      M3EButton.tonal(
-                        onPressed: () => cast.disconnect(),
-                        child: const Text('Disconnect'),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          const CastModeAndRateCard(),
-          if (active != null) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: _primary.withAlpha(24),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: _primary.withAlpha(100)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.speaker_rounded, color: _primary, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Connected: ${active.friendlyName}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13.5,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        cast.isStreamingLiveTap
-                            ? '24-bit WAV Tap'
-                            : 'Pass-Through',
-                        style: TextStyle(
-                          color: _primary,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(
-                          cast.isMuted
-                              ? Icons.volume_off_rounded
-                              : Icons.volume_up_rounded,
-                          color: _primary,
-                          size: 20,
-                        ),
-                        onPressed: () => cast.setMuted(!cast.isMuted),
-                      ),
-                      Expanded(
-                        child: Slider(
-                          value: cast.volumeLevel.clamp(0.0, 1.0),
-                          activeColor: _primary,
-                          inactiveColor: Colors.white24,
-                          onChanged: cast.setVolume,
-                        ),
-                      ),
-                      Text(
-                        '${(cast.volumeLevel * 100).round()}%',
-                        style: TextStyle(color: _textDark, fontSize: 11.5),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-          if (cast.lastError != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withAlpha(30),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.redAccent.withAlpha(110)),
-              ),
-              child: Text(
-                cast.lastError!,
-                style: const TextStyle(color: Colors.white, fontSize: 12),
-              ),
-            ),
-          ],
-          const SizedBox(height: 20),
-          Text(
-            'Discovered Receivers (${devices.length})',
-            style: TextStyle(
-              color: _primary,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (devices.isEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: _cardDark,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withAlpha(10)),
-              ),
-              child: Column(
-                children: [
-                  Icon(Icons.cast_rounded,
-                      size: 48, color: _textDark.withAlpha(110)),
-                  const SizedBox(height: 10),
-                  Text(
-                    cast.isScanning
-                        ? 'Looking for Chromecast Audio, Google TV & Cast speakers...'
-                        : 'No Chromecast receivers found.\nTap Scan or + Add Cast IP.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: _textDark, fontSize: 13),
-                  ),
-                ],
-              ),
-            )
-          else
-            M3EList(
-              itemCount: devices.length,
-              itemBuilder: (context, index) {
-                final d = devices[index];
-                final isActive = active == d;
-                return M3EListItem(
-                  selected: isActive,
-                  leading: M3EContainer(
-                    Shapes.pill,
-                    width: 40,
-                    height: 40,
-                    color: (isActive ? Colors.white : _primary).withAlpha(25),
-                    child: Center(
-                      child: Icon(
-                        Icons.cast_rounded,
-                        color: isActive ? Colors.white : _primary,
-                      ),
-                    ),
-                  ),
-                  headline: d.friendlyName,
-                  supportingText:
-                      '${d.modelName} • ${d.host}:${d.port}${d.isManual ? ' (Manual)' : ''}',
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (d.isManual)
-                        IconButton(
-                          tooltip: 'Remove manual device',
-                          icon: Icon(Icons.delete_outline_rounded,
-                              color: _textDark, size: 20),
-                          onPressed: () {
-                            if (isActive) cast.disconnect();
-                            cast.removeManualDevice(d);
-                          },
-                        ),
-                      if (isActive)
-                        const Text(
-                          'Connected',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        )
-                      else
-                        Icon(Icons.chevron_right_rounded, color: _textDark),
-                    ],
-                  ),
-                  onTap: () async {
-                    if (isActive) {
-                      await cast.disconnect();
-                    } else {
-                      final messenger = ScaffoldMessenger.of(context);
-                      final ok = await cast.connect(d);
-                      if (mounted && ok) {
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: Text('Connected to ${d.friendlyName}'),
-                          ),
-                        );
-                      }
-                    }
-                  },
-                );
-              },
-            ),
-        ],
-      ),
-    );
+  String _chromecastSummary(ChromecastService cast) {
+    if (cast.activeDevice != null) {
+      return 'Connected • ${cast.activeDevice!.friendlyName}';
+    }
+    if (cast.isScanning) return 'Scanning network…';
+    if (cast.devices.isEmpty) return 'Tap to scan or add IP';
+    return '${cast.devices.length} found • 24-bit/${cast.maxSampleRate.label}';
   }
 
-  Widget _buildDlnaTab() {
-    final dlna = DlnaService.instance;
-    final servers = dlna.mediaServers;
-    final renderers = dlna.mediaRenderers;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const CastModeAndRateCard(),
-          const SizedBox(height: 16),
-          // Scan Control Header
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: _cardDark,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withAlpha(12)),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _primary.withAlpha(30),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.wifi_tethering_rounded,
-                      color: _primary, size: 28),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Local SSDP Network Scan',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        dlna.isSearching
-                            ? 'Searching Wi-Fi network for DLNA hardware…'
-                            : dlna.lastError ??
-                                'Found ${dlna.devices.length} total DLNA devices',
-                        style: TextStyle(
-                            color: dlna.lastError != null && !dlna.isSearching
-                                ? Colors.orangeAccent
-                                : _textDark,
-                            fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primary,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () {
-                    if (dlna.isSearching) {
-                      dlna.stopSearch();
-                    } else {
-                      dlna.startSearch();
-                    }
-                  },
-                  icon: Icon(
-                    dlna.isSearching
-                        ? Icons.stop_rounded
-                        : Icons.search_rounded,
-                    color: Colors.white,
-                  ),
-                  label: Text(dlna.isSearching ? 'Stop' : 'Scan'),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // DLNA Receiver toggle (act as cast target)
-          ListenableBuilder(
-            listenable: DlnaRendererService.instance,
-            builder: (context, _) {
-              final renderer = DlnaRendererService.instance;
-              return Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                decoration: BoxDecoration(
-                  color: _cardDark,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: renderer.isRunning
-                        ? _primary.withAlpha(90)
-                        : Colors.white.withAlpha(12),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.speaker_rounded,
-                        color: renderer.isRunning ? _primary : _textDark,
-                        size: 24),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Receive casts (act as DLNA speaker)',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 2),
-                          Text(
-                            renderer.isRunning
-                                ? 'Visible as "${renderer.friendlyName}" on this network'
-                                : 'Let phones, PCs and TVs cast audio to SautiPlay',
-                            style: TextStyle(
-                                color: renderer.isRunning
-                                    ? _primary
-                                    : _textDark,
-                                fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: renderer.isRunning,
-                      activeThumbColor: _primary,
-                      onChanged: (v) async {
-                        final prefs = PreferencesStore.instance;
-                        await prefs.setBool('dlna_receiver_enabled', v);
-                        if (v) {
-                          await DlnaRendererService.instance.start();
-                        } else {
-                          await DlnaRendererService.instance.stop();
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-
-          const SizedBox(height: 24),
-
-          // Renderers Section (Casting targets)
-          _buildSectionTitle(
-              'CASTING TARGETS (MEDIA RENDERERS)', Icons.speaker_group_rounded),
-          const SizedBox(height: 10),
-
-          renderers.isEmpty
-              ? _buildCardPlaceholder(
-                  'No DLNA Speakers or Smart TVs found yet. Tap Scan to search local Wi-Fi.')
-              : M3EList(
-                  itemCount: renderers.length,
-                  itemBuilder: (context, index) {
-                    final r = renderers[index];
-                    final isActive = dlna.activeRenderer?.id == r.id;
-                    return M3EListItem(
-                      leading: M3EContainer(
-                        Shapes.pill,
-                        width: 40,
-                        height: 40,
-                        color:
-                            (isActive ? Colors.white : _primary).withAlpha(25),
-                        child: Center(
-                          child: Icon(
-                            Icons.cast_rounded,
-                            color: isActive ? Colors.white : _primary,
-                            size: 20,
-                          ),
-                        ),
-                      ),
-                      headline: r.name,
-                      supportingText: r.locationUrl,
-                      trailing: M3EButton(
-                        onPressed: () async {
-                          if (isActive) {
-                            try {
-                              await dlna.stop();
-                            } catch (_) {}
-                            dlna.setActiveRenderer(null);
-                          } else {
-                            final messenger = ScaffoldMessenger.of(context);
-                            await ChromecastService.instance.disconnect();
-                            dlna.setActiveRenderer(r);
-                            if (!mounted) return;
-                            messenger.showSnackBar(
-                              SnackBar(
-                                  content: Text(
-                                      'Set active casting device to ${r.name}')),
-                            );
-                          }
-                        },
-                        child: Text(isActive ? 'Disconnect' : 'Connect'),
-                      ),
-                    );
-                  },
-                ),
-
-          const SizedBox(height: 24),
-
-          // Servers Section
-          _buildSectionTitle(
-              'MEDIA SERVERS (NAS / PC LIBRARIES)', Icons.dns_rounded),
-          const SizedBox(height: 10),
-
-          servers.isEmpty
-              ? _buildCardPlaceholder(
-                  'No DLNA Media Servers detected on your local network.')
-              : M3EList(
-                  itemCount: servers.length,
-                  itemBuilder: (context, index) {
-                    final s = servers[index];
-                    return M3EListItem(
-                      leading: const M3EContainer(
-                        Shapes.pill,
-                        width: 40,
-                        height: 40,
-                        color: Color(0x19FFC107),
-                        child: Center(
-                          child: Icon(Icons.storage_rounded,
-                              color: Colors.amber, size: 20),
-                        ),
-                      ),
-                      headline: s.name,
-                      supportingText: s.locationUrl,
-                      trailing: Icon(Icons.chevron_right_rounded,
-                          color: _textDark, size: 20),
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                              content: Text(
-                                  'Connected to DLNA MediaServer ${s.name}')),
-                        );
-                      },
-                    );
-                  },
-                ),
-        ],
-      ),
-    );
+  String _dlnaRendererSummary(DlnaService dlna) {
+    if (dlna.activeRenderer != null) {
+      return 'Connected • ${dlna.activeRenderer!.name}';
+    }
+    if (dlna.isSearching) return 'Scanning network…';
+    final count = dlna.mediaRenderers.length;
+    if (count == 0) return 'Tap to scan';
+    return '$count found';
   }
 
-  // ---------------------------------------------------------------------------
-  // Dialogs & Helpers
-  // ---------------------------------------------------------------------------
-
-  void _showAddFtpDialog() {
-    final nameCtrl = TextEditingController(text: 'My Home FTP');
-    final hostCtrl = TextEditingController();
-    final portCtrl = TextEditingController(text: '21');
-    final userCtrl = TextEditingController(text: 'anonymous');
-    final passCtrl = TextEditingController();
-    bool isSecure = false;
-
-    showSautiM3EDialog<void>(
-      context,
-      dialog: M3EDialog(
-        title: 'Add FTP Server',
-        content: StatefulBuilder(
-          builder: (context, setDlgState) {
-            return SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nameCtrl,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Server Label',
-                      labelStyle: TextStyle(color: _textDark),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: hostCtrl,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Host / IP Address',
-                      hintText: '192.168.1.100',
-                      labelStyle: TextStyle(color: _textDark),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: portCtrl,
-                          keyboardType: TextInputType.number,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(
-                            labelText: 'Port',
-                            labelStyle: TextStyle(color: _textDark),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Row(
-                        children: [
-                          const Text('FTPS',
-                              style:
-                                  TextStyle(color: Colors.white, fontSize: 13)),
-                          const SizedBox(width: 8),
-                          M3ESwitch(
-                            value: isSecure,
-                            onChanged: (val) =>
-                                setDlgState(() => isSecure = val),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: userCtrl,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Username',
-                      labelStyle: TextStyle(color: _textDark),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: passCtrl,
-                    obscureText: true,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      labelStyle: TextStyle(color: _textDark),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-        actions: [
-          M3EButton.text(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          M3EButton(
-            onPressed: () async {
-              if (hostCtrl.text.trim().isEmpty) return;
-              final config = FtpConfig(
-                id: DateTime.now().millisecondsSinceEpoch.toString(),
-                name: nameCtrl.text.trim(),
-                host: hostCtrl.text.trim(),
-                port: int.tryParse(portCtrl.text.trim()) ?? 21,
-                user: userCtrl.text.trim(),
-                password: passCtrl.text,
-                isSecure: isSecure,
-              );
-
-              final nav = Navigator.of(context);
-              await FtpService.saveConfig(config);
-              nav.pop();
-              _loadFtpConfigs();
-            },
-            child: const Text('Save & Connect'),
-          ),
-        ],
-      ),
-    );
+  String _castQualitySummary(ChromecastService cast) {
+    final mode = cast.audioMode == CastAudioMode.bitPerfect
+        ? 'Bit-Perfect'
+        : 'With DSP';
+    return '$mode • up to ${cast.maxSampleRate.label}';
   }
 
-  Widget _buildSectionTitle(String title, IconData icon) {
-    return Row(
-      children: [
-        Icon(icon, color: _primary, size: 18),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: TextStyle(
-            color: _textDark,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCardPlaceholder(String message) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: _cardDark,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withAlpha(8)),
-      ),
-      child: Text(
-        message,
-        style: TextStyle(color: _textDark, fontSize: 13),
-        textAlign: TextAlign.center,
-      ),
-    );
-  }
-
-  Widget _buildEmptyState({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-  }) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 64, color: _textDark.withAlpha(100)),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: TextStyle(color: _textDark, fontSize: 14),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes <= 0) return '0 B';
-    const suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    var i = (bytes.toString().length - 1) ~/ 3;
-    if (i >= suffixes.length) i = suffixes.length - 1;
-    var num = bytes / (1 << (i * 10));
-    return '${num.toStringAsFixed(1)} ${suffixes[i]}';
+  String _countLabel(int count, String singular, String plural) {
+    if (count == 0) return 'Not set up';
+    return '$count ${count == 1 ? singular : plural}';
   }
 }

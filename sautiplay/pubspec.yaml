@@ -67,6 +67,10 @@ dependencies:
   drift_flutter: ^0.3.1
   google_fonts: ^9.0.0
   flutter_svg: ^2.3.0
+  xml: ^6.6.1
+  dartssh2:
+    path: ../dependencies/dartssh2
+  smb_connect: ^0.0.9
 
 dependency_overrides:
   uuid: ^4.5.1

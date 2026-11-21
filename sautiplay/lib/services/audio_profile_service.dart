@@ -465,6 +465,18 @@ class AudioProfileService {
       );
     }
 
+    if (dsp.containsKey('loudnessNormalizer')) {
+      final ln = dsp['loudnessNormalizer'] as Map;
+      final enabled = ln['enabled'] ?? true;
+      final targetLUFS = (ln['targetLUFS'] as num?)?.toDouble() ?? -14.0;
+      player.setLoudnessNormalizerEnabled(enabled);
+      player.setLoudnessNormalizerTarget(targetLUFS);
+      await AppStateService.instance.saveLoudnessNormalizer(
+        enabled: enabled,
+        targetLUFS: targetLUFS,
+      );
+    }
+
     // 3. Apply Sauti DSP Suite State
     final cleanDspState = <String, dynamic>{
       'dspMasterEnabled': profile.sautiDspState['dspMasterEnabled'] ?? false,
@@ -730,6 +742,10 @@ class AudioProfileService {
             'threshold': 0.95,
             'attackMs': 2.0,
             'releaseMs': 50.0,
+          },
+          'loudnessNormalizer': {
+            'enabled': true,
+            'targetLUFS': -14.0,
           },
         },
         sautiDspState: {

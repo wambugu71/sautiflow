@@ -69,12 +69,22 @@ class DLNADevice {
   Future<String> request(String action, List<int> data) {
     final soapAction = _rendering_control.contains(action)
         ? 'RenderingControl'
-        : 'AVTransport';
+        : (action == 'GetProtocolInfo' ? 'ConnectionManager' : 'AVTransport');
     final Map<String, Object> headers = Map.from({
       'SOAPAction': '"urn:schemas-upnp-org:service:$soapAction:1#$action"',
       'Content-Type': 'text/xml',
     });
     return DLNAHttp.post(Uri.parse(controlURL(soapAction)), headers, data);
+  }
+
+  Future<String> getProtocolInfo() {
+    const data = '''<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+    <s:Body>
+        <u:GetProtocolInfo xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1"/>
+    </s:Body>
+</s:Envelope>''';
+    return request('GetProtocolInfo', Utf8Encoder().convert(data));
   }
 
   Future<String> setUrl(
@@ -84,6 +94,7 @@ class DLNADevice {
     String album = "",
     String artworkUrl = "",
     String duration = "",
+    String? protocolInfoOverride,
     PlayType type = VideoMime.any,
   }) {
     final data = XmlText.setPlayURLXml(
@@ -93,6 +104,7 @@ class DLNADevice {
       album: album,
       artworkUrl: artworkUrl,
       duration: duration,
+      protocolInfoOverride: protocolInfoOverride,
       type: type,
     );
     return request('SetAVTransportURI', Utf8Encoder().convert(data));
@@ -249,6 +261,7 @@ class XmlText {
     String album = "",
     String artworkUrl = "",
     String duration = "",
+    String? protocolInfoOverride,
     required PlayType type,
   }) {
     final time = DateTime.fromMillisecondsSinceEpoch(
@@ -277,9 +290,13 @@ class XmlText {
     } else if (type is ImageMime) {
       oclass = 'object.item.imageItem';
     }
-    if (type.protocolInfo.isNotEmpty) {
+    final effectiveProtocolInfo =
+        (protocolInfoOverride != null && protocolInfoOverride.isNotEmpty)
+            ? protocolInfoOverride
+            : type.protocolInfo;
+    if (effectiveProtocolInfo.isNotEmpty) {
       final durAttr = safeDur.isNotEmpty ? ' duration="$safeDur"' : '';
-      res = '<res protocolInfo="${type.protocolInfo}"$durAttr>$url</res>';
+      res = '<res protocolInfo="${htmlEncode(effectiveProtocolInfo)}"$durAttr>$url</res>';
     }
     final albumTag = safeAlbum.isNotEmpty ? '<upnp:album>$safeAlbum</upnp:album>' : '';
     final artTag = safeArt.isNotEmpty ? '<upnp:albumArtURI>$safeArt</upnp:albumArtURI>' : '';

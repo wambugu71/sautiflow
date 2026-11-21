@@ -39,6 +39,7 @@ target_compile_definitions(audio_engine PRIVATE
   MA_DR_WAV_NO_ASSERT
   MA_DR_FLAC_NO_ASSERT
   MA_DR_MP3_NO_ASSERT
+  MA_NO_DEVICE_IO
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -173,9 +174,15 @@ else()
   endif()
 endif()
 
+set(_md_oboe_dir "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/oboe")
+add_subdirectory(${_md_oboe_dir} ${CMAKE_CURRENT_BINARY_DIR}/oboe_build)
+target_compile_options(oboe PRIVATE -Wno-error)
+
 target_link_libraries(audio_engine PRIVATE
+  oboe
   ${log-lib}
   android
+  OpenSLES
   m
 )
 

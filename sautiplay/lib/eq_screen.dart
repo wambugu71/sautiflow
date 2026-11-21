@@ -169,6 +169,8 @@ class EqScreen extends StatefulWidget {
   final int sampleRate;
   final GlobalKey? effectsKnobKey;
   final List<Widget>? headerSlivers;
+  final Widget? desktopTopBar;
+  final Widget? desktopVisualizer;
   final ScrollController? scrollController;
   final ScrollPhysics? physics;
   final ValueChanged<bool>? onScrollingChanged;
@@ -181,6 +183,8 @@ class EqScreen extends StatefulWidget {
     this.sampleRate = 48000,
     this.effectsKnobKey,
     this.headerSlivers,
+    this.desktopTopBar,
+    this.desktopVisualizer,
     this.scrollController,
     this.physics,
     this.onScrollingChanged,
@@ -613,6 +617,12 @@ class _EqScreenState extends State<EqScreen>
 
   // Preferences
   bool _showWarningBanner = true;
+
+  // Desktop master-detail state
+  String _desktopSelectedTitle = 'Parametric EQ';
+  IconData _desktopSelectedIcon = SautiIcons.parametricEq;
+  WidgetBuilder? _desktopSelectedBuilder;
+  bool _isDesktopExpanded = false;
 
   // Master EQ
   bool _masterEqEnabled = true;
@@ -4494,50 +4504,61 @@ class _EqScreenState extends State<EqScreen>
     required VoidCallback onTapDetail,
   }) {
     final textMuted = context.textMuted;
-    return M3EListItem(
-      headline: title,
-      supportingText: subtitle,
-      leading: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: isEnabled
-              ? primaryColor.withValues(alpha: 0.14)
-              : context.textPrimary.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(11),
-          border: Border.all(
-            color: isEnabled
-                ? primaryColor.withValues(alpha: 0.35)
-                : context.outlineColor,
-          ),
-        ),
-        child: Center(
-          child: Icon(
-            icon,
-            color: isEnabled ? primaryColor : textMuted,
-            size: 20,
-          ),
-        ),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (onToggle != null) ...[
-            M3ESwitch(
-              selectedIcon: Icon(Icons.check, color: primaryColor),
-              value: isEnabled,
-              onChanged: onToggle,
+    final isSelected = _isDesktopExpanded && _desktopSelectedTitle == title;
+    return Container(
+      decoration: isSelected
+          ? BoxDecoration(
+              color: primaryColor.withAlpha(24),
+              borderRadius: BorderRadius.circular(12),
+            )
+          : null,
+      child: M3EListItem(
+        headline: title,
+        supportingText: subtitle,
+        leading: Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: (isEnabled || isSelected)
+                ? primaryColor.withValues(alpha: isSelected ? 0.22 : 0.14)
+                : context.textPrimary.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(
+              color: (isEnabled || isSelected)
+                  ? primaryColor.withValues(alpha: isSelected ? 0.45 : 0.35)
+                  : context.outlineColor,
             ),
-            const SizedBox(width: 6),
-          ],
-          Icon(
-            Icons.chevron_right_rounded,
-            color: textMuted.withValues(alpha: 0.65),
-            size: 20,
           ),
-        ],
+          child: Center(
+            child: Icon(
+              icon,
+              color: (isEnabled || isSelected) ? primaryColor : textMuted,
+              size: 20,
+            ),
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onToggle != null) ...[
+              M3ESwitch(
+                selectedIcon: Icon(Icons.check, color: primaryColor),
+                value: isEnabled,
+                onChanged: onToggle,
+              ),
+              const SizedBox(width: 6),
+            ],
+            Icon(
+              Icons.chevron_right_rounded,
+              color: isSelected
+                  ? primaryColor
+                  : textMuted.withValues(alpha: 0.65),
+              size: 20,
+            ),
+          ],
+        ),
+        onTap: onTapDetail,
       ),
-      onTap: onTapDetail,
     );
   }
 
@@ -4549,6 +4570,21 @@ class _EqScreenState extends State<EqScreen>
         title == 'Noise Gate' ||
         title == 'Leveller' ||
         title == 'Auto Gain Control';
+
+    if (_isDesktopExpanded) {
+      if (isDynamicsScreen) {
+        _startDynamicsMeterTimer();
+      } else {
+        _stopDynamicsMeterTimer();
+      }
+      setState(() {
+        _desktopSelectedTitle = title;
+        _desktopSelectedIcon = icon;
+        _desktopSelectedBuilder = contentBuilder;
+      });
+      return;
+    }
+
     if (isDynamicsScreen) {
       _startDynamicsMeterTimer();
     }
@@ -4670,28 +4706,151 @@ class _EqScreenState extends State<EqScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Align(
-      alignment: Alignment.topCenter,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1000.0),
-        child: NotificationListener<ScrollNotification>(
-          onNotification: (notification) {
-            if (notification is ScrollStartNotification) {
-              widget.onScrollingChanged?.call(true);
-            } else if (notification is ScrollEndNotification) {
-              widget.onScrollingChanged?.call(false);
-            }
-            return false;
-          },
-          child: CustomScrollView(
-            key: const PageStorageKey<String>('eq_screen_scroll'),
-            controller: widget.scrollController,
-            physics: widget.physics ??
-                const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isExpanded = constraints.maxWidth >= 840;
+        _isDesktopExpanded = isExpanded;
+
+        if (isExpanded) {
+          return Column(
+            children: [
+              if (widget.desktopTopBar != null) ...[
+                widget.desktopTopBar!,
+                Divider(height: 1, color: context.outlineColor),
+              ],
+              Expanded(
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 360,
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          if (notification is ScrollStartNotification) {
+                            widget.onScrollingChanged?.call(true);
+                          } else if (notification is ScrollEndNotification) {
+                            widget.onScrollingChanged?.call(false);
+                          }
+                          return false;
+                        },
+                        child: CustomScrollView(
+                          key: const PageStorageKey<String>(
+                              'eq_screen_desktop_list'),
+                          controller: widget.scrollController,
+                          physics: widget.physics ??
+                              const BouncingScrollPhysics(
+                                parent: AlwaysScrollableScrollPhysics(),
+                              ),
+                          slivers: _buildModuleSlivers(
+                              includeHeaderSlivers: false),
+                        ),
+                      ),
+                    ),
+                    VerticalDivider(width: 1, color: context.outlineColor),
+                    Expanded(child: _buildDesktopDetailPane(context)),
+                  ],
                 ),
-            slivers: [
-              if (widget.headerSlivers != null) ...widget.headerSlivers!,
+              ),
+            ],
+          );
+        }
+
+        return Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1000.0),
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification is ScrollStartNotification) {
+                  widget.onScrollingChanged?.call(true);
+                } else if (notification is ScrollEndNotification) {
+                  widget.onScrollingChanged?.call(false);
+                }
+                return false;
+              },
+              child: CustomScrollView(
+                key: const PageStorageKey<String>('eq_screen_scroll'),
+                controller: widget.scrollController,
+                physics: widget.physics ??
+                    const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                slivers: _buildModuleSlivers(includeHeaderSlivers: true),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDesktopDetailPane(BuildContext context) {
+    final builder =
+        _desktopSelectedBuilder ?? (_) => _buildParametricEqSection();
+
+    return Column(
+      children: [
+        if (widget.desktopVisualizer != null) ...[
+          widget.desktopVisualizer!,
+          Divider(height: 1, color: context.outlineColor),
+        ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 14, 24, 12),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: primaryColor.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: primaryColor.withValues(alpha: 0.30),
+                  ),
+                ),
+                child: Center(
+                  child: Icon(_desktopSelectedIcon,
+                      color: primaryColor, size: 18),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _desktopSelectedTitle,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: context.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.2,
+                      ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Divider(height: 1, color: context.outlineColor),
+        Expanded(
+          child: RepaintBoundary(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1000.0),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 48),
+                  physics: const BouncingScrollPhysics(),
+                  child: builder(context),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildModuleSlivers({required bool includeHeaderSlivers}) {
+    return [
+      if (includeHeaderSlivers && widget.headerSlivers != null)
+        ...widget.headerSlivers!,
               // Warning Banner (Dismissible)
               if (_showWarningBanner)
                 SliverToBoxAdapter(
@@ -5891,11 +6050,7 @@ class _EqScreenState extends State<EqScreen>
               const SliverToBoxAdapter(
                 child: SizedBox(height: 120),
               ),
-            ],
-          ),
-        ),
-      ),
-    );
+            ];
   }
 
   Widget _buildPresetChip(String label) {

@@ -591,15 +591,32 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     }
 
     final isChromecast = activeCast != null;
+    final DlnaRendererCapabilities? dlnaCaps = activeDlna != null
+        ? await dlna.fetchRendererCapabilities(activeDlna)
+        : null;
+    if (!mounted || gen != _castSyncGeneration) return;
+
+    final int effectiveCeilingRate =
+        (dlnaCaps != null && dlnaCaps.maxSampleRateHz() != null)
+            ? math.min(ceilingRate, dlnaCaps.maxSampleRateHz()!)
+            : ceilingRate;
+    final bool dlnaSupportsDirectMime = activeDlna == null ||
+        dlnaCaps == null ||
+        !dlnaCaps.isKnown ||
+        filePath == null ||
+        dlnaCaps.supportsMime(
+            LocalMediaServer.mimeTypeForPathOrExt(CueVirtualPath.strip(filePath)));
+
     final canDirect = filePath != null &&
         mode == CastAudioMode.bitPerfect &&
+        dlnaSupportsDirectMime &&
         ChromecastService.canPassThroughDirectly(
           uri: source.uri,
           isClipped: source.isClipped,
           sampleRate: srcSampleRate,
           bitDepth: srcBitDepth,
           isFloat: srcIsFloat,
-          ceilingRate: ceilingRate,
+          ceilingRate: effectiveCeilingRate,
           isChromecast: isChromecast,
           formatName: srcFormatName,
         );
@@ -641,20 +658,23 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       return;
     }
 
-    // 24-bit / up-to-192 kHz LPCM WAV engine stream (With DSP Present, or
-    // Bit-Perfect fallback for DSD / 32-bit float / >ceiling / CUE / ALAC).
+    // 24-bit / up-to-192 kHz LPCM WAV or DLNA LPCM stream (With DSP Present, or
+    // Bit-Perfect fallback for DSD / 32-bit float / >ceiling / CUE / unsupported).
     final targetSr = ChromecastService.resolveCastTargetSampleRate(
       srcSampleRate,
-      ceilingRate,
+      effectiveCeilingRate,
     );
     final targetCh = _outputChannels > 0 ? _outputChannels : srcChannels;
     final bypassDsp = mode == CastAudioMode.bitPerfect;
+    final liveFormat = activeDlna != null
+        ? (dlnaCaps?.preferredLiveFormat() ?? LiveCastStreamFormat.wav24)
+        : LiveCastStreamFormat.wav24;
 
     _player.setCastPcmTap(enabled: true, bypassDsp: bypassDsp);
     _player.setOutputSampleRate(targetSr);
     _player.flushCastPcmTap();
     // Give the player isolate a moment to arm the tap & apply targetSr
-    // before the renderer opens the live HTTP WAV stream.
+    // before the renderer opens the live HTTP stream.
     await Future.delayed(const Duration(milliseconds: 60));
     if (!mounted || gen != _castSyncGeneration) return;
 
@@ -663,6 +683,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       sampleRate: targetSr,
       channels: targetCh,
       isPlaying: () => _status.value.isPlaying,
+      format: liveFormat,
     );
     if (!mounted || gen != _castSyncGeneration || liveUrl == null) return;
 
@@ -677,6 +698,22 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         isLiveStream: true,
       );
     } else if (activeDlna != null) {
+      final String liveMime;
+      final String? protoOverride;
+      switch (liveFormat) {
+        case LiveCastStreamFormat.wav24:
+          liveMime = 'audio/wav';
+          protoOverride =
+              'http-get:*:audio/wav:DLNA.ORG_OP=00;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01700000000000000000000000000000';
+        case LiveCastStreamFormat.lpcm24:
+          liveMime = 'audio/L24;rate=$targetSr;channels=$targetCh';
+          protoOverride =
+              'http-get:*:audio/L24;rate=$targetSr;channels=$targetCh:DLNA.ORG_PN=LPCM;DLNA.ORG_OP=00;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01700000000000000000000000000000';
+        case LiveCastStreamFormat.lpcm16:
+          liveMime = 'audio/L16;rate=$targetSr;channels=$targetCh';
+          protoOverride =
+              'http-get:*:audio/L16;rate=$targetSr;channels=$targetCh:DLNA.ORG_PN=LPCM;DLNA.ORG_OP=00;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01700000000000000000000000000000';
+      }
       await dlna.castAudioUrl(
         renderer: activeDlna,
         audioUrl: liveUrl,
@@ -685,7 +722,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         album: album,
         artworkUrl: artworkUrl,
         durationSeconds: durationSeconds,
-        mimeType: 'audio/wav',
+        mimeType: liveMime,
+        protocolInfoOverride: protoOverride,
         isLiveStream: true,
       );
     }
@@ -3484,23 +3522,25 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     final idx = status.currentIndex;
     if (idx < 0 || idx >= _playlist.length) return 'AUDIO';
     final src = _playlist[idx];
-    final pathForExt = _safeFilePathFromUri(src.uri) ?? _nameFromSource(src);
-    final name = pathForExt.toLowerCase();
+    final filePath = _safeFilePathFromUri(src.uri);
+    final candidate =
+        filePath ?? (src.uri.path.isNotEmpty ? src.uri.path : '');
+    if (candidate.isEmpty) return 'AUDIO';
+    final name = candidate.toLowerCase().split('?').first;
     if (name.endsWith('.flac')) return 'FLAC';
     if (name.endsWith('.dsf')) return 'DSF';
     if (name.endsWith('.dff')) return 'DFF';
     if (name.endsWith('.wav')) return 'WAV';
+    if (name.endsWith('.aiff') || name.endsWith('.aif')) return 'AIFF';
+    if (name.endsWith('.alac')) return 'ALAC';
+    if (name.endsWith('.opus')) return 'OPUS';
     if (name.endsWith('.ogg')) return 'OGG';
-    if (name.endsWith('.m4a')) return 'AAC';
+    if (name.endsWith('.m4a')) return 'M4A';
     if (name.endsWith('.aac')) return 'AAC';
     if (name.endsWith('.mp3')) return 'MP3';
     if (name.endsWith('.wv')) return 'WV';
     if (name.endsWith('.ape')) return 'APE';
-    // Try to extract extension
-    final dotIdx = name.lastIndexOf('.');
-    if (dotIdx > 0 && dotIdx < name.length - 1) {
-      return name.substring(dotIdx + 1).toUpperCase();
-    }
+    // Never extract random substrings from track titles or unknown extensions
     return 'AUDIO';
   }
 
@@ -3541,6 +3581,39 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       setState(() {});
     }
 
+    _showNowPlayingScreen();
+  }
+
+  Future<void> _playRemoteQueue(
+    List<TrackInfo> tracks,
+    List<AudioSource> sources,
+    int initialIndex,
+  ) async {
+    if (tracks.isEmpty || sources.isEmpty || tracks.length != sources.length) {
+      return;
+    }
+    _isFtpDownloading = false;
+    _playbackSessionId++;
+    final safeIndex = initialIndex.clamp(0, tracks.length - 1);
+
+    _currentUiQueue.clear();
+    _playlist.clear();
+    for (int i = 0; i < tracks.length; i++) {
+      _onlineTrackMetadata[sources[i].uri] = tracks[i];
+      _currentUiQueue.add(tracks[i]);
+      _playlist.add(sources[i]);
+    }
+
+    setState(() {});
+
+    _player.setAudioSources(
+      _playlist,
+      initialIndex: safeIndex,
+      initialPosition: Duration.zero,
+      useLazyPreparation: true,
+    );
+
+    _saveQueue();
     _showNowPlayingScreen();
   }
 
@@ -3895,6 +3968,7 @@ void _showNowPlayingScreen() {
                 player: _player,
                 onPlayNetworkFile: _playNetworkFile,
                 onPlayFtpFolder: _playFtpFolder,
+                onPlayRemoteQueue: _playRemoteQueue,
                 isNested: false,
                 initialTabIndex: _librarySubTabIndex,
               ),
@@ -3931,6 +4005,7 @@ void _showNowPlayingScreen() {
                   },
                   onPlayNetworkFile: _playNetworkFile,
                   onPlayFtpFolder: _playFtpFolder,
+                  onPlayRemoteQueue: _playRemoteQueue,
                   analyzerAutoFit: _analyzerAutoFit,
                   onAnalyzerAutoFitChanged: (v) {
                     setState(() => _analyzerAutoFit = v);

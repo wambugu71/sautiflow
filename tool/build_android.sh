@@ -22,6 +22,8 @@ INCLUDES=(
   "-Ithird_party/libusb"
   "-Ithird_party/libsamplerate/include"
   "-Ithird_party/r8brain"
+  "-Ithird_party/oboe/include"
+  "-Ithird_party/oboe/src"
 )
 
 DEFINES=(
@@ -37,7 +39,13 @@ DEFINES=(
   "-DENABLE_SINC_BEST_CONVERTER=1"
   "-DENABLE_SINC_MEDIUM_CONVERTER=1"
   "-DENABLE_SINC_FAST_CONVERTER=1"
+  "-DMA_NO_DEVICE_IO"
 )
+
+OBOE_SOURCES=()
+while IFS= read -r src; do
+  OBOE_SOURCES+=("$src")
+done < <(find third_party/oboe/src -name '*.cpp' | sort)
 
 for ABI in "${ABIS[@]}"; do
   case "$ABI" in
@@ -63,8 +71,10 @@ for ABI in "${ABIS[@]}"; do
   "$CLANG" \
     -std=c++17 -O2 -fPIC -shared \
     audio_engine.cpp third_party/libusb/libusb_android.c third_party/libsamplerate/src/*.c \
+    "${OBOE_SOURCES[@]}" \
     -o "$OUT_DIR/libaudio_engine.so" \
     -D__ANDROID_API__=$API "${INCLUDES[@]}" "${DEFINES[@]}" \
+    -llog -landroid -lOpenSLES -lm \
     $AE_EXTRA_CXXFLAGS \
     $AE_EXTRA_LDFLAGS
 

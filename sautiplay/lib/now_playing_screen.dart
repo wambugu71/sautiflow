@@ -150,6 +150,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   String _sampleRate = '...';
   String _channels = '...';
   String? _detectedCodec;
+  String? _resolvedFilePath;
+  int _audioPropsGeneration = 0;
   int _bitrateKbps = 0;
   String? _dsdBadgeLabel;
 
@@ -272,8 +274,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     _telemetrySub = widget.player.streamTelemetryStream.listen((tel) {
       if (mounted) {
+        final codecChanged = _streamTelemetry.codecName != tel.codecName;
         final stateChanged = _streamTelemetry.state != tel.state ||
-            _streamTelemetry.codecName != tel.codecName ||
+            codecChanged ||
             _streamTelemetry.bitrate != tel.bitrate ||
             _streamTelemetry.icyTitle != tel.icyTitle ||
             _streamTelemetry.isBuffering != tel.isBuffering;
@@ -281,7 +284,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         if (stateChanged) {
           setState(() {});
         }
-        if (_originalBitDepth.isEmpty || _sampleRate == '...') {
+        if (codecChanged || _originalBitDepth.isEmpty || _sampleRate == '...') {
           _fetchAudioProperties();
         }
       }
@@ -681,21 +684,31 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Future<void> _fetchAudioProperties() async {
+    final int gen = ++_audioPropsGeneration;
     _fileSizeBytes = 0;
     _originalBitDepth = '';
     _detectedCodec = null;
+    _resolvedFilePath = null;
     _bitrateKbps = 0;
 
     try {
       final props = await widget.player.getAudioProperties();
       final pipelineState = await widget.player.getPipelineState();
+      final telemetry = await widget.player.getEngineTelemetry();
+      if (!mounted || gen != _audioPropsGeneration) return;
+
       String? sampleRateStr;
       String? channelsStr;
       String? depthStr;
       String? codecStr;
       int bitrate = 0;
 
-      String? cleanPath = widget.videoId;
+      // Prefer the engine's actual active file path (covers local files,
+      // CUE tracks, and offline cached streams alike).
+      String? cleanPath = telemetry['filePath'] as String?;
+      if (cleanPath == null || cleanPath.isEmpty) {
+        cleanPath = widget.videoId;
+      }
       if (cleanPath != null && cleanPath.startsWith('file://')) {
         cleanPath = Uri.tryParse(cleanPath)?.toFilePath();
       }
@@ -704,13 +717,15 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         cleanPath = CueVirtualPath.strip(cleanPath);
       }
 
-      if (cleanPath != null) {
+      if (cleanPath != null && cleanPath.isNotEmpty) {
         try {
           final file = File(cleanPath);
           if (file.existsSync()) {
+            _resolvedFilePath = cleanPath;
             _fileSizeBytes = file.lengthSync();
             final info = await AudioFileInspector.inspectNative(
                 widget.player, cleanPath);
+            if (!mounted || gen != _audioPropsGeneration) return;
             sampleRateStr = info.formattedSampleRate;
             depthStr = info.formattedBitDepth;
             channelsStr = info.formattedChannels;
@@ -775,6 +790,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         }
       }
 
+      final telemetryCodec = (telemetry['fileType'] as String?)?.trim();
+      if (!_isUsableCodec(codecStr) && _isUsableCodec(telemetryCodec)) {
+        codecStr = telemetryCodec;
+      }
+      if (bitrate <= 0) {
+        final telBr = (telemetry['bitrateKbps'] as int?) ?? 0;
+        if (telBr > 0) bitrate = telBr;
+      }
+
+      final telRate = (telemetry['inputSampleRate'] as int?) ?? 0;
+      if (sampleRateStr == null && telRate > 0) {
+        sampleRateStr = _formatSampleRate(telRate);
+      }
       if (sampleRateStr == null && pipelineState.inputSampleRate > 0) {
         sampleRateStr = _formatSampleRate(pipelineState.inputSampleRate);
       }
@@ -786,6 +814,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       depthStr ??= activeOutDepth;
 
       final dsdState = await widget.player.getDsdState();
+      if (!mounted || gen != _audioPropsGeneration) return;
+
       final int activeDsdModeInt = dsdState['activeDsdMode'] as int? ?? 0;
       final int sourceDsdRate = dsdState['sourceDsdRate'] as int? ?? 0;
       final ActiveDsdMode activeDsdMode =
@@ -820,48 +850,20 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     }
   }
 
-  /// Resolves the current audio format for the audio engine diagnostics badge trigger.
-  String _resolveCurrentAudioFormat() {
-    if (_detectedCodec != null &&
-        _detectedCodec!.trim().isNotEmpty &&
-        _detectedCodec != 'AUDIO' &&
-        _detectedCodec != 'Unknown') {
-      return _detectedCodec!;
-    }
-    if (widget.codec.isNotEmpty &&
-        widget.codec != 'Unknown' &&
-        widget.codec != 'AUDIO') {
-      return widget.codec;
-    }
-    if (_streamTelemetry.codecName.isNotEmpty &&
-        _streamTelemetry.codecName != 'Unknown') {
-      return _streamTelemetry.codecName;
-    }
+  static bool _isUsableCodec(String? codec) {
+    if (codec == null) return false;
+    final c = codec.trim().toLowerCase();
+    return c.isNotEmpty &&
+        c != 'audio' &&
+        c != 'unknown' &&
+        c != 'stream' &&
+        c != 'webm';
+  }
 
-    final curIdx = widget.statusNotifier.value.currentIndex;
-    if (widget.queue.isNotEmpty && curIdx >= 0 && curIdx < widget.queue.length) {
-      final track = widget.queue[curIdx];
-      final v = track.videoId.toLowerCase().split('?').first;
-      for (final ext in [
-        'flac',
-        'wav',
-        'mp3',
-        'aac',
-        'm4a',
-        'ogg',
-        'opus',
-        'alac',
-        'aiff',
-        'dsd',
-        'dsf',
-        'dff'
-      ]) {
-        if (v.endsWith('.$ext')) return ext;
-      }
-    }
-
-    final vid = widget.videoId?.toLowerCase().split('?').first ?? '';
-    for (final ext in [
+  static String? _extractKnownAudioExt(String? rawPath) {
+    if (rawPath == null || rawPath.isEmpty) return null;
+    final clean = rawPath.toLowerCase().split('?').first;
+    for (final ext in const [
       'flac',
       'wav',
       'mp3',
@@ -873,12 +875,38 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       'aiff',
       'dsd',
       'dsf',
-      'dff'
+      'dff',
     ]) {
-      if (vid.endsWith('.$ext')) return ext;
+      if (clean.endsWith('.$ext')) return ext;
+    }
+    return null;
+  }
+
+  /// Resolves the current audio format for the audio engine diagnostics badge trigger.
+  String _resolveCurrentAudioFormat() {
+    if (_isUsableCodec(_detectedCodec)) {
+      return _detectedCodec!;
+    }
+    if (_isUsableCodec(_streamTelemetry.codecName)) {
+      return _streamTelemetry.codecName;
+    }
+    if (_isUsableCodec(widget.codec)) {
+      return widget.codec;
     }
 
-    return widget.codec.isNotEmpty ? widget.codec : 'flac';
+    final fromResolved = _extractKnownAudioExt(_resolvedFilePath);
+    if (fromResolved != null) return fromResolved;
+
+    final curIdx = widget.statusNotifier.value.currentIndex;
+    if (widget.queue.isNotEmpty && curIdx >= 0 && curIdx < widget.queue.length) {
+      final fromQueue = _extractKnownAudioExt(widget.queue[curIdx].videoId);
+      if (fromQueue != null) return fromQueue;
+    }
+
+    final fromVid = _extractKnownAudioExt(widget.videoId);
+    if (fromVid != null) return fromVid;
+
+    return 'AUDIO';
   }
 
   Future<void> _fetchLyrics() async {
@@ -2039,8 +2067,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       trackNumber: _customTrackNum,
       albumArt: widget.albumArt,
       sourceType: widget.sourceType,
-      videoId: widget.videoId,
-      codec: _detectedCodec ?? widget.codec,
+      videoId: _resolvedFilePath ?? widget.videoId,
+      codec: _resolveCurrentAudioFormat(),
       sampleRate: _sampleRate,
       channels: _channels,
       bitDepth: _originalBitDepth,
@@ -2286,7 +2314,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _buildSignalChain(AudioHardwareSpecs specs) {
     final nodes = specs.buildPowerampSignalChain(
-      sourceCodec: _detectedCodec ?? widget.codec,
+      sourceCodec: _resolveCurrentAudioFormat(),
       sourceSampleRate: _sampleRate,
       sourceBitDepth: _originalBitDepth,
       sourceChannels: _channels,
@@ -3292,10 +3320,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                           onOpenDiagnostics: () => showAudioEngineDiagnosticPanel(
                                                             context,
                                                             widget.player,
-                                                            filePath: widget.videoId != null &&
-                                                                    widget.videoId!.startsWith('file://')
-                                                                ? Uri.tryParse(widget.videoId!)?.toFilePath()
-                                                                : widget.videoId,
+                                                            filePath: _resolvedFilePath ??
+                                                                (widget.videoId != null &&
+                                                                        widget.videoId!.startsWith('file://')
+                                                                    ? Uri.tryParse(widget.videoId!)?.toFilePath()
+                                                                    : widget.videoId),
                                                           ),
                                                         ),
                                                         Text(
@@ -3903,10 +3932,11 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                   onOpenDiagnostics: () => showAudioEngineDiagnosticPanel(
                                                     context,
                                                     widget.player,
-                                                    filePath: widget.videoId != null &&
-                                                            widget.videoId!.startsWith('file://')
-                                                        ? Uri.tryParse(widget.videoId!)?.toFilePath()
-                                                        : widget.videoId,
+                                                    filePath: _resolvedFilePath ??
+                                                        (widget.videoId != null &&
+                                                                widget.videoId!.startsWith('file://')
+                                                            ? Uri.tryParse(widget.videoId!)?.toFilePath()
+                                                            : widget.videoId),
                                                   ),
                                                 ),
                                               ),

@@ -638,10 +638,11 @@ class _FullscreenSpectrumVisualizerState
                                   ],
                                 ),
                                 M3EMenuGroup.entries(
-                                  label: 'Milkdrop Library & Downloads',
+                                  label: 'Milkdrop Presets',
                                   entries: [
                                     M3EMenuEntry(
-                                      label: 'Browse & Download Presets...',
+                                      label:
+                                          'Browse Presets (${ProjectMPresetLibrary.allWithCustom.length})...',
                                       leading: Icon(
                                         Icons.cloud_download_outlined,
                                         size: 16,
@@ -671,7 +672,7 @@ class _FullscreenSpectrumVisualizerState
                                       },
                                     ),
                                     M3EMenuEntry(
-                                      label: 'Import .milk from Device...',
+                                      label: 'Import .milk...',
                                       leading: Icon(
                                         Icons.file_open_outlined,
                                         size: 16,
@@ -706,9 +707,9 @@ class _FullscreenSpectrumVisualizerState
                                   ],
                                 ),
                                 M3EMenuGroup.entries(
-                                  label:
-                                      'Milkdrop Presets (${ProjectMPresetLibrary.allWithCustom.length})',
-                                  entries: ProjectMPresetLibrary.allWithCustom
+                                  label: 'Quick Presets',
+                                  entries: ProjectMPresetLibrary.all
+                                      .take(5)
                                       .map((preset) {
                                     final isSelected = (_currentAnalyzerType ==
                                                 'projectm' ||

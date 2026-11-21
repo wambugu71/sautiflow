@@ -42,17 +42,24 @@ class AudioDiagnosticsBadgeRow extends StatelessWidget {
       if (f.contains('aiff') || f.contains('aif')) {
         return 'assets/icons/audio_badges/format_aiff_32.svg';
       }
-      if (f.contains('mp3') || f.contains('mpeg') || f.contains('id3')) {
+      if (f.contains('mp3') ||
+          f.contains('mpeg') ||
+          f.contains('id3') ||
+          f.contains('mp2') ||
+          f.contains('mpa')) {
         return 'assets/icons/audio_badges/format_mp3_32.svg';
       }
       if (f.contains('aac') || f.contains('adts')) {
         return 'assets/icons/audio_badges/format_aac_32.svg';
       }
       if (f.contains('opus')) return 'assets/icons/audio_badges/format_opus_32.svg';
-      if (f.contains('m4a') || f.contains('mp4')) {
+      if (f.contains('m4a') ||
+          f.contains('m4b') ||
+          f.contains('m4p') ||
+          f.contains('mp4')) {
         return 'assets/icons/audio_badges/format_m4a_32.svg';
       }
-      if (f.contains('ogg') || f.contains('vorbis')) {
+      if (f.contains('ogg') || f.contains('vorbis') || f.contains('spx')) {
         return 'assets/icons/audio_badges/format_ogg_32.svg';
       }
       if (f.contains('pcm') || f.contains('raw') || f.contains('audio')) {
@@ -60,8 +67,8 @@ class AudioDiagnosticsBadgeRow extends StatelessWidget {
       }
     }
 
-    // Default song type icon fallback so the format badge is always present
-    return 'assets/icons/audio_badges/format_flac_32.svg';
+    // Default generic audio icon fallback (never mislabel unknown formats as FLAC)
+    return 'assets/icons/audio_badges/format_pcm_32.svg';
   }
 
   static String? _resolveBitDepthSvg(String? rawDepth, String? rawFormat) {

@@ -25,6 +25,14 @@
 #define MA_DR_MP3_ASSERT(expression) ((void)0)
 #endif
 
+// On Android, replace miniaudio's built-in AAudio/OpenSL ES device I/O backend with Google Oboe
+// (keeping miniaudio's decoders, resamplers, ring buffers, and non-Android backends intact).
+#if defined(__ANDROID__)
+#ifndef MA_NO_DEVICE_IO
+#define MA_NO_DEVICE_IO
+#endif
+#endif
+
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
 
@@ -3583,7 +3591,27 @@ struct AudioEngineHandle;
 
 struct AudioEngineHandle
 {
+    struct ActiveOutputState
+    {
+        ma_format format = ma_format_f32;
+        ma_uint32 channels = 2;
+        ma_uint32 sampleRate = 48000;
+        ma_uint32 internalSampleRate = 48000;
+        ma_uint32 periodSizeFrames = 0;
+        ma_uint32 periodCount = 0;
+        bool isExclusive = false;
+        bool isMMap = false;
+        bool initialized = false;
+    };
+    ActiveOutputState activeOut{};
+#if !defined(__ANDROID__)
     ma_device device{};
+    ma_context customContext{};
+    bool customContextInit = false;
+#else
+    void *pOboeSink = nullptr;
+    std::atomic<bool> oboeDisconnectRestartRequested{false};
+#endif
     mutable std::mutex deviceMutex;
     std::atomic<bool> exclusiveModeEnabled{false};
     std::atomic<bool> use64BitProcessing{false};
@@ -3602,8 +3630,6 @@ struct AudioEngineHandle
     std::atomic<int> dapProfileOverride{-1}; // -1 = Auto-detect, 0 = Generic, 1..N = DapFamily
     std::atomic<bool> dapBitPerfectMixerActive{false};
     std::atomic<bool> dapDirectHalActive{false};
-    ma_context customContext{};
-    bool customContextInit = false;
     void *pAudioTrackSink = nullptr;
     void *pUsbDacSink = nullptr;
     std::mutex manualUsbMutex;
@@ -3640,6 +3666,21 @@ struct AudioEngineHandle
     int deviceResamplerOutRate = 0;
     int deviceResamplerCh = 0;
     int deviceResamplerAlgorithm = -1;
+
+    // Single-stage off-thread producer resampler (runs only when ma_decoder's native
+    // outputSampleRate differs from engineSampleRate; never double-resamples inside ma_decoder).
+    ma_resampler trackResampler{};
+    bool trackResamplerInit = false;
+    int trackResamplerInRate = 0;
+    int trackResamplerOutRate = 0;
+    int trackResamplerCh = 0;
+    int trackResamplerAlgorithm = -1;
+    std::vector<float> trackResamplerInBuf;
+    size_t trackResamplerInUnconsumed = 0;
+    std::vector<uint8_t> decoderRawScratch;
+    std::atomic<uint64_t> trackResamplerInputLatencyFrames{0};
+    std::atomic<uint64_t> trackResamplerOutputLatencyFrames{0};
+
     std::vector<float> engineProcessBuffer;
     std::vector<double> processBuffer64;
 
@@ -3783,6 +3824,7 @@ struct AudioEngineHandle
 
     std::atomic<bool> pendingSeekValid{false};
     std::atomic<ma_uint64> pendingSeekFrame{0};
+    std::atomic<double> pendingSeekSeconds{-1.0};
     std::atomic<int> pendingSeekIndex{-1};
 
     // A-B Repeat
@@ -4504,8 +4546,293 @@ extern "C"
 
 #if defined(__ANDROID__)
 static int android_query_native_hal_sample_rate();
-static void android_aaudio_get_hw_rate_and_sharing(const ma_device *pDev, int *outHwRate, int *outSharingMode);
 #endif
+
+static inline ma_uint64 convert_frame_rate(ma_uint64 frames, int fromRate, int toRate)
+{
+    if (frames == 0 || fromRate <= 0 || toRate <= 0 || fromRate == toRate)
+    {
+        return frames;
+    }
+    const long double scaled = (static_cast<long double>(frames) * static_cast<long double>(toRate)) /
+                               static_cast<long double>(fromRate);
+    return (scaled > 0.0L) ? static_cast<ma_uint64>(scaled + 0.5L) : 0ULL;
+}
+
+#if !defined(__ANDROID__)
+static inline void sync_active_out_from_ma_device(AudioEngineHandle *e)
+{
+    if (!e) return;
+    const bool isInit = (e->device.pContext != nullptr &&
+                         ma_device_get_state(&e->device) != ma_device_state_uninitialized);
+    e->activeOut.initialized = isInit;
+    if (!isInit) return;
+    e->activeOut.format = e->device.playback.format;
+    e->activeOut.channels = e->device.playback.channels;
+    e->activeOut.sampleRate = e->device.sampleRate;
+    e->activeOut.internalSampleRate = e->device.playback.internalSampleRate;
+    e->activeOut.periodSizeFrames = e->device.playback.internalPeriodSizeInFrames;
+    e->activeOut.periodCount = e->device.playback.internalPeriods;
+    e->activeOut.isExclusive = (e->device.playback.shareMode == ma_share_mode_exclusive);
+    e->activeOut.isMMap = false;
+}
+#endif
+
+static void reset_track_resampler_locked(AudioEngineHandle *e, bool uninit = false)
+{
+    if (!e) return;
+    if (e->trackResamplerInit)
+    {
+        if (uninit)
+        {
+            ma_resampler_uninit(&e->trackResampler, nullptr);
+            e->trackResamplerInit = false;
+            e->trackResamplerInRate = 0;
+            e->trackResamplerOutRate = 0;
+            e->trackResamplerCh = 0;
+            e->trackResamplerAlgorithm = -1;
+            e->trackResamplerInputLatencyFrames.store(0, std::memory_order_relaxed);
+            e->trackResamplerOutputLatencyFrames.store(0, std::memory_order_relaxed);
+        }
+        else
+        {
+            ma_resampler_reset(&e->trackResampler);
+        }
+    }
+    else
+    {
+        e->trackResamplerInputLatencyFrames.store(0, std::memory_order_relaxed);
+        e->trackResamplerOutputLatencyFrames.store(0, std::memory_order_relaxed);
+    }
+    e->trackResamplerInUnconsumed = 0;
+}
+
+static ma_result read_decoder_frames_f32(
+    ma_decoder *dec,
+    float *dst,
+    ma_uint64 frames,
+    ma_uint64 *outRead,
+    std::vector<uint8_t> &rawScratch)
+{
+    if (outRead) *outRead = 0;
+    if (!dec || !dst || frames == 0) return MA_INVALID_ARGS;
+    if (dec->outputFormat == ma_format_f32 || dec->outputFormat == ma_format_unknown)
+    {
+        return ma_decoder_read_pcm_frames(dec, dst, frames, outRead);
+    }
+    const ma_uint32 ch = (dec->outputChannels > 0) ? dec->outputChannels : 2;
+    const ma_uint32 bpf = ma_get_bytes_per_frame(dec->outputFormat, ch);
+    if (bpf == 0)
+    {
+        return MA_INVALID_ARGS;
+    }
+    const size_t needBytes = static_cast<size_t>(frames) * static_cast<size_t>(bpf);
+    if (rawScratch.size() < needBytes)
+    {
+        rawScratch.resize(needBytes);
+    }
+    ma_uint64 got = 0;
+    const ma_result r = ma_decoder_read_pcm_frames(dec, rawScratch.data(), frames, &got);
+    if (got > 0)
+    {
+        ma_pcm_convert(
+            dst,
+            ma_format_f32,
+            rawScratch.data(),
+            dec->outputFormat,
+            got * static_cast<ma_uint64>(ch),
+            ma_dither_mode_none);
+    }
+    if (outRead) *outRead = got;
+    return r;
+}
+
+// Single-stage off-thread producer resampler. Bypasses completely (zero overhead)
+// when ma_decoder's native outputSampleRate == engineSampleRate; otherwise resamples
+// once via the user's selected resampler (r8brain / libsamplerate / linear LPF4).
+static ma_result read_current_decoder_at_engine_rate(
+    AudioEngineHandle *e,
+    float *dst,
+    ma_uint64 wantOutFrames,
+    ma_uint64 *outFramesRead)
+{
+    if (outFramesRead) *outFramesRead = 0;
+    if (!e || !e->currentDecoder || !dst || wantOutFrames == 0)
+    {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_decoder *dec = e->currentDecoder;
+    const int decRate = (int)dec->outputSampleRate;
+    const int engineRate = (e->engineSampleRate > 0)
+                               ? e->engineSampleRate
+                               : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+    const int decCh = (dec->outputChannels > 0)
+                          ? (int)dec->outputChannels
+                          : ((e->channels > 0) ? e->channels : 2);
+
+    if (decRate <= 0 || decRate == engineRate)
+    {
+        e->trackResamplerInputLatencyFrames.store(0, std::memory_order_relaxed);
+        e->trackResamplerOutputLatencyFrames.store(0, std::memory_order_relaxed);
+        return read_decoder_frames_f32(dec, dst, wantOutFrames, outFramesRead, e->decoderRawScratch);
+    }
+
+    const int desiredAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
+    e->currentResampleAlgorithm.store(desiredAlgo, std::memory_order_relaxed);
+
+    if (!e->trackResamplerInit ||
+        e->trackResamplerInRate != decRate ||
+        e->trackResamplerOutRate != engineRate ||
+        e->trackResamplerCh != decCh ||
+        e->trackResamplerAlgorithm != desiredAlgo)
+    {
+        reset_track_resampler_locked(e, /*uninit=*/true);
+
+        ma_resampler_config rcfg = ma_resampler_config_init(
+            ma_format_f32,
+            (ma_uint32)decCh,
+            (ma_uint32)decRate,
+            (ma_uint32)engineRate,
+            ma_resample_algorithm_linear);
+        rcfg.linear.lpfOrder = 4;
+        if (desiredAlgo > 0)
+        {
+            rcfg.algorithm = ma_resample_algorithm_custom;
+            rcfg.pBackendVTable = get_resampler_vtable_for_algorithm(desiredAlgo);
+            rcfg.pBackendUserData = &e->currentResampleAlgorithm;
+        }
+
+        ma_result initRes = ma_resampler_init(&rcfg, nullptr, &e->trackResampler);
+        if (initRes != MA_SUCCESS && desiredAlgo > 0)
+        {
+            rcfg.algorithm = ma_resample_algorithm_linear;
+            rcfg.pBackendVTable = nullptr;
+            rcfg.pBackendUserData = nullptr;
+            initRes = ma_resampler_init(&rcfg, nullptr, &e->trackResampler);
+        }
+
+        if (initRes != MA_SUCCESS)
+        {
+            // Failsafe if resampler init failed: read native frames directly.
+            return read_decoder_frames_f32(dec, dst, wantOutFrames, outFramesRead, e->decoderRawScratch);
+        }
+
+        e->trackResamplerInit = true;
+        e->trackResamplerInRate = decRate;
+        e->trackResamplerOutRate = engineRate;
+        e->trackResamplerCh = decCh;
+        e->trackResamplerAlgorithm = desiredAlgo;
+        e->trackResamplerInUnconsumed = 0;
+        e->trackResamplerInputLatencyFrames.store(
+            ma_resampler_get_input_latency(&e->trackResampler), std::memory_order_relaxed);
+        e->trackResamplerOutputLatencyFrames.store(
+            ma_resampler_get_output_latency(&e->trackResampler), std::memory_order_relaxed);
+    }
+
+    const size_t ch = (size_t)decCh;
+    ma_uint64 totalOut = 0;
+    bool reachedEof = false;
+
+    for (int pass = 0; pass < 8 && totalOut < wantOutFrames; ++pass)
+    {
+        const ma_uint64 remOut = wantOutFrames - totalOut;
+        ma_uint64 inNeeded = 0;
+        const ma_result reqRes = ma_resampler_get_required_input_frame_count(
+            &e->trackResampler, remOut, &inNeeded);
+        if (reqRes != MA_SUCCESS)
+        {
+            inNeeded = std::max<ma_uint64>(
+                1,
+                (ma_uint64)std::ceil((double)remOut * (double)decRate / (double)engineRate));
+        }
+
+        size_t framesToRead = 0;
+        if ((size_t)inNeeded > e->trackResamplerInUnconsumed)
+        {
+            framesToRead = (size_t)inNeeded - e->trackResamplerInUnconsumed;
+        }
+
+        const size_t neededBufFrames = e->trackResamplerInUnconsumed + framesToRead;
+        if (e->trackResamplerInBuf.size() < neededBufFrames * ch)
+        {
+            e->trackResamplerInBuf.resize(neededBufFrames * ch);
+        }
+
+        ma_result rr = MA_SUCCESS;
+        ma_uint64 inRead = 0;
+        if (framesToRead > 0)
+        {
+            rr = read_decoder_frames_f32(
+                dec,
+                e->trackResamplerInBuf.data() + (e->trackResamplerInUnconsumed * ch),
+                (ma_uint64)framesToRead,
+                &inRead,
+                e->decoderRawScratch);
+        }
+
+        const ma_uint64 totalInFrames = (ma_uint64)(e->trackResamplerInUnconsumed + inRead);
+        ma_uint64 inProcessed = totalInFrames;
+        ma_uint64 outProcessed = remOut;
+
+        if (totalInFrames > 0 || inNeeded == 0)
+        {
+            float dummySample = 0.0f;
+            const float *inPtr = (totalInFrames > 0) ? e->trackResamplerInBuf.data() : &dummySample;
+            ma_resampler_process_pcm_frames(
+                &e->trackResampler,
+                inPtr,
+                &inProcessed,
+                dst + (totalOut * ch),
+                &outProcessed);
+
+            totalOut += outProcessed;
+            const size_t unconsumedLeft = (totalInFrames > inProcessed) ? (size_t)(totalInFrames - inProcessed) : 0;
+            if (unconsumedLeft > 0 && inProcessed > 0)
+            {
+                std::memmove(
+                    e->trackResamplerInBuf.data(),
+                    e->trackResamplerInBuf.data() + (inProcessed * ch),
+                    unconsumedLeft * ch * sizeof(float));
+            }
+            e->trackResamplerInUnconsumed = unconsumedLeft;
+        }
+        else
+        {
+            inProcessed = 0;
+            outProcessed = 0;
+        }
+
+        reachedEof = (rr == MA_AT_END) || (framesToRead > 0 && inRead == 0 && rr != MA_SUCCESS);
+        if (reachedEof ||
+            (inProcessed == 0 && outProcessed == 0 && framesToRead == 0) ||
+            (inRead == 0 && outProcessed == 0 && totalInFrames == 0))
+        {
+            break;
+        }
+    }
+
+    // Flush remaining resampler filter tail when decoder reached EOF and no unconsumed input remains.
+    if (reachedEof && e->trackResamplerInUnconsumed == 0 && totalOut < wantOutFrames)
+    {
+        ma_uint64 flushIn = 0;
+        ma_uint64 flushOut = wantOutFrames - totalOut;
+        ma_resampler_process_pcm_frames(
+            &e->trackResampler,
+            nullptr,
+            &flushIn,
+            dst + (totalOut * ch),
+            &flushOut);
+        totalOut += flushOut;
+    }
+
+    if (outFramesRead) *outFramesRead = totalOut;
+    if (totalOut == 0 && reachedEof && e->trackResamplerInUnconsumed == 0)
+    {
+        return MA_AT_END;
+    }
+    return MA_SUCCESS;
+}
 
 static int clamp_rate_to_supported_list(
     int desiredRate,
@@ -4577,18 +4904,18 @@ static int resolve_hardware_target_rate(AudioEngineHandle *e, int sourceRate)
     {
 #if defined(__ANDROID__)
         activeNativeRate = android_query_native_hal_sample_rate();
-        if (activeNativeRate <= 0 && e->device.sampleRate > 0)
+        if (activeNativeRate <= 0 && e->activeOut.sampleRate > 0)
         {
-            activeNativeRate = static_cast<int>(e->device.sampleRate);
+            activeNativeRate = static_cast<int>(e->activeOut.sampleRate);
         }
 #else
-        if (e->device.playback.internalSampleRate > 0)
+        if (e->activeOut.internalSampleRate > 0)
         {
-            activeNativeRate = static_cast<int>(e->device.playback.internalSampleRate);
+            activeNativeRate = static_cast<int>(e->activeOut.internalSampleRate);
         }
-        else if (e->device.sampleRate > 0)
+        else if (e->activeOut.sampleRate > 0)
         {
-            activeNativeRate = static_cast<int>(e->device.sampleRate);
+            activeNativeRate = static_cast<int>(e->activeOut.sampleRate);
         }
 #endif
     }
@@ -4873,9 +5200,9 @@ static inline bool dsd_requires_hw_restart(AudioEngineHandle *e, int effectiveRa
     }
     if (targetHwBitMode != 0)
     {
-        if ((effectiveRate > 0 && static_cast<uint32_t>(effectiveRate) != e->device.sampleRate) ||
-            (decFmt != ma_format_unknown && decFmt != e->device.playback.format) ||
-            (decCh > 0 && static_cast<uint32_t>(decCh) != e->device.playback.channels))
+        if ((effectiveRate > 0 && static_cast<uint32_t>(effectiveRate) != e->activeOut.sampleRate) ||
+            (decFmt != ma_format_unknown && decFmt != e->activeOut.format) ||
+            (decCh > 0 && static_cast<uint32_t>(decCh) != e->activeOut.channels))
         {
             return true;
         }
@@ -4959,7 +5286,7 @@ static void sync_dac_valid_bit_depth(AudioEngineHandle *e)
     ma_format devFmt = ae_format_to_ma_format(e->outputFormat);
     if (devFmt == ma_format_unknown)
     {
-        devFmt = e->device.playback.format;
+        devFmt = e->activeOut.format;
     }
 
     int depth = 24;
@@ -4975,6 +5302,7 @@ static void sync_dac_valid_bit_depth(AudioEngineHandle *e)
     e->dacValidBitDepth.store(depth, std::memory_order_relaxed);
 }
 
+#if !defined(__ANDROID__)
 static void apply_buffer_policy(AudioEngineHandle *e, ma_device_config &cfg)
 {
     if (!e)
@@ -4991,18 +5319,8 @@ static void apply_buffer_policy(AudioEngineHandle *e, ma_device_config &cfg)
     {
         cfg.periods = (ma_uint32)userPeriods;
     }
-
-#if defined(__ANDROID__)
-    const bool wantLowLatency = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
-                                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed) ||
-                                (userFrames > 0);
-    if (wantLowLatency)
-    {
-        cfg.aaudio.allowSetBufferCapacity = MA_TRUE;
-        cfg.aaudio.enableCompatibilityWorkarounds = MA_FALSE;
-    }
-#endif
 }
+#endif
 
 static inline int64_t steady_now_ns()
 {
@@ -5308,11 +5626,11 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
     e->ratePlan         = plan;
 
     {
-        const size_t pSize = (size_t)e->device.playback.internalPeriodSizeInFrames;
-        const size_t periods = (size_t)e->device.playback.internalPeriods;
+        const size_t pSize = (size_t)e->activeOut.periodSizeFrames;
+        const size_t periods = (size_t)e->activeOut.periodCount;
         if (pSize > 0 && periods > 0)
         {
-            const double devRate = (e->device.sampleRate > 0) ? (double)e->device.sampleRate : (double)plan.deviceRate;
+            const double devRate = (e->activeOut.sampleRate > 0) ? (double)e->activeOut.sampleRate : (double)plan.deviceRate;
             const double ratio = (devRate > 0.0 && plan.engineRate > 0) ? ((double)plan.engineRate / devRate) : 1.0;
             // Account for backend buffer periods plus one in-flight conversion period on start.
             const size_t burstAtEngineSr = (size_t)std::ceil((double)(pSize * (periods + 1)) * ratio);
@@ -5650,22 +5968,12 @@ static bool load_decoder_for_path(
             decFormat = ma_format_unknown;
         }
     }
-    ma_decoder_config cfg = ma_decoder_config_init(decFormat, outCh, targetRate);
+    ma_decoder_config cfg = ma_decoder_config_init(decFormat, outCh, 0);
 
-    // Online streams: Resampling defaults to FFmpeg's built-in SwrContext resampler (not r8brain / libsamplerate).
-    // Local files: Use the user-selected high-precision resampler backend (r8brain / libsamplerate).
-    const int decAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
-    e->currentResampleAlgorithm = decAlgo;
-    if (!isNetwork && decAlgo > 0)
-    {
-        cfg.resampling.algorithm = ma_resample_algorithm_custom;
-        cfg.resampling.pBackendVTable = get_resampler_vtable_for_algorithm(decAlgo);
-        cfg.resampling.pBackendUserData = &e->currentResampleAlgorithm;
-    }
-    else
-    {
-        cfg.resampling.algorithm = ma_resample_algorithm_linear;
-    }
+    // Always decode at native source rate (sampleRate = 0) so ma_decoder never runs a
+    // hidden internal resampler; decode_producer_loop() performs single-stage SRC via
+    // trackResampler when decRate != engineSampleRate. Network streams still resample in FFmpeg SwrContext.
+    e->currentResampleAlgorithm.store(e->resampleAlgorithm.load(std::memory_order_relaxed), std::memory_order_relaxed);
 
 #if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
     static ma_decoding_backend_vtable *pDecoders[] = {
@@ -5985,11 +6293,12 @@ static float compute_preview_lufs(ma_decoder *decoder, float *outPeak = nullptr,
     double activeBlockSumPwr = 0.0;
     int activeBlockCount = 0;
     float maxSamplePeak = 0.0f;
+    std::vector<uint8_t> rawScratch;
 
     for (ma_uint32 chunk = 0; chunk < maxChunks; ++chunk)
     {
         ma_uint64 framesRead = 0;
-        ma_result r = ma_decoder_read_pcm_frames(decoder, pcmChunk.data(), chunkFrames, &framesRead);
+        ma_result r = read_decoder_frames_f32(decoder, pcmChunk.data(), chunkFrames, &framesRead, rawScratch);
         if (r != MA_SUCCESS || framesRead == 0) break;
 
         double blockSumSq[8] = {0};
@@ -6248,27 +6557,52 @@ static void worker_loop(AudioEngineHandle *e)
         try
         {
             int jumpIndex = -1;
-        bool doPreload = false;
+            bool doPreload = false;
+#if defined(__ANDROID__)
+            bool doOboeDisconnectRestart = false;
+#endif
 
         {
             std::unique_lock<std::mutex> lk(e->workerMutex);
             e->workerCv.wait(lk, [&]()
-                             { return e->workerExit || (!e->rateTransitionInProgress.load(std::memory_order_acquire) && (e->requestedIndex >= 0 || e->preloadRequested)); });
+                             { return e->workerExit ||
+#if defined(__ANDROID__)
+                                      e->oboeDisconnectRestartRequested.load(std::memory_order_acquire) ||
+#endif
+                                      (!e->rateTransitionInProgress.load(std::memory_order_acquire) && (e->requestedIndex >= 0 || e->preloadRequested)); });
 
             if (e->workerExit)
             {
                 return;
             }
 
-            if (e->rateTransitionInProgress.load(std::memory_order_acquire))
+#if defined(__ANDROID__)
+            if (e->oboeDisconnectRestartRequested.exchange(false, std::memory_order_acq_rel))
             {
-                continue;
+                doOboeDisconnectRestart = true;
             }
+#endif
 
-            jumpIndex = e->requestedIndex;
-            doPreload = e->preloadRequested;
-            e->requestedIndex = -1;
-            e->preloadRequested = false;
+            if (!e->rateTransitionInProgress.load(std::memory_order_acquire))
+            {
+                jumpIndex = e->requestedIndex;
+                doPreload = e->preloadRequested;
+                e->requestedIndex = -1;
+                e->preloadRequested = false;
+            }
+        }
+
+#if defined(__ANDROID__)
+        if (doOboeDisconnectRestart)
+        {
+            engine_log("[Oboe] Handling audio disconnect / route change on worker thread");
+            restart_and_apply_config(e);
+        }
+#endif
+
+        if (e->rateTransitionInProgress.load(std::memory_order_acquire) && jumpIndex < 0 && !doPreload)
+        {
+            continue;
         }
 
         if (jumpIndex >= 0)
@@ -6465,21 +6799,38 @@ static void worker_loop(AudioEngineHandle *e)
                 arm_transition_fade_in(e);
                 apply_initial_track_loudness(e, newCurrent, path);
 
-                ma_uint64 startFrame = 0;
+                ma_uint64 startFrameEngine = 0;
                 if (e->pendingSeekValid.load(std::memory_order_acquire) &&
                     e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex)
                 {
-                    startFrame = e->pendingSeekFrame.load(std::memory_order_acquire);
-                    const ma_result seekRc = ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrame);
+                    const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                    const int decSr = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                                          ? (int)e->currentDecoder->outputSampleRate
+                                          : engineSr;
+                    const double seekSec = e->pendingSeekSeconds.load(std::memory_order_acquire);
+                    ma_uint64 startFrameDec = 0;
+                    if (seekSec >= 0.0)
+                    {
+                        startFrameDec = (ma_uint64)(seekSec * (double)decSr);
+                        startFrameEngine = (ma_uint64)(seekSec * (double)engineSr);
+                    }
+                    else
+                    {
+                        startFrameEngine = e->pendingSeekFrame.load(std::memory_order_acquire);
+                        startFrameDec = convert_frame_rate(startFrameEngine, engineSr, decSr);
+                    }
+                    const ma_result seekRc = ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrameDec);
                     if (seekRc != MA_SUCCESS)
                     {
                         engine_log("worker pending seek failed (ma_result=%d) index=%d", (int)seekRc, jumpIndex);
                         set_last_error(e, "Seek failed after jump.");
                     }
                     e->pendingSeekValid.store(false, std::memory_order_release);
+                    e->pendingSeekSeconds.store(-1.0, std::memory_order_release);
                     e->pendingSeekIndex.store(-1, std::memory_order_release);
                 }
-                reset_playback_position(e, startFrame);
+                reset_playback_position(e, startFrameEngine);
+                reset_track_resampler_locked(e);
 
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                 e->nextStream = nullptr;
@@ -6809,10 +7160,10 @@ static ma_result read_and_resample_crossfade(
         fadeOutRate = targetRate;
     }
 
-    // Direct passthrough when sample rates match
+    // Direct passthrough when sample rates match (converting integer decoder output to f32 if needed)
     if (fadeOutRate == targetRate)
     {
-        return ma_decoder_read_pcm_frames(fadeOut, outBuffer, (ma_uint64)fillFrames, outFramesRead);
+        return read_decoder_frames_f32(fadeOut, outBuffer, (ma_uint64)fillFrames, outFramesRead, e->decoderRawScratch);
     }
 
     // Reinitialize resampler if sample rates or channel count changed
@@ -6861,7 +7212,7 @@ static ma_result read_and_resample_crossfade(
         else
         {
             // Fallback: read directly without resampling if init failed
-            return ma_decoder_read_pcm_frames(fadeOut, outBuffer, (ma_uint64)fillFrames, outFramesRead);
+            return read_decoder_frames_f32(fadeOut, outBuffer, (ma_uint64)fillFrames, outFramesRead, e->decoderRawScratch);
         }
         e->crossfadeInputBuffer.clear();
         e->crossfadeInputUnconsumed = 0;
@@ -6893,11 +7244,12 @@ static ma_result read_and_resample_crossfade(
     ma_uint64 inRead = 0;
     if (framesToRead > 0)
     {
-        rr = ma_decoder_read_pcm_frames(
+        rr = read_decoder_frames_f32(
             fadeOut,
             e->crossfadeInputBuffer.data() + (e->crossfadeInputUnconsumed * ch),
             (ma_uint64)framesToRead,
-            &inRead);
+            &inRead,
+            e->decoderRawScratch);
     }
 
     const ma_uint64 totalInFrames = (ma_uint64)(e->crossfadeInputUnconsumed + inRead);
@@ -7011,11 +7363,11 @@ static bool evaluate_direct_pcm_eligibility(AudioEngineHandle *e)
     if (actDsdMode == AE_DSD_MODE_DOP || actDsdMode == AE_DSD_MODE_NATIVE)
     {
         const int decRate = (int)e->currentDecoder->outputSampleRate;
-        const int hwRate = (e->device.sampleRate > 0) ? (int)e->device.sampleRate : e->outputSampleRate;
+        const int hwRate = (e->activeOut.sampleRate > 0) ? (int)e->activeOut.sampleRate : e->outputSampleRate;
         const int decCh = (int)e->currentDecoder->outputChannels;
         const int hwCh = (e->channels > 0) ? e->channels : 2;
         const ma_format decFmt = e->currentDecoder->outputFormat;
-        const ma_format hwFmt = e->device.playback.format;
+        const ma_format hwFmt = e->activeOut.format;
         const bool expectedDsdFmt = (actDsdMode == AE_DSD_MODE_NATIVE)
             ? (decFmt == ma_format_s32 && hwFmt == ma_format_s32)
             : ((decFmt == ma_format_s24 || decFmt == ma_format_s32) && decFmt == hwFmt);
@@ -7078,7 +7430,7 @@ static bool evaluate_direct_pcm_eligibility(AudioEngineHandle *e)
     const ma_format devFmt = ae_format_to_ma_format(e->outputFormat);
     if (decFmt == ma_format_unknown || decFmt != devFmt)
         return false;
-    if (e->device.playback.format != ma_format_unknown && decFmt != e->device.playback.format)
+    if (e->activeOut.format != ma_format_unknown && decFmt != e->activeOut.format)
         return false;
 
     return true;
@@ -7374,15 +7726,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (ma_rb_available_read(&e->pushStreamForCurrent.rb) >= 4096 || e->pushStreamForCurrent.isDone)
                 {
                     ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
-                    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, outCh, (ma_uint32)e->sampleRate);
-                    const int pushAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
-                    e->currentResampleAlgorithm = pushAlgo;
-                    if (pushAlgo > 0)
-                    {
-                        config.resampling.algorithm = ma_resample_algorithm_custom;
-                        config.resampling.pBackendVTable = get_resampler_vtable_for_algorithm(pushAlgo);
-                        config.resampling.pBackendUserData = &e->currentResampleAlgorithm;
-                    }
+                    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, outCh, 0);
+                    e->currentResampleAlgorithm.store(
+                        e->resampleAlgorithm.load(std::memory_order_relaxed),
+                        std::memory_order_relaxed);
                     config.seekPointCount = 100;
 
                     auto *newDecoder = new ma_decoder{};
@@ -7438,19 +7785,22 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
                 if (length > 0 || forceTransition)
                 {
-                    // Trigger on the AUDIBLE playback position, not the decode
-                    // cursor: the decoder runs ahead of what listeners hear by
-                    // whatever is pre-buffered in pcmRingBuffer (up to ~4 s).
-                    // Using the decode cursor made the fade expire long before
-                    // the old track audibly ended, so the next track appeared to
-                    // start instantly with no fade-in.
+                    // Trigger on the AUDIBLE playback position (in engine frames). Convert
+                    // length from decoder-native frames to engine frames first so mismatched
+                    // decSr vs engineSr tracks trigger crossfade at the exact remaining duration.
+                    const int engSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                    const int decSr = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                                          ? (int)e->currentDecoder->outputSampleRate
+                                          : engSr;
+                    const ma_uint64 lengthEngine = convert_frame_rate(length, decSr, engSr);
+
                     const ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
                     const ma_uint64 played = get_audible_played_frames(e);
                     const double latencySamples = calculate_total_pipeline_latency_samples(e);
                     const double effectivePosF = (double)(baseFrame + played);
                     const double audiblePosF = (effectivePosF > latencySamples) ? (effectivePosF - latencySamples) : 0.0;
 
-                    if (audiblePosF <= (double)length || forceTransition)
+                    if (audiblePosF <= (double)lengthEngine || forceTransition)
                     {
                         int durationMs = 0;
                         if (amActive)
@@ -7466,168 +7816,34 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         {
                             durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 32000);
                         }
-                        const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
-                        const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)durationMs / 1000.0));
-                        const ma_uint64 remain = (length > (ma_uint64)audiblePosF) ? (length - (ma_uint64)audiblePosF) : 0;
+                        const ma_uint64 fadeFrames = (ma_uint64)((double)engSr * ((double)durationMs / 1000.0));
+                        const ma_uint64 remain = (lengthEngine > (ma_uint64)audiblePosF) ? (lengthEngine - (ma_uint64)audiblePosF) : 0;
 
                         if ((fadeFrames > 0 && remain <= fadeFrames) || forceTransition)
                         {
                             // Transfer the already-decoded old-track tail from
-                            // the main ring into the crossfade source ring
-                            // instead of rewinding the decoder: continuity is
-                            // preserved sample-exactly for ANY source, including
-                            // HTTP streams without range support and push/live
-                            // streams that cannot seek. The decoder cursor sits
-                            // exactly at the end of this buffered audio, so the
-                            // producer's subsequent reads continue seamlessly.
+                            // the main ring into the crossfade source ring 1:1
+                            // (pcmRingBuffer already stores frames at engineSampleRate
+                            // after single-stage trackResampler, avoiding double SRC).
                             e->crossfadeRingBuffer.reset();
                             e->ringBufferFlushing.store(true, std::memory_order_release);
                             {
-                                const int curRate = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
-                                                    ? (int)e->currentDecoder->outputSampleRate
-                                                    : sr;
-                                if (curRate == sr)
+                                size_t guard = 0;
+                                while (guard++ < 256)
                                 {
-                                    size_t guard = 0;
-                                    while (guard++ < 256)
-                                    {
-                                        const size_t want = tempChunk.size() / ch;
-                                        const size_t room = e->crossfadeRingBuffer.available_write() / ch;
-                                        if (room == 0)
-                                            break;
-                                        const size_t gotSamples = e->pcmRingBuffer.read(
-                                            tempChunk.data(), std::min(want, room) * ch);
-                                        if (gotSamples == 0)
-                                            break;
-                                        e->crossfadeRingBuffer.write(tempChunk.data(), gotSamples);
-                                    }
-                                }
-                                else
-                                {
-                                    // Sample rate mismatch between outgoing track tail and engine rate:
-                                    // initialize crossfadeResampler and resample buffered audio to engine rate
-                                    if (!e->crossfadeResamplerInit ||
-                                        e->crossfadeResamplerInRate != curRate ||
-                                        e->crossfadeResamplerOutRate != sr ||
-                                        e->crossfadeResamplerCh != (int)ch)
-                                    {
-                                        if (e->crossfadeResamplerInit)
-                                        {
-                                            ma_resampler_uninit(&e->crossfadeResampler, nullptr);
-                                            e->crossfadeResamplerInit = false;
-                                        }
-                                        ma_resampler_config rcfg = ma_resampler_config_init(
-                                            ma_format_f32,
-                                            (ma_uint32)ch,
-                                            (ma_uint32)curRate,
-                                            (ma_uint32)sr,
-                                            ma_resample_algorithm_linear
-                                        );
-                                        rcfg.linear.lpfOrder = 4;
-                                        const int cfAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
-                                        e->currentResampleAlgorithm = cfAlgo;
-                                        if (cfAlgo > 0)
-                                        {
-                                            rcfg.algorithm = ma_resample_algorithm_custom;
-                                            rcfg.pBackendVTable = get_resampler_vtable_for_algorithm(cfAlgo);
-                                            rcfg.pBackendUserData = &e->currentResampleAlgorithm;
-                                        }
-                                        ma_result initRes = ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler);
-                                        if (initRes != MA_SUCCESS && cfAlgo > 0)
-                                        {
-                                            rcfg.algorithm = ma_resample_algorithm_linear;
-                                            rcfg.pBackendVTable = nullptr;
-                                            rcfg.pBackendUserData = nullptr;
-                                            initRes = ma_resampler_init(&rcfg, nullptr, &e->crossfadeResampler);
-                                        }
-                                        if (initRes == MA_SUCCESS)
-                                        {
-                                            e->crossfadeResamplerInit = true;
-                                            e->crossfadeResamplerInRate = curRate;
-                                            e->crossfadeResamplerOutRate = sr;
-                                            e->crossfadeResamplerCh = (int)ch;
-                                        }
-                                        e->crossfadeInputBuffer.clear();
-                                        e->crossfadeInputUnconsumed = 0;
-                                    }
-
-                                    std::vector<float> resampleOutChunk(tempChunk.size());
-                                    size_t guard = 0;
-                                    while (guard++ < 256 && e->crossfadeResamplerInit)
-                                    {
-                                        const size_t roomFrames = e->crossfadeRingBuffer.available_write() / ch;
-                                        if (roomFrames == 0)
-                                            break;
-                                        const size_t wantOutFrames = std::min(roomFrames, tempChunk.size() / ch);
-                                        ma_uint64 inNeeded = 0;
-                                        ma_resampler_get_required_input_frame_count(&e->crossfadeResampler, (ma_uint64)wantOutFrames, &inNeeded);
-                                        if (inNeeded == 0) inNeeded = wantOutFrames;
-
-                                        size_t framesToRead = 0;
-                                        if ((size_t)inNeeded > e->crossfadeInputUnconsumed)
-                                        {
-                                            framesToRead = (size_t)inNeeded - e->crossfadeInputUnconsumed;
-                                        }
-
-                                        const size_t availInRing = e->pcmRingBuffer.available_read() / ch;
-                                        if (framesToRead > availInRing)
-                                        {
-                                            framesToRead = availInRing;
-                                        }
-
-                                        if (framesToRead == 0 && e->crossfadeInputUnconsumed == 0)
-                                        {
-                                            break;
-                                        }
-
-                                        const size_t requiredCapacityFrames = e->crossfadeInputUnconsumed + framesToRead;
-                                        if (e->crossfadeInputBuffer.size() < requiredCapacityFrames * ch)
-                                        {
-                                            e->crossfadeInputBuffer.resize(requiredCapacityFrames * ch);
-                                        }
-
-                                        size_t gotSamples = 0;
-                                        if (framesToRead > 0)
-                                        {
-                                            gotSamples = e->pcmRingBuffer.read(
-                                                e->crossfadeInputBuffer.data() + (e->crossfadeInputUnconsumed * ch),
-                                                framesToRead * ch);
-                                        }
-                                        const size_t gotFrames = gotSamples / ch;
-                                        const ma_uint64 totalInFrames = (ma_uint64)(e->crossfadeInputUnconsumed + gotFrames);
-                                        if (totalInFrames == 0)
-                                            break;
-
-                                        ma_uint64 inProcessed = totalInFrames;
-                                        ma_uint64 outProcessed = (ma_uint64)wantOutFrames;
-                                        ma_resampler_process_pcm_frames(
-                                            &e->crossfadeResampler,
-                                            e->crossfadeInputBuffer.data(),
-                                            &inProcessed,
-                                            resampleOutChunk.data(),
-                                            &outProcessed);
-
-                                        if (outProcessed > 0)
-                                        {
-                                            e->crossfadeRingBuffer.write(resampleOutChunk.data(), (size_t)outProcessed * ch);
-                                        }
-
-                                        const size_t unconsumed = (totalInFrames > inProcessed) ? (size_t)(totalInFrames - inProcessed) : 0;
-                                        if (unconsumed > 0 && inProcessed > 0)
-                                        {
-                                            std::memmove(
-                                                e->crossfadeInputBuffer.data(),
-                                                e->crossfadeInputBuffer.data() + (inProcessed * ch),
-                                                unconsumed * ch * sizeof(float));
-                                        }
-                                        e->crossfadeInputUnconsumed = unconsumed;
-
-                                        if (gotFrames == 0 && outProcessed == 0)
-                                            break;
-                                    }
+                                    const size_t want = tempChunk.size() / ch;
+                                    const size_t room = e->crossfadeRingBuffer.available_write() / ch;
+                                    if (room == 0)
+                                        break;
+                                    const size_t gotSamples = e->pcmRingBuffer.read(
+                                        tempChunk.data(), std::min(want, room) * ch);
+                                    if (gotSamples == 0)
+                                        break;
+                                    e->crossfadeRingBuffer.write(tempChunk.data(), gotSamples);
                                 }
                                 // Pending resampler input still belongs to the OLD
                                 // stream; discard it so the new track decodes cleanly.
+                                reset_track_resampler_locked(e);
                                 if (e->pitchResamplerInit)
                                 {
                                     ma_resampler_reset(&e->pitchResampler);
@@ -7900,8 +8116,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         ma_uint64 inRead = 0;
                         if (framesToRead > 0)
                         {
-                            r = ma_decoder_read_pcm_frames(
-                                e->currentDecoder,
+                            r = read_current_decoder_at_engine_rate(
+                                e,
                                 e->pitchInputBuffer.data() + (e->pitchInputUnconsumed * ch),
                                 (ma_uint64)framesToRead,
                                 &inRead);
@@ -7950,8 +8166,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     }
                     else
                     {
-                        r = ma_decoder_read_pcm_frames(
-                            e->currentDecoder,
+                        r = read_current_decoder_at_engine_rate(
+                            e,
                             tempChunk.data(),
                             (ma_uint64)targetChunkFrames,
                             &framesRead);
@@ -7974,8 +8190,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->tempoInputChunk.resize(targetChunkFrames * ch);
                         }
                         ma_uint64 inRead = 0;
-                        r = ma_decoder_read_pcm_frames(
-                            e->currentDecoder,
+                        r = read_current_decoder_at_engine_rate(
+                            e,
                             e->tempoInputChunk.data(),
                             (ma_uint64)targetChunkFrames,
                             &inRead);
@@ -7997,8 +8213,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         }
                         else
                         {
-                            r = ma_decoder_read_pcm_frames(
-                                e->currentDecoder,
+                            r = read_current_decoder_at_engine_rate(
+                                e,
                                 tempChunk.data(),
                                 (ma_uint64)targetChunkFrames,
                                 &framesRead);
@@ -8040,6 +8256,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 e->pcmDirectRingBuffer.reset();
                                 e->flushCastRing();
                                 reset_playback_position(e, targetFrameEngine);
+                                reset_track_resampler_locked(e);
                                 if (e->pitchResamplerInit)
                                 {
                                     ma_resampler_reset(&e->pitchResampler);
@@ -8130,6 +8347,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->currentIndex = e->nextIndex;
                     e->hasCurrent = true;
                     reset_playback_position(e, 0);
+                    reset_track_resampler_locked(e);
                     e->abRepeatEnabled.store(false, std::memory_order_release);
                     sync_active_dsd_from_decoder(e, e->currentDecoder);
 
@@ -8179,6 +8397,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->decoderEofReached.store(false, std::memory_order_release);
                     (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
                     reset_playback_position(e, 0);
+                    reset_track_resampler_locked(e);
                     continue;
                 }
 
@@ -8389,19 +8608,18 @@ static void decode_producer_loop(AudioEngineHandle *e)
         return e->use64BitProcessing.load(std::memory_order_relaxed) ? AE_P64_USER : 0;
     }
 
-    static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
+    static void render_output_frames(AudioEngineHandle *e, void *pOutput, ma_uint32 frameCount)
     {
-    if (pDevice == nullptr || pOutput == nullptr || frameCount == 0)
+    if (e == nullptr || pOutput == nullptr || frameCount == 0)
         return;
-    AudioEngineHandle *e = reinterpret_cast<AudioEngineHandle *>(pDevice->pUserData);
-    if (e == nullptr)
-        return;
+
+    const ma_format outFmt = e->activeOut.format;
+    const ma_uint32 outCh = (e->activeOut.channels > 0) ? e->activeOut.channels : ((e->channels > 0) ? (ma_uint32)e->channels : 2u);
+    const ma_uint32 outSr = (e->activeOut.sampleRate > 0) ? e->activeOut.sampleRate : ((e->sampleRate > 0) ? (ma_uint32)e->sampleRate : 48000u);
 
     if (e->rateTransitionInProgress.load(std::memory_order_acquire))
     {
-        const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-        (void)outBytes;
-        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
+        fill_output_silence(e, pOutput, frameCount, outFmt, outCh);
         return;
     }
 
@@ -8413,7 +8631,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         float *processBuffer = nullptr;
     ma_uint32 totalSamples = frameCount * (ma_uint32)e->channels;
 
-    if (e->outputFormat == AE_FORMAT_F32 && pDevice->playback.format == ma_format_f32)
+    if (e->outputFormat == AE_FORMAT_F32 && outFmt == ma_format_f32)
     {
         processBuffer = reinterpret_cast<float *>(pOutput);
     }
@@ -8432,9 +8650,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
     if (!e->isPlaying.load(std::memory_order_relaxed))
     {
-        const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-        (void)outBytes;
-        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
+        fill_output_silence(e, pOutput, frameCount, outFmt, outCh);
         return;
     }
 
@@ -8442,20 +8658,18 @@ static void decode_producer_loop(AudioEngineHandle *e)
     const ma_uint64 startTime = e->scheduledStartTime.load(std::memory_order_relaxed);
     if (startTime != -1ULL && absTime < startTime)
     {
-        const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-        (void)outBytes;
-        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
+        fill_output_silence(e, pOutput, frameCount, outFmt, outCh);
         e->engineAbsoluteTime.fetch_add(frameCount, std::memory_order_relaxed);
         return;
     }
 
     if (e->isDirectPcmActive.load(std::memory_order_acquire))
     {
-        const size_t bpf = ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
+        const size_t bpf = ma_get_bytes_per_frame(outFmt, outCh);
         const size_t bytesNeeded = (size_t)frameCount * bpf;
         if (e->ringBufferFlushing.load(std::memory_order_relaxed))
         {
-            fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
+            fill_output_silence(e, pOutput, frameCount, outFmt, outCh);
             return;
         }
         size_t bytesRead = e->pcmDirectRingBuffer.read(reinterpret_cast<uint8_t *>(pOutput), bytesNeeded);
@@ -8479,8 +8693,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         e,
                         reinterpret_cast<uint8_t *>(pOutput) + static_cast<size_t>(startFrame) * bpf,
                         frameCount - startFrame,
-                        pDevice->playback.format,
-                        pDevice->playback.channels);
+                        outFmt,
+                        outCh);
                 }
             }
         }
@@ -8490,7 +8704,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
         if (e->localOutputMuted.load(std::memory_order_relaxed))
         {
-            fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
+            fill_output_silence(e, pOutput, frameCount, outFmt, outCh);
         }
         e->engineAbsoluteTime.fetch_add(frameCount, std::memory_order_relaxed);
         e->decodeProducerCv.notify_one();
@@ -8514,9 +8728,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         deviceResamplerLock = std::unique_lock<std::mutex>(e->deviceResamplerMutex, std::try_to_lock);
         if (!deviceResamplerLock.owns_lock())
         {
-            const size_t outBytes = (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels);
-            (void)outBytes;
-        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
+            fill_output_silence(e, pOutput, frameCount, outFmt, outCh);
             return;
         }
     }
@@ -9876,7 +10088,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     }
 
     // Explicit Engine-to-Device Output Resampling Stage (if engineSampleRate != deviceSampleRate)
-    float *finalDstBuffer = (e->outputFormat == AE_FORMAT_F32 && pDevice->playback.format == ma_format_f32) ? reinterpret_cast<float *>(pOutput) : e->conversionBuffer.data();
+    float *finalDstBuffer = (e->outputFormat == AE_FORMAT_F32 && outFmt == ma_format_f32) ? reinterpret_cast<float *>(pOutput) : e->conversionBuffer.data();
 
     if (needsDeviceSRC)
     {
@@ -9937,13 +10149,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
     AEAudioFormat activeIntFormat = e->outputFormat;
     if (activeIntFormat == AE_FORMAT_F32)
     {
-        if (pDevice->playback.format == ma_format_s16)
+        if (outFmt == ma_format_s16)
             activeIntFormat = AE_FORMAT_S16;
-        else if (pDevice->playback.format == ma_format_s24)
+        else if (outFmt == ma_format_s24)
             activeIntFormat = AE_FORMAT_S24;
-        else if (pDevice->playback.format == ma_format_s32)
+        else if (outFmt == ma_format_s32)
             activeIntFormat = AE_FORMAT_S32;
-        else if (pDevice->playback.format == ma_format_u8)
+        else if (outFmt == ma_format_u8)
             activeIntFormat = AE_FORMAT_U8;
     }
 
@@ -9972,7 +10184,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
     }
 
-    const int activeDitherRate = (pDevice && pDevice->sampleRate > 0) ? (int)pDevice->sampleRate : (e->engineSampleRate > 0 ? e->engineSampleRate : 44100);
+    const int activeDitherRate = (int)outSr;
 
     int targetValidBits = 0;
     const int configuredDacDepth = e->dacValidBitDepth.load(std::memory_order_relaxed);
@@ -10030,23 +10242,23 @@ static void decode_producer_loop(AudioEngineHandle *e)
             e->ditherProcessor.process(effectiveDither, activeIntFormat, buf64, totalSamples, e->channels, activeDitherRate, targetValidBits, sourceBits);
         }
 
-        if (pDevice->playback.format == ma_format_s16)
+        if (outFmt == ma_format_s16)
         {
             floatToIntExact(AE_FORMAT_S16, pOutput, buf64, totalSamples);
         }
-        else if (pDevice->playback.format == ma_format_u8)
+        else if (outFmt == ma_format_u8)
         {
             floatToIntExact(AE_FORMAT_U8, pOutput, buf64, totalSamples);
         }
-        else if (pDevice->playback.format == ma_format_s24)
+        else if (outFmt == ma_format_s24)
         {
             floatToIntExact(AE_FORMAT_S24, pOutput, buf64, totalSamples);
         }
-        else if (pDevice->playback.format == ma_format_s32)
+        else if (outFmt == ma_format_s32)
         {
             floatToIntExact(AE_FORMAT_S32, pOutput, buf64, totalSamples);
         }
-        else if (pDevice->playback.format == ma_format_f32)
+        else if (outFmt == ma_format_f32)
         {
             float *outF32 = reinterpret_cast<float *>(pOutput);
             quantizeFloatToFormatGrid(activeIntFormat, outF32, buf64, totalSamples);
@@ -10064,23 +10276,23 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // and breaks bit-perfect pass-through of integer sources; f32ToIntExact
         // rounds to nearest on the true grid, preserving the dither decorrelation
         // applied above.
-        if (pDevice->playback.format == ma_format_s16)
+        if (outFmt == ma_format_s16)
         {
             floatToIntExact(AE_FORMAT_S16, pOutput, finalDstBuffer, totalSamples);
         }
-        else if (pDevice->playback.format == ma_format_u8)
+        else if (outFmt == ma_format_u8)
         {
             floatToIntExact(AE_FORMAT_U8, pOutput, finalDstBuffer, totalSamples);
         }
-        else if (pDevice->playback.format == ma_format_s24)
+        else if (outFmt == ma_format_s24)
         {
             floatToIntExact(AE_FORMAT_S24, pOutput, finalDstBuffer, totalSamples);
         }
-        else if (pDevice->playback.format == ma_format_s32)
+        else if (outFmt == ma_format_s32)
         {
             floatToIntExact(AE_FORMAT_S32, pOutput, finalDstBuffer, totalSamples);
         }
-        else if (pDevice->playback.format == ma_format_f32)
+        else if (outFmt == ma_format_f32)
         {
             float *outF32 = reinterpret_cast<float *>(pOutput);
             if (activeIntFormat != AE_FORMAT_F32)
@@ -10096,7 +10308,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     // else F32 -> already in pOutput via finalDstBuffer!
     if (e->localOutputMuted.load(std::memory_order_relaxed))
     {
-        fill_output_silence(e, pOutput, frameCount, pDevice->playback.format, pDevice->playback.channels);
+        fill_output_silence(e, pOutput, frameCount, outFmt, outCh);
     }
     }
     catch (...)
@@ -10104,17 +10316,69 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // Silence the device buffer using its real negotiated format size.
         // Assuming F32 here overruns the buffer by 2-4x when the device runs
         // S16/U8/S24 formats (heap corruption).
-        std::memset(pOutput, 0, (size_t)frameCount * ma_get_bytes_per_frame(pDevice->playback.format, pDevice->playback.channels));
+        std::memset(pOutput, 0, (size_t)frameCount * ma_get_bytes_per_frame(outFmt, outCh));
     }
 }
 
+#if !defined(__ANDROID__)
+static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_uint32 frameCount)
+{
+    if (pDevice == nullptr || pOutput == nullptr || frameCount == 0)
+        return;
+    AudioEngineHandle *e = reinterpret_cast<AudioEngineHandle *>(pDevice->pUserData);
+    if (e == nullptr)
+        return;
+    render_output_frames(e, pOutput, frameCount);
+}
+#endif
+
 #if defined(__ANDROID__)
+    #include "android_oboe_sink.h"
     #include <dlfcn.h>
     #include <jni.h>
     #include <sys/system_properties.h>
     #include <sys/resource.h>
     #include <unistd.h>
     #include <cctype>
+
+    static void oboe_render_cb(void *enginePtr, void *output, uint32_t frameCount)
+    {
+        AudioEngineHandle *e = reinterpret_cast<AudioEngineHandle *>(enginePtr);
+        render_output_frames(e, output, static_cast<ma_uint32>(frameCount));
+    }
+
+    static void oboe_disconnect_cb(void *enginePtr)
+    {
+        AudioEngineHandle *e = reinterpret_cast<AudioEngineHandle *>(enginePtr);
+        if (!e) return;
+        e->oboeDisconnectRestartRequested.store(true, std::memory_order_release);
+        std::lock_guard<std::mutex> lk(e->workerMutex);
+        e->workerCv.notify_one();
+    }
+
+    static void oboe_log_cb(void *, int, const char *msg)
+    {
+        if (msg)
+        {
+            engine_log("%s", msg);
+        }
+    }
+
+    static void sync_active_out_from_oboe(AudioEngineHandle *e, const sautiflow::AndroidOboeSink *sink)
+    {
+        if (!e || !sink || !sink->initialized) return;
+        e->activeOut.format = sink->format;
+        e->activeOut.channels = (sink->channels > 0) ? static_cast<ma_uint32>(sink->channels) : 2u;
+        e->activeOut.sampleRate = (sink->sampleRate > 0) ? static_cast<ma_uint32>(sink->sampleRate) : 48000u;
+        e->activeOut.internalSampleRate = (sink->hardwareSampleRate > 0)
+                                              ? static_cast<ma_uint32>(sink->hardwareSampleRate)
+                                              : e->activeOut.sampleRate;
+        e->activeOut.periodSizeFrames = (sink->framesPerBurst > 0) ? static_cast<ma_uint32>(sink->framesPerBurst) : 0u;
+        e->activeOut.periodCount = (sink->periodCount > 0) ? static_cast<ma_uint32>(sink->periodCount) : 2u;
+        e->activeOut.isExclusive = sink->isExclusive;
+        e->activeOut.isMMap = sink->isMMap;
+        e->activeOut.initialized = true;
+    }
 
     static JavaVM* g_androidJavaVM = nullptr;
 
@@ -10393,36 +10657,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
         AndroidJniAttachGuard guard;
         if (!guard.env) return 0;
         return android_query_native_hal_sample_rate_jni(guard.env);
-    }
-
-    static void android_aaudio_get_hw_rate_and_sharing(const ma_device *pDev, int *outHwRate, int *outSharingMode)
-    {
-        if (outHwRate) *outHwRate = 0;
-        if (outSharingMode) *outSharingMode = -1;
-        if (!pDev || !pDev->pContext || pDev->pContext->backend != ma_backend_aaudio) return;
-        void *stream = pDev->aaudio.pStreamPlayback;
-        if (!stream) return;
-        void *libHandle = pDev->pContext->aaudio.hAAudio ? pDev->pContext->aaudio.hAAudio : RTLD_DEFAULT;
-
-        using PfnGetRate = int32_t (*)(void *);
-        using PfnGetSharing = int32_t (*)(void *);
-        if (outHwRate)
-        {
-            PfnGetRate fnHwRate = reinterpret_cast<PfnGetRate>(dlsym(libHandle, "AAudioStream_getHardwareSampleRate"));
-            if (fnHwRate)
-            {
-                int32_t r = fnHwRate(stream);
-                if (r > 0) *outHwRate = static_cast<int>(r);
-            }
-        }
-        if (outSharingMode)
-        {
-            PfnGetSharing fnSharing = reinterpret_cast<PfnGetSharing>(dlsym(libHandle, "AAudioStream_getSharingMode"));
-            if (fnSharing)
-            {
-                *outSharingMode = static_cast<int>(fnSharing(stream));
-            }
-        }
     }
 
     static jobject getAndroidApplicationContext(JNIEnv *env)
@@ -10944,14 +11178,19 @@ static void decode_producer_loop(AudioEngineHandle *e)
             bytesPerFrame = std::max(1, channels * bytesPerSample);
             bitDepth = (activeAlt.bitResolution > 0) ? static_cast<int>(activeAlt.bitResolution) : (bytesPerSample * 8);
 
-            // Configure wire format and DAC valid bit depth directly on the miniaudio device mirror
-            e->device.playback.format = sautiflow::usb::ae_to_ma_format_usb(wireFormat);
-            e->device.playback.channels = static_cast<ma_uint32>(channels);
-            e->device.sampleRate = static_cast<ma_uint32>(sampleRate);
-            e->device.pUserData = e;
+            // Configure wire format and active output descriptor for render_output_frames
+            e->activeOut.format = sautiflow::usb::ae_to_ma_format_usb(wireFormat);
+            e->activeOut.channels = static_cast<ma_uint32>(channels);
+            e->activeOut.sampleRate = static_cast<ma_uint32>(sampleRate);
+            e->activeOut.internalSampleRate = static_cast<ma_uint32>(sampleRate);
+            e->activeOut.periodSizeFrames = 0;
+            e->activeOut.periodCount = static_cast<ma_uint32>(kOutTransferCount);
+            e->activeOut.isExclusive = true;
+            e->activeOut.isMMap = false;
+            e->activeOut.initialized = true;
             if (!explicitFmt)
             {
-                (void)explicitFmt; // Keep e->outputFormat intact for fallback backends; e->device.playback.format carries wireFormat
+                (void)explicitFmt; // Keep e->outputFormat intact for fallback backends; activeOut.format carries wireFormat
             }
             if (!e->dacValidBitDepthExplicit.load(std::memory_order_relaxed))
             {
@@ -11113,7 +11352,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             }
             else
             {
-                data_callback(&engine->device, outBuffers[idx].data(), nullptr, static_cast<ma_uint32>(totalFrames));
+                render_output_frames(engine, outBuffers[idx].data(), static_cast<ma_uint32>(totalFrames));
             }
 
             libusb_fill_iso_transfer(
@@ -12161,12 +12400,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                          (encoding == 21 || encoding == 22);
                 if (isDopDirect)
                 {
-                    data_callback(&engine->device, directBufferAddress, nullptr, (ma_uint32)framesPerBuffer);
+                    render_output_frames(engine, directBufferAddress, (ma_uint32)framesPerBuffer);
                 }
                 else
                 {
                 std::memset(renderBuffer.data(), 0, totalSamples * sizeof(float));
-                data_callback(&engine->device, renderBuffer.data(), nullptr, (ma_uint32)framesPerBuffer);
+                render_output_frames(engine, renderBuffer.data(), (ma_uint32)framesPerBuffer);
 
                 if (encoding == 21)
                 {
@@ -12242,6 +12481,121 @@ static void decode_producer_loop(AudioEngineHandle *e)
     }
 #endif
 
+// Caller must hold e->deviceMutex.
+static void ensure_output_started_locked(AudioEngineHandle *e, const char *caller)
+{
+    if (!e) return;
+#if defined(__ANDROID__)
+    const int activeBk = e->activeBackend.load(std::memory_order_relaxed);
+    if (e->pUsbDacSink != nullptr && activeBk == AE_BACKEND_USB_DIRECT)
+    {
+        reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->start();
+    }
+    else if (e->pAudioTrackSink != nullptr && is_audiotrack_family_backend(activeBk))
+    {
+        reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->start();
+    }
+    else if (e->pOboeSink != nullptr)
+    {
+        auto *oboeSink = reinterpret_cast<sautiflow::AndroidOboeSink *>(e->pOboeSink);
+        if (!oboeSink->start())
+        {
+            engine_log("Failed to start Oboe stream in %s", caller ? caller : "unknown");
+        }
+    }
+#else
+    if (e->device.pContext != nullptr &&
+        ma_device_get_state(&e->device) != ma_device_state_uninitialized &&
+        ma_device_get_state(&e->device) != ma_device_state_started)
+    {
+        if (ma_device_start(&e->device) != MA_SUCCESS)
+        {
+            engine_log("Failed to start device in %s", caller ? caller : "unknown");
+        }
+    }
+#endif
+}
+
+// Caller must hold e->deviceMutex.
+static void stop_output_locked(AudioEngineHandle *e)
+{
+    if (!e) return;
+#if defined(__ANDROID__)
+    if (e->pUsbDacSink != nullptr)
+    {
+        reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->stop();
+    }
+    if (e->pAudioTrackSink != nullptr)
+    {
+        reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->stop();
+    }
+    if (e->pOboeSink != nullptr)
+    {
+        reinterpret_cast<sautiflow::AndroidOboeSink *>(e->pOboeSink)->stop();
+    }
+#else
+    if (e->device.pContext != nullptr && ma_device_get_state(&e->device) == ma_device_state_started)
+    {
+        ma_device_stop(&e->device);
+    }
+#endif
+}
+
+// Caller must hold e->deviceMutex.
+static void release_output_locked(AudioEngineHandle *e, bool destroySinks = false)
+{
+    if (!e) return;
+#if defined(__ANDROID__)
+    if (e->pUsbDacSink != nullptr)
+    {
+        auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink);
+        usbSink->stop();
+        usbSink->release();
+        if (destroySinks)
+        {
+            delete usbSink;
+            e->pUsbDacSink = nullptr;
+        }
+    }
+    if (e->pAudioTrackSink != nullptr)
+    {
+        auto *atSink = reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink);
+        atSink->stop();
+        atSink->release();
+        if (destroySinks)
+        {
+            delete atSink;
+            e->pAudioTrackSink = nullptr;
+        }
+    }
+    if (e->pOboeSink != nullptr)
+    {
+        auto *oboeSink = reinterpret_cast<sautiflow::AndroidOboeSink *>(e->pOboeSink);
+        oboeSink->stop();
+        oboeSink->release();
+        if (destroySinks)
+        {
+            delete oboeSink;
+            e->pOboeSink = nullptr;
+        }
+    }
+    e->activeOut.initialized = false;
+#else
+    (void)destroySinks;
+    if (e->device.pContext != nullptr && ma_device_get_state(&e->device) == ma_device_state_started)
+    {
+        ma_device_stop(&e->device);
+    }
+    ma_device_uninit(&e->device);
+    e->activeOut.initialized = false;
+    if (e->customContextInit)
+    {
+        ma_context_uninit(&e->customContext);
+        e->customContextInit = false;
+    }
+#endif
+}
+
 extern "C"
 {
     AE_API AudioEngineHandle *ae_create_engine(int sample_rate, int channels)
@@ -12298,6 +12652,92 @@ extern "C"
         // Default format is F32
         e->outputFormat = AE_FORMAT_F32;
 
+#if defined(__ANDROID__)
+        {
+            auto *oboeSink = new sautiflow::AndroidOboeSink();
+            oboeSink->setHooks(e, oboe_render_cb, oboe_disconnect_cb, oboe_log_cb);
+            e->pOboeSink = oboeSink;
+
+            const int halRate = android_query_native_hal_sample_rate();
+            if (halRate > 0)
+            {
+                std::lock_guard<std::mutex> hwk(e->hwCapMutex);
+                e->hwCapNativeSampleRate = halRate;
+            }
+
+            sautiflow::OboeInitParams initP{};
+            initP.targetBackend = AE_BACKEND_AUTO;
+            initP.requestedSampleRate = (halRate > 0) ? halRate : sample_rate;
+            initP.nativeHalRate = halRate;
+            initP.channels = channels;
+            initP.requestedFormat = ma_format_f32;
+            initP.wantLowLatency = false;
+            initP.wantExclusiveMMap = false;
+            initP.canMultiRate = false;
+            initP.isBluetooth = false;
+
+            if (!oboeSink->init(initP))
+            {
+                set_last_error(e, "Failed to initialize Oboe playback stream.");
+                delete oboeSink;
+                e->pOboeSink = nullptr;
+                delete e;
+                return nullptr;
+            }
+
+            sync_active_out_from_oboe(e, oboeSink);
+
+            const int actualRate = (oboeSink->hardwareSampleRate > 0)
+                                       ? oboeSink->hardwareSampleRate
+                                       : ((oboeSink->sampleRate > 0) ? oboeSink->sampleRate : sample_rate);
+            const int actualCh = (oboeSink->channels > 0) ? oboeSink->channels : channels;
+            e->channels = actualCh;
+            if (e->outputChannels <= 0) e->outputChannels = actualCh;
+
+            {
+                const int detectedRate = (halRate > 0) ? halRate : actualRate;
+                std::lock_guard<std::mutex> hwk(e->hwCapMutex);
+                if (detectedRate > 0)
+                {
+                    e->hwCapNativeSampleRate = detectedRate;
+                }
+            }
+
+            const uint32_t devRate = (actualRate > 0) ? static_cast<uint32_t>(actualRate) : static_cast<uint32_t>(sample_rate);
+            const uint32_t srcRate = (e->sourceSampleRate > 0) ? static_cast<uint32_t>(e->sourceSampleRate) : devRate;
+            AudioRatePlan plan = calculateRatePlan(
+                srcRate,
+                devRate,
+                effective_user_rate_for_active_path(e, devRate),
+                e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed),
+                e->exclusiveModeEnabled.load(std::memory_order_relaxed)
+            );
+            applyRatePlan(e, plan);
+
+            if (actualRate > 0 && actualRate != sample_rate)
+            {
+                e->update_eq_filters();
+                e->update_multiband_fx_filters();
+                std::lock_guard<std::mutex> fx(e->fxMutex);
+                reinit_advanced_fx_filters(e);
+            }
+
+            sync_dac_valid_bit_depth(e);
+            e->activeBackend.store(
+                oboeSink->usesAAudio() ? AE_BACKEND_AAUDIO : AE_BACKEND_OPENSL,
+                std::memory_order_release);
+
+            if (!oboeSink->start())
+            {
+                set_last_error(e, "Failed to start Oboe playback stream.");
+                oboeSink->release();
+                delete oboeSink;
+                e->pOboeSink = nullptr;
+                delete e;
+                return nullptr;
+            }
+        }
+#else
         ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
         cfg.playback.format = ma_format_f32;
         cfg.playback.channels = (ma_uint32)channels;
@@ -12319,32 +12759,22 @@ extern "C"
             delete e;
             return nullptr;
         }
+        sync_active_out_from_ma_device(e);
 
         // Sync actual device-negotiated values back into the engine struct.
         // Prefer internalSampleRate (true OS mixer / HAL rate) so r8brain resamples directly to it.
         refresh_native_device_capabilities(e);
+        sync_active_out_from_ma_device(e);
         {
-            const int actualRate = (e->device.playback.internalSampleRate > 0)
-                                       ? (int)e->device.playback.internalSampleRate
-                                       : (int)e->device.sampleRate;
-            const int actualCh   = (int)e->device.playback.channels;
+            const int actualRate = (e->activeOut.internalSampleRate > 0)
+                                       ? (int)e->activeOut.internalSampleRate
+                                       : (int)e->activeOut.sampleRate;
+            const int actualCh   = (int)e->activeOut.channels;
             if (actualCh > 0)
             {
                 e->channels = actualCh;
                 if (e->outputChannels <= 0) e->outputChannels = actualCh;
             }
-
-#if defined(__ANDROID__)
-            {
-                const int halRate = android_query_native_hal_sample_rate();
-                const int detectedRate = (halRate > 0) ? halRate : ((actualRate > 0) ? actualRate : 0);
-                std::lock_guard<std::mutex> hwk(e->hwCapMutex);
-                if (detectedRate > 0)
-                {
-                    e->hwCapNativeSampleRate = detectedRate;
-                }
-            }
-#endif
 
             uint32_t devRate = (actualRate > 0) ? (uint32_t)actualRate : (uint32_t)sample_rate;
             uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : devRate;
@@ -12372,9 +12802,11 @@ extern "C"
         {
             set_last_error(e, "Failed to start playback device.");
             ma_device_uninit(&e->device);
+            e->activeOut.initialized = false;
             delete e;
             return nullptr;
         }
+#endif
 
         engine_log("engine created (sampleRate=%d channels=%d)", e->sampleRate, e->channels);
         e->pcmRingBuffer.init(1048576);
@@ -12460,6 +12892,7 @@ extern "C"
                 ma_resampler_uninit(&e->pitchResampler, nullptr);
                 e->pitchResamplerInit = false;
             }
+            reset_track_resampler_locked(e, /*uninit=*/true);
             e->tempoProcessor.reset();
 
             // Cleanup Push Stream if allocated
@@ -12479,35 +12912,10 @@ extern "C"
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
-#if defined(__ANDROID__)
-            if (e->pAudioTrackSink != nullptr)
-            {
-                auto *sink = reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink);
-                sink->stop();
-                sink->release();
-                delete sink;
-                e->pAudioTrackSink = nullptr;
-            }
-#endif
-            ma_device_uninit(&e->device);
-            if (e->customContextInit)
-            {
-                ma_context_uninit(&e->customContext);
-                e->customContextInit = false;
-            }
+            release_output_locked(e, /*destroySinks=*/true);
         }
 
         e->garbageQueue.drain();
-#if defined(__ANDROID__)
-        if (e->pUsbDacSink != nullptr)
-        {
-            auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink);
-            usbSink->stop();
-            usbSink->release();
-            delete usbSink;
-            e->pUsbDacSink = nullptr;
-        }
-#endif
         engine_log("destroy_engine end");
         delete e;
     }
@@ -12843,27 +13251,7 @@ extern "C"
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
-#if defined(__ANDROID__)
-            if (e->pUsbDacSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_USB_DIRECT)
-            {
-                reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->start();
-            }
-            else if (e->pAudioTrackSink != nullptr &&
-                     is_audiotrack_family_backend(e->activeBackend.load(std::memory_order_relaxed)))
-            {
-                reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->start();
-            }
-            else
-#endif
-            {
-                if (ma_device_get_state(&e->device) != ma_device_state_started)
-                {
-                    if (ma_device_start(&e->device) != MA_SUCCESS)
-                    {
-                        engine_log("Failed to start device in ae_play");
-                    }
-                }
-            }
+            ensure_output_started_locked(e, "ae_play");
         }
 
         set_playing_state(e, true);
@@ -12896,26 +13284,25 @@ extern "C"
         // buffer (previously the Dart isolate could block indefinitely).
         e->pushStreamAbort.store(true, std::memory_order_release);
 
-        std::lock_guard<std::mutex> d(e->decoderMutex);
-        if (e->hasCurrent)
         {
-            (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->hasCurrent)
+            {
+                (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
+            }
+            reset_playback_position(e, 0);
+            reset_track_resampler_locked(e);
+            if (e->pitchResamplerInit)
+            {
+                ma_resampler_reset(&e->pitchResampler);
+                e->pitchInputUnconsumed = 0;
+            }
+            e->tempoProcessor.reset();
         }
-        if (e->pitchResamplerInit)
-        {
-            ma_resampler_reset(&e->pitchResampler);
-            e->pitchInputUnconsumed = 0;
-        }
-        e->tempoProcessor.reset();
 #if defined(__ANDROID__)
-        if (e->pUsbDacSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_USB_DIRECT)
         {
-            reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->stop();
-        }
-        else if (e->pAudioTrackSink != nullptr &&
-                 is_audiotrack_family_backend(e->activeBackend.load(std::memory_order_relaxed)))
-        {
-            reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->stop();
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            stop_output_locked(e);
         }
 #endif
         return true;
@@ -12946,16 +13333,22 @@ extern "C"
             return false;
         }
 
-        ma_uint64 target = (ma_uint64)((double)e->currentLengthFrames * p);
-        const bool ok = ma_decoder_seek_to_pcm_frame(e->currentDecoder, target) == MA_SUCCESS;
+        ma_uint64 targetDec = (ma_uint64)((double)e->currentLengthFrames * p);
+        const bool ok = ma_decoder_seek_to_pcm_frame(e->currentDecoder, targetDec) == MA_SUCCESS;
         if (!ok)
             set_last_error(e, "Seek failed in decoder.");
         else
         {
+            const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+            const int decSr = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                                  ? (int)e->currentDecoder->outputSampleRate
+                                  : engineSr;
+            const ma_uint64 targetEngine = convert_frame_rate(targetDec, decSr, engineSr);
             e->pcmRingBuffer.reset();
             e->pcmDirectRingBuffer.reset();
             e->flushCastRing();
-            reset_playback_position(e, target);
+            reset_playback_position(e, targetEngine);
+            reset_track_resampler_locked(e);
             if (e->pitchResamplerInit)
             {
                 ma_resampler_reset(&e->pitchResampler);
@@ -13146,19 +13539,36 @@ extern "C"
             arm_transition_fade_in(e);
             apply_initial_track_loudness(e, newCurrent, path);
 
-            ma_uint64 startFrame = 0;
+            ma_uint64 startFrameEngine = 0;
             if (e->pendingSeekValid.load(std::memory_order_acquire) &&
                 e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex)
             {
-                startFrame = e->pendingSeekFrame.load(std::memory_order_acquire);
+                const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                const int decSr = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                                      ? (int)e->currentDecoder->outputSampleRate
+                                      : engineSr;
+                const double seekSec = e->pendingSeekSeconds.load(std::memory_order_acquire);
+                ma_uint64 startFrameDec = 0;
+                if (seekSec >= 0.0)
+                {
+                    startFrameDec = (ma_uint64)(seekSec * (double)decSr);
+                    startFrameEngine = (ma_uint64)(seekSec * (double)engineSr);
+                }
+                else
+                {
+                    startFrameEngine = e->pendingSeekFrame.load(std::memory_order_acquire);
+                    startFrameDec = convert_frame_rate(startFrameEngine, engineSr, decSr);
+                }
                 if (e->currentDecoder != nullptr)
                 {
-                    (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrame);
+                    (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrameDec);
                 }
                 e->pendingSeekValid.store(false, std::memory_order_release);
+                e->pendingSeekSeconds.store(-1.0, std::memory_order_release);
                 e->pendingSeekIndex.store(-1, std::memory_order_release);
             }
-            reset_playback_position(e, startFrame);
+            reset_playback_position(e, startFrameEngine);
+            reset_track_resampler_locked(e);
 
             e->nextDecoder = nullptr;
             e->nextIndex = -1;
@@ -13178,10 +13588,7 @@ extern "C"
             e->decodeProducerCv.notify_one();
 
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
-            if (ma_device_get_state(&e->device) != ma_device_state_started)
-            {
-                ma_device_start(&e->device);
-            }
+            ensure_output_started_locked(e, "execute_jump_direct");
         }
 
         request_preload(e);
@@ -13212,7 +13619,7 @@ extern "C"
                 nextIsDsd = sautiflow::dsd::query_dsd_decoder_info(e->nextDecoder, &nMode, nullptr, &nRate, &nFmt, &nCh);
                 const int targetBitMode = (nextIsDsd && (nMode == AE_DSD_MODE_DOP || nMode == AE_DSD_MODE_NATIVE)) ? static_cast<int>(nMode) : 0;
                 if (targetBitMode != e->hwActiveDsdMode.load(std::memory_order_acquire) ||
-                    (targetBitMode != 0 && (static_cast<uint32_t>(nRate) != e->device.sampleRate || nFmt != e->device.playback.format || (nCh > 0 && nCh != e->device.playback.channels))))
+                    (targetBitMode != 0 && (static_cast<uint32_t>(nRate) != e->activeOut.sampleRate || nFmt != e->activeOut.format || (nCh > 0 && nCh != e->activeOut.channels))))
                 {
                     return false;
                 }
@@ -13258,6 +13665,7 @@ extern "C"
             e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
             e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
             reset_playback_position(e, 0);
+            reset_track_resampler_locked(e);
             e->hasNext = false;
             e->nextDecoder = nullptr;
             e->nextIndex = -1;
@@ -13289,6 +13697,7 @@ extern "C"
             set_order_cursor_for_index_locked(e, idx);
         }
         e->pendingSeekValid.store(false, std::memory_order_release);
+        e->pendingSeekSeconds.store(-1.0, std::memory_order_release);
         e->pendingSeekIndex.store(-1, std::memory_order_release);
         set_playing_state(e, true);
         e->decodeProducerCv.notify_one();
@@ -13338,13 +13747,7 @@ extern "C"
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
-            if (ma_device_get_state(&e->device) != ma_device_state_started)
-            {
-                if (ma_device_start(&e->device) != MA_SUCCESS)
-                {
-                    engine_log("Failed to start device in ae_next");
-                }
-            }
+            ensure_output_started_locked(e, "ae_next");
         }
 
         clear_last_error(e);
@@ -13389,13 +13792,7 @@ extern "C"
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
-            if (ma_device_get_state(&e->device) != ma_device_state_started)
-            {
-                if (ma_device_start(&e->device) != MA_SUCCESS)
-                {
-                    engine_log("Failed to start device in ae_prev");
-                }
-            }
+            ensure_output_started_locked(e, "ae_prev");
         }
 
         clear_last_error(e);
@@ -13422,6 +13819,7 @@ extern "C"
         }
 
         e->pendingSeekValid.store(false, std::memory_order_release);
+        e->pendingSeekSeconds.store(-1.0, std::memory_order_release);
         e->pendingSeekIndex.store(-1, std::memory_order_release);
         e->pendingAutoPlay.store(true, std::memory_order_relaxed);
 
@@ -13439,13 +13837,7 @@ extern "C"
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
-            if (ma_device_get_state(&e->device) != ma_device_state_started)
-            {
-                if (ma_device_start(&e->device) != MA_SUCCESS)
-                {
-                    engine_log("Failed to start device in ae_jump_to");
-                }
-            }
+            ensure_output_started_locked(e, "ae_jump_to");
         }
 
         engine_log("jump_to requested: index=%d", index);
@@ -13485,6 +13877,7 @@ extern "C"
         const ma_uint64 frame = (ma_uint64)(pos * (double)e->sampleRate);
 
         e->pendingSeekFrame.store(frame, std::memory_order_release);
+        e->pendingSeekSeconds.store(pos, std::memory_order_release);
         e->pendingSeekIndex.store(index, std::memory_order_release);
         e->pendingSeekValid.store(true, std::memory_order_release);
         e->pendingAutoPlay.store(true, std::memory_order_relaxed);
@@ -13500,13 +13893,7 @@ extern "C"
 
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
-            if (ma_device_get_state(&e->device) != ma_device_state_started)
-            {
-                if (ma_device_start(&e->device) != MA_SUCCESS)
-                {
-                    engine_log("Failed to start device in ae_jump_to_with_position");
-                }
-            }
+            ensure_output_started_locked(e, "ae_jump_to_with_position");
         }
 
         engine_log("jump_to_with_position requested: index=%d frame=%llu", index, (unsigned long long)frame);
@@ -13865,14 +14252,32 @@ extern "C"
     {
         if (e == nullptr)
             return 0.0f;
-        uint32_t sr = (e->device.sampleRate > 0) ? e->device.sampleRate : (uint32_t)e->engineSampleRate;
+#if defined(__ANDROID__)
+        {
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            const int activeBk = e->activeBackend.load(std::memory_order_relaxed);
+            if (e->pUsbDacSink != nullptr && activeBk == AE_BACKEND_USB_DIRECT)
+            {
+                return static_cast<float>(reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->nominalLatencyMs);
+            }
+            if (e->pOboeSink != nullptr && !is_audiotrack_family_backend(activeBk))
+            {
+                const double oboeLat = reinterpret_cast<sautiflow::AndroidOboeSink *>(e->pOboeSink)->getLatencyMs();
+                if (oboeLat > 0.0)
+                {
+                    return static_cast<float>(oboeLat);
+                }
+            }
+        }
+#endif
+        uint32_t sr = (e->activeOut.sampleRate > 0) ? e->activeOut.sampleRate : (uint32_t)e->engineSampleRate;
         if (sr == 0)
             return 0.0f;
 
         const int userFrames = e->userPeriodFrames.load(std::memory_order_relaxed);
         const int userPeriods = e->userPeriodCount.load(std::memory_order_relaxed);
-        uint32_t periodFrames = e->device.playback.internalPeriodSizeInFrames;
-        uint32_t periodCount = e->device.playback.internalPeriods;
+        uint32_t periodFrames = e->activeOut.periodSizeFrames;
+        uint32_t periodCount = e->activeOut.periodCount;
 
         if (userFrames > 0)
         {
@@ -13934,6 +14339,7 @@ extern "C"
         {
             totalLatency += (double)ma_resampler_get_input_latency(&e->deviceResampler);
         }
+        totalLatency += (double)e->trackResamplerOutputLatencyFrames.load(std::memory_order_relaxed);
 
         return totalLatency;
     }
@@ -13985,14 +14391,19 @@ extern "C"
                 ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
                 ma_uint64 played = get_audible_played_frames(e);
                 ma_uint64 currentFrame = baseFrame + played;
-                if (currentFrame > len && len > 0)
-                    currentFrame = len;
 
                 const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                const int decSr = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                                      ? (int)e->currentDecoder->outputSampleRate
+                                      : sr;
+                const ma_uint64 lenEngine = convert_frame_rate(len, decSr, sr);
+                if (currentFrame > lenEngine && lenEngine > 0)
+                    currentFrame = lenEngine;
+
                 const double latencySamples = calculate_total_pipeline_latency_samples(e);
                 const double effectiveFrame = ((double)currentFrame > latencySamples) ? ((double)currentFrame - latencySamples) : 0.0;
                 s.position_seconds = effectiveFrame / (double)sr;
-                s.duration_seconds = (double)len / (double)sr;
+                s.duration_seconds = (double)len / (double)decSr;
             }
         }
 
@@ -14028,26 +14439,24 @@ extern "C"
             std::unique_lock<std::mutex> devLock(e->deviceMutex, std::try_to_lock);
             if (devLock.owns_lock())
             {
-                const ma_device *pDev = &e->device;
-                if (pDev->pContext != nullptr &&
-                    ma_device_get_state(pDev) != ma_device_state_uninitialized)
+                if (e->activeOut.initialized)
                 {
-                    if (pDev->playback.format != ma_format_unknown)
+                    if (e->activeOut.format != ma_format_unknown)
                     {
-                        ps.device_format_actual = (int)ma_format_to_ae_format(pDev->playback.format);
+                        ps.device_format_actual = (int)ma_format_to_ae_format(e->activeOut.format);
                     }
-                    if (pDev->sampleRate > 0)
+                    if (e->activeOut.sampleRate > 0)
                     {
-                        actualDevRate = (int)pDev->sampleRate;
+                        actualDevRate = (int)e->activeOut.sampleRate;
                     }
-                    else if (pDev->playback.internalSampleRate > 0)
+                    else if (e->activeOut.internalSampleRate > 0)
                     {
-                        actualDevRate = (int)pDev->playback.internalSampleRate;
+                        actualDevRate = (int)e->activeOut.internalSampleRate;
                     }
                 }
-                else if (pDev->sampleRate > 0)
+                else if (e->activeOut.sampleRate > 0)
                 {
-                    actualDevRate = (int)pDev->sampleRate;
+                    actualDevRate = (int)e->activeOut.sampleRate;
                 }
             }
         }
@@ -15581,6 +15990,7 @@ extern "C"
         engine->harmonicBassDsp.setGainDb(gain);
     }
 
+#if !defined(__ANDROID__)
     static void device_notification_callback(const ma_device_notification *pNotification)
     {
         if (pNotification == nullptr || pNotification->pDevice == nullptr)
@@ -15595,6 +16005,7 @@ extern "C"
             engine_log("Audio device notification event %d received. Device route or state changed.", (int)pNotification->type);
         }
     }
+#endif
 
 
 
@@ -15622,35 +16033,11 @@ extern "C"
 
             engine_log("DEVICE STOP BEGIN");
             (void)freeze_audible_clock(e);
-#if defined(__ANDROID__)
-            if (e->pUsbDacSink != nullptr)
-            {
-                auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink);
-                usbSink->stop();
-                usbSink->release();
-            }
-#endif
-#if defined(__ANDROID__)
-            if (e->pAudioTrackSink != nullptr)
-            {
-                auto *sink = reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink);
-                sink->stop();
-                sink->release();
-            }
-#endif
-            if (ma_device_get_state(&e->device) == ma_device_state_started)
-            {
-                ma_device_stop(&e->device);
-            }
+            stop_output_locked(e);
             engine_log("DEVICE STOP END");
 
             engine_log("DEVICE UNINIT BEGIN");
-            ma_device_uninit(&e->device);
-            if (e->customContextInit)
-            {
-                ma_context_uninit(&e->customContext);
-                e->customContextInit = false;
-            }
+            release_output_locked(e, /*destroySinks=*/false);
             engine_log("DEVICE UNINIT END");
 
             // Cleanly finalize any active crossfade before destroying decoder slots
@@ -15664,6 +16051,7 @@ extern "C"
                     e->crossfadeFramesTotal.store(0, std::memory_order_release);
                     e->isCrossfading.store(false, std::memory_order_release);
                 }
+                reset_track_resampler_locked(e);
             }
 
             int oldRate = e->sampleRate > 0 ? e->sampleRate : 48000;
@@ -15792,57 +16180,10 @@ extern "C"
                 reinit_advanced_fx_filters(e);
             }
 
-            ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
-            switch (e->outputFormat)
-            {
-            case AE_FORMAT_S16:
-                cfg.playback.format = ma_format_s16;
-                break;
-            case AE_FORMAT_U8:
-                cfg.playback.format = ma_format_u8;
-                break;
-            case AE_FORMAT_S24:
-                cfg.playback.format = ma_format_s24;
-                break;
-            case AE_FORMAT_S32:
-                cfg.playback.format = ma_format_s32;
-                break;
-            default:
-                cfg.playback.format = ma_format_f32;
-                break;
-            }
-            cfg.playback.channels = (ma_uint32)newCh;
-            cfg.sampleRate = (ma_uint32)newRate; // 0 = native device sample rate for shared mode.
-            cfg.dataCallback = data_callback;
-            cfg.notificationCallback = device_notification_callback;
-            cfg.pUserData = e;
+            const ma_format requestedOutFmt = ae_format_to_ma_format(e->outputFormat);
 
-            // The hardware device uses standard linear fallback, while Sautiflow's
-            // track decoders use r8brain off-thread into the ring buffer (callback r8brain strictly at 1:1).
-            cfg.resampling.algorithm = ma_resample_algorithm_linear;
-
-            const int devResampAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
-            if (devResampAlgo == 1 /* Sinc Best Quality */ || devResampAlgo == 2 /* Sinc Medium Quality */)
-            {
-                cfg.periodSizeInMilliseconds = 50;
-                cfg.periods = 3;
-            }
-
-            const ma_format origCfgFmt = cfg.playback.format;
-            if (isDsdTrackRestart)
-            {
-                if (desiredDsdMode == AE_DSD_MODE_NATIVE)
-                {
-                    cfg.playback.format = ma_format_s32;
-                }
-                else if (desiredDsdMode == AE_DSD_MODE_DOP)
-                {
-                    cfg.playback.format = (e->outputFormat == AE_FORMAT_S24) ? ma_format_s24 : ma_format_s32;
-                }
-            }
-
-            engine_log("DEVICE INIT REQUESTED:\n  requestedRate=%u\n  shareMode=%s\n  exclusive=%s",
-                       cfg.sampleRate,
+            engine_log("DEVICE INIT REQUESTED:\n  requestedRate=%d\n  shareMode=%s\n  exclusive=%s",
+                       newRate,
                        wantExclusive ? "exclusive" : "shared",
                        wantExclusive ? "true" : "false");
 
@@ -15890,7 +16231,6 @@ extern "C"
                     {
                         newCh = baseUserCh;
                         e->channels = newCh;
-                        cfg.playback.channels = static_cast<ma_uint32>(newCh);
                         int d2pUsbRate = (e->userOutputSampleRate > 0)
                             ? e->userOutputSampleRate
                             : static_cast<int>(d2pFallbackRate);
@@ -15917,9 +16257,10 @@ extern "C"
                     e->activeBackend.store(AE_BACKEND_USB_DIRECT, std::memory_order_release);
                     if (usbSink->sampleRate > 0)
                     {
-                        e->device.sampleRate = static_cast<ma_uint32>(usbSink->sampleRate);
-                        e->device.playback.internalSampleRate = static_cast<ma_uint32>(usbSink->sampleRate);
+                        e->activeOut.sampleRate = static_cast<ma_uint32>(usbSink->sampleRate);
+                        e->activeOut.internalSampleRate = static_cast<ma_uint32>(usbSink->sampleRate);
                     }
+                    e->activeOut.initialized = true;
                     engine_log("USB Direct DAC sink initialized successfully (rate=%d, ch=%d, bits=%d)",
                                usbSink->sampleRate, usbSink->channels, usbSink->bitDepth);
                 }
@@ -15953,18 +16294,23 @@ extern "C"
                     {
                         const int dopRate = curSrcDsdRate / 16;
                         e->activeDsdMode.store(AE_DSD_MODE_DOP, std::memory_order_release);
-                        e->device.playback.format = ma_format_s32;
-                        e->device.playback.channels = (ma_uint32)newCh;
-                        e->device.sampleRate = (ma_uint32)dopRate;
-                        e->device.pUserData = e;
+                        e->activeOut.format = ma_format_s32;
+                        e->activeOut.channels = (ma_uint32)newCh;
+                        e->activeOut.sampleRate = (ma_uint32)dopRate;
+                        e->activeOut.internalSampleRate = (ma_uint32)dopRate;
+                        e->activeOut.isExclusive = wantDirect;
+                        e->activeOut.isMMap = false;
+                        e->activeOut.initialized = true;
                         if (sink->init(e, dopRate, newCh, true, wantDapHiRes) &&
                             (sink->encoding == 21 || sink->encoding == 22) &&
                             sink->sampleRate == dopRate)
                         {
                             initOk = true;
-                            e->device.playback.format = (sink->encoding == 21) ? ma_format_s24 : ma_format_s32;
-                            e->device.sampleRate = (ma_uint32)sink->sampleRate;
-                            e->device.playback.internalSampleRate = (ma_uint32)sink->sampleRate;
+                            e->activeOut.format = (sink->encoding == 21) ? ma_format_s24 : ma_format_s32;
+                            e->activeOut.sampleRate = (ma_uint32)sink->sampleRate;
+                            e->activeOut.internalSampleRate = (ma_uint32)sink->sampleRate;
+                            e->activeOut.periodSizeFrames = (sink->framesPerBuffer > 0) ? (ma_uint32)sink->framesPerBuffer : 0u;
+                            e->activeOut.periodCount = 2u;
                             e->activeBackend.store(targetBackend, std::memory_order_release);
                             engine_log("AudioTrack DoP sink initialized (rate=%d, enc=%d, dap=%s)",
                                        sink->sampleRate, sink->encoding, wantDapHiRes ? "true" : "false");
@@ -15972,6 +16318,7 @@ extern "C"
                         else
                         {
                             sink->release();
+                            e->activeOut.initialized = false;
                             engine_log("AudioTrack DoP declined @ %d Hz -> cascading safely to D2P...", dopRate);
                             desiredDsdMode = AE_DSD_MODE_D2P;
                         }
@@ -15980,31 +16327,36 @@ extern "C"
                     {
                         newCh = baseUserCh;
                         e->channels = newCh;
-                        cfg.playback.channels = static_cast<ma_uint32>(newCh);
                         e->activeDsdMode.store(AE_DSD_MODE_D2P, std::memory_order_release);
                         e->sourceSampleRate = static_cast<int>(d2pFallbackRate);
                         int targetRate = (e->userOutputSampleRate > 0)
                             ? e->userOutputSampleRate
                             : (wantDirect ? static_cast<int>(d2pFallbackRate) : srForFilterInit);
-                        e->device.playback.format = ma_format_f32;
-                        e->device.playback.channels = (ma_uint32)newCh;
-                        e->device.sampleRate = (ma_uint32)targetRate;
-                        e->device.pUserData = e;
+                        e->activeOut.format = ma_format_f32;
+                        e->activeOut.channels = (ma_uint32)newCh;
+                        e->activeOut.sampleRate = (ma_uint32)targetRate;
+                        e->activeOut.internalSampleRate = (ma_uint32)targetRate;
+                        e->activeOut.isExclusive = wantDirect;
+                        e->activeOut.isMMap = false;
+                        e->activeOut.initialized = true;
                         if (sink->init(e, targetRate, newCh, wantDirect, wantDapHiRes))
                         {
                             initOk = true;
                             if (sink->sampleRate > 0)
                             {
-                                e->device.sampleRate = static_cast<ma_uint32>(sink->sampleRate);
-                                e->device.playback.internalSampleRate = static_cast<ma_uint32>(sink->sampleRate);
+                                e->activeOut.sampleRate = static_cast<ma_uint32>(sink->sampleRate);
+                                e->activeOut.internalSampleRate = static_cast<ma_uint32>(sink->sampleRate);
                             }
+                            e->activeOut.periodSizeFrames = (sink->framesPerBuffer > 0) ? (ma_uint32)sink->framesPerBuffer : 0u;
+                            e->activeOut.periodCount = 2u;
                             e->activeBackend.store(targetBackend, std::memory_order_release);
                             engine_log("AudioTrack D2P sink initialized (direct=%s, dap=%s, rate=%d)",
                                        wantDirect ? "true" : "false", wantDapHiRes ? "true" : "false", sink->sampleRate);
                         }
                         else
                         {
-                            engine_log("AudioTrack sink init failed; falling back to default miniaudio device...");
+                            e->activeOut.initialized = false;
+                            engine_log("AudioTrack sink init failed; falling back to Oboe...");
                         }
                     }
                 }
@@ -16014,20 +16366,25 @@ extern "C"
                         e, (e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit);
                     int targetRate = (resolvedAtRate > 0) ? resolvedAtRate : srForFilterInit;
 
-                    // AudioTrack sink internally consumes float PCM from data_callback and converts to S24/S32 if required
-                    e->device.playback.format = ma_format_f32;
-                    e->device.playback.channels = (ma_uint32)newCh;
-                    e->device.sampleRate = (ma_uint32)targetRate;
-                    e->device.pUserData = e;
+                    // AudioTrack sink internally consumes float PCM from render_output_frames and converts to S24/S32 if required
+                    e->activeOut.format = ma_format_f32;
+                    e->activeOut.channels = (ma_uint32)newCh;
+                    e->activeOut.sampleRate = (ma_uint32)targetRate;
+                    e->activeOut.internalSampleRate = (ma_uint32)targetRate;
+                    e->activeOut.isExclusive = wantDirect;
+                    e->activeOut.isMMap = false;
+                    e->activeOut.initialized = true;
 
                     if (sink->init(e, targetRate, newCh, wantDirect, wantDapHiRes))
                     {
                         initOk = true;
                         if (sink->sampleRate > 0)
                         {
-                            e->device.sampleRate = static_cast<ma_uint32>(sink->sampleRate);
-                            e->device.playback.internalSampleRate = static_cast<ma_uint32>(sink->sampleRate);
+                            e->activeOut.sampleRate = static_cast<ma_uint32>(sink->sampleRate);
+                            e->activeOut.internalSampleRate = static_cast<ma_uint32>(sink->sampleRate);
                         }
+                        e->activeOut.periodSizeFrames = (sink->framesPerBuffer > 0) ? (ma_uint32)sink->framesPerBuffer : 0u;
+                        e->activeOut.periodCount = 2u;
                         e->activeBackend.store(targetBackend, std::memory_order_release);
                         engine_log("AudioTrack sink initialized successfully (direct=%s, dap=%s, directHal=%s, rate=%d)",
                                    wantDirect ? "true" : "false", wantDapHiRes ? "true" : "false",
@@ -16035,27 +16392,132 @@ extern "C"
                     }
                     else
                     {
-                        engine_log("AudioTrack sink init failed; falling back to default miniaudio device...");
+                        e->activeOut.initialized = false;
+                        engine_log("AudioTrack sink init failed; falling back to Oboe...");
                     }
                 }
             }
-#endif
+
+            if (!initOk)
+            {
+                if (isDsdTrackRestart && (desiredDsdMode == AE_DSD_MODE_NATIVE || desiredDsdMode == AE_DSD_MODE_DOP))
+                {
+                    engine_log("Oboe backend does not support raw Native/DoP DSD -> cascading safely to D2P");
+                    desiredDsdMode = AE_DSD_MODE_D2P;
+                    newCh = baseUserCh;
+                    e->channels = newCh;
+                    newRate = (e->userOutputSampleRate > 0)
+                                  ? e->userOutputSampleRate
+                                  : (wantExclusive ? static_cast<int>(d2pFallbackRate) : targetOutputRate);
+                    e->sampleRate = (newRate > 0) ? newRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+                }
+
+                if (e->pOboeSink == nullptr)
+                {
+                    auto *newOboe = new sautiflow::AndroidOboeSink();
+                    newOboe->setHooks(e, oboe_render_cb, oboe_disconnect_cb, oboe_log_cb);
+                    e->pOboeSink = newOboe;
+                }
+                auto *oboeSink = reinterpret_cast<sautiflow::AndroidOboeSink *>(e->pOboeSink);
+
+                bool isBtCap = false;
+                int nativeHal = 0;
+                bool directMultiCap = false;
+                {
+                    std::lock_guard<std::mutex> hwk(e->hwCapMutex);
+                    isBtCap = e->hwCapIsBluetooth;
+                    nativeHal = e->hwCapNativeSampleRate;
+                    directMultiCap = e->hwCapDirectMultiRate && !e->hwCapIsFixedClock;
+                }
+                if (nativeHal <= 0)
+                {
+                    nativeHal = android_query_native_hal_sample_rate();
+                }
+
+                const bool autoSrEnabled = e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
+                const int userFramesCfg = e->userPeriodFrames.load(std::memory_order_relaxed);
+                const int userPeriodsCfg = e->userPeriodCount.load(std::memory_order_relaxed);
+                const bool wantLowLat = wantExclusive || autoSrEnabled || (userFramesCfg > 0);
+                const bool wantExclMMap = wantExclusive || autoSrEnabled;
+
+                const int baseDesiredRate = (newRate > 0)
+                                                ? newRate
+                                                : ((e->sourceSampleRate > 0) ? e->sourceSampleRate : srForFilterInit);
+                int reqOboeRate = 0;
+                if (!isBtCap && (wantLowLat || newRate > 0))
+                {
+                    reqOboeRate = resolve_hardware_target_rate(e, baseDesiredRate);
+                }
+                else if (isBtCap && nativeHal > 0)
+                {
+                    reqOboeRate = nativeHal;
+                }
+
+                int oboeTargetBk = AE_BACKEND_AUTO;
+                if (targetBackend == AE_BACKEND_AAUDIO || targetBackend == AE_BACKEND_OPENSL)
+                {
+                    oboeTargetBk = targetBackend;
+                }
+
+                sautiflow::OboeInitParams oboeP{};
+                oboeP.targetBackend = oboeTargetBk;
+                oboeP.requestedSampleRate = reqOboeRate;
+                oboeP.nativeHalRate = nativeHal;
+                oboeP.channels = newCh;
+                oboeP.requestedFormat = requestedOutFmt;
+                oboeP.wantLowLatency = wantLowLat;
+                oboeP.wantExclusiveMMap = wantExclMMap;
+                oboeP.canMultiRate = directMultiCap;
+                oboeP.isBluetooth = isBtCap;
+                oboeP.userPeriodFrames = userFramesCfg;
+                oboeP.userPeriodCount = userPeriodsCfg;
+
+                if (oboeSink->init(oboeP))
+                {
+                    initOk = true;
+                    sync_active_out_from_oboe(e, oboeSink);
+                    sync_dac_valid_bit_depth(e);
+                    e->activeBackend.store(
+                        oboeSink->usesAAudio() ? AE_BACKEND_AAUDIO : AE_BACKEND_OPENSL,
+                        std::memory_order_release);
+                }
+            }
+#else
+            ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+            cfg.playback.format = requestedOutFmt;
+            cfg.playback.channels = (ma_uint32)newCh;
+            cfg.sampleRate = (ma_uint32)newRate; // 0 = native device sample rate for shared mode.
+            cfg.dataCallback = data_callback;
+            cfg.notificationCallback = device_notification_callback;
+            cfg.pUserData = e;
+
+            // The hardware device uses standard linear fallback, while Sautiflow's
+            // track decoders use r8brain off-thread into the ring buffer (callback r8brain strictly at 1:1).
+            cfg.resampling.algorithm = ma_resample_algorithm_linear;
+
+            const int devResampAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
+            if (devResampAlgo == 1 /* Sinc Best Quality */ || devResampAlgo == 2 /* Sinc Medium Quality */)
+            {
+                cfg.periodSizeInMilliseconds = 50;
+                cfg.periods = 3;
+            }
+
+            const ma_format origCfgFmt = cfg.playback.format;
+            if (isDsdTrackRestart)
+            {
+                if (desiredDsdMode == AE_DSD_MODE_NATIVE)
+                {
+                    cfg.playback.format = ma_format_s32;
+                }
+                else if (desiredDsdMode == AE_DSD_MODE_DOP)
+                {
+                    cfg.playback.format = (e->outputFormat == AE_FORMAT_S24) ? ma_format_s24 : ma_format_s32;
+                }
+            }
 
             if (!initOk)
             {
                 ma_context *pContextToUse = nullptr;
-#if defined(__ANDROID__)
-                if (targetBackend == AE_BACKEND_AAUDIO || targetBackend == AE_BACKEND_OPENSL)
-                {
-                    ma_backend backends[1];
-                    backends[0] = (targetBackend == AE_BACKEND_AAUDIO) ? ma_backend_aaudio : ma_backend_opensl;
-                    if (ma_context_init(backends, 1, nullptr, &e->customContext) == MA_SUCCESS)
-                    {
-                        e->customContextInit = true;
-                        pContextToUse = &e->customContext;
-                    }
-                }
-#endif
                 if (isDsdTrackRestart && (desiredDsdMode == AE_DSD_MODE_NATIVE || desiredDsdMode == AE_DSD_MODE_DOP))
                 {
                     if (desiredDsdMode == AE_DSD_MODE_NATIVE)
@@ -16065,7 +16527,7 @@ extern "C"
                         cfg.playback.format = (e->outputFormat == AE_FORMAT_S24) ? ma_format_s24 : ma_format_s32;
                     }
                     bool allowMiniaudioDop = false;
-#if !defined(__ANDROID__) && !defined(__APPLE__)
+#if !defined(__APPLE__)
                     allowMiniaudioDop = wantExclusive && e->exclusiveModeEnabled.load(std::memory_order_relaxed);
 #endif
                     if (desiredDsdMode == AE_DSD_MODE_DOP && !allowMiniaudioDop)
@@ -16104,18 +16566,6 @@ extern "C"
 
                     apply_buffer_policy(e, cfg);
 
-#if defined(__ANDROID__)
-                    if (!(isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP))
-                    {
-                        const int resolvedHwRate = resolve_hardware_target_rate(
-                            e, (newRate > 0) ? newRate : ((e->sourceSampleRate > 0) ? e->sourceSampleRate : 48000));
-                        if (resolvedHwRate > 0)
-                        {
-                            cfg.sampleRate = static_cast<ma_uint32>(resolvedHwRate);
-                        }
-                    }
-#endif
-
                     if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
                     {
                         if (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP &&
@@ -16130,35 +16580,8 @@ extern "C"
                         }
                         else
                         {
-#if defined(__ANDROID__)
-                            int aaHwRate = 0;
-                            int aaSharing = -1;
-                            android_aaudio_get_hw_rate_and_sharing(&e->device, &aaHwRate, &aaSharing);
-                            bool isBtCap = false;
-                            bool directMultiCap = false;
-                            {
-                                std::lock_guard<std::mutex> hwk(e->hwCapMutex);
-                                isBtCap = e->hwCapIsBluetooth;
-                                directMultiCap = e->hwCapDirectMultiRate && !e->hwCapIsFixedClock;
-                            }
-                            if ((aaHwRate > 0 && e->device.sampleRate > 0 && static_cast<ma_uint32>(aaHwRate) != e->device.sampleRate) ||
-                                (aaSharing == 1 && cfg.sampleRate != 0 && !isBtCap && !directMultiCap))
-                            {
-                                engine_log("Android Exclusive AAudio mismatched HAL hwRate=%d sharing=%d (requested=%u) -> tearing down to Shared HAL",
-                                           aaHwRate, aaSharing, cfg.sampleRate);
-                                ma_device_uninit(&e->device);
-                                initOk = false;
-                            }
-                            else
-                            {
-                                initOk = true;
-                                engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz (aaHwRate=%d, sharing=%d).",
-                                           e->device.sampleRate, aaHwRate, aaSharing);
-                            }
-#else
                             initOk = true;
                             engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
-#endif
                         }
                     }
                     else if (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP)
@@ -16215,51 +16638,14 @@ extern "C"
 
                     apply_buffer_policy(e, cfg);
 
-#if defined(__ANDROID__)
-                    bool isBtCap = false;
-                    int btNativeRate = 0;
-                    {
-                        std::lock_guard<std::mutex> hwk(e->hwCapMutex);
-                        isBtCap = e->hwCapIsBluetooth;
-                        btNativeRate = e->hwCapNativeSampleRate;
-                    }
-                    if (isBtCap && btNativeRate > 0)
-                    {
-                        cfg.sampleRate = static_cast<ma_uint32>(btNativeRate);
-                        if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
-                        {
-                            int aaHwRate = 0;
-                            android_aaudio_get_hw_rate_and_sharing(&e->device, &aaHwRate, nullptr);
-                            if (aaHwRate > 0 && e->device.sampleRate > 0 &&
-                                static_cast<ma_uint32>(aaHwRate) != e->device.sampleRate)
-                            {
-                                engine_log("Android BT Shared AAudio HAL rate %d != device rate %u -> tearing down to HAL native",
-                                           aaHwRate, e->device.sampleRate);
-                                ma_device_uninit(&e->device);
-                                initOk = false;
-                            }
-                            else
-                            {
-                                initOk = true;
-                                engine_log("Android BT Shared Mode initialized at codec rate %u Hz (actual=%u Hz, aaHwRate=%d).",
-                                           cfg.sampleRate, e->device.sampleRate, aaHwRate);
-                            }
-                        }
-                    }
-                    if (!initOk)
-                    {
-                        cfg.sampleRate = 0;
-                    }
-#else
                     cfg.sampleRate = 0;
-#endif
-                    if (!initOk && ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
+                    if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
                     {
                         initOk = true;
                         engine_log("Shared Mode initialized successfully at DAC rate %u Hz (lowLatency=%s).",
                                    e->device.sampleRate, wantExclusive ? "true" : "false");
                     }
-                    else if (!initOk)
+                    else
                     {
                         engine_log("Hardware declined standard Shared Mode config. Attempting failsafe baseline config...");
                         ma_device_config safeCfg = ma_device_config_init(ma_device_type_playback);
@@ -16283,17 +16669,14 @@ extern "C"
 
                 if (initOk)
                 {
+                    sync_active_out_from_ma_device(e);
                     sync_dac_valid_bit_depth(e);
                     refresh_native_device_capabilities(e);
-                    int reportedBackend = AE_BACKEND_AUTO;
-                    if (e->device.pContext != nullptr)
-                    {
-                        if (e->device.pContext->backend == ma_backend_aaudio) reportedBackend = AE_BACKEND_AAUDIO;
-                        else if (e->device.pContext->backend == ma_backend_opensl) reportedBackend = AE_BACKEND_OPENSL;
-                    }
-                    e->activeBackend.store(reportedBackend, std::memory_order_release);
+                    sync_active_out_from_ma_device(e);
+                    e->activeBackend.store(AE_BACKEND_AUTO, std::memory_order_release);
                 }
             }
+#endif
 
             if (!initOk)
             {
@@ -16302,9 +16685,9 @@ extern "C"
                 return;
             }
 
-            if (e->device.playback.channels > 0)
+            if (e->activeOut.channels > 0)
             {
-                const int actualCh = static_cast<int>(e->device.playback.channels);
+                const int actualCh = static_cast<int>(e->activeOut.channels);
                 if (actualCh != e->channels)
                 {
                     e->channels = actualCh;
@@ -16324,7 +16707,7 @@ extern "C"
             if (isDsdTrackRestart)
             {
                 if ((desiredDsdMode == AE_DSD_MODE_DOP || desiredDsdMode == AE_DSD_MODE_NATIVE) &&
-                    (e->device.playback.format != ma_format_s24 && e->device.playback.format != ma_format_s32))
+                    (e->activeOut.format != ma_format_s24 && e->activeOut.format != ma_format_s32))
                 {
                     desiredDsdMode = AE_DSD_MODE_D2P;
                 }
@@ -16339,8 +16722,8 @@ extern "C"
                 }
                 else
                 {
-                    e->sourceSampleRate = static_cast<int>(e->device.sampleRate);
-                    e->sourceFormat = e->device.playback.format;
+                    e->sourceSampleRate = static_cast<int>(e->activeOut.sampleRate);
+                    e->sourceFormat = e->activeOut.format;
                 }
             }
             else
@@ -16349,25 +16732,20 @@ extern "C"
             }
 
             engine_log("DEVICE INIT RESULT:\n  actualRate=%u internalRate=%u",
-                       e->device.sampleRate, e->device.playback.internalSampleRate);
+                       e->activeOut.sampleRate, e->activeOut.internalSampleRate);
 
             {
-                uint32_t actualRate = (e->device.pContext != nullptr && e->device.playback.internalSampleRate > 0)
-                                          ? e->device.playback.internalSampleRate
-                                          : ((e->device.sampleRate > 0)
-                                                 ? e->device.sampleRate
-                                                 : e->device.playback.internalSampleRate);
+                uint32_t actualRate = 0;
 #if defined(__ANDROID__)
-                {
-                    int aaHwRate = 0;
-                    android_aaudio_get_hw_rate_and_sharing(&e->device, &aaHwRate, nullptr);
-                    if (aaHwRate > 0)
-                    {
-                        actualRate = static_cast<uint32_t>(aaHwRate);
-                        e->device.sampleRate = actualRate;
-                        e->device.playback.internalSampleRate = actualRate;
-                    }
-                }
+                actualRate = (e->activeOut.internalSampleRate > 0)
+                                 ? e->activeOut.internalSampleRate
+                                 : e->activeOut.sampleRate;
+#else
+                actualRate = (e->device.pContext != nullptr && e->activeOut.internalSampleRate > 0)
+                                 ? e->activeOut.internalSampleRate
+                                 : ((e->activeOut.sampleRate > 0)
+                                        ? e->activeOut.sampleRate
+                                        : e->activeOut.internalSampleRate);
 #endif
                 uint32_t srcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : actualRate;
                 const uint32_t castReqRate = (e->outputSampleRate > 0)
@@ -16423,19 +16801,21 @@ extern "C"
                 {
                     hadDecoder = true;
                     resumeIndex = e->currentIndex;
+                    const int oldDecRate = (e->currentDecoder->outputSampleRate > 0)
+                                               ? (int)e->currentDecoder->outputSampleRate
+                                               : oldRate;
 
                     // P1.4 Fix: In Sautiflow, decode_producer_loop decodes ~350 ms ahead into pcmRingBuffer.
                     // Calling ma_decoder_get_cursor_in_pcm_frames() returns the producer's read cursor,
-                    // which is ~350 ms ahead of what the DAC actually played. When the old-rate ring buffer
-                    // is wiped below (pcmRingBuffer.reset()), seeking the new decoder to that raw cursor causes
-                    // an audible ~350 ms forward jump.
-                    // Instead, calculate the exact audible position played by the DAC:
+                    // which is ~350 ms ahead of what the DAC actually played. Instead, calculate the exact
+                    // audible position played by the DAC (in oldRate engine frames):
                     const ma_uint64 baseFrame = e->seekBasePcmFrame.load(std::memory_order_relaxed);
                     const ma_uint64 played = get_audible_played_frames(e);
                     ma_uint64 audiblePos = baseFrame + played;
-                    if (e->currentLengthFrames > 0 && audiblePos > e->currentLengthFrames)
+                    const ma_uint64 lenOldEngine = convert_frame_rate(e->currentLengthFrames, oldDecRate, oldRate);
+                    if (lenOldEngine > 0 && audiblePos > lenOldEngine)
                     {
-                        audiblePos = e->currentLengthFrames;
+                        audiblePos = lenOldEngine;
                     }
 
                     ma_uint64 decCursor = 0;
@@ -16443,7 +16823,8 @@ extern "C"
                     {
                         const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
                         const size_t unplayedFrames = e->pcmRingBuffer.available_read() / ch;
-                        const ma_uint64 cursorMinusRing = (decCursor >= unplayedFrames) ? (decCursor - unplayedFrames) : 0;
+                        const ma_uint64 decCursorEngine = convert_frame_rate(decCursor, oldDecRate, oldRate);
+                        const ma_uint64 cursorMinusRing = (decCursorEngine >= unplayedFrames) ? (decCursorEngine - unplayedFrames) : 0;
                         resumeFrame = (audiblePos > 0) ? audiblePos : cursorMinusRing;
                     }
                     else
@@ -16493,21 +16874,26 @@ extern "C"
                 {
                     ma_decoder *newDec = nullptr;
                     ma_uint64 newLen = 0;
+                    const ma_format dopFmtArg = (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP)
+                                                    ? e->activeOut.format
+                                                    : ma_format_unknown;
     #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     NetworkStreamState *newSt = nullptr;
-                    if (load_decoder_for_path(e, path, &newDec, &newLen, &newSt, false, isDsdTrackRestart ? desiredDsdMode : -1, (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP) ? e->device.playback.format : ma_format_unknown))
+                    if (load_decoder_for_path(e, path, &newDec, &newLen, &newSt, false, isDsdTrackRestart ? desiredDsdMode : -1, dopFmtArg))
     #else
-                    if (load_decoder_for_path(e, path, &newDec, &newLen, false, isDsdTrackRestart ? desiredDsdMode : -1, (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP) ? e->device.playback.format : ma_format_unknown))
+                    if (load_decoder_for_path(e, path, &newDec, &newLen, false, isDsdTrackRestart ? desiredDsdMode : -1, dopFmtArg))
     #endif
                     {
                         engine_log("NEW DECODER CREATED:\n  outputRate=%u", newDec->outputSampleRate);
                         if (resumeFrame > 0 && oldRate > 0)
                         {
                             const double posSec = (double)resumeFrame / (double)oldRate;
-                            const ma_uint64 decRate = (newDec->outputSampleRate > 0) ? (ma_uint64)newDec->outputSampleRate : (ma_uint64)e->sampleRate;
-                            const ma_uint64 targetFrame = (ma_uint64)(posSec * (double)decRate);
-                            (void)ma_decoder_seek_to_pcm_frame(newDec, targetFrame);
-                            reset_playback_position(e, targetFrame);
+                            const int decRate = (newDec->outputSampleRate > 0) ? (int)newDec->outputSampleRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+                            const int newEngRate = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                            const ma_uint64 targetFrameDec = (ma_uint64)(posSec * (double)decRate);
+                            const ma_uint64 targetFrameEngine = (ma_uint64)(posSec * (double)newEngRate);
+                            (void)ma_decoder_seek_to_pcm_frame(newDec, targetFrameDec);
+                            reset_playback_position(e, targetFrameEngine);
                         }
                         else
                         {
@@ -16523,6 +16909,7 @@ extern "C"
     #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                             e->currentStream = newSt;
     #endif
+                            reset_track_resampler_locked(e);
                         }
                         if (e->sourceSampleRate > 0 && e->engineSampleRate > 0)
                         {
@@ -16570,21 +16957,7 @@ extern "C"
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
                 engine_log("DEVICE START");
-#if defined(__ANDROID__)
-                if (e->pUsbDacSink != nullptr && e->activeBackend.load(std::memory_order_relaxed) == AE_BACKEND_USB_DIRECT)
-                {
-                    reinterpret_cast<AndroidUsbDacSink *>(e->pUsbDacSink)->start();
-                }
-                else if (e->pAudioTrackSink != nullptr &&
-                         is_audiotrack_family_backend(e->activeBackend.load(std::memory_order_relaxed)))
-                {
-                    reinterpret_cast<AndroidAudioTrackSink *>(e->pAudioTrackSink)->start();
-                }
-                else
-#endif
-                {
-                    ma_device_start(&e->device);
-                }
+                ensure_output_started_locked(e, "restart_and_apply_config");
             }
 
             request_preload(e);
@@ -16768,10 +17141,7 @@ extern "C"
 #if defined(__ANDROID__)
         if (backend == AE_BACKEND_AAUDIO)
         {
-            char sdkStr[PROP_VALUE_MAX] = {0};
-            __system_property_get("ro.build.version.sdk", sdkStr);
-            int sdk = std::atoi(sdkStr);
-            return (sdk >= 26 || sdk == 0) ? 1 : 0;
+            return oboe::AudioStreamBuilder::isAAudioSupported() ? 1 : 0;
         }
         if (backend == AE_BACKEND_OPENSL)
         {
@@ -16950,7 +17320,7 @@ extern "C"
         const int actDsd = engine->activeDsdMode.load(std::memory_order_acquire);
         const int hwDsd = engine->hwActiveDsdMode.load(std::memory_order_acquire);
         const int targetBitMode = (actDsd == AE_DSD_MODE_DOP || actDsd == AE_DSD_MODE_NATIVE) ? actDsd : 0;
-        const int hwCh = (engine->device.playback.channels > 0) ? static_cast<int>(engine->device.playback.channels) : engine->channels;
+        const int hwCh = (engine->activeOut.channels > 0) ? static_cast<int>(engine->activeOut.channels) : engine->channels;
         const int baseUserCh = (engine->userOutputChannels > 0) ? engine->userOutputChannels : ((engine->outputChannels > 0) ? engine->outputChannels : 2);
         const int targetCh = (targetBitMode != 0 && engine->sourceChannels > 0) ? engine->sourceChannels : baseUserCh;
         const bool castTap = engine->castPcmTapEnabled.load(std::memory_order_relaxed);
@@ -17002,7 +17372,7 @@ extern "C"
                 return engine->deviceSampleRate;
             if (engine->outputSampleRate > 0)
                 return engine->outputSampleRate;
-            return static_cast<int>(engine->device.sampleRate);
+            return static_cast<int>(engine->activeOut.sampleRate);
         }
         // 0 = native/unset: report the ACTIVE hardware rate instead of the
         // unset sentinel, so callers never see a bogus 0 Hz on a fresh engine.
@@ -17010,7 +17380,7 @@ extern "C"
             return engine->userOutputSampleRate;
         if (engine->outputSampleRate != 0)
             return engine->outputSampleRate;
-        return (int)engine->device.sampleRate;
+        return (int)engine->activeOut.sampleRate;
     }
 
     AE_API void ae_set_hardware_output_capabilities(
@@ -17105,11 +17475,11 @@ extern "C"
                                    ? engine->sourceSampleRate
                                    : ((engine->deviceSampleRate > 0)
                                           ? engine->deviceSampleRate
-                                          : static_cast<int>(engine->device.sampleRate));
+                                          : static_cast<int>(engine->activeOut.sampleRate));
             const int resolvedNow = resolve_hardware_target_rate(engine, curSrc);
             const int activeDevRate = (engine->deviceSampleRate > 0)
                                           ? engine->deviceSampleRate
-                                          : static_cast<int>(engine->device.sampleRate);
+                                          : static_cast<int>(engine->activeOut.sampleRate);
             if (resolvedNow > 0 && activeDevRate > 0 && resolvedNow != activeDevRate)
             {
                 engine_log("HW capabilities require sample rate sync: active=%d Hz -> target=%d Hz",
@@ -17341,7 +17711,7 @@ extern "C"
         const int actDsd = engine->activeDsdMode.load(std::memory_order_acquire);
         const int hwDsd = engine->hwActiveDsdMode.load(std::memory_order_acquire);
         const int targetBitMode = (actDsd == AE_DSD_MODE_DOP || actDsd == AE_DSD_MODE_NATIVE) ? actDsd : 0;
-        const int hwCh = (engine->device.playback.channels > 0) ? static_cast<int>(engine->device.playback.channels) : engine->channels;
+        const int hwCh = (engine->activeOut.channels > 0) ? static_cast<int>(engine->activeOut.channels) : engine->channels;
         const int baseUserCh = (engine->userOutputChannels > 0) ? engine->userOutputChannels : ((engine->outputChannels > 0) ? engine->outputChannels : 2);
         const int targetCh = (targetBitMode != 0 && engine->sourceChannels > 0) ? engine->sourceChannels : baseUserCh;
         if (pending > 0 && (pending != engine->outputSampleRate || targetBitMode != hwDsd || targetCh != hwCh))
@@ -20125,6 +20495,7 @@ extern "C"
         {
             std::lock_guard<std::mutex> devLock(engine->deviceMutex);
 
+#if !defined(__ANDROID__)
             ma_device *pDevice = &engine->device;
             if (pDevice->pContext != nullptr && ma_device_get_state(pDevice) != ma_device_state_uninitialized)
             {
@@ -20147,8 +20518,11 @@ extern "C"
             {
                 std::strncpy(info.device_name, "Default Output Device", sizeof(info.device_name) - 1);
             }
+#else
+            std::strncpy(info.backend_name, "Unknown", sizeof(info.backend_name) - 1);
+            std::strncpy(info.device_name, "Default Output Device", sizeof(info.device_name) - 1);
 
-#if defined(__ANDROID__)
+            bool oboeActive = false;
             int activeBkForHw = engine->activeBackend.load(std::memory_order_relaxed);
             if (engine->pUsbDacSink != nullptr && activeBkForHw == AE_BACKEND_USB_DIRECT)
             {
@@ -20231,8 +20605,69 @@ extern "C"
                     break;
                 }
             }
-            else
+            else if (engine->pOboeSink != nullptr)
+            {
+                auto *oboeSink = reinterpret_cast<sautiflow::AndroidOboeSink *>(engine->pOboeSink);
+                if (oboeSink->initialized)
+                {
+                    oboeActive = true;
+                    std::strncpy(info.backend_name, oboeSink->getBackendDisplayName(), sizeof(info.backend_name) - 1);
+                    info.sample_rate = (oboeSink->hardwareSampleRate > 0) ? oboeSink->hardwareSampleRate : oboeSink->sampleRate;
+                    info.channels = oboeSink->channels;
+                    info.period_size_frames = static_cast<uint32_t>(std::max(0, oboeSink->framesPerBurst));
+                    info.period_count = static_cast<uint32_t>(std::max(1, oboeSink->periodCount));
+                    info.latency_ms = oboeSink->getLatencyMs();
+                    info.is_exclusive_mode = oboeSink->isExclusive ? 1 : 0;
+                    info.is_direct_pcm = (oboeSink->isMMap && oboeSink->isExclusive) ? 1 : 0;
+
+                    ma_format hwFormat = oboeSink->format;
+                    if (hwFormat == ma_format_unknown)
+                    {
+                        hwFormat = ae_format_to_ma_format(engine->outputFormat);
+                    }
+                    switch (hwFormat)
+                    {
+                    case ma_format_u8:
+                        info.output_format = AE_FORMAT_U8;
+                        info.bit_depth = 8;
+                        info.is_float = 0;
+                        break;
+                    case ma_format_s16:
+                        info.output_format = AE_FORMAT_S16;
+                        info.bit_depth = 16;
+                        info.is_float = 0;
+                        break;
+                    case ma_format_s24:
+                        info.output_format = AE_FORMAT_S24;
+                        info.bit_depth = 24;
+                        info.is_float = 0;
+                        break;
+                    case ma_format_s32:
+                        info.output_format = AE_FORMAT_S32;
+                        if (engine->userOutputFormatExplicit.load(std::memory_order_relaxed) &&
+                            !engine->dacValidBitDepthExplicit.load(std::memory_order_relaxed))
+                        {
+                            info.bit_depth = 32;
+                        }
+                        else
+                        {
+                            info.bit_depth = (engine->dacValidBitDepth.load(std::memory_order_relaxed) > 0)
+                                                 ? engine->dacValidBitDepth.load(std::memory_order_relaxed)
+                                                 : 24;
+                        }
+                        info.is_float = 0;
+                        break;
+                    case ma_format_f32:
+                    default:
+                        info.output_format = AE_FORMAT_F32;
+                        info.bit_depth = 32;
+                        info.is_float = 1;
+                        break;
+                    }
+                }
+            }
 #endif
+#if !defined(__ANDROID__)
             {
                 ma_format hwFormat = pDevice->playback.format;
                 if (hwFormat == ma_format_unknown || engine->userOutputFormatExplicit.load(std::memory_order_relaxed))
@@ -20299,8 +20734,9 @@ extern "C"
                     break;
                 }
             }
+#endif
 
-            if (info.sample_rate > 0)
+            if (info.sample_rate > 0 && info.latency_ms <= 0.0)
             {
                 double totalFrames = (double)info.period_size_frames * (double)info.period_count;
                 info.latency_ms = (totalFrames / (double)info.sample_rate) * 1000.0;
@@ -20313,8 +20749,7 @@ extern "C"
                 info.is_direct_pcm = 1;
                 info.is_exclusive_mode = 1;
             }
-            else
-            if (activeBk == AE_BACKEND_DAP_HIRES)
+            else if (activeBk == AE_BACKEND_DAP_HIRES)
             {
                 std::strncpy(info.backend_name, "DAP Hi-Res", sizeof(info.backend_name) - 1);
                 info.is_direct_pcm = 1;
@@ -20332,13 +20767,17 @@ extern "C"
             }
             else if (activeBk == AE_BACKEND_AAUDIO)
             {
-                std::strncpy(info.backend_name, "AAudio", sizeof(info.backend_name) - 1);
-                info.is_direct_pcm = 0;
+                if (info.backend_name[0] == '\0' || std::strcmp(info.backend_name, "Unknown") == 0)
+                {
+                    std::strncpy(info.backend_name, "AAudio", sizeof(info.backend_name) - 1);
+                }
             }
             else if (activeBk == AE_BACKEND_OPENSL)
             {
-                std::strncpy(info.backend_name, "OpenSL ES", sizeof(info.backend_name) - 1);
-                info.is_direct_pcm = 0;
+                if (info.backend_name[0] == '\0' || std::strcmp(info.backend_name, "Unknown") == 0)
+                {
+                    std::strncpy(info.backend_name, "OpenSL ES", sizeof(info.backend_name) - 1);
+                }
             }
 
 #if !defined(__ANDROID__)
@@ -20361,7 +20800,30 @@ extern "C"
 #endif
             engine->dopSupported.store(engine->exclusiveModeEnabled.load(std::memory_order_relaxed), std::memory_order_release);
 #else
+            const int savedSampleRate = info.sample_rate;
+            const int savedBitDepth = info.bit_depth;
+            const int savedIsFloat = info.is_float;
+            const int savedOutputFormat = info.output_format;
+            const uint32_t savedPeriodFrames = info.period_size_frames;
+            const uint32_t savedPeriodCount = info.period_count;
+            const double savedLatencyMs = info.latency_ms;
+            const int savedExcl = info.is_exclusive_mode;
+            const int savedDirect = info.is_direct_pcm;
+
             query_android_hardware_info(&info);
+
+            if (oboeActive)
+            {
+                if (savedSampleRate > 0) info.sample_rate = savedSampleRate;
+                if (savedBitDepth > 0) info.bit_depth = savedBitDepth;
+                info.is_float = savedIsFloat;
+                info.output_format = savedOutputFormat;
+                if (savedPeriodFrames > 0) info.period_size_frames = savedPeriodFrames;
+                if (savedPeriodCount > 0) info.period_count = savedPeriodCount;
+                if (savedLatencyMs > 0.0) info.latency_ms = savedLatencyMs;
+                info.is_exclusive_mode = savedExcl;
+                info.is_direct_pcm = savedDirect;
+            }
             if (activeBk == AE_BACKEND_USB_DIRECT && engine->pUsbDacSink != nullptr)
             {
                 auto *usbSink = reinterpret_cast<AndroidUsbDacSink *>(engine->pUsbDacSink);
@@ -20672,11 +21134,17 @@ extern "C"
                     }
                 }
             }
-            if (decoderSrcActive && engine->currentDecoder != nullptr && info.input_sample_rate > 0)
+            if (decoderSrcActive && info.input_sample_rate > 0)
             {
-                // Converter input latency is expressed in SOURCE-rate frames (the
-                // decoder converter's input domain), so convert with input_sample_rate.
-                latencyMs += (double)ma_data_converter_get_input_latency(&engine->currentDecoder->converter) / (double)info.input_sample_rate * 1000.0;
+                const uint64_t trackInLat = engine->trackResamplerInputLatencyFrames.load(std::memory_order_relaxed);
+                if (trackInLat > 0)
+                {
+                    latencyMs += (double)trackInLat / (double)info.input_sample_rate * 1000.0;
+                }
+                else if (engine->currentDecoder != nullptr)
+                {
+                    latencyMs += (double)ma_data_converter_get_input_latency(&engine->currentDecoder->converter) / (double)info.input_sample_rate * 1000.0;
+                }
             }
             info.resampler_latency_ms = latencyMs;
             info.filter_passband_ratio = 0.45;
@@ -20707,7 +21175,20 @@ extern "C"
             // "truepeak - 0.5 dB") and the actual underrun counter.
             const float samplePeak = engine->truePeakMeter.samplePeakDBTP.load(std::memory_order_relaxed);
             t.sample_peak_db = samplePeak;
-            t.underrun_count = engine->underrunCount.load(std::memory_order_relaxed);
+            uint64_t underruns = engine->underrunCount.load(std::memory_order_relaxed);
+#if defined(__ANDROID__)
+            {
+                std::unique_lock<std::mutex> devLock(engine->deviceMutex, std::try_to_lock);
+                if (devLock.owns_lock() &&
+                    engine->pOboeSink != nullptr &&
+                    engine->activeBackend.load(std::memory_order_relaxed) != AE_BACKEND_USB_DIRECT &&
+                    !is_audiotrack_family_backend(engine->activeBackend.load(std::memory_order_relaxed)))
+                {
+                    underruns += reinterpret_cast<sautiflow::AndroidOboeSink *>(engine->pOboeSink)->getXRunCount();
+                }
+            }
+#endif
+            t.underrun_count = underruns;
         }
         return t;
     }

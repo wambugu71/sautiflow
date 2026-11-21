@@ -1,0 +1,9 @@
+include: package:lints/recommended.yaml
+
+linter:
+  rules:
+    prefer_function_declarations_over_variables: false
+
+analyzer:
+  plugins:
+    - dart_code_metrics_presets

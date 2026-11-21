@@ -326,18 +326,30 @@ class AudioHardwareSpecs {
         isHighlight: true,
       ));
     } else if (isDirectPcm) {
+      final latLabel =
+          latencyMs > 0 ? ' • ${latencyMs.toStringAsFixed(1)}ms' : '';
+      final String directSublabel;
+      if (backendName == 'DAP Hi-Res') {
+        directSublabel = 'Dedicated DAP Hi-Res Driver';
+      } else if (backendName.startsWith('Oboe')) {
+        directSublabel = 'MMAP Exclusive Low-Latency$latLabel';
+      } else {
+        directSublabel = 'Direct Hi-Res Bit-Perfect';
+      }
       nodes.add(SignalChainNode(
         label: backendName,
-        sublabel: backendName == 'DAP Hi-Res'
-            ? 'Dedicated DAP Hi-Res Driver'
-            : 'Direct Hi-Res Bit-Perfect',
+        sublabel: directSublabel,
         icon: SignalChainIcon.backend,
         isHighlight: true,
       ));
     } else if (isExclusiveMode) {
+      final latLabel =
+          latencyMs > 0 ? ' • ${latencyMs.toStringAsFixed(1)}ms' : '';
       nodes.add(SignalChainNode(
         label: backendName,
-        sublabel: 'Exclusive Bit-Perfect',
+        sublabel: backendName.startsWith('Oboe')
+            ? 'Exclusive Low-Latency$latLabel'
+            : 'Exclusive Bit-Perfect',
         icon: SignalChainIcon.backend,
         isHighlight: true,
       ));
@@ -498,11 +510,13 @@ class AudioHardwareInspector {
     if (nativeHw == null) return base;
 
     final bool isUsbDirect = nativeHw.backendName == 'USB Direct';
+    final bool isOboe = nativeHw.backendName.startsWith('Oboe');
     final bool isNativeDirect = isUsbDirect ||
         nativeHw.backendName == 'Direct Hi-Res' ||
         nativeHw.backendName == 'DAP Hi-Res' ||
         nativeHw.isDirectPcm ||
         nativeHw.isExclusiveMode;
+    final bool useNativeStreamMeta = isNativeDirect || isOboe;
 
     if (isUsbDirect) {
       final hasSpecificNativeName = nativeHw.deviceName.isNotEmpty &&
@@ -553,42 +567,51 @@ class AudioHardwareInspector {
       );
     }
 
-    if (isNativeDirect || nativeHw.bitDepth > 0 || nativeHw.sampleRate > 0) {
+    if (useNativeStreamMeta || nativeHw.bitDepth > 0 || nativeHw.sampleRate > 0) {
       final bool verifiedMultiRate = isUsbDirect ||
           nativeHw.backendName == 'DAP Hi-Res' ||
           (nativeHw.isDirectPcm && base.directMultiRate) ||
           base.directMultiRate;
+      final int resolvedSampleRate =
+          (verifiedMultiRate && nativeHw.sampleRate > 0)
+              ? nativeHw.sampleRate
+              : ((isOboe &&
+                      !base.isBluetooth &&
+                      base.sampleRate <= 0 &&
+                      nativeHw.sampleRate > 0)
+                  ? nativeHw.sampleRate
+                  : base.sampleRate);
       return AudioHardwareSpecs(
-        backendName: isNativeDirect && nativeHw.backendName.isNotEmpty
+        backendName: useNativeStreamMeta && nativeHw.backendName.isNotEmpty
             ? nativeHw.backendName
             : base.backendName,
-        deviceName: (isNativeDirect &&
+        deviceName: (useNativeStreamMeta &&
                 nativeHw.deviceName.isNotEmpty &&
                 base.deviceName == 'Default Soundcard')
             ? nativeHw.deviceName
             : base.deviceName,
-        sampleRate: (verifiedMultiRate && nativeHw.sampleRate > 0)
-            ? nativeHw.sampleRate
-            : base.sampleRate,
+        sampleRate: resolvedSampleRate,
         bitDepth: nativeHw.bitDepth > 0 ? nativeHw.bitDepth : base.bitDepth,
         isFloat: nativeHw.bitDepth > 0 ? nativeHw.isFloat : base.isFloat,
         channels: base.channels,
-        periodSizeFrames: (isNativeDirect && nativeHw.periodSizeFrames > 0)
+        periodSizeFrames: (useNativeStreamMeta && nativeHw.periodSizeFrames > 0)
             ? nativeHw.periodSizeFrames
             : base.periodSizeFrames,
-        periodCount: (isNativeDirect && nativeHw.periodCount > 0)
+        periodCount: (useNativeStreamMeta && nativeHw.periodCount > 0)
             ? nativeHw.periodCount
             : base.periodCount,
-        latencyMs: (isNativeDirect && nativeHw.latencyMs > 0)
+        latencyMs: (useNativeStreamMeta && nativeHw.latencyMs > 0)
             ? nativeHw.latencyMs
             : base.latencyMs,
-        isExclusiveMode: isNativeDirect ? nativeHw.isExclusiveMode : base.isExclusiveMode,
+        isExclusiveMode:
+            useNativeStreamMeta ? nativeHw.isExclusiveMode : base.isExclusiveMode,
         deviceType: base.deviceType,
         dspHardware: nativeHw.dspHardware.isNotEmpty
             ? nativeHw.dspHardware
             : base.dspHardware,
         socName: nativeHw.socName.isNotEmpty ? nativeHw.socName : base.socName,
-        isDirectPcm: isNativeDirect ? nativeHw.isDirectPcm : base.isDirectPcm,
+        isDirectPcm:
+            useNativeStreamMeta ? nativeHw.isDirectPcm : base.isDirectPcm,
         isFixedClock: verifiedMultiRate ? false : base.isFixedClock,
         directMultiRate: verifiedMultiRate,
         bluetoothCodec: base.bluetoothCodec,
@@ -608,6 +631,18 @@ class AudioHardwareInspector {
 
     return base;
   }
+
+  @visibleForTesting
+  static AudioHardwareSpecs mergeAndroidAndNativeForTest(
+    Map<dynamic, dynamic> map,
+    AEHardwareInfo? nativeHw, {
+    List<int> nativeSupportedRates = const [],
+  }) =>
+      _mergeAndroidAndNative(
+        map,
+        nativeHw,
+        nativeSupportedRates: nativeSupportedRates,
+      );
 
   static Future<List<int>> _fetchSupportedRates(dynamic player) async {
     try {

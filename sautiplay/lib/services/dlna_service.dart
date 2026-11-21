@@ -4,6 +4,91 @@ import 'package:dlna_dart/dlna.dart';
 import 'package:dlna_dart/xmlParser.dart' show AudioMime, PlayType;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'dlna_renderer_service.dart';
+import 'local_media_server.dart';
+
+/// Parsed UPnP `ConnectionManager#GetProtocolInfo` Sink capabilities for a renderer.
+class DlnaRendererCapabilities {
+  final List<String> sinkProtocols;
+
+  const DlnaRendererCapabilities(this.sinkProtocols);
+
+  bool get isKnown => sinkProtocols.isNotEmpty;
+
+  factory DlnaRendererCapabilities.fromSoapResponse(String xml) {
+    final rawSink = DlnaRendererService.extractTag(xml, 'Sink') ?? '';
+    final unescaped = DlnaRendererService.xmlUnescape(rawSink).trim();
+    if (unescaped.isEmpty) {
+      return const DlnaRendererCapabilities([]);
+    }
+    final entries = unescaped
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
+    return DlnaRendererCapabilities(entries);
+  }
+
+  bool supportsMime(String mimeType) {
+    if (!isKnown) return true;
+    final target = mimeType.toLowerCase().split(';').first.trim();
+    for (final entry in sinkProtocols) {
+      final parts = entry.split(':');
+      if (parts.length < 3) continue;
+      final protoMime = parts[2].toLowerCase().split(';').first.trim();
+      if (protoMime == '*' ||
+          protoMime == '*/*' ||
+          protoMime == 'audio/*' ||
+          protoMime == target) {
+        return true;
+      }
+      // Match equivalent FLAC / WAV / MP3 aliases
+      if (target == 'audio/flac' && protoMime == 'audio/x-flac') return true;
+      if (target == 'audio/x-flac' && protoMime == 'audio/flac') return true;
+      if (target == 'audio/wav' && protoMime == 'audio/x-wav') return true;
+      if (target == 'audio/x-wav' && protoMime == 'audio/wav') return true;
+      if (target == 'audio/mpeg' && protoMime == 'audio/mp3') return true;
+      if (target == 'audio/mp3' && protoMime == 'audio/mpeg') return true;
+    }
+    return false;
+  }
+
+  LiveCastStreamFormat preferredLiveFormat() {
+    if (!isKnown || supportsMime('audio/wav')) {
+      return LiveCastStreamFormat.wav24;
+    }
+    if (supportsMime('audio/l24')) {
+      return LiveCastStreamFormat.lpcm24;
+    }
+    if (supportsMime('audio/l16')) {
+      return LiveCastStreamFormat.lpcm16;
+    }
+    return LiveCastStreamFormat.wav24;
+  }
+
+  /// Returns the highest explicitly advertised PCM `rate=` parameter if any
+  /// entry specifies one, or `null` if the renderer does not cap via `rate=`.
+  int? maxSampleRateHz() {
+    int? maxRate;
+    final rateRe = RegExp(r'rate=(\d+)', caseSensitive: false);
+    for (final entry in sinkProtocols) {
+      final lower = entry.toLowerCase();
+      if (!lower.contains('audio/l16') &&
+          !lower.contains('audio/l24') &&
+          !lower.contains('audio/wav')) {
+        continue;
+      }
+      final m = rateRe.firstMatch(entry);
+      if (m != null) {
+        final r = int.tryParse(m.group(1)!);
+        if (r != null && r > 0 && (maxRate == null || r > maxRate)) {
+          maxRate = r;
+        }
+      }
+    }
+    return maxRate;
+  }
+}
 
 /// Representation of a discovered DLNA device on the local network.
 class DlnaDeviceInfo {
@@ -43,9 +128,12 @@ class DlnaService extends ChangeNotifier {
   StreamSubscription? _deviceSubscription;
 
   final List<DlnaDeviceInfo> _devices = [];
+  final Map<String, DlnaRendererCapabilities> _capabilitiesCache = {};
   bool _isSearching = false;
+  bool _isStreamingLiveTap = false;
   String? _lastError;
   DlnaDeviceInfo? _activeRenderer;
+  void Function(Duration position)? onLiveTapSeek;
 
   List<DlnaDeviceInfo> get devices => List.unmodifiable(_devices);
   List<DlnaDeviceInfo> get mediaServers =>
@@ -53,6 +141,7 @@ class DlnaService extends ChangeNotifier {
   List<DlnaDeviceInfo> get mediaRenderers =>
       _devices.where((d) => d.isMediaRenderer).toList();
   bool get isSearching => _isSearching;
+  bool get isStreamingLiveTap => _isStreamingLiveTap;
   String? get lastError => _lastError;
   DlnaDeviceInfo? get activeRenderer => _activeRenderer;
 
@@ -135,9 +224,33 @@ class DlnaService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Queries and caches UPnP `ConnectionManager#GetProtocolInfo` capabilities
+  /// for [renderer]. Returns `null` if the device does not respond.
+  Future<DlnaRendererCapabilities?> fetchRendererCapabilities(
+    DlnaDeviceInfo renderer,
+  ) async {
+    final cached = _capabilitiesCache[renderer.id];
+    if (cached != null) return cached;
+    try {
+      final xml = await renderer.deviceRef
+          .getProtocolInfo()
+          .timeout(const Duration(seconds: 3));
+      final caps = DlnaRendererCapabilities.fromSoapResponse(xml);
+      _capabilitiesCache[renderer.id] = caps;
+      return caps;
+    } catch (e) {
+      debugPrint(
+          '[DlnaService] GetProtocolInfo unavailable for ${renderer.name}: $e');
+      return null;
+    }
+  }
+
   /// Sets active DLNA Renderer for audio casting.
   void setActiveRenderer(DlnaDeviceInfo? renderer) {
     _activeRenderer = renderer;
+    if (renderer == null) {
+      _isStreamingLiveTap = false;
+    }
     notifyListeners();
   }
 
@@ -151,6 +264,8 @@ class DlnaService extends ChangeNotifier {
     String? artworkUrl,
     double? durationSeconds,
     String? mimeType,
+    String? protocolInfoOverride,
+    bool isLiveStream = false,
   }) async {
     try {
       final device = renderer.deviceRef;
@@ -172,10 +287,12 @@ class DlnaService extends ChangeNotifier {
         album: album,
         artworkUrl: artworkUrl ?? '',
         duration: durStr,
+        protocolInfoOverride: protocolInfoOverride,
         type: playType,
       );
       await device.play();
 
+      _isStreamingLiveTap = isLiveStream;
       setActiveRenderer(renderer);
       return true;
     } catch (e) {
@@ -241,9 +358,24 @@ class DlnaService extends ChangeNotifier {
     if (_activeRenderer == null) return;
     try {
       await _activeRenderer!.deviceRef.stop();
+      _isStreamingLiveTap = false;
       setActiveRenderer(null);
     } catch (e) {
       debugPrint('[DlnaService] Stop command error: $e');
+    }
+  }
+
+  /// Sends UPnP AVTransport Seek (REL_TIME `HH:MM:SS`) to active renderer.
+  Future<void> seek(Duration position) async {
+    if (_activeRenderer == null || _isStreamingLiveTap) return;
+    try {
+      final secs = position.inSeconds < 0 ? 0 : position.inSeconds;
+      final h = (secs ~/ 3600).toString().padLeft(2, '0');
+      final m = ((secs % 3600) ~/ 60).toString().padLeft(2, '0');
+      final s = (secs % 60).toString().padLeft(2, '0');
+      await _activeRenderer!.deviceRef.seek('$h:$m:$s');
+    } catch (e) {
+      debugPrint('[DlnaService] Seek command error: $e');
     }
   }
 

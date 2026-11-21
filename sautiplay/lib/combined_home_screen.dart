@@ -9,6 +9,7 @@ import 'models/cached_stream_item.dart';
 import 'models/liked_song.dart';
 import 'search_screen.dart';
 import 'services/app_theme_service.dart';
+import 'widgets/network/subsonic_tab.dart' show PlayRemoteQueueCallback;
 
 class CombinedHomeScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -25,6 +26,7 @@ class CombinedHomeScreen extends StatefulWidget {
   final IsolateAudioPlayer? player;
   final void Function(String filePath, String title, String artist)? onPlayNetworkFile;
   final void Function(List<dynamic> entries, dynamic config, int initialIndex)? onPlayFtpFolder;
+  final PlayRemoteQueueCallback? onPlayRemoteQueue;
 
   const CombinedHomeScreen({
     super.key,
@@ -38,6 +40,7 @@ class CombinedHomeScreen extends StatefulWidget {
     this.player,
     this.onPlayNetworkFile,
     this.onPlayFtpFolder,
+    this.onPlayRemoteQueue,
   });
 
   @override
@@ -239,6 +242,7 @@ class _CombinedHomeScreenState extends State<CombinedHomeScreen>
                         player: widget.player,
                         onPlayNetworkFile: widget.onPlayNetworkFile,
                         onPlayFtpFolder: widget.onPlayFtpFolder,
+                        onPlayRemoteQueue: widget.onPlayRemoteQueue,
                         isNested: true,
                         initialTabIndex: _libraryTabIndex,
                       ),

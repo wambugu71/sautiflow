@@ -218,8 +218,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
   }
 
   void _showProfileMenu(BuildContext btnContext) async {
+    if (!btnContext.mounted) return;
     final renderBox = btnContext.findRenderObject() as RenderBox?;
-    if (renderBox == null) return;
+    if (renderBox == null || !renderBox.attached) return;
     final offset = renderBox.localToGlobal(Offset.zero);
     final size = renderBox.size;
     final position = RelativeRect.fromLTRB(
@@ -472,79 +473,79 @@ class _EffectsScreenState extends State<EffectsScreen> {
     const double titleBarHeight = 50.0;
     final topPadding = MediaQuery.of(context).padding.top;
 
-    return Scaffold(
-      backgroundColor: bgColor,
-      body: EqScreen(
-        effectsKnobKey: widget.effectsKnobKey,
-        player: widget.player,
-        analyzerEnabled: widget.analyzerEnabled,
-        analyzerType: widget.analyzerType,
-        sampleRate: _currentlyUsedSampleRate,
-        onScrollingChanged: (scrolling) {
-          if (_isScrolling != scrolling) {
-            _isScrolling = scrolling;
-            _scrollThrottleCounter = 0;
-          }
-        },
-        headerSlivers: [
-          SliverAppBar(
-            backgroundColor: headerColor,
-            pinned: true,
-            floating: false,
-            elevation: 0,
-            scrolledUnderElevation: 2,
-            toolbarHeight: titleBarHeight + controlBarHeight,
-            automaticallyImplyLeading: false,
-            flexibleSpace: Column(
-              children: [
-                // Safe area top padding
-                SizedBox(height: topPadding),
+    final Widget headerContent = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Safe area top padding
+        SizedBox(height: topPadding),
 
-                // Title Bar (Always visible)
-                SizedBox(
-                  height: titleBarHeight,
+        // Title Bar (Always visible)
+        SizedBox(
+          height: titleBarHeight,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0),
                     child: Row(
                       children: [
                         if (Navigator.canPop(context))
-                          const BackButton(color: Colors.white),
-                        Icon(SautiIcons.audioEngine, color: primaryColor, size: 22),
-                        const SizedBox(width: 8),
+                          BackButton(color: context.textPrimary),
+                        Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: primaryColor.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(9),
+                            border: Border.all(
+                              color: primaryColor.withValues(alpha: 0.28),
+                            ),
+                          ),
+                          child: Icon(
+                            SautiIcons.audioEngine,
+                            color: primaryColor,
+                            size: 17,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
                         Text(
                           context.strings.soundEffectsAndEq,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: context.textPrimary,
                             fontSize: 17,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2,
                           ),
                         ),
                         const Spacer(),
-                        // Quick toggle analyzer visualizer
-                        // IconButton(
-                        //icon:
-                        Icon(
-                          widget.analyzerEnabled
-                              ? SautiIcons.visualizers
-                              : SautiIcons.showVisualizer,
-                          color: widget.analyzerEnabled
-                              ? primaryColor
-                              : Colors.white38,
-                          size: 22,
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: widget.analyzerEnabled
+                                ? primaryColor.withValues(alpha: 0.12)
+                                : context.textPrimary.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: widget.analyzerEnabled
+                                  ? primaryColor.withValues(alpha: 0.30)
+                                  : context.outlineColor,
+                            ),
+                          ),
+                          child: Icon(
+                            widget.analyzerEnabled
+                                ? SautiIcons.visualizers
+                                : SautiIcons.showVisualizer,
+                            color: widget.analyzerEnabled
+                                ? primaryColor
+                                : context.textMuted,
+                            size: 16,
+                          ),
                         ),
-                        /* tooltip: widget.analyzerEnabled
-                                    ? 'Analyzer Active'
-                                    : 'Analyzer Off',
-                                onPressed: () {
-                                  _setupAnalyzer(!widget.analyzerEnabled);
-                                },
-                              ),*/
                       ],
                     ),
                   ),
                 ),
 
-                // Control Bar (Matching screenshot UI)
                 SizedBox(
                   height: controlBarHeight,
                   child: Padding(
@@ -552,7 +553,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                         horizontal: 12.0, vertical: 2.0),
                     child: Column(
                       children: [
-                        // Row 1: Visualizer pill + Profile pill + Spacer + Save + Tune
+                        // Row 1: Visualizer pill, Profile pill, Save, Tune
                         Row(
                           children: [
                             // Visualizer Selector Pill Menu
@@ -562,8 +563,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                     MediaQuery.sizeOf(context).width;
                                 final isSmallScreen = screenWidth < 390;
                                 final maxLabelWidth = isSmallScreen
-                                    ? 52.0
-                                    : (screenWidth < 600 ? 68.0 : 130.0);
+                                    ? 64.0
+                                    : (screenWidth < 600 ? 84.0 : 140.0);
                                 return Tooltip(
                                   message: 'Visualizer: $_visualizerLabel',
                                   waitDuration:
@@ -619,7 +620,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                               },
                               children: [
                                 M3EMenuGroup.entries(
-                                  label: 'Visualizer Styles',
+                                  label: 'Visualizer',
                                   entries: [
                                     M3EMenuEntry(
                                       label: 'Waveform',
@@ -702,10 +703,11 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                 ),
                                 if (_currentAnalyzerType == 'projectm') ...[
                                   M3EMenuGroup.entries(
-                                    label: 'Milkdrop Library & Downloads',
+                                    label: 'Milkdrop Presets',
                                     entries: [
                                       M3EMenuEntry(
-                                        label: 'Browse & Download Presets...',
+                                        label:
+                                            'Browse Presets (${ProjectMPresetLibrary.allWithCustom.length})...',
                                         leading: Icon(
                                           Icons.cloud_download_outlined,
                                           size: 18,
@@ -734,7 +736,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         },
                                       ),
                                       M3EMenuEntry(
-                                        label: 'Import .milk from Device...',
+                                        label: 'Import .milk...',
                                         leading: Icon(
                                           Icons.file_open_outlined,
                                           size: 18,
@@ -767,10 +769,9 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                     ],
                                   ),
                                   M3EMenuGroup.entries(
-                                    label:
-                                        'Milkdrop Presets (${ProjectMPresetLibrary.allWithCustom.length})',
-                                    entries: ProjectMPresetLibrary
-                                        .allWithCustom
+                                    label: 'Quick Presets',
+                                    entries: ProjectMPresetLibrary.all
+                                        .take(5)
                                         .map(
                                           (preset) => M3EMenuEntry(
                                             label: preset.displayName,
@@ -798,7 +799,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                 ],
                                 if (_currentAnalyzerType == 'area')
                                   M3EMenuGroup.entries(
-                                    label: 'Wave Color Themes',
+                                    label: 'Wave Theme',
                                     entries: FluidAreaTheme.values
                                         .map(
                                           (theme) => M3EMenuEntry(
@@ -826,7 +827,7 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                   ),
                                 if (_currentAnalyzerType == 'bar')
                                   M3EMenuGroup.entries(
-                                    label: 'Dot Color Themes',
+                                    label: 'Dot Theme',
                                     entries: PhysicsDotsTheme.values
                                         .map(
                                           (theme) => M3EMenuEntry(
@@ -852,39 +853,13 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                         )
                                         .toList(),
                                   ),
-                                if (_currentAnalyzerType != 'projectm')
-                                  M3EMenuGroup.entries(
-                                    label: 'Milkdrop (projectM)',
-                                    entries: ProjectMPresetLibrary.allWithCustom
-                                        .take(4)
-                                        .map(
-                                          (preset) => M3EMenuEntry(
-                                            label: preset.displayName,
-                                            leading: const Icon(
-                                              Icons.auto_awesome_rounded,
-                                              size: 18,
-                                            ),
-                                            onPressed: () {
-                                              setState(() {
-                                                _currentAnalyzerType = 'projectm';
-                                                _currentSpectrumStyle = preset.id;
-                                              });
-                                              PreferencesStore.instance.setString(
-                                                  'analyzer_type', 'projectm');
-                                              PreferencesStore.instance.setString(
-                                                  'spectrum_style', preset.id);
-                                            },
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
                                 M3EMenuGroup.entries(
-                                  label: 'Display & Integration',
+                                  label: 'Display',
                                   entries: [
                                     M3EMenuEntry(
                                       label: _showVisualizerSection
-                                          ? 'Hide Visualizer on Screen'
-                                          : 'Show Visualizer on Screen',
+                                          ? 'Hide Visualizer'
+                                          : 'Show Visualizer',
                                       leading: Icon(
                                         _showVisualizerSection
                                             ? Icons.visibility_off_outlined
@@ -912,8 +887,8 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                     MediaQuery.sizeOf(context).width;
                                 final isSmallScreen = screenWidth < 390;
                                 final maxProfileWidth = isSmallScreen
-                                    ? 58.0
-                                    : (screenWidth < 600 ? 76.0 : 130.0);
+                                    ? 68.0
+                                    : (screenWidth < 600 ? 88.0 : 140.0);
                                 return Tooltip(
                                   message:
                                       'Audio Profile: ${_selectedAudioProfile?.name ?? "Flat"}',
@@ -982,13 +957,13 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                   onProfileSaved: _loadAudioProfiles,
                                 );
                               },
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(10),
                               child: Container(
-                                width: 34,
-                                height: 34,
+                                width: 36,
+                                height: 36,
                                 decoration: BoxDecoration(
                                   color: context.cardDark,
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(10),
                                   border:
                                       Border.all(color: context.outlineColor),
                                 ),
@@ -1013,13 +988,13 @@ class _EffectsScreenState extends State<EffectsScreen> {
                                   ),
                                 );
                               },
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(10),
                               child: Container(
-                                width: 34,
-                                height: 34,
+                                width: 36,
+                                height: 36,
                                 decoration: BoxDecoration(
                                   color: context.cardDark,
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(10),
                                   border:
                                       Border.all(color: context.outlineColor),
                                 ),
@@ -1054,13 +1029,11 @@ class _EffectsScreenState extends State<EffectsScreen> {
                   ),
                 ),
               ],
-            ),
-          ),
+            );
 
-          // Realtime Visualizer Section (Fixed height, isolated RepaintBoundary)
-          if (widget.analyzerEnabled && _showVisualizerSection)
-            SliverToBoxAdapter(
-              child: RepaintBoundary(
+    final Widget? visualizerContent =
+        (widget.analyzerEnabled && _showVisualizerSection)
+            ? RepaintBoundary(
                 key: const ValueKey('effects_visualizer_section'),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -1070,50 +1043,54 @@ class _EffectsScreenState extends State<EffectsScreen> {
                       Padding(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16.0, vertical: 8.0),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Stack(
-                            children: [
-                              // Live Visualizer with double-tap gesture to expand
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onDoubleTap: () =>
-                                    _openFullscreenVisualizer(
-                                        context, primaryColor),
-                                child: RepaintBoundary(
-                                  child: SizedBox(
-                                    height: 160,
-                                    child: _buildVisualizer(
-                                      primaryColor,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: context.outlineColor),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(15),
+                            child: Stack(
+                              children: [
+                                // Live Visualizer with double-tap gesture to expand
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onDoubleTap: () => _openFullscreenVisualizer(
+                                      context, primaryColor),
+                                  child: RepaintBoundary(
+                                    child: SizedBox(
                                       height: 160,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              // Floating Fullscreen Expand Button in Top-Right
-                              Positioned(
-                                top: 6,
-                                right: 6,
-                                child: Material(
-                                  color:
-                                      Colors.black.withValues(alpha: 0.45),
-                                  shape: const CircleBorder(),
-                                  child: InkWell(
-                                    customBorder: const CircleBorder(),
-                                    onTap: () => _openFullscreenVisualizer(
-                                        context, primaryColor),
-                                    child: const Padding(
-                                      padding: EdgeInsets.all(6.0),
-                                      child: Icon(
-                                        Icons.fullscreen_rounded,
-                                        size: 18,
-                                        color: Colors.white70,
+                                      child: _buildVisualizer(
+                                        primaryColor,
+                                        height: 160,
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                                // Floating Fullscreen Expand Button in Top-Right
+                                Positioned(
+                                  top: 8,
+                                  right: 8,
+                                  child: Material(
+                                    color: Colors.black.withValues(alpha: 0.45),
+                                    shape: const CircleBorder(),
+                                    child: InkWell(
+                                      customBorder: const CircleBorder(),
+                                      onTap: () => _openFullscreenVisualizer(
+                                          context, primaryColor),
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(6.0),
+                                        child: Icon(
+                                          Icons.fullscreen_rounded,
+                                          size: 18,
+                                          color: Colors.white70,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -1161,8 +1138,41 @@ class _EffectsScreenState extends State<EffectsScreen> {
                     ],
                   ),
                 ),
-              ),
-            ),
+              )
+            : null;
+
+    return Scaffold(
+      backgroundColor: bgColor,
+      body: EqScreen(
+        effectsKnobKey: widget.effectsKnobKey,
+        player: widget.player,
+        analyzerEnabled: widget.analyzerEnabled,
+        analyzerType: widget.analyzerType,
+        sampleRate: _currentlyUsedSampleRate,
+        desktopTopBar: ColoredBox(
+          color: headerColor,
+          child: headerContent,
+        ),
+        desktopVisualizer: visualizerContent,
+        onScrollingChanged: (scrolling) {
+          if (_isScrolling != scrolling) {
+            _isScrolling = scrolling;
+            _scrollThrottleCounter = 0;
+          }
+        },
+        headerSlivers: [
+          SliverAppBar(
+            backgroundColor: headerColor,
+            pinned: true,
+            floating: false,
+            elevation: 0,
+            scrolledUnderElevation: 2,
+            toolbarHeight: titleBarHeight + controlBarHeight,
+            automaticallyImplyLeading: false,
+            flexibleSpace: headerContent,
+          ),
+          if (visualizerContent != null)
+            SliverToBoxAdapter(child: visualizerContent),
         ],
       ),
     );

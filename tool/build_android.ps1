@@ -28,7 +28,9 @@ $includes = @(
     "-Ithird_party",
     "-Ithird_party/libusb",
     "-Ithird_party/libsamplerate/include",
-    "-Ithird_party/r8brain"
+    "-Ithird_party/r8brain",
+    "-Ithird_party/oboe/include",
+    "-Ithird_party/oboe/src"
 )
 
 $defines = @(
@@ -43,13 +45,15 @@ $defines = @(
     '-DHAVE_SYS_TYPES_H=1',
     '-DENABLE_SINC_BEST_CONVERTER=1',
     '-DENABLE_SINC_MEDIUM_CONVERTER=1',
-    '-DENABLE_SINC_FAST_CONVERTER=1'
+    '-DENABLE_SINC_FAST_CONVERTER=1',
+    '-DMA_NO_DEVICE_IO'
 )
 
 $allSources = @(
     "audio_engine.cpp",
     "third_party/libusb/libusb_android.c"
-) + (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName)
+) + (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName) +
+    (Get-ChildItem -Path "third_party/oboe/src" -Recurse -Filter "*.cpp" | Select-Object -ExpandProperty FullName)
 
 foreach ($t in $targets) {
     $abi = $t.Abi
@@ -63,7 +67,7 @@ foreach ($t in $targets) {
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
     $outLib = Join-Path $outDir "libaudio_engine.so"
 
-    & $clang -std=c++17 -O2 -fPIC -shared @allSources -o $outLib "-D__ANDROID_API__=$Api" @includes @defines
+    & $clang -std=c++17 -O2 -fPIC -shared @allSources -o $outLib "-D__ANDROID_API__=$Api" @includes @defines -llog -landroid -lOpenSLES -lm
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed for ABI $abi"
     }

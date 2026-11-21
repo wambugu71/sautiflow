@@ -16,6 +16,21 @@ class LocalSongItem {
   final String? cueFilePath;
   final int? year;
 
+  // Extended intelligent metadata & audio properties
+  final String? albumArtist;
+  final int? discNumber;
+  final String? composer;
+  final double? bpm;
+  final String? musicalKey;
+  final String? camelotKey;
+  final double? replayGainDb;
+  final int? trackDurationMs;
+  final int? sampleRate;
+  final int? bitDepth;
+  final int playCount;
+  final int rating;
+  final int? lastPlayedAtMs;
+
   const LocalSongItem({
     required this.path,
     required this.title,
@@ -30,6 +45,19 @@ class LocalSongItem {
     this.trackNumber,
     this.cueFilePath,
     this.year,
+    this.albumArtist,
+    this.discNumber,
+    this.composer,
+    this.bpm,
+    this.musicalKey,
+    this.camelotKey,
+    this.replayGainDb,
+    this.trackDurationMs,
+    this.sampleRate,
+    this.bitDepth,
+    this.playCount = 0,
+    this.rating = 0,
+    this.lastPlayedAtMs,
   });
 
   String get realFilePath => CueVirtualPath.strip(path);
@@ -37,10 +65,70 @@ class LocalSongItem {
   bool get isCueTrack =>
       startMs != null || cueFilePath != null || CueVirtualPath.isVirtual(path);
 
-  int? get durationMs =>
-      (endMs != null && startMs != null && endMs! > startMs!)
-          ? (endMs! - startMs!)
-          : null;
+  int? get durationMs {
+    if (endMs != null && startMs != null && endMs! > startMs!) {
+      return endMs! - startMs!;
+    }
+    return trackDurationMs;
+  }
+
+  LocalSongItem copyWith({
+    String? path,
+    String? title,
+    String? artist,
+    String? album,
+    String? genre,
+    int? sizeBytes,
+    DateTime? lastModified,
+    String? fileHash,
+    int? startMs,
+    int? endMs,
+    int? trackNumber,
+    String? cueFilePath,
+    int? year,
+    String? albumArtist,
+    int? discNumber,
+    String? composer,
+    double? bpm,
+    String? musicalKey,
+    String? camelotKey,
+    double? replayGainDb,
+    int? trackDurationMs,
+    int? sampleRate,
+    int? bitDepth,
+    int? playCount,
+    int? rating,
+    int? lastPlayedAtMs,
+  }) {
+    return LocalSongItem(
+      path: path ?? this.path,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      album: album ?? this.album,
+      genre: genre ?? this.genre,
+      sizeBytes: sizeBytes ?? this.sizeBytes,
+      lastModified: lastModified ?? this.lastModified,
+      fileHash: fileHash ?? this.fileHash,
+      startMs: startMs ?? this.startMs,
+      endMs: endMs ?? this.endMs,
+      trackNumber: trackNumber ?? this.trackNumber,
+      cueFilePath: cueFilePath ?? this.cueFilePath,
+      year: year ?? this.year,
+      albumArtist: albumArtist ?? this.albumArtist,
+      discNumber: discNumber ?? this.discNumber,
+      composer: composer ?? this.composer,
+      bpm: bpm ?? this.bpm,
+      musicalKey: musicalKey ?? this.musicalKey,
+      camelotKey: camelotKey ?? this.camelotKey,
+      replayGainDb: replayGainDb ?? this.replayGainDb,
+      trackDurationMs: trackDurationMs ?? this.trackDurationMs,
+      sampleRate: sampleRate ?? this.sampleRate,
+      bitDepth: bitDepth ?? this.bitDepth,
+      playCount: playCount ?? this.playCount,
+      rating: rating ?? this.rating,
+      lastPlayedAtMs: lastPlayedAtMs ?? this.lastPlayedAtMs,
+    );
+  }
 
   factory LocalSongItem.fallback(
     String path,
@@ -56,6 +144,19 @@ class LocalSongItem {
     int? trackNumber,
     String? cueFilePath,
     int? year,
+    String? albumArtist,
+    int? discNumber,
+    String? composer,
+    double? bpm,
+    String? musicalKey,
+    String? camelotKey,
+    double? replayGainDb,
+    int? trackDurationMs,
+    int? sampleRate,
+    int? bitDepth,
+    int playCount = 0,
+    int rating = 0,
+    int? lastPlayedAtMs,
   }) {
     final cue = CueVirtualPath.parse(path);
     return LocalSongItem(
@@ -80,6 +181,19 @@ class LocalSongItem {
       trackNumber: trackNumber ?? cue?.trackNumber,
       cueFilePath: cueFilePath ?? cue?.cueFilePath,
       year: year ?? cue?.year,
+      albumArtist: albumArtist,
+      discNumber: discNumber,
+      composer: composer,
+      bpm: bpm,
+      musicalKey: musicalKey,
+      camelotKey: camelotKey,
+      replayGainDb: replayGainDb,
+      trackDurationMs: trackDurationMs,
+      sampleRate: sampleRate,
+      bitDepth: bitDepth,
+      playCount: playCount,
+      rating: rating,
+      lastPlayedAtMs: lastPlayedAtMs,
     );
   }
 
@@ -98,6 +212,19 @@ class LocalSongItem {
       if (trackNumber != null) 'trackNumber': trackNumber,
       if (cueFilePath != null) 'cueFilePath': cueFilePath,
       if (year != null) 'year': year,
+      if (albumArtist != null) 'albumArtist': albumArtist,
+      if (discNumber != null) 'discNumber': discNumber,
+      if (composer != null) 'composer': composer,
+      if (bpm != null) 'bpm': bpm,
+      if (musicalKey != null) 'musicalKey': musicalKey,
+      if (camelotKey != null) 'camelotKey': camelotKey,
+      if (replayGainDb != null) 'replayGainDb': replayGainDb,
+      if (trackDurationMs != null) 'trackDurationMs': trackDurationMs,
+      if (sampleRate != null) 'sampleRate': sampleRate,
+      if (bitDepth != null) 'bitDepth': bitDepth,
+      if (playCount > 0) 'playCount': playCount,
+      if (rating > 0) 'rating': rating,
+      if (lastPlayedAtMs != null) 'lastPlayedAtMs': lastPlayedAtMs,
     };
   }
 
@@ -120,6 +247,19 @@ class LocalSongItem {
       trackNumber: json['trackNumber'] as int? ?? cue?.trackNumber,
       cueFilePath: json['cueFilePath'] as String? ?? cue?.cueFilePath,
       year: json['year'] as int? ?? cue?.year,
+      albumArtist: json['albumArtist'] as String?,
+      discNumber: json['discNumber'] as int?,
+      composer: json['composer'] as String?,
+      bpm: (json['bpm'] as num?)?.toDouble(),
+      musicalKey: json['musicalKey'] as String?,
+      camelotKey: json['camelotKey'] as String?,
+      replayGainDb: (json['replayGainDb'] as num?)?.toDouble(),
+      trackDurationMs: json['trackDurationMs'] as int?,
+      sampleRate: json['sampleRate'] as int?,
+      bitDepth: json['bitDepth'] as int?,
+      playCount: json['playCount'] as int? ?? 0,
+      rating: json['rating'] as int? ?? 0,
+      lastPlayedAtMs: json['lastPlayedAtMs'] as int?,
     );
   }
 }

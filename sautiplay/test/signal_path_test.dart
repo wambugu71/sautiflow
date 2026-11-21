@@ -887,6 +887,150 @@ void main() {
     });
   });
 
+  group('Android Oboe hardware merge & priority rule', () {
+    test('fixed-clock 48 kHz device with Oboe MMAP preserves fixed clock so app resamples once', () {
+      final merged = AudioHardwareInspector.mergeAndroidAndNativeForTest(
+        {
+          'deviceType': 'Built-in Speaker',
+          'deviceName': 'Pixel Speaker',
+          'sampleRate': 48000,
+          'bitDepth': 32,
+          'isFloat': true,
+          'channels': 2,
+          'supportedSampleRates': [48000],
+          'isFixedClock': true,
+          'directMultiRate': false,
+        },
+        AEHardwareInfo(
+          backendName: 'Oboe (AAudio MMAP)',
+          deviceName: 'Oboe',
+          dspHardware: '',
+          socName: '',
+          outputFormat: AudioFormat.s32,
+          bitDepth: 32,
+          isFloat: false,
+          sampleRate: 48000,
+          channels: 2,
+          periodSizeFrames: 192,
+          periodCount: 2,
+          latencyMs: 4.0,
+          isExclusiveMode: true,
+          isDirectPcm: true,
+        ),
+      );
+
+      expect(merged.backendName, 'Oboe (AAudio MMAP)');
+      expect(merged.sampleRate, 48000);
+      expect(merged.bitDepth, 32);
+      expect(merged.isFixedClock, isTrue);
+      expect(merged.directMultiRate, isFalse);
+      expect(merged.isExclusiveMode, isTrue);
+      expect(merged.isDirectPcm, isTrue);
+      expect(merged.periodSizeFrames, 192);
+      expect(merged.periodCount, 2);
+      expect(merged.latencyMs, 4.0);
+
+      final chain = merged.buildPowerampSignalChain();
+      final backendNode =
+          chain.firstWhere((n) => n.label == 'Oboe (AAudio MMAP)');
+      expect(backendNode.sublabel, contains('MMAP Exclusive Low-Latency'));
+
+      final target = AudioOutputTargetResolver.resolve(
+        specs: merged,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.s32,
+        sourceSampleRateHz: 96000,
+      );
+      expect(target.sampleRateHz, 48000);
+    });
+
+    test('multi-rate Android DAC with Oboe MMAP switches hardware rate to match 96 kHz song', () {
+      final merged = AudioHardwareInspector.mergeAndroidAndNativeForTest(
+        {
+          'deviceType': 'Wired Headset',
+          'deviceName': 'Hi-Fi DAC',
+          'sampleRate': 48000,
+          'bitDepth': 32,
+          'isFloat': false,
+          'channels': 2,
+          'supportedSampleRates': [44100, 48000, 96000, 192000],
+          'isFixedClock': false,
+          'directMultiRate': true,
+        },
+        AEHardwareInfo(
+          backendName: 'Oboe (AAudio MMAP)',
+          deviceName: 'Oboe',
+          dspHardware: '',
+          socName: '',
+          outputFormat: AudioFormat.s32,
+          bitDepth: 32,
+          isFloat: false,
+          sampleRate: 96000,
+          channels: 2,
+          periodSizeFrames: 256,
+          periodCount: 2,
+          latencyMs: 5.3,
+          isExclusiveMode: true,
+          isDirectPcm: true,
+        ),
+      );
+
+      expect(merged.backendName, 'Oboe (AAudio MMAP)');
+      expect(merged.sampleRate, 96000);
+      expect(merged.isFixedClock, isFalse);
+      expect(merged.directMultiRate, isTrue);
+      expect(merged.isExclusiveMode, isTrue);
+      expect(merged.isDirectPcm, isTrue);
+
+      final target = AudioOutputTargetResolver.resolve(
+        specs: merged,
+        userSampleRateHz: 0,
+        userFormat: AudioFormat.s32,
+        sourceSampleRateHz: 96000,
+      );
+      expect(target.sampleRateHz, 96000);
+    });
+
+    test('Bluetooth A2DP device with Oboe Shared preserves Oboe backend & latency without claiming exclusive', () {
+      final merged = AudioHardwareInspector.mergeAndroidAndNativeForTest(
+        {
+          'deviceType': 'Bluetooth A2DP',
+          'deviceName': 'Sony WH-1000XM5',
+          'bluetoothCodec': 'LDAC',
+          'btSampleRate': 96000,
+          'btBitDepth': 24,
+          'sampleRate': 48000,
+          'bitDepth': 24,
+          'isFloat': false,
+          'channels': 2,
+        },
+        AEHardwareInfo(
+          backendName: 'Oboe (AAudio)',
+          deviceName: 'Oboe',
+          dspHardware: '',
+          socName: '',
+          outputFormat: AudioFormat.f32,
+          bitDepth: 32,
+          isFloat: true,
+          sampleRate: 48000,
+          channels: 2,
+          periodSizeFrames: 480,
+          periodCount: 4,
+          latencyMs: 18.0,
+          isExclusiveMode: false,
+          isDirectPcm: false,
+        ),
+      );
+
+      expect(merged.backendName, 'Oboe (AAudio)');
+      expect(merged.isExclusiveMode, isFalse);
+      expect(merged.isDirectPcm, isFalse);
+      expect(merged.latencyMs, 18.0);
+      expect(merged.periodSizeFrames, 480);
+      expect(merged.sampleRate, 96000);
+    });
+  });
+
   group('SignalPathCard & AudioEngineDiagnosticPanel widgets', () {
     testWidgets('collapses inactive stages, taps node to reveal live params, scales at 2.0x',
         (tester) async {

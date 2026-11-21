@@ -39,6 +39,18 @@ import 'services/projectm_preset_manager.dart';
 import 'services/visualizer_settings_service.dart';
 import 'widgets/projectm_preset_manager_dialog.dart';
 
+enum _SettingsDestination {
+  appearance,
+  audioEngine,
+  equalizer,
+  visualizer,
+  playback,
+  audioFocus,
+  streamingStorage,
+  lastFm,
+  aboutDiagnostics,
+}
+
 class SettingsScreen extends StatefulWidget {
   final IsolateAudioPlayer player;
   // Shared state from main.dart
@@ -134,6 +146,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  _SettingsDestination _selectedPane = _SettingsDestination.appearance;
+
   // Dynamic theme colors from BuildContext (reactive)
   Color get _bgDark => context.bgDark;
   Color get _cardDark => context.cardDark;
@@ -718,13 +732,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bgDark,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isDesktop = constraints.maxWidth >= 800;
-          final isMobile = constraints.maxWidth < 600;
-          return Align(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isExpanded = constraints.maxWidth >= 840;
+        final isDesktop = constraints.maxWidth >= 800;
+        final isMobile = constraints.maxWidth < 600;
+
+        if (isExpanded) {
+          return Scaffold(
+            backgroundColor: _bgDark,
+            appBar: AppBar(
+              backgroundColor: _bgDark,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              title: Text(
+                context.strings.settings,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 22,
+                ),
+              ),
+              centerTitle: true,
+            ),
+            body: Row(
+              children: [
+                SizedBox(
+                  width: 360,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                    children: _buildSettingsCategoryItems(
+                      context,
+                      isExpanded: true,
+                    ),
+                  ),
+                ),
+                VerticalDivider(width: 1, color: context.outlineColor),
+                Expanded(child: _buildDesktopDetailPane(context)),
+              ],
+            ),
+          );
+        }
+
+        return Scaffold(
+          backgroundColor: _bgDark,
+          body: Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1000.0),
@@ -749,164 +800,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
                         const SizedBox(height: 12),
-
-                        // ── GROUP 1: PLAYBACK & SOUND ──
-                        _buildSectionHeader(context.strings.playbackAndSound),
-                        const SizedBox(height: 8),
-                        AppCardContainer(
-                          children: [
-                            _buildCategoryCard(
-                              title: context.strings.appearance,
-                              subtitle:
-                                  '${AppThemeService.dataFor(_activeThemeId).displayName} • ${_getLanguageSubtitle()}',
-                              icon: SautiIcons.lookAndFeel,
-                              accentColor: _primary,
-                              onTap: () => _navigateToSubScreen(
-                                  _buildLookAndFeelSubScreen()),
-                            ),
-                            const M3EDivider(),
-                            _buildCategoryCard(
-                              title: context.strings.audioEngine,
-                              subtitle: _getAudioProcessingSubtitle(),
-                              icon: SautiIcons.audioEngine,
-                              accentColor: _primary,
-                              onTap: () => _navigateToSubScreen(
-                                  _buildAudioProcessingSubScreen()),
-                            ),
-                            const M3EDivider(),
-                            _buildCategoryCard(
-                              title: context.strings.equalizer,
-                              subtitle: '$_eqBandCount bands • Sound tuning',
-                              icon: SautiIcons.equalizerModule,
-                              accentColor: _primary,
-                              onTap: () => _navigateToSubScreen(
-                                  _buildEqualizerSubScreen()),
-                            ),
-                            const M3EDivider(),
-                            _buildCategoryCard(
-                              title: context.strings.visualizer,
-                              subtitle: widget.analyzerEnabled
-                                  ? '${widget.spectrumStyle.toUpperCase()} • Live Meter'
-                                  : 'Visualizer off',
-                              icon: SautiIcons.visualizerModule,
-                              accentColor: _primary,
-                              onTap: () => _navigateToSubScreen(
-                                  _buildVisualizationSubScreen()),
-                            ),
-                            const M3EDivider(),
-                            _buildCategoryCard(
-                              title: context.strings.playback,
-                              subtitle: widget.crossfadeEnabled
-                                  ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s crossfade'
-                                  : 'Gapless playback',
-                              icon: SautiIcons.playbackModule,
-                              accentColor: _primary,
-                              onTap: () => _navigateToSubScreen(
-                                  _buildPlaybackSubScreen()),
-                            ),
-                            if (!kIsWeb &&
-                                (Platform.isAndroid || Platform.isIOS)) ...[
-                              const M3EDivider(),
-                              _buildCategoryCard(
-                                title: context.strings.audioFocus,
-                                subtitle: _getAudioFocusSubtitle(),
-                                icon: Icons.headphones_rounded,
-                                accentColor: _primary,
-                                onTap: () => _navigateToSubScreen(
-                                    _buildAudioFocusSubScreen()),
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-
-                        // ── GROUP 2: SOURCES & DATA ──
-                        _buildSectionHeader(context.strings.sourcesAndData),
-                        const SizedBox(height: 8),
-                        AppCardContainer(
-                          children: [
-                            _buildCategoryCard(
-                              title: context.strings.streamingStorage,
-                              subtitle:
-                                  '${_getStreamingQualityBadgeText()} quality • Offline cache',
-                              icon: SautiIcons.streamingStorage,
-                              accentColor: _primary,
-                              onTap: () => _navigateToSubScreen(
-                                  _buildDataAndStreamingSubScreen()),
-                            ),
-                            const M3EDivider(),
-                            _buildCategoryCard(
-                              title: context.strings.localAndNetwork,
-                              subtitle: 'Chromecast (24-bit/192 kHz), DLNA & FTP',
-                              icon: SautiIcons.localNetworkAudio,
-                              accentColor: _primary,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => NetworkSourcesScreen(
-                                      player: widget.player,
-                                      onPlayNetworkFile:
-                                          widget.onPlayNetworkFile,
-                                      onPlayFtpFolder: widget.onPlayFtpFolder,
-                                      onPlayRemoteQueue:
-                                          widget.onPlayRemoteQueue,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                            const M3EDivider(),
-                            AnimatedBuilder(
-                              animation: LastFmService.instance,
-                              builder: (context, _) {
-                                final lastFm = LastFmService.instance;
-                                return _buildCategoryCard(
-                                  title: 'Last.fm',
-                                  subtitle: lastFm.isLoggedIn
-                                      ? 'Connected as ${lastFm.username}'
-                                      : 'Connect account to sync scrobbles',
-                                  icon: SautiIcons.lastfm,
-                                  accentColor: const Color(0xFFD51007),
-                                  onTap: () => _navigateToSubScreen(
-                                      _buildLastFmSubScreen()),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-
-                        // ── GROUP 3: SYSTEM & ABOUT ──
-                        _buildSectionHeader(context.strings.systemAndAbout),
-                        const SizedBox(height: 8),
-                        AppCardContainer(
-                          children: [
-                            ListenableBuilder(
-                              listenable: AppUpdateService.instance,
-                              builder: (context, _) {
-                                final hasUpdate =
-                                    AppUpdateService.instance.stage ==
-                                            UpdateStage.available ||
-                                        AppUpdateService.instance.stage ==
-                                            UpdateStage.downloaded ||
-                                        AppUpdateService.instance.stage ==
-                                            UpdateStage.downloading;
-                                return _buildCategoryCard(
-                                  title: context.strings.aboutDiagnostics,
-                                  subtitle: hasUpdate
-                                      ? 'New update available to install'
-                                      : 'v$_appVersion • FAQs & error logs',
-                                  icon: SautiIcons.aboutDiagnostics,
-                                  accentColor:
-                                      hasUpdate ? Colors.greenAccent : _primary,
-                                  alertBadge: hasUpdate ? 'Update' : null,
-                                  onTap: () => _navigateToSubScreen(
-                                      _buildMiscSystemSubScreen()),
-                                );
-                              },
-                            ),
-                          ],
+                        ..._buildSettingsCategoryItems(
+                          context,
+                          isExpanded: false,
                         ),
                         const SizedBox(height: 120),
                       ]),
@@ -915,9 +811,310 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-          );
-        },
+          ),
+        );
+      },
+    );
+  }
+
+  List<Widget> _buildSettingsCategoryItems(
+    BuildContext context, {
+    required bool isExpanded,
+  }) {
+    return [
+      // ── GROUP 1: PLAYBACK & SOUND ──
+      _buildSectionHeader(context.strings.playbackAndSound),
+      const SizedBox(height: 8),
+      AppCardContainer(
+        children: [
+          _buildCategoryCard(
+            title: context.strings.appearance,
+            subtitle:
+                '${AppThemeService.dataFor(_activeThemeId).displayName} • ${_getLanguageSubtitle()}',
+            icon: SautiIcons.lookAndFeel,
+            accentColor: _primary,
+            selected:
+                isExpanded && _selectedPane == _SettingsDestination.appearance,
+            onTap: () => _openDestination(
+              _SettingsDestination.appearance,
+              isExpanded,
+              _buildLookAndFeelSubScreen,
+            ),
+          ),
+          const M3EDivider(),
+          _buildCategoryCard(
+            title: context.strings.audioEngine,
+            subtitle: _getAudioProcessingSubtitle(),
+            icon: SautiIcons.audioEngine,
+            accentColor: _primary,
+            selected:
+                isExpanded && _selectedPane == _SettingsDestination.audioEngine,
+            onTap: () => _openDestination(
+              _SettingsDestination.audioEngine,
+              isExpanded,
+              _buildAudioProcessingSubScreen,
+            ),
+          ),
+          const M3EDivider(),
+          _buildCategoryCard(
+            title: context.strings.equalizer,
+            subtitle: '$_eqBandCount bands • Sound tuning',
+            icon: SautiIcons.equalizerModule,
+            accentColor: _primary,
+            selected:
+                isExpanded && _selectedPane == _SettingsDestination.equalizer,
+            onTap: () => _openDestination(
+              _SettingsDestination.equalizer,
+              isExpanded,
+              _buildEqualizerSubScreen,
+            ),
+          ),
+          const M3EDivider(),
+          _buildCategoryCard(
+            title: context.strings.visualizer,
+            subtitle: widget.analyzerEnabled
+                ? '${widget.spectrumStyle.toUpperCase()} • Live Meter'
+                : 'Visualizer off',
+            icon: SautiIcons.visualizerModule,
+            accentColor: _primary,
+            selected:
+                isExpanded && _selectedPane == _SettingsDestination.visualizer,
+            onTap: () => _openDestination(
+              _SettingsDestination.visualizer,
+              isExpanded,
+              _buildVisualizationSubScreen,
+            ),
+          ),
+          const M3EDivider(),
+          _buildCategoryCard(
+            title: context.strings.playback,
+            subtitle: widget.crossfadeEnabled
+                ? '${(widget.crossfadeDurationMs / 1000).toStringAsFixed(1)}s crossfade'
+                : 'Gapless playback',
+            icon: SautiIcons.playbackModule,
+            accentColor: _primary,
+            selected:
+                isExpanded && _selectedPane == _SettingsDestination.playback,
+            onTap: () => _openDestination(
+              _SettingsDestination.playback,
+              isExpanded,
+              _buildPlaybackSubScreen,
+            ),
+          ),
+          if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
+            const M3EDivider(),
+            _buildCategoryCard(
+              title: context.strings.audioFocus,
+              subtitle: _getAudioFocusSubtitle(),
+              icon: Icons.headphones_rounded,
+              accentColor: _primary,
+              selected:
+                  isExpanded && _selectedPane == _SettingsDestination.audioFocus,
+              onTap: () => _openDestination(
+                _SettingsDestination.audioFocus,
+                isExpanded,
+                _buildAudioFocusSubScreen,
+              ),
+            ),
+          ],
+        ],
       ),
+      const SizedBox(height: 24),
+
+      // ── GROUP 2: SOURCES & DATA ──
+      _buildSectionHeader(context.strings.sourcesAndData),
+      const SizedBox(height: 8),
+      AppCardContainer(
+        children: [
+          _buildCategoryCard(
+            title: context.strings.streamingStorage,
+            subtitle: '${_getStreamingQualityBadgeText()} quality • Offline cache',
+            icon: SautiIcons.streamingStorage,
+            accentColor: _primary,
+            selected: isExpanded &&
+                _selectedPane == _SettingsDestination.streamingStorage,
+            onTap: () => _openDestination(
+              _SettingsDestination.streamingStorage,
+              isExpanded,
+              _buildDataAndStreamingSubScreen,
+            ),
+          ),
+          const M3EDivider(),
+          _buildCategoryCard(
+            title: context.strings.localAndNetwork,
+            subtitle: 'Chromecast (24-bit/192 kHz), DLNA & FTP',
+            icon: SautiIcons.localNetworkAudio,
+            accentColor: _primary,
+            selected: false,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => NetworkSourcesScreen(
+                    player: widget.player,
+                    onPlayNetworkFile: widget.onPlayNetworkFile,
+                    onPlayFtpFolder: widget.onPlayFtpFolder,
+                    onPlayRemoteQueue: widget.onPlayRemoteQueue,
+                  ),
+                ),
+              );
+            },
+          ),
+          const M3EDivider(),
+          AnimatedBuilder(
+            animation: LastFmService.instance,
+            builder: (context, _) {
+              final lastFm = LastFmService.instance;
+              return _buildCategoryCard(
+                title: 'Last.fm',
+                subtitle: lastFm.isLoggedIn
+                    ? 'Connected as ${lastFm.username}'
+                    : 'Connect account to sync scrobbles',
+                icon: SautiIcons.lastfm,
+                accentColor: const Color(0xFFD51007),
+                selected:
+                    isExpanded && _selectedPane == _SettingsDestination.lastFm,
+                onTap: () => _openDestination(
+                  _SettingsDestination.lastFm,
+                  isExpanded,
+                  _buildLastFmSubScreen,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+      const SizedBox(height: 24),
+
+      // ── GROUP 3: SYSTEM & ABOUT ──
+      _buildSectionHeader(context.strings.systemAndAbout),
+      const SizedBox(height: 8),
+      AppCardContainer(
+        children: [
+          ListenableBuilder(
+            listenable: AppUpdateService.instance,
+            builder: (context, _) {
+              final hasUpdate =
+                  AppUpdateService.instance.stage == UpdateStage.available ||
+                      AppUpdateService.instance.stage ==
+                          UpdateStage.downloaded ||
+                      AppUpdateService.instance.stage ==
+                          UpdateStage.downloading;
+              return _buildCategoryCard(
+                title: context.strings.aboutDiagnostics,
+                subtitle: hasUpdate
+                    ? 'New update available to install'
+                    : 'v$_appVersion • FAQs & error logs',
+                icon: SautiIcons.aboutDiagnostics,
+                accentColor: hasUpdate ? Colors.greenAccent : _primary,
+                alertBadge: hasUpdate ? 'Update' : null,
+                selected: isExpanded &&
+                    _selectedPane == _SettingsDestination.aboutDiagnostics,
+                onTap: () => _openDestination(
+                  _SettingsDestination.aboutDiagnostics,
+                  isExpanded,
+                  _buildMiscSystemSubScreen,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    ];
+  }
+
+  void _openDestination(
+    _SettingsDestination dest,
+    bool isExpanded,
+    Widget Function() builder,
+  ) {
+    if (isExpanded) {
+      setState(() => _selectedPane = dest);
+      return;
+    }
+    _navigateToSubScreen(builder());
+  }
+
+  Widget _buildDesktopDetailPane(BuildContext context) {
+    final (String title, IconData icon, Color accent, Widget content) =
+        switch (_selectedPane) {
+      _SettingsDestination.appearance => (
+          context.strings.appearance,
+          SautiIcons.lookAndFeel,
+          _primary,
+          _buildLookAndFeelSubScreen(showAppBar: false),
+        ),
+      _SettingsDestination.audioEngine => (
+          context.strings.audioEngine,
+          SautiIcons.audioEngine,
+          _primary,
+          _buildAudioProcessingSubScreen(showAppBar: false),
+        ),
+      _SettingsDestination.equalizer => (
+          context.strings.equalizer,
+          SautiIcons.equalizerModule,
+          _primary,
+          _buildEqualizerSubScreen(showAppBar: false),
+        ),
+      _SettingsDestination.visualizer => (
+          context.strings.visualizer,
+          SautiIcons.visualizerModule,
+          _primary,
+          _buildVisualizationSubScreen(showAppBar: false),
+        ),
+      _SettingsDestination.playback => (
+          context.strings.playback,
+          SautiIcons.playbackModule,
+          _primary,
+          _buildPlaybackSubScreen(showAppBar: false),
+        ),
+      _SettingsDestination.audioFocus => (
+          context.strings.audioFocus,
+          Icons.headphones_rounded,
+          _primary,
+          _buildAudioFocusSubScreen(showAppBar: false),
+        ),
+      _SettingsDestination.streamingStorage => (
+          context.strings.streamingStorage,
+          SautiIcons.streamingStorage,
+          _primary,
+          _buildDataAndStreamingSubScreen(showAppBar: false),
+        ),
+      _SettingsDestination.lastFm => (
+          'Last.fm',
+          SautiIcons.lastfm,
+          const Color(0xFFD51007),
+          _buildLastFmSubScreen(showAppBar: false),
+        ),
+      _SettingsDestination.aboutDiagnostics => (
+          context.strings.aboutDiagnostics,
+          SautiIcons.aboutDiagnostics,
+          _primary,
+          _buildMiscSystemSubScreen(showAppBar: false),
+        ),
+    };
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 14, 24, 12),
+          child: Row(
+            children: [
+              _buildLeadingIcon(icon, accent, 36, 18, true),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: _textPrimary,
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        Divider(height: 1, color: context.outlineColor),
+        Expanded(child: content),
+      ],
     );
   }
 
@@ -937,27 +1134,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required IconData icon,
     required Color accentColor,
     String? alertBadge,
+    bool selected = false,
     required VoidCallback onTap,
   }) {
-    return AppSettingsTile(
-      title: title,
-      subtitle: subtitle,
-      leading: _buildLeadingIcon(icon, accentColor, 38, 20),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (alertBadge != null) ...[
-            AppStatusBadge(
-              text: alertBadge,
-              color: Colors.greenAccent,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    return Container(
+      decoration: selected
+          ? BoxDecoration(
+              color: accentColor.withAlpha(24),
+              borderRadius: BorderRadius.circular(12),
+            )
+          : null,
+      child: AppSettingsTile(
+        title: title,
+        subtitle: subtitle,
+        leading: _buildLeadingIcon(icon, accentColor, 38, 20, selected),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (alertBadge != null) ...[
+              AppStatusBadge(
+                text: alertBadge,
+                color: Colors.greenAccent,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Icon(
+              Icons.chevron_right_rounded,
+              color: selected ? accentColor : _textDark,
+              size: 20,
             ),
-            const SizedBox(width: 6),
           ],
-          Icon(Icons.chevron_right_rounded, color: _textDark, size: 20),
-        ],
+        ),
+        onTap: onTap,
       ),
-      onTap: onTap,
     );
   }
 
@@ -966,9 +1176,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildSubScreenLayout({
     required String title,
     required List<Widget> children,
+    bool showAppBar = true,
   }) {
     return AppSubScreenScaffold(
       title: title,
+      showAppBar: showAppBar,
       children: children,
     );
   }
@@ -982,14 +1194,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Color? color,
     double size = 36,
     double iconSize = 18,
+    bool active = false,
   ]) {
     final c = color ?? _primary;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.15),
-        shape: BoxShape.circle,
+        color: c.withValues(alpha: active ? 0.24 : 0.14),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Center(
         child: Icon(icon, color: c, size: iconSize),
@@ -1065,7 +1278,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // 1. Look & Feel Sub-Screen
-  Widget _buildLookAndFeelSubScreen() {
+  Widget _buildLookAndFeelSubScreen({bool showAppBar = true}) {
     return StatefulBuilder(
       builder: (context, setSubState) {
         final appTheme = AppThemeProvider.of(context);
@@ -1074,6 +1287,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         return _buildSubScreenLayout(
           title: 'Appearance',
+          showAppBar: showAppBar,
           children: [
             // ── THEME SECTION ─────────────────────────────────────────────
             _buildSectionHeader('APP THEME'),
@@ -1505,11 +1719,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // 2. Audio & Processing Sub-Screen
-  Widget _buildAudioProcessingSubScreen() {
+  Widget _buildAudioProcessingSubScreen({bool showAppBar = true}) {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
           title: 'Audio Engine',
+          showAppBar: showAppBar,
           children: [
             _buildSectionHeader('RESAMPLING & DITHERING'),
             const SizedBox(height: 8),
@@ -2672,11 +2887,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // 3. Equalizer Sub-Screen
-  Widget _buildEqualizerSubScreen() {
+  Widget _buildEqualizerSubScreen({bool showAppBar = true}) {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
           title: 'Equalizer',
+          showAppBar: showAppBar,
           children: [
             _buildSectionHeader('GRAPHIC EQUALIZER BANDS'),
             const SizedBox(height: 8),
@@ -3052,11 +3268,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // 4. Visualization Sub-Screen
-  Widget _buildVisualizationSubScreen() {
+  Widget _buildVisualizationSubScreen({bool showAppBar = true}) {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
           title: 'Visualizer',
+          showAppBar: showAppBar,
           children: [
             // ── TOP LIVE RTA & RMS LOUDNESS CARD ────────────────────────────
             _buildSectionHeader('LIVE VOLUME & PEAK METER'),
@@ -3842,11 +4059,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // 5. Playback & Crossfade Sub-Screen
-  Widget _buildPlaybackSubScreen() {
+  Widget _buildPlaybackSubScreen({bool showAppBar = true}) {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
           title: 'Playback',
+          showAppBar: showAppBar,
           children: [
             _buildSectionHeader('TRANSITIONS & PLAYBACK'),
             const SizedBox(height: 8),
@@ -4300,7 +4518,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // Audio Focus & Hardware Controls Sub-Screen (Mobile Only)
-  Widget _buildAudioFocusSubScreen() {
+  Widget _buildAudioFocusSubScreen({bool showAppBar = true}) {
     return StatefulBuilder(
       builder: (context, setSubState) {
         void updateSettings(AudioFocusSettings newSettings) {
@@ -4312,6 +4530,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         return _buildSubScreenLayout(
           title: 'Audio Focus',
+          showAppBar: showAppBar,
           children: [
             _buildSectionHeader('FOCUS & INTERRUPTIONS'),
             const SizedBox(height: 8),
@@ -4761,11 +4980,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // 6. Data & Streaming Sub-Screen
-  Widget _buildDataAndStreamingSubScreen() {
+  Widget _buildDataAndStreamingSubScreen({bool showAppBar = true}) {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
           title: 'Streaming & Storage',
+          showAppBar: showAppBar,
           children: [
             // ── AUDIO STREAMING QUALITY ──────────────────────────────────────
             _buildSectionHeader('STREAMING QUALITY'),
@@ -5197,11 +5417,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // 7. Misc & System Sub-Screen
-  Widget _buildMiscSystemSubScreen() {
+  Widget _buildMiscSystemSubScreen({bool showAppBar = true}) {
     return StatefulBuilder(
       builder: (context, setSubState) {
         return _buildSubScreenLayout(
           title: 'About & Diagnostics',
+          showAppBar: showAppBar,
           children: [
             _buildSectionHeader('ABOUT & SYSTEM LICENSES'),
             const SizedBox(height: 8),
@@ -5581,7 +5802,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // 8. Last.fm Scrobbler Sub-Screen
-  Widget _buildLastFmSubScreen() {
+  Widget _buildLastFmSubScreen({bool showAppBar = true}) {
     return AnimatedBuilder(
       animation: LastFmService.instance,
       builder: (context, _) {
@@ -5593,6 +5814,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           builder: (context, setSubState) {
             return _buildSubScreenLayout(
               title: 'Last.fm',
+              showAppBar: showAppBar,
               children: [
                 // ── ACCOUNT STATUS & PROFILE BANNER ────────────────────────
                 _buildSectionHeader('ACCOUNT & CONNECTION'),
@@ -7051,20 +7273,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final backends = [
       (
         AudioOutputBackend.auto,
-        'Auto (Recommended)',
-        'Automatically chooses the lowest latency driver for your device',
+        'Auto (Oboe MMAP)',
+        'Automatically chooses Oboe AAudio MMAP low-latency FIFO or optimal fallback',
         Icons.auto_awesome_rounded,
       ),
       (
         AudioOutputBackend.aaudio,
-        'AAudio (Fast & Direct)',
-        'Modern high-performance Android driver (Android 8.0+)',
+        'AAudio via Oboe (MMAP Low-Latency)',
+        'Google Oboe over AAudio with MMAP Exclusive bypass (Android 8.1+)',
         Icons.speed_rounded,
       ),
       (
         AudioOutputBackend.openSl,
-        'OpenSL ES (Legacy)',
-        'Reliable fallback driver for older Android versions',
+        'OpenSL ES via Oboe (Legacy)',
+        'Google Oboe over OpenSL ES fallback for older Android devices',
         Icons.history_toggle_off_rounded,
       ),
       (

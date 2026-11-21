@@ -4,10 +4,7 @@ import 'package:projectm_visualizer/projectm_visualizer.dart';
 import '../services/app_theme_service.dart';
 import '../services/projectm_preset_manager.dart';
 
-/// Interactive modal sheet/dialog allowing users to:
-/// - Download the Poweramp Curated Milkdrop Viz Sets APK in the background.
-/// - Pick custom `.milk` presets, `.zip` archives, or `.apk` packs from disk.
-/// - Search, preview, and apply presets with zero UI stutter.
+/// Modal sheet for browsing, downloading, and importing Milkdrop presets.
 class ProjectMPresetManagerDialog extends StatefulWidget {
   const ProjectMPresetManagerDialog({
     super.key,
@@ -68,23 +65,24 @@ class _ProjectMPresetManagerDialogState
   @override
   Widget build(BuildContext context) {
     final themePrimary = context.primaryColor;
+    final bgDark = context.bgDark;
     final cardDark = context.cardDark;
     final outline = context.outlineColor;
     final textPrimary = context.textPrimary;
     final textMuted = context.textMuted;
-    final maxSheetHeight = MediaQuery.of(context).size.height * 0.85;
+    final maxSheetHeight = MediaQuery.sizeOf(context).height * 0.85;
 
     return Container(
       constraints: BoxConstraints(maxHeight: maxSheetHeight),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F111A).withValues(alpha: 0.98),
+        color: bgDark,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         border: Border.all(color: outline),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.6),
-            blurRadius: 28,
-            offset: const Offset(0, -6),
+            color: Colors.black.withValues(alpha: 0.45),
+            blurRadius: 24,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
@@ -95,10 +93,10 @@ class _ProjectMPresetManagerDialogState
           Center(
             child: Container(
               margin: const EdgeInsets.only(top: 10, bottom: 4),
-              width: 38,
+              width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: textMuted.withValues(alpha: 0.35),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -127,7 +125,7 @@ class _ProjectMPresetManagerDialogState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Milkdrop Presets Library',
+                        'Milkdrop Presets',
                         style: TextStyle(
                           color: textPrimary,
                           fontSize: 16,
@@ -138,7 +136,7 @@ class _ProjectMPresetManagerDialogState
                         valueListenable: _manager.presetsNotifier,
                         builder: (context, presets, _) {
                           return Text(
-                            '${presets.length} presets available',
+                            '${presets.length} presets',
                             style: TextStyle(
                               color: textMuted,
                               fontSize: 12,
@@ -158,7 +156,7 @@ class _ProjectMPresetManagerDialogState
             ),
           ),
 
-          const Divider(height: 1, color: Colors.white10),
+          Divider(height: 1, color: outline),
 
           // Download & Import Banner
           Padding(
@@ -270,7 +268,9 @@ class _ProjectMPresetManagerDialogState
                             size: 40, color: textMuted),
                         const SizedBox(height: 8),
                         Text(
-                          'No presets match "$_searchQuery"',
+                          _searchQuery.isNotEmpty
+                              ? 'No presets match "$_searchQuery"'
+                              : 'No presets in $_selectedCategory',
                           style: TextStyle(color: textMuted, fontSize: 13),
                         ),
                       ],
@@ -307,12 +307,18 @@ class _ProjectMPresetManagerDialogState
   }
 
   Widget _buildCuratedPackCard(Color primary, Color cardDark, Color outline) {
+    final textPrimary = context.textPrimary;
+    final textMuted = context.textMuted;
+    final onPrimary = Theme.of(context).colorScheme.onPrimary;
+    final errorColor = Theme.of(context).colorScheme.error;
+
     return ValueListenableBuilder<ProjectMPackStatus>(
       valueListenable: _manager.statusNotifier,
       builder: (context, status, _) {
         final isDownloading =
             status.state == PackDownloadState.downloading ||
             status.state == PackDownloadState.extracting;
+        final isError = status.state == PackDownloadState.error;
         final isInstalled = _manager.isCuratedPackDownloaded;
 
         return Container(
@@ -320,7 +326,7 @@ class _ProjectMPresetManagerDialogState
           decoration: BoxDecoration(
             color: isInstalled
                 ? primary.withValues(alpha: 0.08)
-                : const Color(0xFF141724),
+                : cardDark,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: isInstalled ? primary.withValues(alpha: 0.3) : outline,
@@ -343,20 +349,20 @@ class _ProjectMPresetManagerDialogState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Poweramp Curated Viz Sets (Milkdrop)',
+                        Text(
+                          'Poweramp Viz Pack',
                           style: TextStyle(
-                            color: Colors.white,
+                            color: textPrimary,
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         Text(
                           isInstalled
-                              ? '${_manager.curatedPresetCount} community presets installed'
-                              : '400+ curated presets with textures (~30 MB)',
-                          style: const TextStyle(
-                            color: Colors.white60,
+                              ? '${_manager.curatedPresetCount} presets installed'
+                              : '400+ presets with textures (< 2 MB)',
+                          style: TextStyle(
+                            color: textMuted,
                             fontSize: 11,
                           ),
                         ),
@@ -365,8 +371,8 @@ class _ProjectMPresetManagerDialogState
                   ),
                   if (isDownloading)
                     IconButton(
-                      icon: const Icon(Icons.cancel_rounded,
-                          color: Colors.white60, size: 20),
+                      icon: Icon(Icons.cancel_rounded,
+                          color: textMuted, size: 20),
                       onPressed: () => _manager.cancelDownload(),
                       tooltip: 'Cancel Download',
                     )
@@ -384,7 +390,7 @@ class _ProjectMPresetManagerDialogState
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primary,
-                        foregroundColor: Colors.black,
+                        foregroundColor: onPrimary,
                         visualDensity: VisualDensity.compact,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         shape: RoundedRectangleBorder(
@@ -411,7 +417,7 @@ class _ProjectMPresetManagerDialogState
                     value: status.state == PackDownloadState.extracting
                         ? null
                         : status.progress,
-                    backgroundColor: Colors.white12,
+                    backgroundColor: outline,
                     valueColor: AlwaysStoppedAnimation<Color>(primary),
                     minHeight: 4,
                   ),
@@ -419,7 +425,13 @@ class _ProjectMPresetManagerDialogState
                 const SizedBox(height: 4),
                 Text(
                   status.message,
-                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                  style: TextStyle(color: textMuted, fontSize: 11),
+                ),
+              ] else if (isError && status.message.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  status.message,
+                  style: TextStyle(color: errorColor, fontSize: 11),
                 ),
               ],
             ],
@@ -451,13 +463,15 @@ class _ProjectMPresetManagerDialogState
                 labelStyle: TextStyle(
                   fontSize: 11,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  color: isSelected ? Colors.black : Colors.white70,
+                  color: isSelected
+                      ? Theme.of(context).colorScheme.onPrimary
+                      : context.textMuted,
                 ),
                 selected: isSelected,
                 selectedColor: primary,
-                backgroundColor: const Color(0xFF141724),
+                backgroundColor: context.cardDark,
                 side: BorderSide(
-                  color: isSelected ? primary : Colors.white12,
+                  color: isSelected ? primary : context.outlineColor,
                 ),
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -543,12 +557,10 @@ class _ProjectMPresetManagerDialogState
     );
 
     if (mounted && summary.importedPresets.isNotEmpty) {
+      final count = summary.importedPresets.length;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Imported ${summary.importedPresets.length} presets successfully!',
-          ),
-          backgroundColor: const Color(0xFF00E5FF),
+          content: Text('Imported $count ${count == 1 ? 'preset' : 'presets'}'),
           behavior: SnackBarBehavior.floating,
         ),
       );

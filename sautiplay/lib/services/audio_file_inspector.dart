@@ -51,15 +51,46 @@ class AudioFileInspector {
     try {
       final nativeMap = await player.inspectFile(realPath);
       if (nativeMap != null) {
-        final sr = (nativeMap['sampleRate'] as int?) ?? 44100;
+        final sr = (nativeMap['sampleRate'] as int?) ?? 0;
         final bd = (nativeMap['bitDepth'] as int?) ?? 16;
         final ch = (nativeMap['channels'] as int?) ?? 2;
         final br = (nativeMap['bitrateKbps'] as int?) ?? 0;
         final isFloat = (nativeMap['isFloat'] as bool?) ?? false;
-        final fmt = (nativeMap['formatName'] as String?) ?? 'AUDIO';
+        final fmt = ((nativeMap['formatName'] as String?) ?? 'AUDIO').trim();
+        final fmtUpper = fmt.toUpperCase();
+
+        // Native header inspector doesn't parse WebM/Ogg/generic containers deeply;
+        // refine with Dart/FFmpeg inspection so cached streams (e.g. .webm/.m4a)
+        // resolve to their actual codec (OPUS/VORBIS/AAC/ALAC) and sample rate.
+        const genericContainers = {
+          'WEBM',
+          'MKV',
+          'MKA',
+          'OGG',
+          'M4A',
+          'MP4',
+          'AUDIO',
+          '',
+        };
+        if (genericContainers.contains(fmtUpper) || sr <= 0) {
+          final refined = await inspect(realPath);
+          final refinedUpper = refined.codec.toUpperCase();
+          final resolvedCodec =
+              (refinedUpper != 'AUDIO' && refinedUpper.isNotEmpty)
+                  ? refined.codec
+                  : (fmt.isNotEmpty ? fmt : 'AUDIO');
+          return AudioFileInfo(
+            sampleRate: sr > 0 ? sr : refined.sampleRate,
+            bitDepth: bd > 0 ? bd : refined.bitDepth,
+            channels: ch > 0 ? ch : refined.channels,
+            bitrateKbps: br > 0 ? br : refined.bitrateKbps,
+            codec: resolvedCodec,
+            isFloat: isFloat || refined.isFloat,
+          );
+        }
 
         return AudioFileInfo(
-          sampleRate: sr > 0 ? sr : 44100,
+          sampleRate: sr,
           bitDepth: bd > 0 ? bd : 16,
           channels: ch > 0 ? ch : 2,
           bitrateKbps: br,
@@ -126,6 +157,21 @@ class AudioFileInspector {
 
         if (ext == 'dff' || _startsWithBytes(bytes, [70, 82, 77, 56])) {
           final info = _parseDff(bytes, fileSize);
+          if (info != null) return info;
+        }
+
+        if (ext == 'webm' ||
+            ext == 'mkv' ||
+            ext == 'mka' ||
+            _startsWithBytes(bytes, [0x1A, 0x45, 0xDF, 0xA3])) {
+          final info = _parseWebm(bytes);
+          if (info != null) return info;
+        }
+
+        if (ext == 'ogg' ||
+            ext == 'opus' ||
+            _startsWithBytes(bytes, [79, 103, 103, 83])) {
+          final info = _parseOgg(bytes);
           if (info != null) return info;
         }
       } finally {
@@ -497,6 +543,107 @@ class AudioFileInspector {
       bitrateKbps: bitrateKbps,
       codec: isDst ? 'DFF (DST)' : 'DFF',
     );
+  }
+
+  // ── WebM / Matroska Parser ───────────────────────────────────────────────
+  static AudioFileInfo? _parseWebm(Uint8List bytes) {
+    if (bytes.length < 16) return null;
+    // EBML header magic 0x1A 0x45 0xDF 0xA3
+    if (!_startsWithBytes(bytes, [0x1A, 0x45, 0xDF, 0xA3])) return null;
+
+    if (_indexOfBytes(bytes, 'A_OPUS'.codeUnits) != -1) {
+      return const AudioFileInfo(
+        sampleRate: 48000,
+        bitDepth: 16,
+        channels: 2,
+        bitrateKbps: 0,
+        codec: 'OPUS',
+      );
+    }
+    if (_indexOfBytes(bytes, 'A_VORBIS'.codeUnits) != -1) {
+      return const AudioFileInfo(
+        sampleRate: 44100,
+        bitDepth: 16,
+        channels: 2,
+        bitrateKbps: 0,
+        codec: 'VORBIS',
+      );
+    }
+    if (_indexOfBytes(bytes, 'A_AAC'.codeUnits) != -1) {
+      return const AudioFileInfo(
+        sampleRate: 44100,
+        bitDepth: 16,
+        channels: 2,
+        bitrateKbps: 0,
+        codec: 'AAC',
+      );
+    }
+    if (_indexOfBytes(bytes, 'A_FLAC'.codeUnits) != -1) {
+      return const AudioFileInfo(
+        sampleRate: 44100,
+        bitDepth: 16,
+        channels: 2,
+        bitrateKbps: 0,
+        codec: 'FLAC',
+      );
+    }
+    if (_indexOfBytes(bytes, 'A_ALAC'.codeUnits) != -1) {
+      return const AudioFileInfo(
+        sampleRate: 44100,
+        bitDepth: 16,
+        channels: 2,
+        bitrateKbps: 0,
+        codec: 'ALAC',
+      );
+    }
+    if (_indexOfBytes(bytes, 'A_MPEG/L3'.codeUnits) != -1) {
+      return const AudioFileInfo(
+        sampleRate: 44100,
+        bitDepth: 16,
+        channels: 2,
+        bitrateKbps: 0,
+        codec: 'MP3',
+      );
+    }
+    return null;
+  }
+
+  // ── Ogg / Opus / Vorbis Parser ───────────────────────────────────────────
+  static AudioFileInfo? _parseOgg(Uint8List bytes) {
+    if (bytes.length < 36 || !_startsWithBytes(bytes, [79, 103, 103, 83])) {
+      return null;
+    }
+
+    final opusPos = _indexOfBytes(bytes, 'OpusHead'.codeUnits);
+    if (opusPos != -1 && opusPos + 16 <= bytes.length) {
+      final channels = bytes[opusPos + 9];
+      return AudioFileInfo(
+        sampleRate: 48000, // Opus always decodes at 48 kHz
+        bitDepth: 16,
+        channels: channels > 0 ? channels : 2,
+        bitrateKbps: 0,
+        codec: 'OPUS',
+      );
+    }
+
+    // Vorbis identification header: 0x01 + 'vorbis'
+    final vorbisPos = _indexOfBytes(bytes, [1, 118, 111, 114, 98, 105, 115]);
+    if (vorbisPos != -1 && vorbisPos + 16 <= bytes.length) {
+      final channels = bytes[vorbisPos + 11];
+      final sampleRate = bytes[vorbisPos + 12] |
+          (bytes[vorbisPos + 13] << 8) |
+          (bytes[vorbisPos + 14] << 16) |
+          (bytes[vorbisPos + 15] << 24);
+      return AudioFileInfo(
+        sampleRate: sampleRate > 0 ? sampleRate : 44100,
+        bitDepth: 16,
+        channels: channels > 0 ? channels : 2,
+        bitrateKbps: 0,
+        codec: 'VORBIS',
+      );
+    }
+
+    return null;
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────

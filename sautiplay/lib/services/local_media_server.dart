@@ -8,6 +8,7 @@ import 'package:sautiflow/sautiflow.dart' show AudioEngineFFI;
 
 import 'ftp_service.dart';
 import 'ftp_stream_relay.dart';
+import 'remote_stream_relay.dart';
 
 typedef _FlushCastTapNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _FlushCastTapDart = void Function(ffi.Pointer<ffi.Void>);
@@ -29,6 +30,17 @@ typedef _MallocNative = ffi.Pointer<ffi.Void> Function(ffi.IntPtr);
 typedef _MallocDart = ffi.Pointer<ffi.Void> Function(int);
 typedef _FreeNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _FreeDart = void Function(ffi.Pointer<ffi.Void>);
+
+enum LiveCastStreamFormat {
+  /// 24-bit signed little-endian RIFF/WAVE stream (`/cast/live_N.wav`).
+  wav24,
+
+  /// 24-bit signed big-endian raw DLNA LPCM (`/cast/live_N.l24`).
+  lpcm24,
+
+  /// 16-bit signed big-endian raw DLNA LPCM (`/cast/live_N.l16`).
+  lpcm16,
+}
 
 class LocalMediaServer {
   static final LocalMediaServer instance = LocalMediaServer._internal();
@@ -103,13 +115,21 @@ class LocalMediaServer {
       return;
     }
 
-    if (reqPath.startsWith('/cast/live_') && reqPath.endsWith('.wav')) {
+    if (reqPath.startsWith('/cast/live_') &&
+        (reqPath.endsWith('.wav') ||
+            reqPath.endsWith('.l24') ||
+            reqPath.endsWith('.l16'))) {
       await _handleLiveWavRequest(request);
       return;
     }
 
     if (reqPath.startsWith('/ftp/')) {
       await FtpStreamRelay.instance.handleHttpRequest(request);
+      return;
+    }
+
+    if (reqPath.startsWith('/remote/')) {
+      await RemoteStreamRelay.instance.handleHttpRequest(request);
       return;
     }
 
@@ -151,6 +171,9 @@ class LocalMediaServer {
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
       request.response.headers
           .set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/$fileSize');
+      request.response.headers.set('transferMode.dlna.org', 'Streaming');
+      request.response.headers.set('contentFeatures.dlna.org',
+          'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000');
 
       if (isHead) {
         await request.response.close();
@@ -167,6 +190,9 @@ class LocalMediaServer {
       request.response.headers
           .set(HttpHeaders.contentLengthHeader, fileSize.toString());
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      request.response.headers.set('transferMode.dlna.org', 'Streaming');
+      request.response.headers.set('contentFeatures.dlna.org',
+          'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000');
 
       if (isHead) {
         await request.response.close();
@@ -312,13 +338,14 @@ class LocalMediaServer {
     }
   }
 
-  /// Registers a live 24-bit LPCM WAV stream backed by `ae_read_cast_pcm_s24le`
-  /// and returns its LAN HTTP URL for Chromecast or DLNA receivers.
+  /// Registers a live 24-bit WAV or DLNA raw LPCM (`audio/L24` / `audio/L16`)
+  /// stream backed by `ae_read_cast_pcm_s24le` and returns its LAN HTTP URL.
   Future<String?> serveLive24BitWav({
     required int engineAddress,
     required int sampleRate,
     required int channels,
     required bool Function() isPlaying,
+    LiveCastStreamFormat format = LiveCastStreamFormat.wav24,
   }) async {
     if (_server == null) {
       await start();
@@ -337,7 +364,12 @@ class LocalMediaServer {
     localIp ??= '127.0.0.1';
     _lastLanIp = localIp;
 
-    return 'http://$localIp:$_port/cast/live_$_liveToken.wav';
+    final ext = switch (format) {
+      LiveCastStreamFormat.wav24 => 'wav',
+      LiveCastStreamFormat.lpcm24 => 'l24',
+      LiveCastStreamFormat.lpcm16 => 'l16',
+    };
+    return 'http://$localIp:$_port/cast/live_$_liveToken.$ext';
   }
 
   void stopLiveWavStream() {
@@ -348,9 +380,19 @@ class LocalMediaServer {
 
   Future<void> _handleLiveWavRequest(HttpRequest request) async {
     _ensureLiveFfi();
-    final tokenStr = request.uri.path
-        .replaceFirst('/cast/live_', '')
-        .replaceFirst('.wav', '');
+    final reqPath = request.uri.path;
+    final LiveCastStreamFormat fmt;
+    final String tokenStr;
+    if (reqPath.endsWith('.l24')) {
+      fmt = LiveCastStreamFormat.lpcm24;
+      tokenStr = reqPath.replaceFirst('/cast/live_', '').replaceFirst('.l24', '');
+    } else if (reqPath.endsWith('.l16')) {
+      fmt = LiveCastStreamFormat.lpcm16;
+      tokenStr = reqPath.replaceFirst('/cast/live_', '').replaceFirst('.l16', '');
+    } else {
+      fmt = LiveCastStreamFormat.wav24;
+      tokenStr = reqPath.replaceFirst('/cast/live_', '').replaceFirst('.wav', '');
+    }
     final reqToken = int.tryParse(tokenStr);
     if (_liveEngineAddress == 0 ||
         reqToken == null ||
@@ -365,10 +407,19 @@ class LocalMediaServer {
 
     final sr = _liveSampleRate;
     final ch = _liveChannels;
-    final header = buildWavHeader24Bit(sampleRate: sr, channels: ch);
+    final isWav = fmt == LiveCastStreamFormat.wav24;
+    final header = isWav ? buildWavHeader24Bit(sampleRate: sr, channels: ch) : Uint8List(0);
+    final contentType = switch (fmt) {
+      LiveCastStreamFormat.wav24 => 'audio/wav',
+      LiveCastStreamFormat.lpcm24 => 'audio/L24;rate=$sr;channels=$ch',
+      LiveCastStreamFormat.lpcm16 => 'audio/L16;rate=$sr;channels=$ch',
+    };
 
-    request.response.headers.set(HttpHeaders.contentTypeHeader, 'audio/wav');
+    request.response.headers.set(HttpHeaders.contentTypeHeader, contentType);
     request.response.headers.set('Cache-Control', 'no-cache, no-store');
+    request.response.headers.set('transferMode.dlna.org', 'Streaming');
+    request.response.headers.set('contentFeatures.dlna.org',
+        'DLNA.ORG_OP=00;DLNA.ORG_CI=1;DLNA.ORG_FLAGS=01700000000000000000000000000000');
 
     if (request.method == 'HEAD') {
       request.response.headers.set(HttpHeaders.acceptRangesHeader, 'none');
@@ -379,7 +430,7 @@ class LocalMediaServer {
     // Handle tiny probe ranges (e.g. bytes=0-1 or bytes=0-43) without opening
     // the continuous engine stream or flushing audio.
     final rangeHeader = request.headers.value(HttpHeaders.rangeHeader);
-    if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+    if (isWav && rangeHeader != null && rangeHeader.startsWith('bytes=')) {
       final parts = rangeHeader.replaceFirst('bytes=', '').split('-');
       final start = int.tryParse(parts[0]) ?? 0;
       final end = parts.length > 1 && parts[1].isNotEmpty
@@ -405,23 +456,27 @@ class LocalMediaServer {
     _activeLiveCancel?.call();
     request.response.statusCode = HttpStatus.ok;
     request.response.bufferOutput = false;
-    // Provide the explicit RIFF/WAVE length so Dart's HttpServer does NOT use
-    // Transfer-Encoding: chunked (many DLNA renderers mute or stall on chunked WAV).
+    // Provide an explicit Content-Length so Dart's HttpServer does NOT use
+    // Transfer-Encoding: chunked (many DLNA renderers mute or stall on chunked audio).
     request.response.contentLength = header.length + 0x7FFFF000;
     request.response.headers.set(HttpHeaders.acceptRangesHeader, 'none');
 
     final enginePtr = ffi.Pointer<ffi.Void>.fromAddress(_liveEngineAddress);
     _aeFlushCastTap?.call(enginePtr);
-    request.response.add(header);
+    if (header.isNotEmpty) {
+      request.response.add(header);
+    }
 
-    final frameBytes = math.max(3, ch * 3);
+    final inFrameBytes = math.max(3, ch * 3);
+    final outBytesPerSample = fmt == LiveCastStreamFormat.lpcm16 ? 2 : 3;
+    final outFrameBytes = math.max(2, ch * outBytesPerSample);
     final framesPer20ms = math.max(1, (sr * 20) ~/ 1000);
-    final chunk20msBytes = framesPer20ms * frameBytes;
-    final readBufCapacity = math.max(65536, chunk20msBytes * 4);
+    final chunk20msInBytes = framesPer20ms * inFrameBytes;
+    final readBufCapacity = math.max(65536, chunk20msInBytes * 4);
     final nativeBuf = _malloc!(readBufCapacity).cast<ffi.Uint8>();
     final outSrPtr = _malloc!(4).cast<ffi.Int32>();
     final outChPtr = _malloc!(4).cast<ffi.Int32>();
-    final silence20ms = Uint8List(chunk20msBytes);
+    final silence20ms = Uint8List(framesPer20ms * outFrameBytes);
 
     var closed = false;
     Timer? timer;
@@ -466,7 +521,31 @@ class LocalMediaServer {
 
         if (n > 0) {
           emptyTicks = 0;
-          final bytes = Uint8List.fromList(nativeBuf.asTypedList(n));
+          final raw = nativeBuf.asTypedList(n);
+          final Uint8List bytes;
+          if (fmt == LiveCastStreamFormat.wav24) {
+            bytes = Uint8List.fromList(raw);
+          } else if (fmt == LiveCastStreamFormat.lpcm24) {
+            // S24LE -> S24BE (DLNA audio/L24)
+            final sampleCount = n ~/ 3;
+            bytes = Uint8List(sampleCount * 3);
+            for (var i = 0; i < sampleCount; i++) {
+              final off = i * 3;
+              bytes[off] = raw[off + 2];
+              bytes[off + 1] = raw[off + 1];
+              bytes[off + 2] = raw[off];
+            }
+          } else {
+            // S24LE -> S16BE (DLNA audio/L16)
+            final sampleCount = n ~/ 3;
+            bytes = Uint8List(sampleCount * 2);
+            for (var i = 0; i < sampleCount; i++) {
+              final inOff = i * 3;
+              final outOff = i * 2;
+              bytes[outOff] = raw[inOff + 2];
+              bytes[outOff + 1] = raw[inOff + 1];
+            }
+          }
           request.response.add(bytes);
         } else if (!playing) {
           emptyTicks = 0;
@@ -584,6 +663,14 @@ class LocalMediaServer {
       serverPort: _port,
       mimeType: mimeTypeForPathOrExt(entry.name),
     );
+  }
+
+  /// Registers a generic [RemoteByteSource] (WebDAV, SFTP, SMB) for local
+  /// HTTP byte-range streaming and returns its loopback URL.
+  Future<String?> registerRemoteSource(RemoteByteSource source) async {
+    await start();
+    if (_server == null) return null;
+    return RemoteStreamRelay.instance.registerSource(source, _port);
   }
 
   static String mimeTypeForPathOrExt(String pathOrExt) =>

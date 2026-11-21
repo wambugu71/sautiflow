@@ -4,10 +4,14 @@ import 'package:drift/drift.dart';
 @TableIndex(name: 'idx_local_tracks_title', columns: {#title})
 @TableIndex(name: 'idx_local_tracks_artist', columns: {#artist})
 @TableIndex(name: 'idx_local_tracks_album', columns: {#album})
+@TableIndex(name: 'idx_local_tracks_genre', columns: {#genre})
 @TableIndex(name: 'idx_local_tracks_modified', columns: {#lastModifiedMs})
 @TableIndex(name: 'idx_local_tracks_size', columns: {#sizeBytes})
 @TableIndex(name: 'idx_local_tracks_ext', columns: {#extension})
 @TableIndex(name: 'idx_local_tracks_real_path', columns: {#realFilePath})
+@TableIndex(name: 'idx_local_tracks_bpm', columns: {#bpm})
+@TableIndex(name: 'idx_local_tracks_camelot', columns: {#camelotKey})
+@TableIndex(name: 'idx_local_tracks_year', columns: {#year})
 class LocalTrackEntries extends Table {
   @override
   String get tableName => 'local_tracks';
@@ -39,6 +43,22 @@ class LocalTrackEntries extends Table {
   IntColumn get trackNumber => integer().nullable()();
   TextColumn get cueFilePath => text().nullable()();
   IntColumn get year => integer().nullable()();
+
+  // Extended intelligent metadata & audio properties (v3)
+  TextColumn get albumArtist => text().nullable()();
+  IntColumn get discNumber => integer().nullable()();
+  TextColumn get composer => text().nullable()();
+  RealColumn get bpm => real().nullable()();
+  TextColumn get musicalKey => text().nullable()();
+  TextColumn get camelotKey => text().nullable()();
+  RealColumn get replayGainDb => real().nullable()();
+  IntColumn get durationMs => integer().nullable()();
+  IntColumn get sampleRate => integer().nullable()();
+  IntColumn get bitDepth => integer().nullable()();
+  IntColumn get playCount => integer().withDefault(const Constant(0))();
+  IntColumn get rating => integer().withDefault(const Constant(0))();
+  IntColumn get lastPlayedAtMs => integer().nullable()();
+  IntColumn get tagsUpdatedAtMs => integer().nullable()();
 
   @override
   Set<Column> get primaryKey => {path};

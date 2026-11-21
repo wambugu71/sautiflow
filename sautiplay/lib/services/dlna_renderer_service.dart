@@ -759,8 +759,13 @@ class DlnaRendererService extends ChangeNotifier {
   String? _connectionManagerAction(String action) {
     switch (action) {
       case 'GetProtocolInfo':
-        const sink = 'http-get:*:audio/mpeg:*,http-get:*:audio/flac:*,'
-            'http-get:*:audio/x-wav:*,http-get:*:audio/wav:*,'
+        const sink = 'http-get:*:audio/flac:*,http-get:*:audio/x-flac:*,'
+            'http-get:*:audio/wav:*,http-get:*:audio/x-wav:*,'
+            'http-get:*:audio/L24:*,http-get:*:audio/L16:*,'
+            'http-get:*:audio/aiff:*,http-get:*:audio/x-aiff:*,'
+            'http-get:*:audio/dsf:*,http-get:*:audio/x-dsf:*,'
+            'http-get:*:audio/x-wavpack:*,http-get:*:audio/opus:*,'
+            'http-get:*:audio/mpeg:*,http-get:*:audio/mp3:*,'
             'http-get:*:audio/aac:*,http-get:*:audio/mp4:*,'
             'http-get:*:audio/ogg:*,http-get:*:application/ogg:*';
         return _soapResponse('GetProtocolInfo', 'ConnectionManager',

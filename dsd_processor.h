@@ -322,7 +322,7 @@ inline DsdFileHeader parse_dff_header_with_optional_diin(
     }
 
     uint64_t frmSize = read_be64(frm8 + 4);
-    uint64_t formEnd = std::min(fileSize, 12ull + frmSize);
+    uint64_t formEnd = std::min<uint64_t>(fileSize, uint64_t{12} + frmSize);
     uint64_t pos = 16;
 
     bool gotFs = false;

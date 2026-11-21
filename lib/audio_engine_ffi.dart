@@ -1368,9 +1368,9 @@ final class AEHardwareInfoNative extends ffi.Struct {
 
 /// Audio output backends supported by the engine.
 enum AudioOutputBackend {
-  auto(0, 'Auto (System Optimal)'),
-  aaudio(1, 'AAudio (Android Low-Latency)'),
-  openSl(2, 'OpenSL ES (Android Legacy Fallback)'),
+  auto(0, 'Auto (Oboe / System Optimal)'),
+  aaudio(1, 'AAudio via Oboe (Android Low-Latency MMAP)'),
+  openSl(2, 'OpenSL ES via Oboe (Android Legacy Fallback)'),
   audioTrack(3, 'AudioTrack (Java Audio Subsystem)'),
   directHiRes(4, 'Direct Hi-Res (Bit-Perfect Direct HAL / DAC)'),
   usbDirect(5, 'USB Direct (libusb Bit-Perfect DAC Bypass)'),
