@@ -14,13 +14,13 @@ set(ROOT_DIR "")
 set(CANDIDATE_SEARCH_DIRS
     "$ENV{LIBPROJECTM_DIR}"
     "$ENV{PROJECTM_ROOT}"
-    "${CMAKE_CURRENT_LIST_DIR}/../../.."
     "${CURRENT_REAL_DIR}/../../.."
+    "${CMAKE_CURRENT_LIST_DIR}/../../.."
 )
 
 foreach(CANDIDATE ${CANDIDATE_SEARCH_DIRS})
     if(CANDIDATE AND EXISTS "${CANDIDATE}/src/libprojectM/ProjectM.cpp")
-        set(ROOT_DIR "${CANDIDATE}")
+        get_filename_component(ROOT_DIR "${CANDIDATE}" REALPATH)
         break()
     endif()
 endforeach()
@@ -53,17 +53,22 @@ endif()
 file(TO_CMAKE_PATH "${ROOT_DIR}" ROOT_DIR)
 message(STATUS "FOUND ROOT_DIR: ${ROOT_DIR}")
 
-if (ANDROID OR (UNIX AND NOT APPLE) OR APPLE)
-    if(NOT TARGET projectM)
-        set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-        set(ENABLE_PLAYLIST OFF CACHE BOOL "" FORCE)
-        set(ENABLE_SDL_UI OFF CACHE BOOL "" FORCE)
-        set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-        set(BUILD_DOCS OFF CACHE BOOL "" FORCE)
-        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+if(WIN32)
+    set(GLEW_ROOT "${ROOT_DIR}/vendor/glew/glew-2.2.0")
+    set(GLEW_INCLUDE_DIR "${GLEW_ROOT}/include" CACHE PATH "" FORCE)
+    set(GLEW_LIBRARY "${GLEW_ROOT}/lib/Release/x64/glew32.lib" CACHE FILEPATH "" FORCE)
+    set(GLEW_SHARED_LIBRARY_RELEASE "${GLEW_ROOT}/lib/Release/x64/glew32.lib" CACHE FILEPATH "" FORCE)
+endif()
 
-        add_subdirectory(${ROOT_DIR} ${CMAKE_CURRENT_BINARY_DIR}/pm EXCLUDE_FROM_ALL)
-    endif()
+if(NOT TARGET projectM)
+    set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(ENABLE_PLAYLIST OFF CACHE BOOL "" FORCE)
+    set(ENABLE_SDL_UI OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+    add_subdirectory(${ROOT_DIR} ${CMAKE_CURRENT_BINARY_DIR}/pm EXCLUDE_FROM_ALL)
 endif()
 
 add_library(projectm_visualizer SHARED
@@ -111,7 +116,7 @@ target_compile_definitions(projectm_visualizer PUBLIC DART_SHARED_LIB)
 target_include_directories(projectm_visualizer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${ROOT_DIR}/src/api/include
-    ${ROOT_DIR}/build/projectm/src/api/include
+    ${CMAKE_CURRENT_BINARY_DIR}/pm/src/api/include
     ${ROOT_DIR}
 )
 
@@ -127,7 +132,7 @@ if (WIN32)
     find_package(OpenGL REQUIRED)
 
     target_link_libraries(projectm_visualizer PRIVATE
-        ${ROOT_DIR}/build/projectm/src/libprojectM/Release/projectM-4.lib
+        projectM
         ${GLEW_LIBRARIES}
         OpenGL::GL
         winmm
@@ -136,11 +141,8 @@ if (WIN32)
         user32
     )
 
-    # Copy projectM-4.dll and glew32.dll alongside the built plugin dll
+    # Copy glew32.dll alongside the built plugin dll
     add_custom_command(TARGET projectm_visualizer POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${ROOT_DIR}/build/projectm/src/libprojectM/Release/projectM-4.dll"
-            "$<TARGET_FILE_DIR:projectm_visualizer>"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${GLEW_ROOT}/bin/Release/x64/glew32.dll"
             "$<TARGET_FILE_DIR:projectm_visualizer>"

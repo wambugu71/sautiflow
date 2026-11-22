@@ -21,13 +21,13 @@ set(ROOT_DIR "")
 set(CANDIDATE_SEARCH_DIRS
     "$ENV{LIBPROJECTM_DIR}"
     "$ENV{PROJECTM_ROOT}"
-    "${CMAKE_CURRENT_LIST_DIR}/../../.."
     "${CURRENT_REAL_DIR}/../../.."
+    "${CMAKE_CURRENT_LIST_DIR}/../../.."
 )
 
 foreach(CANDIDATE ${CANDIDATE_SEARCH_DIRS})
     if(CANDIDATE AND EXISTS "${CANDIDATE}/src/libprojectM/ProjectM.cpp")
-        set(ROOT_DIR "${CANDIDATE}")
+        get_filename_component(ROOT_DIR "${CANDIDATE}" REALPATH)
         break()
     endif()
 endforeach()
@@ -64,7 +64,6 @@ file(TO_CMAKE_PATH "${ROOT_DIR}" ROOT_DIR)
 # external build triggered from this build file.
 set(projectm_visualizer_bundled_libraries
   $<TARGET_FILE:projectm_visualizer>
-  "${ROOT_DIR}/build/projectm/src/libprojectM/Release/projectM-4.dll"
   "${ROOT_DIR}/vendor/glew/glew-2.2.0/bin/Release/x64/glew32.dll"
   PARENT_SCOPE
 )

@@ -33,15 +33,15 @@ jobs:
       - name: Prepare Submodules for Pub Publish
         run: |
           # 1. Un-track the submodules as Git links
-          git rm --cached -f third_party/faad2 third_party/libsamplerate || true
+          git rm --cached -f third_party/libsamplerate third_party/oboe || true
           
           # 2. Delete their inner .git folders/files so they are treated as normal directories
-          rm -rf third_party/faad2/.git
           rm -rf third_party/libsamplerate/.git
+          rm -rf third_party/oboe/.git
           find third_party -name ".git*" -exec rm -rf {} + || true
           
           # 3. Add the files to git index
-          git add third_party/faad2 third_party/libsamplerate
+          git add third_party/libsamplerate third_party/oboe
           
           # 4. Commit so `dart pub publish` treats them as normal files
           git config --global user.name "github-actions[bot]"
