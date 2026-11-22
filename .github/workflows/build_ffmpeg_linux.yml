@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-linux-ffmpeg:
     runs-on: ubuntu-latest
@@ -43,6 +46,7 @@ jobs:
             -DUSE_STATIC_MBEDTLS_LIBRARY=ON \
             -DENABLE_TESTING=OFF \
             -DENABLE_PROGRAMS=OFF \
+            -DMBEDTLS_FATAL_WARNINGS=OFF \
             -DCMAKE_INSTALL_PREFIX="$MBEDTLS_PREFIX"
 
           ninja install

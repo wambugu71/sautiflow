@@ -1,3 +1,6 @@
 [submodule "third_party/libsamplerate"]
 	path = third_party/libsamplerate
 	url = https://github.com/libsndfile/libsamplerate.git
+[submodule "third_party/oboe"]
+	path = third_party/oboe
+	url = https://github.com/google/oboe.git

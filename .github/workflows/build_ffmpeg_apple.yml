@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-apple-ffmpeg:
     runs-on: macos-14 # Apple Silicon macOS runner
