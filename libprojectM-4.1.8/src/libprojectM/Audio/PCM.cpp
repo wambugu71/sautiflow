@@ -1,5 +1,7 @@
 #include "PCM.hpp"
 
+#include <algorithm>
+
 namespace libprojectM {
 namespace Audio {
 
