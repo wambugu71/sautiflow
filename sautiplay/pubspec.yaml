@@ -88,7 +88,7 @@ dev_dependencies:
   drift_dev: ^2.34.0
   build_runner: ^2.15.1
 
-  metadata_god: any
+
 flutter:
   uses-material-design: true
   assets:
