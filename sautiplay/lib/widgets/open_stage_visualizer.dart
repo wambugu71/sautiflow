@@ -40,7 +40,22 @@ class _OpenStageSoundstageVisualizerState
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2200),
-    )..repeat();
+    );
+    if (widget.isEnabled) {
+      _animController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant OpenStageSoundstageVisualizer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isEnabled != oldWidget.isEnabled) {
+      if (widget.isEnabled) {
+        _animController.repeat();
+      } else {
+        _animController.stop();
+      }
+    }
   }
 
   @override
@@ -49,27 +64,20 @@ class _OpenStageSoundstageVisualizerState
     super.dispose();
   }
 
-  // Spherical head physics: ITD & Cutoff calculation
+  // Woodworth spherical-head physics: ITD & Cutoff calculation (matches OpenStageDSP)
   ({int itdMicroseconds, int cutoffHz}) _computePhysics() {
-    const double w = 0.15; // 15 cm head diameter
-    const double d = 1.00; // 1.0 m speaker distance
-    const double c = 340.0; // speed of sound m/s
+    const double a = 0.0875; // 8.75 cm head radius
+    const double c = 343.0; // speed of sound m/s
 
-    final double halfThetaRad = (widget.angleDegrees * 0.5) * (math.pi / 180.0);
-    final double sinHalfTheta = math.sin(halfThetaRad);
+    final double theta =
+        (widget.angleDegrees.clamp(0.0, 90.0) * 0.5) * (math.pi / 180.0);
+    final double sinT = math.sin(theta);
 
-    final double dFar = math.sqrt(
-        math.max(0.0, d * d + (w * w * 0.25) + (w * d * sinHalfTheta)));
-    final double dNear = math.sqrt(
-        math.max(0.0, d * d + (w * w * 0.25) - (w * d * sinHalfTheta)));
-
-    final double itdSeconds = (dFar - dNear) / c;
+    final double itdSeconds = (a / c) * (theta + sinT);
     final int itdMicros = (itdSeconds * 1000000.0).round();
+    final double fcContra = 950.0 - 300.0 * sinT;
 
-    final double fLow = math.min(
-        0.5 / math.max(itdSeconds, 1e-5), 2000.0);
-
-    return (itdMicroseconds: itdMicros, cutoffHz: fLow.round());
+    return (itdMicroseconds: itdMicros, cutoffHz: fcContra.round());
   }
 
   @override

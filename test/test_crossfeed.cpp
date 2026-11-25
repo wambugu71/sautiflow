@@ -324,9 +324,9 @@ void test_meier_and_64bit_precision()
     {
         maxCrossR = std::max(maxCrossR, std::abs(sineBuf[i * 2 + 1]));
     }
-    // Expected amplitude at -3 dB corner: crossGain (0.35) * (1 / sqrt(2)) = 0.247487
-    const float expectedCornerAmp = 0.35f * 0.70710678f;
-    assert(std::abs(maxCrossR - expectedCornerAmp) < 0.015f);
+    // Expected amplitude at -3 dB corner: crossGain (0.60) * (1 / sqrt(2)) = 0.424264
+    const float expectedCornerAmp = 0.60f * 0.70710678f;
+    assert(std::abs(maxCrossR - expectedCornerAmp) < 0.02f);
     std::cout << "  [PASS] Jan Meier -3dB cutoff accuracy @ 700 Hz: expected "
               << expectedCornerAmp << ", measured " << maxCrossR << "\n";
 
@@ -348,6 +348,198 @@ void test_meier_and_64bit_precision()
         }
     }
     std::cout << "  [PASS] 64-bit double-precision process(double*) verified for all 6 algorithms\n";
+}
+
+namespace {
+double measureSineRms(const std::vector<float>& buf, int chOffset, uint32_t startFrame, uint32_t endFrame)
+{
+    double sumSq = 0.0;
+    const uint32_t count = endFrame - startFrame;
+    for (uint32_t i = startFrame; i < endFrame; ++i)
+    {
+        const double v = static_cast<double>(buf[i * 2 + chOffset]);
+        sumSq += v * v;
+    }
+    return std::sqrt(sumSq / static_cast<double>(count));
+}
+} // namespace
+
+void test_bs2b_libbs2b_presets_and_flat_mono()
+{
+    std::cout << "\nRunning Exact libbs2b ILD & Flat Mono Sum Tests:\n";
+    const double sr = 48000.0;
+    constexpr double kTwoPi = 6.28318530717958647692;
+
+    struct PresetCase { const char* name; float mix; float cutoff; double expectedIldDb; };
+    const PresetCase cases[] = {
+        {"Jan Meier (9.5 dB)", 0.30f, 650.0f, 9.5},
+        {"Chu Moy (6.0 dB)",   0.65f, 700.0f, 6.0},
+        {"Default (4.5 dB)",   0.80f, 700.0f, 4.5},
+    };
+
+    for (const auto& c : cases)
+    {
+        CrossfeedNode node;
+        node.setSampleRate(sr);
+        node.setAlgorithm(CrossfeedAlgorithm::BS2B);
+        node.setMix(c.mix);
+        node.setCutoffHz(c.cutoff);
+        node.setOutputCompensation(true);
+        node.reset();
+
+        // Low-frequency (50 Hz) hard-left ILD verification
+        constexpr uint32_t frames = 9600;
+        std::vector<float> buf(frames * 2, 0.0f);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            buf[i * 2] = static_cast<float>(std::sin(kTwoPi * 50.0 * i / sr));
+        }
+        node.process(buf.data(), frames, 2);
+        const double ampL = measureSineRms(buf, 0, frames / 2, frames);
+        const double ampR = measureSineRms(buf, 1, frames / 2, frames);
+        const double ildDb = 20.0 * std::log10(ampL / std::max(1e-9, ampR));
+        assert(std::abs(ildDb - c.expectedIldDb) < 0.25);
+
+        // Mono sum flatness across 100 Hz .. 8 kHz
+        double minMonoDb = 100.0, maxMonoDb = -100.0;
+        for (double f : {100.0, 500.0, 1000.0, 1500.0, 3000.0, 8000.0})
+        {
+            node.reset();
+            std::vector<float> mono(frames * 2, 0.0f);
+            for (uint32_t i = 0; i < frames; ++i)
+            {
+                const float s = static_cast<float>(std::sin(kTwoPi * f * i / sr));
+                mono[i * 2] = s;
+                mono[i * 2 + 1] = s;
+            }
+            const double inRms = measureSineRms(mono, 0, frames / 2, frames);
+            node.process(mono.data(), frames, 2);
+            const double outRms = measureSineRms(mono, 0, frames / 2, frames);
+            const double db = 20.0 * std::log10(outRms / std::max(1e-9, inRms));
+            minMonoDb = std::min(minMonoDb, db);
+            maxMonoDb = std::max(maxMonoDb, db);
+        }
+        assert(minMonoDb > -2.0 && maxMonoDb < 0.5);
+        std::cout << "  [PASS] BS2B " << c.name << ": ILD=" << ildDb
+                  << " dB, Mono range=[" << minMonoDb << ", " << maxMonoDb << "] dB\n";
+    }
+}
+
+void test_natural_group_delay_compensation()
+{
+    std::cout << "\nRunning Natural 2-Pole Group Delay Compensation Test:\n";
+    const double sr = 48000.0;
+    CrossfeedNode node;
+    node.setSampleRate(sr);
+    node.setAlgorithm(CrossfeedAlgorithm::Natural);
+    node.setMix(0.50f);
+    node.setDelayMs(0.40f);
+    node.setCutoffHz(700.0f);
+    node.reset();
+
+    // Measure low-frequency pulse group centroid lag between contralateral & direct outputs
+    constexpr uint32_t frames = 2048;
+    std::vector<float> buf(frames * 2, 0.0f);
+    for (uint32_t i = 100; i < 500; ++i)
+    {
+        const double t = static_cast<double>(i - 100) / 400.0;
+        const double win = 0.5 * (1.0 - std::cos(2.0 * 3.14159265358979323846 * t));
+        buf[i * 2] = static_cast<float>(win);
+    }
+    node.process(buf.data(), frames, 2);
+
+    double numL = 0.0, denL = 0.0, numR = 0.0, denR = 0.0;
+    for (uint32_t i = 0; i < frames; ++i)
+    {
+        const double l = static_cast<double>(buf[i * 2]);
+        const double r = static_cast<double>(buf[i * 2 + 1]);
+        numL += i * l; denL += l;
+        numR += i * r; denR += r;
+    }
+    const double centroidDiffSamples = (numR / denR) - (numL / denL);
+    const double measuredItdMs = (centroidDiffSamples / sr) * 1000.0;
+    // Previously ~0.73ms without GD subtraction; now ~0.40ms (within +-0.08ms)
+    assert(measuredItdMs > 0.32 && measuredItdMs < 0.48);
+    std::cout << "  [PASS] Natural total ITD @ 700Hz / 0.40ms target = " << measuredItdMs << " ms\n";
+}
+
+void test_race_subbass_stability_and_isolation()
+{
+    std::cout << "\nRunning RACE Sub-Bass HPF & Parameter Isolation Tests:\n";
+    const double sr = 48000.0;
+    constexpr double kTwoPi = 6.28318530717958647692;
+
+    CrossfeedNode node;
+    node.setSampleRate(sr);
+    node.setMix(0.50f);
+    node.setDelayMs(0.40f);
+    node.setCutoffHz(700.0f);
+
+    // RACE parameter isolation check
+    node.setRaceParams(0.12f, 0.75f, 3200.0f);
+    node.setAlgorithm(CrossfeedAlgorithm::BS2B);
+    assert(std::abs(node.getMix() - 0.50f) < 1e-4f);
+    assert(std::abs(node.getDelayMs() - 0.40f) < 1e-4f);
+    assert(std::abs(node.getCutoffHz() - 700.0f) < 1e-2f);
+
+    // Switch to RACE and verify 60 Hz Side (out-of-phase) does NOT blow up
+    node.setAlgorithm(CrossfeedAlgorithm::RACE);
+    node.reset();
+
+    constexpr uint32_t frames = 9600;
+    std::vector<float> sideBuf(frames * 2, 0.0f);
+    for (uint32_t i = 0; i < frames; ++i)
+    {
+        const float s = 0.5f * static_cast<float>(std::sin(kTwoPi * 60.0 * i / sr));
+        sideBuf[i * 2] = s;
+        sideBuf[i * 2 + 1] = -s;
+    }
+    const double inRms = measureSineRms(sideBuf, 0, frames / 2, frames);
+    node.process(sideBuf.data(), frames, 2);
+    const double sideOutRms = measureSineRms(sideBuf, 0, frames / 2, frames);
+    const double sideGainDb = 20.0 * std::log10(sideOutRms / std::max(1e-9, inRms));
+    assert(sideGainDb > -2.5 && sideGainDb < 1.0);
+    std::cout << "  [PASS] RACE 60 Hz Side gain = " << sideGainDb << " dB (no LF explosion), param isolation verified\n";
+}
+
+void test_openstage_angles_and_mono_flatness()
+{
+    std::cout << "\nRunning OpenStage Angle Differentiation & Mono Flatness Tests:\n";
+    const double sr = 48000.0;
+    constexpr double kTwoPi = 6.28318530717958647692;
+
+    sauti::dsp::OpenStageDSP d30, d60, d90;
+    d30.setSampleRate(sr); d30.setAngle(30.0f); d30.reset();
+    d60.setSampleRate(sr); d60.setAngle(60.0f); d60.reset();
+    d90.setSampleRate(sr); d90.setAngle(90.0f); d90.reset();
+
+    assert(d30.getItdMs() < d60.getItdMs() && d60.getItdMs() < d90.getItdMs());
+    assert(d30.getHeadShadowCutoffHz() > d60.getHeadShadowCutoffHz() &&
+           d60.getHeadShadowCutoffHz() > d90.getHeadShadowCutoffHz());
+
+    // Mono sum flatness at 60 deg (gainDb = -1.0, mix = 1.0) across 100 Hz .. 8 kHz
+    double minMonoDb = 100.0, maxMonoDb = -100.0;
+    constexpr uint32_t frames = 4800;
+    for (double f : {100.0, 300.0, 700.0, 1000.0, 2000.0, 4000.0, 8000.0})
+    {
+        d60.reset();
+        std::vector<float> mono(frames * 2, 0.0f);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            const float s = static_cast<float>(std::sin(kTwoPi * f * i / sr));
+            mono[i * 2] = s;
+            mono[i * 2 + 1] = s;
+        }
+        const double inRms = measureSineRms(mono, 0, frames / 2, frames);
+        d60.process(mono.data(), frames, 2);
+        const double outRms = measureSineRms(mono, 0, frames / 2, frames);
+        const double db = 20.0 * std::log10(outRms / std::max(1e-9, inRms));
+        minMonoDb = std::min(minMonoDb, db);
+        maxMonoDb = std::max(maxMonoDb, db);
+    }
+    assert(minMonoDb > -1.9 && maxMonoDb < 1.2);
+    std::cout << "  [PASS] OpenStage 60° mono flatness = [" << minMonoDb << ", " << maxMonoDb
+              << "] dB; ITD(30/60/90)=" << d30.getItdMs() << "/" << d60.getItdMs() << "/" << d90.getItdMs() << " ms\n";
 }
 
 int main()
@@ -372,6 +564,10 @@ int main()
     test_race_properties();
     test_openstage_properties();
     test_meier_and_64bit_precision();
+    test_bs2b_libbs2b_presets_and_flat_mono();
+    test_natural_group_delay_compensation();
+    test_race_subbass_stability_and_isolation();
+    test_openstage_angles_and_mono_flatness();
 
     std::cout << "\nRunning PDC Latency Reporting Tests:\n";
     CrossfeedNode pdcNode;
@@ -381,11 +577,10 @@ int main()
     pdcNode.setDelayMs(0.5f);
     pdcNode.setSampleRate(48000.0);
     pdcNode.reset();
-    double expectedPdc = 0.5 * 0.001 * 48000.0;
-    assert(std::abs(pdcNode.getLatencySamples() - expectedPdc) < 1e-4);
+    assert(pdcNode.getLatencySamples() == 0.0);
     pdcNode.setAlgorithm(CrossfeedAlgorithm::Off);
     assert(pdcNode.getLatencySamples() == 0.0);
-    std::cout << "  [PASS] Node getLatencySamples() verified (0.5ms @ 48kHz = " << expectedPdc << " samples)\n";
+    std::cout << "  [PASS] Node getLatencySamples() verified (0.0 samples zero-latency direct path)\n";
 
     std::cout << "\nAll Crossfeed DSP Node tests passed successfully!\n";
     return 0;

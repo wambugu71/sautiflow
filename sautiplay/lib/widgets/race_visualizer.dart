@@ -32,7 +32,22 @@ class _RaceSoundstageVisualizerState extends State<RaceSoundstageVisualizer>
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
-    )..repeat();
+    );
+    if (widget.isEnabled) {
+      _animController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant RaceSoundstageVisualizer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isEnabled != oldWidget.isEnabled) {
+      if (widget.isEnabled) {
+        _animController.repeat();
+      } else {
+        _animController.stop();
+      }
+    }
   }
 
   @override

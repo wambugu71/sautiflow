@@ -2325,197 +2325,6 @@ namespace
         }
     };
 
-    struct CrossfeedState
-    {
-        float a0_lo = 0.0f;
-        float b1_lo = 0.0f;
-        float a0_hi = 0.0f;
-        float a1_hi = 0.0f;
-        float b1_hi = 0.0f;
-        float gain = 1.0f;
-
-        struct FilterState
-        {
-            float lo[2] = {0.0f, 0.0f};
-            float hi[2] = {0.0f, 0.0f};
-            float asis[2] = {0.0f, 0.0f};
-        } lfs;
-
-        // Ambiophonics R.A.C.E. (Preset 4)
-        static constexpr size_t RACE_MAX_DELAY = 128;
-        float raceRingBufferL[RACE_MAX_DELAY] = {};
-        float raceRingBufferR[RACE_MAX_DELAY] = {};
-        size_t raceWriteIdx = 0;
-        size_t raceDelaySamples = 8; // ~166us at 48kHz
-        float raceDelayMs = 0.166f;  // ~166us
-        float raceAlpha = 0.55f;
-        float raceLpfHz = 2500.0f;
-        float raceLpfA0 = 0.0f;
-        float raceLpfB1 = 0.0f;
-        float raceLpfOutL = 0.0f;
-        float raceLpfOutR = 0.0f;
-
-        int currentPreset = 1;
-        int cachedSampleRate = 44100;
-
-        double getLatencySamples(int sampleRate) const
-        {
-            if (currentPreset == 4)
-            {
-                int sr = (sampleRate > 0) ? sampleRate : (cachedSampleRate > 0 ? cachedSampleRate : 44100);
-                return (double)(raceDelayMs * 0.001f) * (double)sr;
-            }
-            return 0.0;
-        }
-
-        void updateRaceParams(int sampleRate, float delayMs, float alpha, float lpfHz)
-        {
-            if (sampleRate <= 0)
-                sampleRate = cachedSampleRate > 0 ? cachedSampleRate : 44100;
-            cachedSampleRate = sampleRate;
-            raceDelayMs = clampf(delayMs, 0.02f, 2.0f);
-            raceAlpha = clampf(alpha, 0.0f, 1.0f);
-            raceLpfHz = clampf(lpfHz, 200.0f, 16000.0f);
-
-            constexpr double pi = 3.14159265358979323846;
-            size_t d = (size_t)((double)(raceDelayMs / 1000.0f) * (double)sampleRate);
-            raceDelaySamples = (d < 1) ? 1 : ((d >= RACE_MAX_DELAY) ? (RACE_MAX_DELAY - 1) : d);
-
-            double x_race = std::exp(-2.0 * pi * (double)raceLpfHz / (double)sampleRate);
-            raceLpfB1 = (float)x_race;
-            raceLpfA0 = (float)(1.0 - x_race);
-        }
-
-        void reset(int sampleRate, int preset)
-        {
-            if (sampleRate <= 0)
-                sampleRate = 44100;
-            cachedSampleRate = sampleRate;
-            currentPreset = preset;
-
-            if (preset == 4) // Ambiophonics R.A.C.E.
-            {
-                updateRaceParams(sampleRate, raceDelayMs, raceAlpha, raceLpfHz);
-                std::memset(raceRingBufferL, 0, sizeof(raceRingBufferL));
-                std::memset(raceRingBufferR, 0, sizeof(raceRingBufferR));
-                raceWriteIdx = 0;
-                raceLpfOutL = 0.0f;
-                raceLpfOutR = 0.0f;
-                return;
-            }
-
-            uint32_t fcut = 700;
-            uint32_t feed = 45;
-
-            if (preset == 1) // BS2B Default (Jan Meier - 700Hz, 4.5dB)
-            {
-                fcut = 700;
-                feed = 45;
-            }
-            else if (preset == 2) // BS2B Chu Moy (700Hz, 6.0dB)
-            {
-                fcut = 700;
-                feed = 60;
-            }
-            else if (preset == 3) // BS2B Strong (650Hz, 9.5dB)
-            {
-                fcut = 650;
-                feed = 95;
-            }
-            else
-            {
-                fcut = 700;
-                feed = 45;
-            }
-
-            const double level = (double)feed / 10.0;
-            const double gb_lo = level * -5.0 / 6.0 - 3.0;
-            const double gb_hi = level / 6.0 - 3.0;
-
-            const double g_lo = std::pow(10.0, gb_lo / 20.0);
-            const double g_hi = 1.0 - std::pow(10.0, gb_hi / 20.0);
-            const double fc_hi = (double)fcut * std::pow(2.0, (gb_lo - 20.0 * std::log10(g_hi)) / 12.0);
-
-            constexpr double pi = 3.14159265358979323846;
-            double x = std::exp(-2.0 * pi * (double)fcut / (double)sampleRate);
-            b1_lo = (float)x;
-            a0_lo = (float)(g_lo * (1.0 - x));
-
-            x = std::exp(-2.0 * pi * fc_hi / (double)sampleRate);
-            b1_hi = (float)x;
-            a0_hi = (float)(1.0 - g_hi * (1.0 - x));
-            a1_hi = (float)(-x);
-
-            gain = (float)(1.0 / (1.0 - g_hi + g_lo));
-            std::memset(&lfs, 0, sizeof(lfs));
-        }
-
-        inline float apply_lo_filter(float in, float out_1) const
-        {
-            return a0_lo * in + b1_lo * out_1;
-        }
-
-        inline float apply_hi_filter(float in, float in_1, float out_1) const
-        {
-            return a0_hi * in + a1_hi * in_1 + b1_hi * out_1;
-        }
-
-        void process(float *interleaved, ma_uint32 frames, int channels)
-        {
-            if (channels < 2)
-                return;
-
-            if (currentPreset == 4) // Ambiophonics R.A.C.E.
-            {
-                for (ma_uint32 i = 0; i < frames; ++i)
-                {
-                    size_t base = (size_t)i * (size_t)channels;
-                    float sL = interleaved[base];
-                    float sR = interleaved[base + 1];
-
-                    size_t readIdx = (raceWriteIdx + RACE_MAX_DELAY - raceDelaySamples) % RACE_MAX_DELAY;
-                    float delayedOutR = raceRingBufferR[readIdx];
-                    float delayedOutL = raceRingBufferL[readIdx];
-
-                    raceLpfOutR = raceLpfA0 * delayedOutR + raceLpfB1 * raceLpfOutR;
-                    raceLpfOutL = raceLpfA0 * delayedOutL + raceLpfB1 * raceLpfOutL;
-
-                    float outL = sL - raceAlpha * raceLpfOutR;
-                    float outR = sR - raceAlpha * raceLpfOutL;
-
-                    outL = std::tanh(outL);
-                    outR = std::tanh(outR);
-
-                    raceRingBufferL[raceWriteIdx] = outL;
-                    raceRingBufferR[raceWriteIdx] = outR;
-                    raceWriteIdx = (raceWriteIdx + 1) % RACE_MAX_DELAY;
-
-                    interleaved[base]     = outL;
-                    interleaved[base + 1] = outR;
-                }
-                return;
-            }
-
-            for (ma_uint32 i = 0; i < frames; ++i)
-            {
-                size_t base = (size_t)i * (size_t)channels;
-                float sL = interleaved[base];
-                float sR = interleaved[base + 1];
-
-                lfs.lo[0] = apply_lo_filter(sL, lfs.lo[0]);
-                lfs.lo[1] = apply_lo_filter(sR, lfs.lo[1]);
-
-                lfs.hi[0] = apply_hi_filter(sL, lfs.asis[0], lfs.hi[0]);
-                lfs.hi[1] = apply_hi_filter(sR, lfs.asis[1], lfs.hi[1]);
-                lfs.asis[0] = sL;
-                lfs.asis[1] = sR;
-
-                interleaved[base]     = (lfs.hi[0] + lfs.lo[1]) * gain;
-                interleaved[base + 1] = (lfs.hi[1] + lfs.lo[0]) * gain;
-            }
-        }
-    };
-
     struct StereoWidenState
     {
         sauti::dsp::StereoImagerDSP imager;
@@ -3915,11 +3724,10 @@ struct AudioEngineHandle
     bool stereoEnhancementEnabled = false;
     StereoEnhancementState stereoEnhancement;
 
-    // Crossfeed (Headphone Virtualization)
+    // Crossfeed (Headphone Virtualization / OpenStage / RACE)
     bool crossfeedEnabled = false;
     int crossfeedPreset = 1;
-    CrossfeedState crossfeed;       // Legacy path (preset-4 RACE; kept for RACE API)
-    CrossfeedNode crossfeedNode;    // New modular crossfeed DSP node
+    CrossfeedNode crossfeedNode;    // Modular crossfeed DSP node
 
     // Crystalizer (audiophile transient reconstruction + air enhancement)
     bool crystalizerEnabled = false;
@@ -5729,7 +5537,6 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->toneCrossoverDsp.setSampleRate((float)sr);
         e->stereoWiden.reset(sr);
         e->crossfeedNode.setSampleRate((double)sr);
-        e->crossfeed.reset(sr, e->crossfeedPreset);
         e->reverbNode.setSampleRate((double)sr);
         e->limiter.updateCoefficients(sr);
         e->loudnessMeter.reset(sr);
@@ -9656,7 +9463,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // Uniform native precision: 100% F64 when use64 is enabled, 100% F32
             // otherwise — zero F64<->F32 hopping.
             const bool isStereoSpatial = (e->channels == 2);
-            const bool hasSpatialFx = e->crossfeedEnabled ||
+            const bool crossfeedActive = e->crossfeedEnabled || e->crossfeedNode.isActive();
+            const bool hasSpatialFx = crossfeedActive ||
                                       e->stereoWidenEnabled ||
                                       e->stereoEnhancementEnabled ||
                                       (isStereoSpatial && e->surroundDsp.isEnabled()) ||
@@ -9668,7 +9476,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 {
                     auto runZone5 = [&](auto *buf) {
                         // 5.1 Binaural Headphone Crossfeed / OpenStage
-                        if (e->crossfeedEnabled)
+                        if (crossfeedActive)
                             e->crossfeedNode.process(buf, produced, e->channels);
 
                         // 5.2 3D Surround & HRTF Virtualizer (Stereo only)
@@ -14991,7 +14799,7 @@ extern "C"
                 switch (algoInt)
                 {
                     case 1: algoName = "Simple ITD"; break;
-                    case 2: algoName = "BS2B Chu Moy"; break;
+                    case 2: algoName = "Bauer BS2B"; break;
                     case 3: algoName = "Jan Meier"; break;
                     case 4: algoName = "Natural"; break;
                     case 5: algoName = "Ambiophonics RACE"; break;
@@ -15000,13 +14808,37 @@ extern "C"
                 }
                 const float mix = e->crossfeedNode.getMix();
                 const double latMs = (sr > 0.0) ? (e->crossfeedNode.getLatencySamples() * 1000.0 / sr) : 0.0;
-                appendNode("crossfeed", "Crossfeed", nativePrec,
-                           std::string(algoName) + " · Mix " + fmtFloat(mix * 100.0, 0) + "%", latMs,
-                           {{"Algorithm", algoName},
-                            {"Mix", fmtFloat(mix * 100.0, 0) + "%"},
-                            {"Cutoff", fmtFloat(e->crossfeedNode.getCutoffHz(), 0) + " Hz"},
-                            {"Delay", fmtFloat(e->crossfeedNode.getDelayMs(), 2) + " ms"},
-                            {"Compensation", e->crossfeedNode.getOutputCompensation() ? "ON" : "OFF"}});
+                if (algoInt == 6)
+                {
+                    appendNode("crossfeed", "Crossfeed", nativePrec,
+                               std::string(algoName) + " · " + fmtFloat(e->crossfeedNode.getAngle(), 0) + " deg · Mix " + fmtFloat(mix * 100.0, 0) + "%", latMs,
+                               {{"Algorithm", algoName},
+                                {"Angle", fmtFloat(e->crossfeedNode.getAngle(), 0) + " deg"},
+                                {"Gain Comp", fmtFloat(e->crossfeedNode.getGainDb(), 1) + " dB"},
+                                {"ITD", fmtFloat(e->crossfeedNode.getOpenStageItdMs() * 1000.0, 0) + " us"},
+                                {"Head Shadow", fmtFloat(e->crossfeedNode.getOpenStageCutoffHz(), 0) + " Hz"},
+                                {"Mix", fmtFloat(mix * 100.0, 0) + "%"}});
+                }
+                else if (algoInt == 5)
+                {
+                    appendNode("crossfeed", "Crossfeed", nativePrec,
+                               std::string(algoName) + " · Alpha " + fmtFloat(mix * 100.0, 0) + "%", latMs,
+                               {{"Algorithm", algoName},
+                                {"Attenuation", fmtFloat(mix * 100.0, 0) + "%"},
+                                {"Delay", fmtFloat(e->crossfeedNode.getDelayMs() * 1000.0, 0) + " us"},
+                                {"Head LPF", fmtFloat(e->crossfeedNode.getCutoffHz(), 0) + " Hz"},
+                                {"Compensation", e->crossfeedNode.getOutputCompensation() ? "ON" : "OFF"}});
+                }
+                else
+                {
+                    appendNode("crossfeed", "Crossfeed", nativePrec,
+                               std::string(algoName) + " · Mix " + fmtFloat(mix * 100.0, 0) + "%", latMs,
+                               {{"Algorithm", algoName},
+                                {"Mix", fmtFloat(mix * 100.0, 0) + "%"},
+                                {"Cutoff", fmtFloat(e->crossfeedNode.getCutoffHz(), 0) + " Hz"},
+                                {"Delay", fmtFloat(e->crossfeedNode.getDelayMs(), 2) + " ms"},
+                                {"Compensation", e->crossfeedNode.getOutputCompensation() ? "ON" : "OFF"}});
+                }
             }
 
             if (isStereoSpatial && e->surroundDsp.isEnabled() &&
@@ -15986,7 +15818,12 @@ extern "C"
         engine->crossfeedEnabled = (enabled != 0);
         if (engine->crossfeedEnabled)
         {
-            if (engine->crossfeedPreset == 4)
+            if (engine->crossfeedNode.getAlgorithm() != CrossfeedAlgorithm::Off)
+            {
+                engine->crossfeedNode.setEnabled(true);
+                engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
+            }
+            else if (engine->crossfeedPreset == 4)
             {
                 engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::RACE);
                 engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
@@ -16004,15 +15841,15 @@ extern "C"
                 engine->crossfeedNode.setAlgorithm(algo);
                 engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
 
-                // Map preset to mix / cutoff defaults
-                if (engine->crossfeedPreset == 1) { engine->crossfeedNode.setMix(0.5f); engine->crossfeedNode.setCutoffHz(700.0f); }
+                // True libbs2b preset defaults: 1=Default (4.5dB), 2=Chu Moy (6.0dB), 3=Jan Meier (9.5dB)
+                if (engine->crossfeedPreset == 1) { engine->crossfeedNode.setMix(0.80f); engine->crossfeedNode.setCutoffHz(700.0f); }
                 else if (engine->crossfeedPreset == 2) { engine->crossfeedNode.setMix(0.65f); engine->crossfeedNode.setCutoffHz(700.0f); }
-                else if (engine->crossfeedPreset == 3) { engine->crossfeedNode.setMix(0.85f); engine->crossfeedNode.setCutoffHz(650.0f); }
+                else if (engine->crossfeedPreset == 3) { engine->crossfeedNode.setMix(0.30f); engine->crossfeedNode.setCutoffHz(650.0f); }
             }
         }
         else
         {
-            engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::Off);
+            engine->crossfeedNode.setEnabled(false);
         }
     }
 
@@ -16025,7 +15862,7 @@ extern "C"
 
         if (!engine->crossfeedEnabled)
         {
-            engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::Off);
+            engine->crossfeedNode.setEnabled(false);
             return;
         }
 
@@ -16036,10 +15873,14 @@ extern "C"
         }
         else if (preset == 5)
         {
+            const bool wasOpenStage = (engine->crossfeedNode.getAlgorithm() == CrossfeedAlgorithm::OpenStage);
             engine->crossfeedNode.setAlgorithm(CrossfeedAlgorithm::OpenStage);
             engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
-            engine->crossfeedNode.setAngle(60.0f);
-            engine->crossfeedNode.setGainDb(-1.0f);
+            if (!wasOpenStage)
+            {
+                engine->crossfeedNode.setAngle(60.0f);
+                engine->crossfeedNode.setGainDb(-1.0f);
+            }
         }
         else
         {
@@ -16048,9 +15889,9 @@ extern "C"
                 algo = CrossfeedAlgorithm::Off;
             engine->crossfeedNode.setAlgorithm(algo);
             engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
-            if (preset == 1) { engine->crossfeedNode.setMix(0.5f); engine->crossfeedNode.setCutoffHz(700.0f); }
+            if (preset == 1) { engine->crossfeedNode.setMix(0.80f); engine->crossfeedNode.setCutoffHz(700.0f); }
             else if (preset == 2) { engine->crossfeedNode.setMix(0.65f); engine->crossfeedNode.setCutoffHz(700.0f); }
-            else if (preset == 3) { engine->crossfeedNode.setMix(0.85f); engine->crossfeedNode.setCutoffHz(650.0f); }
+            else if (preset == 3) { engine->crossfeedNode.setMix(0.30f); engine->crossfeedNode.setCutoffHz(650.0f); }
         }
     }
 
@@ -16059,18 +15900,11 @@ extern "C"
         if (!engine)
             return;
         std::lock_guard<std::mutex> lock(engine->fxMutex);
-        CrossfeedAlgorithm algo = static_cast<CrossfeedAlgorithm>(algorithm);
+        const int clampedAlgo = std::clamp(algorithm, 0, static_cast<int>(CrossfeedAlgorithm::OpenStage));
+        CrossfeedAlgorithm algo = static_cast<CrossfeedAlgorithm>(clampedAlgo);
         engine->crossfeedNode.setAlgorithm(algo);
         engine->crossfeedNode.setSampleRate((double)engine->sampleRate);
-        // Enable/disable the crossfeed path
-        if (algo == CrossfeedAlgorithm::Off)
-        {
-            engine->crossfeedEnabled = false;
-        }
-        else
-        {
-            engine->crossfeedEnabled = true;
-        }
+        engine->crossfeedEnabled = (algo != CrossfeedAlgorithm::Off);
     }
 
     AE_API void ae_set_crossfeed_params(AudioEngineHandle *engine, float mix, float delay_ms, float cutoff_hz, int output_compensation)
@@ -16109,7 +15943,6 @@ extern "C"
             return;
         std::lock_guard<std::mutex> lock(engine->fxMutex);
         engine->crossfeedNode.setRaceParams(delay_ms, alpha, lpf_hz);
-        engine->crossfeed.updateRaceParams(engine->sampleRate, delay_ms, alpha, lpf_hz);
     }
 
     AE_API void ae_set_openstage_params(AudioEngineHandle *engine, float angle_degrees, float gain_db)

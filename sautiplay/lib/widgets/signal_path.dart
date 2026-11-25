@@ -200,7 +200,7 @@ String formatCrossfeedAlgoName(String? algo, double mix) {
     case 'simple':
       return 'Simple ITD';
     case 'bs2b':
-      return 'BS2B Chu Moy';
+      return 'Bauer BS2B';
     case 'meier':
       return 'Jan Meier';
     case 'natural':

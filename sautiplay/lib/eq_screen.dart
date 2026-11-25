@@ -193,6 +193,48 @@ class EqScreen extends StatefulWidget {
 
   /// Applies persisted Sauti DSP suite settings directly to the audio engine.
   static Future<void> applySavedStateToEngine(IsolateAudioPlayer player) async {
+    // Restore Crossfeed / OpenStage / RACE independently of Sauti DSP Master
+    final crossfeedSaved = await AppStateService.instance.loadCrossfeed();
+    final raceSaved = await AppStateService.instance.loadRaceParams();
+    final openStageSaved =
+        await AppStateService.instance.loadOpenStageParams();
+    if (!crossfeedSaved.enabled) {
+      player.setCrossfeedAlgorithm(CrossfeedAlgorithm.off);
+    } else {
+      final idx = crossfeedSaved.algoIndex;
+      if (idx == 5) {
+        player.setCrossfeedAlgorithm(CrossfeedAlgorithm.race);
+        player.setRaceParams(
+          delayMs: raceSaved.delayMs,
+          alpha: raceSaved.alpha,
+          lpfHz: raceSaved.lpfHz,
+        );
+      } else if (idx == 6) {
+        player.setCrossfeedAlgorithm(CrossfeedAlgorithm.openStage);
+        player.setOpenStageParams(
+          angleDegrees: openStageSaved.angle,
+          gainDb: openStageSaved.gainDb,
+        );
+        player.setCrossfeedParams(
+          mix: crossfeedSaved.mix,
+          delayMs: crossfeedSaved.delayMs,
+          cutoffHz: crossfeedSaved.cutoffHz,
+          outputCompensation: crossfeedSaved.outputCompensation,
+        );
+      } else {
+        final algo = (idx >= 1 && idx <= 4)
+            ? CrossfeedAlgorithm.values[idx]
+            : CrossfeedAlgorithm.bs2b;
+        player.setCrossfeedAlgorithm(algo);
+        player.setCrossfeedParams(
+          mix: crossfeedSaved.mix,
+          delayMs: crossfeedSaved.delayMs,
+          cutoffHz: crossfeedSaved.cutoffHz,
+          outputCompensation: crossfeedSaved.outputCompensation,
+        );
+      }
+    }
+
     final state = await AppStateService.instance.loadSautiDspState();
     if (state.isEmpty) return;
 
@@ -4387,9 +4429,15 @@ class _EqScreenState extends State<EqScreen>
       _crossfeedEnabled = false;
       _crossfeedPreset = 1;
       _crossfeedAlgorithmIndex = 2;
+      _crossfeedMix = 0.5;
+      _crossfeedDelayMs = 0.40;
+      _crossfeedCutoffHz = 700.0;
+      _crossfeedCompensation = true;
+      _raceDelayMs = 0.166;
+      _raceAlpha = 0.55;
+      _raceLpfHz = 2500.0;
       _openStageAngle = 60.0;
       _openStageGainDb = -1.0;
-      widget.player.setCrossfeed(enabled: false, preset: 0);
       widget.player.setCrossfeedAlgorithm(CrossfeedAlgorithm.off);
 
       _stereoWidenEnabled = false;
@@ -6124,7 +6172,7 @@ class _EqScreenState extends State<EqScreen>
                                           : _crossfeedAlgorithmIndex == 4
                                               ? 'Custom Natural'
                                               : _crossfeedAlgorithmIndex == 5
-                                                  ? 'Ambiophonics'
+                                                  ? 'Ambiophonics R.A.C.E.'
                                                   : 'OpenStage')
                               : 'Disabled',
                           isEnabled: _crossfeedEnabled,
@@ -6932,14 +6980,20 @@ class _EqScreenState extends State<EqScreen>
                 accentColor: primaryColor,
                 items: const [
                   M3EDropdownItem(label: 'Simple Reference', value: 1),
-                  M3EDropdownItem(label: 'Bauer BS2B ', value: 2),
+                  M3EDropdownItem(label: 'Bauer BS2B', value: 2),
                   M3EDropdownItem(label: 'Jan Meier', value: 3),
                   M3EDropdownItem(label: 'Custom Natural', value: 4),
-                  M3EDropdownItem(label: 'Ambiophonics', value: 5),
+                  M3EDropdownItem(
+                      label: 'Ambiophonics R.A.C.E. (Speakers)', value: 5),
                   M3EDropdownItem(label: 'OpenStage', value: 6),
                 ],
                 onChanged: (val) {
                   setState(() {
+                    if (val == 6 &&
+                        _crossfeedAlgorithmIndex != 6 &&
+                        _crossfeedMix < 0.75) {
+                      _crossfeedMix = 1.0;
+                    }
                     _crossfeedAlgorithmIndex = val;
                     _crossfeedEnabled = true;
                   });
@@ -6974,7 +7028,7 @@ class _EqScreenState extends State<EqScreen>
                 value: _crossfeedMix,
                 min: 0.0,
                 max: 1.0,
-                flatValue: 0.5,
+                flatValue: _crossfeedAlgorithmIndex == 2 ? 0.65 : 0.5,
                 activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
                 isPercentage: true,
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
@@ -6984,37 +7038,55 @@ class _EqScreenState extends State<EqScreen>
                   _saveEqState();
                 },
               ),
-              ModernAudioKnob(
-                label: 'ITD DELAY',
-                value: (_crossfeedDelayMs - 0.05) / 1.95,
-                min: 0.0,
-                max: 1.0,
-                flatValue: (0.40 - 0.05) / 1.95,
-                activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
-                valueFormatter: (_) =>
-                    '${(_crossfeedDelayMs * 1000).round()}µs',
-                onChanged: (v) {
-                  setState(() => _crossfeedDelayMs = 0.05 + v * 1.95);
-                  if (_crossfeedEnabled) _updateCrossfeed();
-                  _saveEqState();
-                },
-              ),
-              ModernAudioKnob(
-                label: 'CUTOFF FREQ',
-                value: (_crossfeedCutoffHz - 200.0) / 2800.0,
-                min: 0.0,
-                max: 1.0,
-                flatValue: (700.0 - 200.0) / 2800.0,
-                activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
-                valueFormatter: (_) => '${_crossfeedCutoffHz.toInt()}Hz',
-                onChanged: (v) {
-                  setState(() => _crossfeedCutoffHz = 200.0 + v * 2800.0);
-                  if (_crossfeedEnabled) _updateCrossfeed();
-                  _saveEqState();
-                },
-              ),
+              if (_crossfeedAlgorithmIndex != 2)
+                ModernAudioKnob(
+                  label: 'ITD DELAY',
+                  value: (_crossfeedDelayMs - 0.05) / 1.95,
+                  min: 0.0,
+                  max: 1.0,
+                  flatValue: (0.40 - 0.05) / 1.95,
+                  activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (_) =>
+                      '${(_crossfeedDelayMs * 1000).round()}µs',
+                  onChanged: (v) {
+                    setState(() => _crossfeedDelayMs = 0.05 + v * 1.95);
+                    if (_crossfeedEnabled) _updateCrossfeed();
+                    _saveEqState();
+                  },
+                ),
+              if (_crossfeedAlgorithmIndex != 1)
+                ModernAudioKnob(
+                  label: 'CUTOFF FREQ',
+                  value: (_crossfeedCutoffHz - 200.0) / 2800.0,
+                  min: 0.0,
+                  max: 1.0,
+                  flatValue: (700.0 - 200.0) / 2800.0,
+                  activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
+                  valueFormatter: (_) => '${_crossfeedCutoffHz.toInt()}Hz',
+                  onChanged: (v) {
+                    setState(() => _crossfeedCutoffHz = 200.0 + v * 2800.0);
+                    if (_crossfeedEnabled) _updateCrossfeed();
+                    _saveEqState();
+                  },
+                ),
             ],
           ),
+          if (_crossfeedAlgorithmIndex == 2) ...[
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildBs2bPresetChip('Jan Meier (9.5 dB)', 0.30, 650.0, 3),
+                  const SizedBox(width: 8),
+                  _buildBs2bPresetChip('Chu Moy (6.0 dB)', 0.65, 700.0, 2),
+                  const SizedBox(width: 8),
+                  _buildBs2bPresetChip('Default (4.5 dB)', 0.80, 700.0, 1),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           InkWell(
             onTap: () {
@@ -7120,7 +7192,7 @@ class _EqScreenState extends State<EqScreen>
                 flatValue: (2500.0 - 500.0) / 7500.0,
                 activeColor: _crossfeedEnabled ? primaryColor : Colors.white,
                 valueFormatter: (_) => '${_raceLpfHz.toInt()}Hz',
-                onChanged: (v) {
+                  onChanged: (v) {
                   setState(() => _raceLpfHz = 500.0 + v * 7500.0);
                   _subScreenSetState?.call(() {});
                   if (_crossfeedEnabled) _updateCrossfeed();
@@ -7128,6 +7200,31 @@ class _EqScreenState extends State<EqScreen>
                 },
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: surfaceDarkColor.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.speaker_outlined,
+                    size: 15, color: primaryColor.withValues(alpha: 0.85)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Speaker crosstalk cancellation (designed for close-spaced stereo speakers, not headphones).',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.65),
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ] else if (_crossfeedAlgorithmIndex == 6) ...[
           const SizedBox(height: 10),
@@ -7211,6 +7308,49 @@ class _EqScreenState extends State<EqScreen>
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildBs2bPresetChip(
+      String label, double mix, double cutoffHz, int presetId) {
+    final bool isSelected = (_crossfeedMix - mix).abs() < 0.03 &&
+        (_crossfeedCutoffHz - cutoffHz).abs() < 15.0;
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () {
+        setState(() {
+          _crossfeedMix = mix;
+          _crossfeedCutoffHz = cutoffHz;
+          _crossfeedPreset = presetId;
+        });
+        _subScreenSetState?.call(() {});
+        if (_crossfeedEnabled) _updateCrossfeed();
+        _saveEqState();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? primaryColor.withValues(alpha: 0.22)
+              : surfaceDarkColor.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected
+                ? primaryColor
+                : Colors.white.withValues(alpha: 0.12),
+            width: isSelected ? 1.4 : 1.0,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? primaryColor : Colors.white70,
+            fontSize: 11.5,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
     );
   }
 
@@ -7581,13 +7721,11 @@ class _EqScreenState extends State<EqScreen>
 
   void _updateCrossfeed() {
     if (!_crossfeedEnabled) {
-      widget.player.setCrossfeed(enabled: false, preset: 0);
       widget.player.setCrossfeedAlgorithm(CrossfeedAlgorithm.off);
       return;
     }
 
     if (_crossfeedAlgorithmIndex == 5) {
-      widget.player.setCrossfeed(enabled: true, preset: 4);
       widget.player.setCrossfeedAlgorithm(CrossfeedAlgorithm.race);
       widget.player.setRaceParams(
         delayMs: _raceDelayMs,
@@ -7595,7 +7733,6 @@ class _EqScreenState extends State<EqScreen>
         lpfHz: _raceLpfHz,
       );
     } else if (_crossfeedAlgorithmIndex == 6) {
-      widget.player.setCrossfeed(enabled: true, preset: 5);
       widget.player.setCrossfeedAlgorithm(CrossfeedAlgorithm.openStage);
       widget.player.setOpenStageParams(
         angleDegrees: _openStageAngle,
@@ -7608,16 +7745,13 @@ class _EqScreenState extends State<EqScreen>
         outputCompensation: _crossfeedCompensation,
       );
     } else {
-      CrossfeedAlgorithm algo = CrossfeedAlgorithm.off;
-      if (_crossfeedAlgorithmIndex == 1) {
-        algo = CrossfeedAlgorithm.simple;
-      } else if (_crossfeedAlgorithmIndex == 2) {
-        algo = CrossfeedAlgorithm.bs2b;
-      } else if (_crossfeedAlgorithmIndex == 3) {
-        algo = CrossfeedAlgorithm.meier;
-      } else if (_crossfeedAlgorithmIndex == 4) {
-        algo = CrossfeedAlgorithm.natural;
-      }
+      final CrossfeedAlgorithm algo = switch (_crossfeedAlgorithmIndex) {
+        1 => CrossfeedAlgorithm.simple,
+        2 => CrossfeedAlgorithm.bs2b,
+        3 => CrossfeedAlgorithm.meier,
+        4 => CrossfeedAlgorithm.natural,
+        _ => CrossfeedAlgorithm.bs2b,
+      };
       widget.player.setCrossfeedAlgorithm(algo);
       widget.player.setCrossfeedParams(
         mix: _crossfeedMix,

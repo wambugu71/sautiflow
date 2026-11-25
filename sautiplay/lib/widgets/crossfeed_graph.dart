@@ -158,7 +158,8 @@ class _CrossfeedPainter extends CustomPainter {
     final crossDbs = <double>[];
 
     final effectiveFc = cutoffHz.clamp(100.0, 10000.0);
-    final crossGainLinear = (algorithmIndex == 3 ? 0.35 : 0.30) * mix;
+    final crossGainLinear =
+        ((algorithmIndex == 3 || algorithmIndex == 4) ? 0.60 : 0.55) * mix;
     final directGainLinear = compensation
         ? 1.0 / math.sqrt(1.0 + crossGainLinear * crossGainLinear)
         : 1.0;
@@ -169,34 +170,62 @@ class _CrossfeedPainter extends CustomPainter {
       double lpfAtt;
 
       if (algorithmIndex == 2) {
-        // Bauer BS2B shelf (high-boost direct + low-pass crossfeed, scaled by mix)
-        final feed = mix * 6.5 + 3.0;
-        final level = feed / 10.0;
+        // Exact libbs2b shelf (smaller feed dB = stronger crossfeed)
+        final level = (12.5 - 10.0 * mix).clamp(2.5, 15.0);
+        final fade = (mix / 0.20).clamp(0.0, 1.0);
         final gbLo = level * -5.0 / 6.0 - 3.0;
         final gbHi = level / 6.0 - 3.0;
         final gLoFull = math.pow(10.0, gbLo / 20.0).toDouble();
         final gHiFull = 1.0 - math.pow(10.0, gbHi / 20.0).toDouble();
-        final gLo = gLoFull * mix;
-        final gHi = gHiFull * mix;
+        final gLo = gLoFull * fade;
+        final gHi = gHiFull * fade;
+        final fcHi = effectiveFc *
+            math.pow(
+                2.0,
+                (gbLo -
+                        20.0 *
+                            (math.log(math.max(1e-6, gHiFull)) / math.ln10)) /
+                    12.0);
         final bs2bComp = compensation ? (1.0 / (1.0 - gHi + gLo)) : 1.0;
-        final ratio = f / effectiveFc;
-        lpfAtt = (gLo / math.sqrt(1.0 + ratio * ratio)) * bs2bComp;
-        final hpfShelf = 1.0 - (gHi / math.sqrt(1.0 + ratio * ratio));
-        directGain = hpfShelf * bs2bComp;
+        final ratioLo = f / effectiveFc;
+        final ratioHi = f / fcHi;
+        lpfAtt = (gLo / math.sqrt(1.0 + ratioLo * ratioLo)) * bs2bComp;
+        final denomHi = 1.0 + ratioHi * ratioHi;
+        final reHi = 1.0 - (gHi / denomHi);
+        final imHi = (gHi * ratioHi) / denomHi;
+        directGain = math.sqrt(reHi * reHi + imHi * imHi) * bs2bComp;
       } else if (algorithmIndex == 3) {
-        // Jan Meier: exact 1-pole RC lowpass + complementary direct high-shelf boost
+        // Jan Meier: 1-pole RC lowpass + complementary direct high-shelf boost
         final ratio = f / effectiveFc;
-        lpfAtt = 1.0 / math.sqrt(1.0 + ratio * ratio);
-        final highBoost = crossGainLinear * 0.50;
+        final denom = 1.0 + ratio * ratio;
+        lpfAtt = 1.0 / math.sqrt(denom);
+        final highBoost = crossGainLinear * 0.70;
         final meierComp = compensation
-            ? (1.0 / math.sqrt(1.0 + highBoost * highBoost + crossGainLinear * crossGainLinear))
+            ? (1.0 / (1.0 + 0.5 * (crossGainLinear + highBoost)))
             : 1.0;
-        directGain = (1.0 + highBoost * (1.0 - lpfAtt)) * meierComp;
+        final reLp = 1.0 / denom;
+        final imLp = -ratio / denom;
+        final reDir = 1.0 + highBoost * (1.0 - reLp);
+        final imDir = -highBoost * imLp;
+        directGain = math.sqrt(reDir * reDir + imDir * imDir) * meierComp;
         lpfAtt *= meierComp;
       } else if (algorithmIndex == 4) {
-        // Natural: 2-pole Butterworth TPT SVF
-        final ratio = f / effectiveFc;
-        lpfAtt = 1.0 / math.sqrt(1.0 + math.pow(ratio, 4));
+        // Natural: 2-pole Butterworth TPT SVF + complementary direct high-shelf boost
+        final r = f / effectiveFc;
+        final dRe = 1.0 - r * r;
+        final dIm = math.sqrt2 * r;
+        final magSq = dRe * dRe + dIm * dIm;
+        lpfAtt = 1.0 / math.sqrt(magSq);
+        final highBoost = crossGainLinear * 0.70;
+        final naturalComp = compensation
+            ? (1.0 / (1.0 + 0.5 * (crossGainLinear + highBoost)))
+            : 1.0;
+        final reLp = dRe / magSq;
+        final imLp = -dIm / magSq;
+        final reDir = 1.0 + highBoost * (1.0 - reLp);
+        final imDir = -highBoost * imLp;
+        directGain = math.sqrt(reDir * reDir + imDir * imDir) * naturalComp;
+        lpfAtt *= naturalComp;
       } else {
         // Simple: Pure fractional ITD delay line + linear crossfeed (broadband)
         lpfAtt = 1.0;
@@ -262,36 +291,50 @@ class _CrossfeedPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     canvas.drawPath(directPath, directPaint);
 
-    // 7. Draw Cutoff Frequency Guideline & Handle
-    final cutoffX = freqToX(effectiveFc);
-    final cutoffCrossY = dbToY(crossDbs.firstWhere(
-      (v) => true,
-      orElse: () => -6.0,
-    ));
+    // 7. Draw Cutoff Frequency Guideline & Handle (hidden for broadband Simple)
+    if (algorithmIndex != 1) {
+      int cutoffIdx = 0;
+      double bestDiff = double.infinity;
+      for (int i = 0; i < freqs.length; i++) {
+        final d = (freqs[i] - effectiveFc).abs();
+        if (d < bestDiff) {
+          bestDiff = d;
+          cutoffIdx = i;
+        }
+      }
+      final cutoffX = freqToX(effectiveFc);
+      final cutoffCrossY = dbToY(crossDbs[cutoffIdx]);
 
-    // Vertical dashed marker at cutoff
-    final dashPaint = Paint()
-      ..color = secondaryColor.withValues(alpha: 0.35)
-      ..strokeWidth = 1.0;
-    double dy = paddingTop;
-    while (dy < paddingTop + graphHeight) {
-      canvas.drawLine(
-        Offset(cutoffX, dy),
-        Offset(cutoffX, math.min(dy + 3, paddingTop + graphHeight)),
-        dashPaint,
+      // Vertical dashed marker at cutoff
+      final dashPaint = Paint()
+        ..color = secondaryColor.withValues(alpha: 0.35)
+        ..strokeWidth = 1.0;
+      double dy = paddingTop;
+      while (dy < paddingTop + graphHeight) {
+        canvas.drawLine(
+          Offset(cutoffX, dy),
+          Offset(cutoffX, math.min(dy + 3, paddingTop + graphHeight)),
+          dashPaint,
+        );
+        dy += 6;
+      }
+
+      // Cutoff dot on cross curve
+      canvas.drawCircle(
+        Offset(cutoffX, cutoffCrossY),
+        4.0,
+        Paint()..color = secondaryColor,
       );
-      dy += 6;
     }
-
-    // Cutoff dot on cross curve
-    canvas.drawCircle(
-      Offset(cutoffX, cutoffCrossY),
-      4.0,
-      Paint()..color = secondaryColor,
-    );
 
     // 8. Legend / Readout
     final itdMicros = (delayMs * 1000).round();
+    final String telemetryText = switch (algorithmIndex) {
+      1 => 'Broadband  ITD: $itdMicrosµs',
+      2 =>
+        'fc: ${effectiveFc.toInt()}Hz  Sep: ${(12.5 - 10.0 * mix).clamp(2.5, 15.0).toStringAsFixed(1)}dB',
+      _ => 'fc: ${effectiveFc.toInt()}Hz  ITD: $itdMicrosµs',
+    };
     final legendSpan = TextSpan(
       children: [
         TextSpan(
@@ -311,7 +354,7 @@ class _CrossfeedPainter extends CustomPainter {
           ),
         ),
         TextSpan(
-          text: 'fc: ${effectiveFc.toInt()}Hz  ITD: ${itdMicros}µs',
+          text: telemetryText,
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.6),
             fontSize: 8.5,

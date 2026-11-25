@@ -67,7 +67,6 @@ class AudioProfileService {
     player.setMasterLimiter(enabled: false);
     await AppStateService.instance.saveSautiDspState(
         {'dspMasterEnabled': false, 'surroundEnabled': false});
-    await EqScreen.applySavedStateToEngine(player);
 
     // 2. Persist baseline disabled state to storage in parallel
     await Future.wait([
@@ -83,6 +82,9 @@ class AudioProfileService {
           highShelfEnabled: true,
           highShelfGainDb: 2.0),
       AppStateService.instance.saveCrossfeed(enabled: false, preset: 1),
+      AppStateService.instance.saveRaceParams(
+          delayMs: 0.166, alpha: 0.55, lpfHz: 2500.0),
+      AppStateService.instance.saveOpenStageParams(angle: 60.0, gainDb: -1.0),
       AppStateService.instance.saveStereoWiden(
         enabled: false,
         width: 1.2,
@@ -114,6 +116,7 @@ class AudioProfileService {
         mix: 1.0,
       ),
     ]);
+    await EqScreen.applySavedStateToEngine(player);
   }
 
   /// Applies a full AudioProfile to the audio engine and updates AppStateService.
@@ -318,13 +321,98 @@ class AudioProfileService {
 
     if (dsp.containsKey('crossfeed')) {
       final cf = dsp['crossfeed'] as Map;
-      final enabled = cf['enabled'] ?? false;
-      final preset = (cf['preset'] as num?)?.toInt() ?? 1;
-      player.setCrossfeed(enabled: enabled, preset: preset);
-      await AppStateService.instance
-          .saveCrossfeed(enabled: enabled, preset: preset);
+      final bool enabled = cf['enabled'] == true;
+      final int preset = (cf['preset'] as num?)?.toInt() ?? 1;
+
+      // Backward-compatible legacy preset mapping + full rich schema support
+      int defaultAlgo = 2;
+      double defaultMix = 0.65;
+      double defaultCutoff = 700.0;
+      if (preset == 1) {
+        defaultAlgo = 2;
+        defaultMix = 0.80;
+        defaultCutoff = 700.0;
+      } else if (preset == 2) {
+        defaultAlgo = 2;
+        defaultMix = 0.65;
+        defaultCutoff = 700.0;
+      } else if (preset == 3) {
+        defaultAlgo = 2;
+        defaultMix = 0.30;
+        defaultCutoff = 650.0;
+      } else if (preset == 4) {
+        defaultAlgo = 5;
+      } else if (preset == 5) {
+        defaultAlgo = 6;
+        defaultMix = 1.0;
+      }
+
+      final int algoIndex = (cf['algoIndex'] as num?)?.toInt() ?? defaultAlgo;
+      final double mix = (cf['mix'] as num?)?.toDouble() ?? defaultMix;
+      final double delayMs = (cf['delayMs'] as num?)?.toDouble() ?? 0.40;
+      final double cutoffHz =
+          (cf['cutoffHz'] as num?)?.toDouble() ?? defaultCutoff;
+      final bool outputCompensation = cf['outputCompensation'] as bool? ?? true;
+
+      final raceMap = cf['race'] as Map?;
+      final double raceDelayMs =
+          (raceMap?['delayMs'] as num?)?.toDouble() ?? 0.166;
+      final double raceAlpha = (raceMap?['alpha'] as num?)?.toDouble() ?? 0.55;
+      final double raceLpfHz =
+          (raceMap?['lpfHz'] as num?)?.toDouble() ?? 2500.0;
+
+      final osMap = cf['openStage'] as Map?;
+      final double osAngle = (osMap?['angle'] as num?)?.toDouble() ?? 60.0;
+      final double osGainDb = (osMap?['gainDb'] as num?)?.toDouble() ?? -1.0;
+
+      await AppStateService.instance.saveCrossfeed(
+        enabled: enabled,
+        preset: preset,
+        algoIndex: algoIndex,
+        mix: mix,
+        delayMs: delayMs,
+        cutoffHz: cutoffHz,
+        outputCompensation: outputCompensation,
+      );
+      await AppStateService.instance.saveRaceParams(
+        delayMs: raceDelayMs,
+        alpha: raceAlpha,
+        lpfHz: raceLpfHz,
+      );
+      await AppStateService.instance.saveOpenStageParams(
+        angle: osAngle,
+        gainDb: osGainDb,
+      );
+
+      if (!enabled) {
+        player.setCrossfeedAlgorithm(CrossfeedAlgorithm.off);
+      } else if (algoIndex == 5) {
+        player.setCrossfeedAlgorithm(CrossfeedAlgorithm.race);
+        player.setRaceParams(
+            delayMs: raceDelayMs, alpha: raceAlpha, lpfHz: raceLpfHz);
+      } else if (algoIndex == 6) {
+        player.setCrossfeedAlgorithm(CrossfeedAlgorithm.openStage);
+        player.setOpenStageParams(angleDegrees: osAngle, gainDb: osGainDb);
+        player.setCrossfeedParams(
+          mix: mix,
+          delayMs: delayMs,
+          cutoffHz: cutoffHz,
+          outputCompensation: outputCompensation,
+        );
+      } else {
+        final algo = (algoIndex >= 1 && algoIndex <= 4)
+            ? CrossfeedAlgorithm.values[algoIndex]
+            : CrossfeedAlgorithm.bs2b;
+        player.setCrossfeedAlgorithm(algo);
+        player.setCrossfeedParams(
+          mix: mix,
+          delayMs: delayMs,
+          cutoffHz: cutoffHz,
+          outputCompensation: outputCompensation,
+        );
+      }
     } else {
-      player.setCrossfeed(enabled: false, preset: 0);
+      player.setCrossfeedAlgorithm(CrossfeedAlgorithm.off);
       await AppStateService.instance.saveCrossfeed(enabled: false, preset: 0);
     }
 
@@ -982,7 +1070,7 @@ class AudioProfileService {
         id: 'builtin_audiophile',
         name: 'Audiophile',
         category: 'Headphones',
-        description: 'Natural binaural crossfeed ',
+        description: 'BS2B Chu Moy headphone crossfeed',
         isBuiltIn: true,
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
@@ -1021,7 +1109,15 @@ class AudioProfileService {
           ],
         },
         dspEffectsState: {
-          'crossfeed': {'enabled': true, 'preset': 4},
+          'crossfeed': {
+            'enabled': true,
+            'preset': 2,
+            'algoIndex': 2,
+            'mix': 0.65,
+            'delayMs': 0.40,
+            'cutoffHz': 700.0,
+            'outputCompensation': true,
+          },
         },
         sautiDspState: {
           'dspMasterEnabled': true,

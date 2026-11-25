@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <vector>
 #include <algorithm>
 #include "dsp/denormals.h"
 #include "dsp/open_stage_dsp.h"
@@ -21,7 +20,8 @@ enum class CrossfeedAlgorithm
 class CrossfeedNode
 {
 public:
-    static constexpr size_t MAX_DELAY_SAMPLES = 4096; // ~21.3ms at 192kHz per channel
+    static constexpr size_t MAX_DELAY_SAMPLES = 1024; // ~5.33ms at 192kHz per channel (power of 2)
+    static constexpr size_t DELAY_MASK = MAX_DELAY_SAMPLES - 1;
 
     CrossfeedNode()
     {
@@ -31,17 +31,57 @@ public:
 
     void setAlgorithm(CrossfeedAlgorithm algo)
     {
-        if (targetAlgorithm == algo)
+        if (algo == CrossfeedAlgorithm::Off)
+        {
+            targetAlgorithm = CrossfeedAlgorithm::Off;
+            enabled_ = false;
+            targetBypassWet_ = 0.0;
             return;
+        }
+
+        if (targetAlgorithm == algo && enabled_)
+            return;
+
+        if (activeAlgorithm != algo)
+        {
+            resetFiltersOnly();
+            activeAlgorithm = algo;
+        }
         targetAlgorithm = algo;
-        // Switch immediately. The previous logic deferred the switch until
-        // currentMix < 0.001, which (with any normal mix setting) meant a
-        // runtime algorithm change was silently ignored forever.
-        // Reset only the per-algorithm filter/delay state so stale samples
-        // from the old topology are not smeared into the new one.
-        resetFiltersOnly();
-        currentAlgorithm = targetAlgorithm;
+        enabled_ = true;
+        targetBypassWet_ = 1.0;
+        forceCoeffUpdate_ = true;
         updateCoefficients();
+    }
+
+    void setEnabled(bool enabled)
+    {
+        enabled_ = enabled;
+        if (!enabled)
+        {
+            targetBypassWet_ = 0.0;
+        }
+        else if (targetAlgorithm != CrossfeedAlgorithm::Off)
+        {
+            if (activeAlgorithm != targetAlgorithm)
+            {
+                resetFiltersOnly();
+                activeAlgorithm = targetAlgorithm;
+            }
+            targetBypassWet_ = 1.0;
+            forceCoeffUpdate_ = true;
+            updateCoefficients();
+        }
+    }
+
+    bool isEnabled() const
+    {
+        return enabled_ && targetAlgorithm != CrossfeedAlgorithm::Off;
+    }
+
+    bool isActive() const
+    {
+        return isEnabled() || (activeAlgorithm != CrossfeedAlgorithm::Off && currentBypassWet_ > 1.0e-4);
     }
 
     void setSampleRate(double rate)
@@ -52,29 +92,36 @@ public:
             return;
 
         sampleRate = rate;
+        alphaSmooth_ = 1.0 - std::exp(-1.0 / (0.010 * sampleRate)); // 10ms smooth time
         openStage.setSampleRate(rate);
+        forceCoeffUpdate_ = true;
         updateCoefficients();
     }
 
     void setMix(float m)
     {
-        targetMix = std::max(0.0f, std::min(m, 1.0f));
-        openStage.setMix(targetMix);
+        targetMix = static_cast<double>(std::clamp(m, 0.0f, 1.0f));
+        openStage.setMix(static_cast<float>(targetMix));
     }
 
     void setDelayMs(float dMs)
     {
-        targetDelayMs = std::max(0.02f, std::min(dMs, 5.0f));
+        targetDelayMs = static_cast<double>(std::clamp(dMs, 0.02f, 5.0f));
     }
 
     void setCutoffHz(float cutoff)
     {
-        targetCutoffHz = std::max(100.0f, std::min(cutoff, 16000.0f));
+        targetCutoffHz = static_cast<double>(std::clamp(cutoff, 100.0f, 16000.0f));
     }
 
     void setOutputCompensation(bool enabled)
     {
-        outputCompensationEnabled = enabled;
+        if (outputCompensationEnabled != enabled)
+        {
+            outputCompensationEnabled = enabled;
+            forceCoeffUpdate_ = true;
+            updateCoefficients();
+        }
     }
 
     void setAngle(float degrees)
@@ -99,28 +146,37 @@ public:
 
     void setRaceParams(float delayMs, float alpha, float lpfHz)
     {
-        setDelayMs(delayMs);
-        setMix(alpha);
-        setCutoffHz(lpfHz);
+        targetRaceDelayMs = static_cast<double>(std::clamp(delayMs, 0.02f, 2.0f));
+        targetRaceAlpha = static_cast<double>(std::clamp(alpha, 0.0f, 1.0f));
+        targetRaceLpfHz = static_cast<double>(std::clamp(lpfHz, 200.0f, 16000.0f));
     }
 
     CrossfeedAlgorithm getAlgorithm() const { return targetAlgorithm; }
-    float getMix() const { return targetMix; }
-    float getDelayMs() const { return targetDelayMs; }
-    float getCutoffHz() const { return targetCutoffHz; }
-    bool getOutputCompensation() const { return outputCompensationEnabled; }
 
+    float getMix() const
+    {
+        return static_cast<float>((targetAlgorithm == CrossfeedAlgorithm::RACE) ? targetRaceAlpha : targetMix);
+    }
+
+    float getDelayMs() const
+    {
+        return static_cast<float>((targetAlgorithm == CrossfeedAlgorithm::RACE) ? targetRaceDelayMs : targetDelayMs);
+    }
+
+    float getCutoffHz() const
+    {
+        return static_cast<float>((targetAlgorithm == CrossfeedAlgorithm::RACE) ? targetRaceLpfHz : targetCutoffHz);
+    }
+
+    bool getOutputCompensation() const { return outputCompensationEnabled; }
+    float getOpenStageItdMs() const { return openStage.getItdMs(); }
+    float getOpenStageCutoffHz() const { return openStage.getHeadShadowCutoffHz(); }
+
+    // Direct (ipsilateral) signal passes with zero algorithmic delay;
+    // ITD is only applied on the contralateral path.
     double getLatencySamples() const
     {
-        if (currentAlgorithm == CrossfeedAlgorithm::Off || currentMix < 0.0001f)
-        {
-            return 0.0;
-        }
-        if (currentAlgorithm == CrossfeedAlgorithm::OpenStage)
-        {
-            return openStage.getItdSeconds() * sampleRate;
-        }
-        return (double)(currentDelayMs * 0.001f) * sampleRate;
+        return 0.0;
     }
 
     void reset()
@@ -130,28 +186,33 @@ public:
         currentMix = targetMix;
         currentDelayMs = targetDelayMs;
         currentCutoffHz = targetCutoffHz;
-        currentAlgorithm = targetAlgorithm;
+        currentRaceDelayMs = targetRaceDelayMs;
+        currentRaceAlpha = targetRaceAlpha;
+        currentRaceLpfHz = targetRaceLpfHz;
+        currentBypassWet_ = targetBypassWet_;
+        activeAlgorithm = targetAlgorithm;
         openStage.reset();
 
+        forceCoeffUpdate_ = true;
         updateCoefficients();
     }
 
 private:
     void resetFiltersOnly()
     {
-        std::fill(delayRingBufferL, delayRingBufferL + MAX_DELAY_SAMPLES, 0.0f);
-        std::fill(delayRingBufferR, delayRingBufferR + MAX_DELAY_SAMPLES, 0.0f);
+        std::fill(delayRingBufferL, delayRingBufferL + MAX_DELAY_SAMPLES, 0.0);
+        std::fill(delayRingBufferR, delayRingBufferR + MAX_DELAY_SAMPLES, 0.0);
         writeIdx = 0;
 
-        lpfStateL[0] = lpfStateL[1] = 0.0f;
-        lpfStateR[0] = lpfStateR[1] = 0.0f;
-        directHpfStateL = directHpfStateR = 0.0f;
-        bs2bAsisL = bs2bAsisR = 0.0f;
-        bs2bHiStateL = bs2bHiStateR = 0.0f;
-        bs2bLoStateL = bs2bLoStateR = 0.0f;
+        lpfStateL[0] = lpfStateL[1] = 0.0;
+        lpfStateR[0] = lpfStateR[1] = 0.0;
+        bs2bAsisL = bs2bAsisR = 0.0;
+        bs2bHiStateL = bs2bHiStateR = 0.0;
+        bs2bLoStateL = bs2bLoStateR = 0.0;
 
-        raceLpfOutL = raceLpfOutR = 0.0f;
-        raceBassState = 0.0f;
+        raceLpfOutL = raceLpfOutR = 0.0;
+        raceHpfStateL[0] = raceHpfStateL[1] = 0.0;
+        raceHpfStateR[0] = raceHpfStateR[1] = 0.0;
         openStage.reset();
     }
 
@@ -162,414 +223,574 @@ public:
         if (!interleavedStereo || frames == 0 || channels < 2)
             return;
 
-        if (targetAlgorithm == CrossfeedAlgorithm::Off && currentMix < 0.0001f)
+        if (!isActive())
         {
-            currentAlgorithm = CrossfeedAlgorithm::Off;
+            if (activeAlgorithm != CrossfeedAlgorithm::Off && currentBypassWet_ <= 1.0e-4)
+            {
+                currentBypassWet_ = 0.0;
+                activeAlgorithm = CrossfeedAlgorithm::Off;
+                resetFiltersOnly();
+            }
             return;
         }
 
         sauti::dsp::ScopedDenormalsDisable denormalsScope;
 
-        const float alphaSmooth = 1.0f - std::exp(-1.0f / (0.010f * (float)sampleRate)); // 10ms smooth time
-
-        for (uint32_t i = 0; i < frames; ++i)
+        switch (activeAlgorithm)
         {
-            // Smoothly interpolate parameters
-            currentMix += alphaSmooth * (targetMix - currentMix);
-            currentDelayMs += alphaSmooth * (targetDelayMs - currentDelayMs);
-            currentCutoffHz += alphaSmooth * (targetCutoffHz - currentCutoffHz);
+        case CrossfeedAlgorithm::Simple:
+            processSimple(interleavedStereo, frames, channels);
+            break;
+        case CrossfeedAlgorithm::BS2B:
+            processBS2B(interleavedStereo, frames, channels);
+            break;
+        case CrossfeedAlgorithm::Meier:
+            processMeier(interleavedStereo, frames, channels);
+            break;
+        case CrossfeedAlgorithm::Natural:
+            processNatural(interleavedStereo, frames, channels);
+            break;
+        case CrossfeedAlgorithm::RACE:
+            processRace(interleavedStereo, frames, channels);
+            break;
+        case CrossfeedAlgorithm::OpenStage:
+            processOpenStage(interleavedStereo, frames, channels);
+            break;
+        case CrossfeedAlgorithm::Off:
+        default:
+            break;
+        }
 
-            if (currentAlgorithm == CrossfeedAlgorithm::Off)
-            {
-                continue;
-            }
-
-            // Recalculate coefficients if smoothed cutoff/mix changed significantly
-            if (std::abs(lastCoeffCutoff - currentCutoffHz) > 0.05f || std::abs(lastCoeffMix - currentMix) > 0.001f)
-            {
-                updateCoefficients();
-            }
-
-            const size_t base = (size_t)i * (size_t)channels;
-            const float inL = static_cast<float>(interleavedStereo[base]);
-            const float inR = static_cast<float>(interleavedStereo[base + 1]);
-
-            // Fractional delay calculation in samples
-            const double delaySamples = (double)(currentDelayMs * 0.001f) * sampleRate;
-            const double clampedDelay = std::max(0.01, std::min(delaySamples, (double)(MAX_DELAY_SAMPLES - 2)));
-
-            float outL = inL;
-            float outR = inR;
-
-            switch (currentAlgorithm)
-            {
-            case CrossfeedAlgorithm::Simple:
-            {
-                // Simple Reference: Pure fractional ITD delay line + linear crossfeed
-                delayRingBufferL[writeIdx] = inL;
-                delayRingBufferR[writeIdx] = inR;
-
-                const double readPos = (double)writeIdx + (double)MAX_DELAY_SAMPLES - clampedDelay;
-                const size_t i0 = ((size_t)std::floor(readPos)) % MAX_DELAY_SAMPLES;
-                const size_t i1 = (i0 + 1) % MAX_DELAY_SAMPLES;
-                const float frac = (float)(readPos - std::floor(readPos));
-
-                const float delayedL = (1.0f - frac) * delayRingBufferL[i0] + frac * delayRingBufferL[i1];
-                const float delayedR = (1.0f - frac) * delayRingBufferR[i0] + frac * delayRingBufferR[i1];
-
-                const float crossGain = currentMix * 0.30f;
-                float directGain = 1.0f;
-                if (outputCompensationEnabled)
-                {
-                    directGain = 1.0f / std::sqrt(1.0f + crossGain * crossGain);
-                }
-
-                outL = directGain * inL + crossGain * delayedR;
-                outR = directGain * inR + crossGain * delayedL;
-                break;
-            }
-
-            case CrossfeedAlgorithm::BS2B:
-            {
-                // Bauer BS2B algorithm with exact libbs2b coefficients
-                const float a0_lo = bs2b_a0_lo;
-                const float b1_lo = bs2b_b1_lo;
-                const float a0_hi = bs2b_a0_hi;
-                const float a1_hi = bs2b_a1_hi;
-                const float b1_hi = bs2b_b1_hi;
-                const float bs2bGain = outputCompensationEnabled ? bs2b_gain : 1.0f;
-
-                // Low-pass filtered crossfeed path (inherently adds ~1/(2*pi*fcut) group delay)
-                bs2bLoStateL = sauti::dsp::sanitizeSample(a0_lo * inL + b1_lo * bs2bLoStateL);
-                bs2bLoStateR = sauti::dsp::sanitizeSample(a0_lo * inR + b1_lo * bs2bLoStateR);
-
-                // High-pass filtered direct path
-                const float hiL = sauti::dsp::sanitizeSample(a0_hi * inL + a1_hi * bs2bAsisL + b1_hi * bs2bHiStateL);
-                const float hiR = sauti::dsp::sanitizeSample(a0_hi * inR + a1_hi * bs2bAsisR + b1_hi * bs2bHiStateR);
-                bs2bAsisL = inL;
-                bs2bAsisR = inR;
-                bs2bHiStateL = hiL;
-                bs2bHiStateR = hiR;
-
-                // Push low-pass filtered signal into delay ring buffer
-                delayRingBufferL[writeIdx] = bs2bLoStateL;
-                delayRingBufferR[writeIdx] = bs2bLoStateR;
-
-                // Supplemental delay: subtract filter group delay so total ITD precisely matches currentDelayMs
-                constexpr double kTwoPi = 6.283185307179586;
-                const double filterDelayMs = 1000.0 / (kTwoPi * (double)currentCutoffHz);
-                const double extraDelayMs = std::max(0.0, (double)currentDelayMs - filterDelayMs);
-                const double extraDelaySamples = (extraDelayMs * 0.001) * sampleRate;
-                const double clampedExtraDelay = std::max(0.0, std::min(extraDelaySamples, (double)(MAX_DELAY_SAMPLES - 2)));
-
-                const double readPos = (double)writeIdx + (double)MAX_DELAY_SAMPLES - clampedExtraDelay;
-                const size_t i0 = ((size_t)std::floor(readPos)) % MAX_DELAY_SAMPLES;
-                const size_t i1 = (i0 + 1) % MAX_DELAY_SAMPLES;
-                const float frac = (float)(readPos - std::floor(readPos));
-
-                const float delayedL = (1.0f - frac) * delayRingBufferL[i0] + frac * delayRingBufferL[i1];
-                const float delayedR = (1.0f - frac) * delayRingBufferR[i0] + frac * delayRingBufferR[i1];
-
-                // Combine direct high-shelf + cross low-pass (delayed)
-                // Note: updateCoefficients() already scales g_lo and g_hi smoothly by currentMix
-                // (so currentMix = 0 yields g_lo = 0, g_hi = 0, bs2b_gain = 1.0 -> exact bypass).
-                // Avoiding a second linear dry/wet mix eliminates high-frequency phase comb filtering!
-                outL = (hiL + delayedR) * bs2bGain;
-                outR = (hiR + delayedL) * bs2bGain;
-                break;
-            }
-
-            case CrossfeedAlgorithm::Meier:
-            {
-                // Jan Meier natural crossfeed: 1-pole RC lowpass (exact -3dB at currentCutoffHz)
-                // + complementary direct high-shelf enhancement + ITD delay compensation
-                const float lpfAlpha = meierLpfAlpha;
-                lpfStateL[0] = sauti::dsp::sanitizeSample(lpfStateL[0] + lpfAlpha * (inL - lpfStateL[0]));
-                lpfStateR[0] = sauti::dsp::sanitizeSample(lpfStateR[0] + lpfAlpha * (inR - lpfStateR[0]));
-
-                const float crossL = lpfStateL[0];
-                const float crossR = lpfStateR[0];
-
-                const float crossGain = currentMix * 0.35f;
-
-                // Direct channel complementary treble preservation (maintains flat diffuse-field power)
-                const float highBoost = crossGain * 0.50f;
-                const float directL = inL + highBoost * (inL - crossL);
-                const float directR = inR + highBoost * (inR - crossR);
-
-                // Push lowpassed signal to delay buffer
-                delayRingBufferL[writeIdx] = crossL;
-                delayRingBufferR[writeIdx] = crossR;
-
-                // Compensate for the 1-pole RC filter's intrinsic low-frequency group delay (~1/(2*pi*fc))
-                constexpr double kTwoPi = 6.283185307179586;
-                const double filterDelayMs = 1000.0 / (kTwoPi * (double)currentCutoffHz);
-                const double extraDelayMs = std::max(0.0, (double)currentDelayMs - filterDelayMs);
-                const double extraDelaySamples = (extraDelayMs * 0.001) * sampleRate;
-                const double clampedMeierDelay = std::max(0.0, std::min(extraDelaySamples, (double)(MAX_DELAY_SAMPLES - 2)));
-
-                // Read fractional delayed low-pass sample
-                const double readPos = (double)writeIdx + (double)MAX_DELAY_SAMPLES - clampedMeierDelay;
-                const size_t i0 = ((size_t)std::floor(readPos)) % MAX_DELAY_SAMPLES;
-                const size_t i1 = (i0 + 1) % MAX_DELAY_SAMPLES;
-                const float frac = (float)(readPos - std::floor(readPos));
-
-                const float delayedL = (1.0f - frac) * delayRingBufferL[i0] + frac * delayRingBufferL[i1];
-                const float delayedR = (1.0f - frac) * delayRingBufferR[i0] + frac * delayRingBufferR[i1];
-
-                float meierComp = 1.0f;
-                if (outputCompensationEnabled)
-                {
-                    meierComp = 1.0f / std::sqrt(1.0f + highBoost * highBoost + crossGain * crossGain);
-                }
-
-                outL = (directL + crossGain * delayedR) * meierComp;
-                outR = (directR + crossGain * delayedL) * meierComp;
-                break;
-            }
-
-            case CrossfeedAlgorithm::Natural:
-            {
-                // Custom Natural Crossfeed: 2-pole Butterworth TPT SVF + fractional delay + energy normalization
-                const float a1 = svf_a1;
-                const float a2 = svf_a2;
-                const float a3 = svf_a3;
-
-                // SVF LPF step
-                float v3L = inL - lpfStateL[1];
-                float v1L = a1 * lpfStateL[0] + a2 * v3L;
-                float v2L = lpfStateL[1] + a2 * lpfStateL[0] + a3 * v3L;
-                lpfStateL[0] = sauti::dsp::sanitizeSample(2.0f * v1L - lpfStateL[0]);
-                lpfStateL[1] = sauti::dsp::sanitizeSample(2.0f * v2L - lpfStateL[1]);
-                const float lpfOutL = v2L;
-
-                float v3R = inR - lpfStateR[1];
-                float v1R = a1 * lpfStateR[0] + a2 * v3R;
-                float v2R = lpfStateR[1] + a2 * lpfStateR[0] + a3 * v3R;
-                lpfStateR[0] = sauti::dsp::sanitizeSample(2.0f * v1R - lpfStateR[0]);
-                lpfStateR[1] = sauti::dsp::sanitizeSample(2.0f * v2R - lpfStateR[1]);
-                const float lpfOutR = v2R;
-
-                // Push LPF output to fractional delay buffer
-                delayRingBufferL[writeIdx] = lpfOutL;
-                delayRingBufferR[writeIdx] = lpfOutR;
-
-                // Read fractional delayed LPF sample
-                const double readPos = (double)writeIdx + (double)MAX_DELAY_SAMPLES - clampedDelay;
-                const size_t i0 = ((size_t)std::floor(readPos)) % MAX_DELAY_SAMPLES;
-                const size_t i1 = (i0 + 1) % MAX_DELAY_SAMPLES;
-                const float frac = (float)(readPos - std::floor(readPos));
-
-                const float delayedL = (1.0f - frac) * delayRingBufferL[i0] + frac * delayRingBufferL[i1];
-                const float delayedR = (1.0f - frac) * delayRingBufferR[i0] + frac * delayRingBufferR[i1];
-
-                const float crossGain = currentMix * 0.30f;
-                float directGain = 1.0f;
-                if (outputCompensationEnabled)
-                {
-                    directGain = 1.0f / std::sqrt(1.0f + crossGain * crossGain);
-                }
-
-                outL = directGain * inL + crossGain * delayedR;
-                outR = directGain * inR + crossGain * delayedL;
-                break;
-            }
-
-            case CrossfeedAlgorithm::RACE:
-            {
-                // Ambiophonics R.A.C.E. (Recursive Ambiophonic Crosstalk Elimination)
-                // Uses cached 1-pole head-shadow and center-bass coefficients from updateCoefficients()
-                const float midSignal = 0.5f * (inL + inR);
-                raceBassState = sauti::dsp::sanitizeSample(raceBassA0 * midSignal + raceBassB1 * raceBassState);
-
-                // Read sub-sample fractional delayed contralateral recursive state from delay ring buffer
-                const double readPos = (double)writeIdx + (double)MAX_DELAY_SAMPLES - clampedDelay;
-                const size_t i0 = ((size_t)std::floor(readPos)) % MAX_DELAY_SAMPLES;
-                const size_t i1 = (i0 + 1) % MAX_DELAY_SAMPLES;
-                const float frac = (float)(readPos - std::floor(readPos));
-
-                const float delayedOutL = (1.0f - frac) * delayRingBufferL[i0] + frac * delayRingBufferL[i1];
-                const float delayedOutR = (1.0f - frac) * delayRingBufferR[i0] + frac * delayRingBufferR[i1];
-
-                // Low-pass filter the delayed contralateral signals (head shadow modeling)
-                raceLpfOutR = sauti::dsp::sanitizeSample(raceA0 * delayedOutR + raceB1 * raceLpfOutR);
-                raceLpfOutL = sauti::dsp::sanitizeSample(raceA0 * delayedOutL + raceB1 * raceLpfOutL);
-
-                // Subtract contralateral crosstalk (anti-phase) with center-bass reinforcement
-                // Clamp recursive feedback factor to <= 0.92 for unconditional IIR stability
-                const float alpha = std::min(currentMix, 0.92f);
-                float recL = inL - alpha * raceLpfOutR + (alpha * 0.35f) * raceBassState;
-                float recR = inR - alpha * raceLpfOutL + (alpha * 0.35f) * raceBassState;
-
-                // Soft-knee safety clamp on recursive state to prevent runaway feedback
-                if (std::abs(recL) > 0.98f)
-                {
-                    const float sign = (recL > 0.0f) ? 1.0f : -1.0f;
-                    const float excess = std::abs(recL) - 0.98f;
-                    recL = sign * (0.98f + 0.02f * std::tanh(excess / 0.02f));
-                }
-                if (std::abs(recR) > 0.98f)
-                {
-                    const float sign = (recR > 0.0f) ? 1.0f : -1.0f;
-                    const float excess = std::abs(recR) - 0.98f;
-                    recR = sign * (0.98f + 0.02f * std::tanh(excess / 0.02f));
-                }
-
-                // Feed back unattenuated recursive state into ring buffer so output compensation
-                // does not weaken the effective cancellation factor alpha
-                delayRingBufferL[writeIdx] = recL;
-                delayRingBufferR[writeIdx] = recR;
-
-                // Apply output headroom compensation outside the recursive loop
-                if (outputCompensationEnabled)
-                {
-                    const float raceComp = 1.0f / std::sqrt(1.0f + 0.60f * alpha * alpha);
-                    outL = recL * raceComp;
-                    outR = recR * raceComp;
-                }
-                else
-                {
-                    outL = recL;
-                    outR = recR;
-                }
-                break;
-            }
-
-            case CrossfeedAlgorithm::OpenStage:
-            {
-                openStage.setMixImmediate(currentMix);
-                openStage.processSample(inL, inR, outL, outR);
-                break;
-            }
-
-            default:
-                outL = inL;
-                outR = inR;
-                break;
-            }
-
-            interleavedStereo[base] = static_cast<SampleT>(outL);
-            interleavedStereo[base + 1] = static_cast<SampleT>(outR);
-
-            writeIdx = (writeIdx + 1) % MAX_DELAY_SAMPLES;
+        if (!enabled_ && currentBypassWet_ <= 1.0e-4)
+        {
+            currentBypassWet_ = 0.0;
+            activeAlgorithm = CrossfeedAlgorithm::Off;
+            resetFiltersOnly();
         }
     }
 
 private:
-    void updateCoefficients()
+    inline void advanceStandardSmoothers() noexcept
+    {
+        currentMix += alphaSmooth_ * (targetMix - currentMix);
+        currentDelayMs += alphaSmooth_ * (targetDelayMs - currentDelayMs);
+        currentCutoffHz += alphaSmooth_ * (targetCutoffHz - currentCutoffHz);
+        currentBypassWet_ += alphaSmooth_ * (targetBypassWet_ - currentBypassWet_);
+
+        if (forceCoeffUpdate_ ||
+            std::abs(lastCoeffCutoff - currentCutoffHz) > 0.05 ||
+            std::abs(lastCoeffMix - currentMix) > 0.0005 ||
+            std::abs(lastCoeffDelay - currentDelayMs) > 0.0005)
+        {
+            updateCoefficients();
+        }
+    }
+
+    inline double readDelayed(const double *ringBuf, double delaySamples) const noexcept
+    {
+        const size_t i0 = static_cast<size_t>(delaySamples);
+        const double frac = delaySamples - static_cast<double>(i0);
+        const size_t p0 = (writeIdx - i0) & DELAY_MASK;
+        const size_t p1 = (p0 - 1) & DELAY_MASK;
+        return ringBuf[p0] + frac * (ringBuf[p1] - ringBuf[p0]);
+    }
+
+    inline void applyBypassBlend(double inL, double inR, double wetL, double wetR,
+                                 double &outL, double &outR) const noexcept
+    {
+        if (currentBypassWet_ >= 0.9999)
+        {
+            outL = wetL;
+            outR = wetR;
+        }
+        else
+        {
+            const double dry = 1.0 - currentBypassWet_;
+            outL = inL * dry + wetL * currentBypassWet_;
+            outR = inR * dry + wetR * currentBypassWet_;
+        }
+    }
+
+    template <typename SampleT>
+    void processSimple(SampleT *interleavedStereo, uint32_t frames, int channels) noexcept
+    {
+        const size_t ch = static_cast<size_t>(channels);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            advanceStandardSmoothers();
+
+            const size_t base = static_cast<size_t>(i) * ch;
+            const double inL = static_cast<double>(interleavedStereo[base]);
+            const double inR = static_cast<double>(interleavedStereo[base + 1]);
+
+            delayRingBufferL[writeIdx] = inL;
+            delayRingBufferR[writeIdx] = inR;
+
+            const double delayedL = readDelayed(delayRingBufferL, cachedDelaySamples);
+            const double delayedR = readDelayed(delayRingBufferR, cachedDelaySamples);
+
+            const double wetL = cachedSimpleDirectGain * inL + cachedSimpleCrossGain * delayedR;
+            const double wetR = cachedSimpleDirectGain * inR + cachedSimpleCrossGain * delayedL;
+
+            double outL, outR;
+            applyBypassBlend(inL, inR, wetL, wetR, outL, outR);
+
+            interleavedStereo[base] = static_cast<SampleT>(outL);
+            interleavedStereo[base + 1] = static_cast<SampleT>(outR);
+            writeIdx = (writeIdx + 1) & DELAY_MASK;
+        }
+    }
+
+    template <typename SampleT>
+    void processBS2B(SampleT *interleavedStereo, uint32_t frames, int channels) noexcept
+    {
+        const size_t ch = static_cast<size_t>(channels);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            advanceStandardSmoothers();
+
+            const size_t base = static_cast<size_t>(i) * ch;
+            const double inL = static_cast<double>(interleavedStereo[base]);
+            const double inR = static_cast<double>(interleavedStereo[base + 1]);
+
+            // Pure pole-matched libbs2b filter network (no artificial delay line)
+            bs2bLoStateL = sauti::dsp::sanitizeSample(bs2b_a0_lo * inL + bs2b_b1_lo * bs2bLoStateL);
+            bs2bLoStateR = sauti::dsp::sanitizeSample(bs2b_a0_lo * inR + bs2b_b1_lo * bs2bLoStateR);
+
+            const double hiL = sauti::dsp::sanitizeSample(bs2b_a0_hi * inL + bs2b_a1_hi * bs2bAsisL + bs2b_b1_hi * bs2bHiStateL);
+            const double hiR = sauti::dsp::sanitizeSample(bs2b_a0_hi * inR + bs2b_a1_hi * bs2bAsisR + bs2b_b1_hi * bs2bHiStateR);
+            bs2bAsisL = inL;
+            bs2bAsisR = inR;
+            bs2bHiStateL = hiL;
+            bs2bHiStateR = hiR;
+
+            const double wetL = (hiL + bs2bLoStateR) * bs2b_gain;
+            const double wetR = (hiR + bs2bLoStateL) * bs2b_gain;
+
+            double outL, outR;
+            applyBypassBlend(inL, inR, wetL, wetR, outL, outR);
+
+            interleavedStereo[base] = static_cast<SampleT>(outL);
+            interleavedStereo[base + 1] = static_cast<SampleT>(outR);
+        }
+    }
+
+    template <typename SampleT>
+    void processMeier(SampleT *interleavedStereo, uint32_t frames, int channels) noexcept
+    {
+        const size_t ch = static_cast<size_t>(channels);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            advanceStandardSmoothers();
+
+            const size_t base = static_cast<size_t>(i) * ch;
+            const double inL = static_cast<double>(interleavedStereo[base]);
+            const double inR = static_cast<double>(interleavedStereo[base + 1]);
+
+            lpfStateL[0] = sauti::dsp::sanitizeSample(lpfStateL[0] + meierLpfAlpha * (inL - lpfStateL[0]));
+            lpfStateR[0] = sauti::dsp::sanitizeSample(lpfStateR[0] + meierLpfAlpha * (inR - lpfStateR[0]));
+
+            const double crossL = lpfStateL[0];
+            const double crossR = lpfStateR[0];
+
+            // Complementary direct treble preservation
+            const double directL = inL + cachedMeierHighBoost * (inL - crossL);
+            const double directR = inR + cachedMeierHighBoost * (inR - crossR);
+
+            delayRingBufferL[writeIdx] = crossL;
+            delayRingBufferR[writeIdx] = crossR;
+
+            const double delayedL = readDelayed(delayRingBufferL, cachedMeierExtraDelaySamples);
+            const double delayedR = readDelayed(delayRingBufferR, cachedMeierExtraDelaySamples);
+
+            const double wetL = (directL + cachedMeierCrossGain * delayedR) * cachedMeierComp;
+            const double wetR = (directR + cachedMeierCrossGain * delayedL) * cachedMeierComp;
+
+            double outL, outR;
+            applyBypassBlend(inL, inR, wetL, wetR, outL, outR);
+
+            interleavedStereo[base] = static_cast<SampleT>(outL);
+            interleavedStereo[base + 1] = static_cast<SampleT>(outR);
+            writeIdx = (writeIdx + 1) & DELAY_MASK;
+        }
+    }
+
+    template <typename SampleT>
+    void processNatural(SampleT *interleavedStereo, uint32_t frames, int channels) noexcept
+    {
+        const size_t ch = static_cast<size_t>(channels);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            advanceStandardSmoothers();
+
+            const size_t base = static_cast<size_t>(i) * ch;
+            const double inL = static_cast<double>(interleavedStereo[base]);
+            const double inR = static_cast<double>(interleavedStereo[base + 1]);
+
+            // 2-pole Butterworth TPT SVF lowpass
+            const double v3L = inL - lpfStateL[1];
+            const double v1L = svf_a1 * lpfStateL[0] + svf_a2 * v3L;
+            const double v2L = lpfStateL[1] + svf_a2 * lpfStateL[0] + svf_a3 * v3L;
+            lpfStateL[0] = sauti::dsp::sanitizeSample(2.0 * v1L - lpfStateL[0]);
+            lpfStateL[1] = sauti::dsp::sanitizeSample(2.0 * v2L - lpfStateL[1]);
+            const double lpfOutL = v2L;
+
+            const double v3R = inR - lpfStateR[1];
+            const double v1R = svf_a1 * lpfStateR[0] + svf_a2 * v3R;
+            const double v2R = lpfStateR[1] + svf_a2 * lpfStateR[0] + svf_a3 * v3R;
+            lpfStateR[0] = sauti::dsp::sanitizeSample(2.0 * v1R - lpfStateR[0]);
+            lpfStateR[1] = sauti::dsp::sanitizeSample(2.0 * v2R - lpfStateR[1]);
+            const double lpfOutR = v2R;
+
+            // Complementary direct treble preservation
+            const double directL = inL + cachedNaturalHighBoost * (inL - lpfOutL);
+            const double directR = inR + cachedNaturalHighBoost * (inR - lpfOutR);
+
+            delayRingBufferL[writeIdx] = lpfOutL;
+            delayRingBufferR[writeIdx] = lpfOutR;
+
+            // Extra delay has 2-pole Butterworth DC group delay subtracted
+            const double delayedL = readDelayed(delayRingBufferL, cachedNaturalExtraDelaySamples);
+            const double delayedR = readDelayed(delayRingBufferR, cachedNaturalExtraDelaySamples);
+
+            const double wetL = (directL + cachedNaturalCrossGain * delayedR) * cachedNaturalComp;
+            const double wetR = (directR + cachedNaturalCrossGain * delayedL) * cachedNaturalComp;
+
+            double outL, outR;
+            applyBypassBlend(inL, inR, wetL, wetR, outL, outR);
+
+            interleavedStereo[base] = static_cast<SampleT>(outL);
+            interleavedStereo[base + 1] = static_cast<SampleT>(outR);
+            writeIdx = (writeIdx + 1) & DELAY_MASK;
+        }
+    }
+
+    template <typename SampleT>
+    void processRace(SampleT *interleavedStereo, uint32_t frames, int channels) noexcept
+    {
+        const size_t ch = static_cast<size_t>(channels);
+        constexpr double kButterworthQInv = 1.4142135623730951;
+
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            currentRaceDelayMs += alphaSmooth_ * (targetRaceDelayMs - currentRaceDelayMs);
+            currentRaceAlpha += alphaSmooth_ * (targetRaceAlpha - currentRaceAlpha);
+            currentRaceLpfHz += alphaSmooth_ * (targetRaceLpfHz - currentRaceLpfHz);
+            currentBypassWet_ += alphaSmooth_ * (targetBypassWet_ - currentBypassWet_);
+
+            if (forceCoeffUpdate_ ||
+                std::abs(lastRaceLpfHz - currentRaceLpfHz) > 0.05 ||
+                std::abs(lastRaceAlpha - currentRaceAlpha) > 0.0005 ||
+                std::abs(lastRaceDelayMs - currentRaceDelayMs) > 0.0005)
+            {
+                updateCoefficients();
+            }
+
+            const size_t base = static_cast<size_t>(i) * ch;
+            const double inL = static_cast<double>(interleavedStereo[base]);
+            const double inR = static_cast<double>(interleavedStereo[base + 1]);
+
+            // Read contralateral recursive state (>= 1 sample delay before write)
+            const double delayedOutL = readDelayed(delayRingBufferL, cachedRaceDelaySamples);
+            const double delayedOutR = readDelayed(delayRingBufferR, cachedRaceDelaySamples);
+
+            // Band-limit feedback path with 200 Hz 2-pole Butterworth HPF to prevent LF Side blowup
+            const double hv3L = delayedOutL - raceHpfStateL[1];
+            const double hv1L = raceHp_a1 * raceHpfStateL[0] + raceHp_a2 * hv3L;
+            const double hv2L = raceHpfStateL[1] + raceHp_a2 * raceHpfStateL[0] + raceHp_a3 * hv3L;
+            raceHpfStateL[0] = sauti::dsp::sanitizeSample(2.0 * hv1L - raceHpfStateL[0]);
+            raceHpfStateL[1] = sauti::dsp::sanitizeSample(2.0 * hv2L - raceHpfStateL[1]);
+            const double hpfOutL = delayedOutL - kButterworthQInv * hv1L - hv2L;
+
+            const double hv3R = delayedOutR - raceHpfStateR[1];
+            const double hv1R = raceHp_a1 * raceHpfStateR[0] + raceHp_a2 * hv3R;
+            const double hv2R = raceHpfStateR[1] + raceHp_a2 * raceHpfStateR[0] + raceHp_a3 * hv3R;
+            raceHpfStateR[0] = sauti::dsp::sanitizeSample(2.0 * hv1R - raceHpfStateR[0]);
+            raceHpfStateR[1] = sauti::dsp::sanitizeSample(2.0 * hv2R - raceHpfStateR[1]);
+            const double hpfOutR = delayedOutR - kButterworthQInv * hv1R - hv2R;
+
+            // Head-shadow 1-pole LPF inside feedback loop
+            raceLpfOutL = sauti::dsp::sanitizeSample(raceA0 * hpfOutL + raceB1 * raceLpfOutL);
+            raceLpfOutR = sauti::dsp::sanitizeSample(raceA0 * hpfOutR + raceB1 * raceLpfOutR);
+
+            double recL = inL - cachedRaceEffectiveAlpha * raceLpfOutR;
+            double recR = inR - cachedRaceEffectiveAlpha * raceLpfOutL;
+
+            // Soft-knee safety clamp on recursive state
+            if (std::abs(recL) > 0.98)
+            {
+                const double sign = (recL > 0.0) ? 1.0 : -1.0;
+                const double excess = std::abs(recL) - 0.98;
+                recL = sign * (0.98 + 0.02 * std::tanh(excess / 0.02));
+            }
+            if (std::abs(recR) > 0.98)
+            {
+                const double sign = (recR > 0.0) ? 1.0 : -1.0;
+                const double excess = std::abs(recR) - 0.98;
+                recR = sign * (0.98 + 0.02 * std::tanh(excess / 0.02));
+            }
+
+            delayRingBufferL[writeIdx] = recL;
+            delayRingBufferR[writeIdx] = recR;
+
+            const double wetL = recL * cachedRaceComp;
+            const double wetR = recR * cachedRaceComp;
+
+            double outL, outR;
+            applyBypassBlend(inL, inR, wetL, wetR, outL, outR);
+
+            interleavedStereo[base] = static_cast<SampleT>(outL);
+            interleavedStereo[base + 1] = static_cast<SampleT>(outR);
+            writeIdx = (writeIdx + 1) & DELAY_MASK;
+        }
+    }
+
+    template <typename SampleT>
+    void processOpenStage(SampleT *interleavedStereo, uint32_t frames, int channels) noexcept
+    {
+        const size_t ch = static_cast<size_t>(channels);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            currentMix += alphaSmooth_ * (targetMix - currentMix);
+            currentBypassWet_ += alphaSmooth_ * (targetBypassWet_ - currentBypassWet_);
+
+            const size_t base = static_cast<size_t>(i) * ch;
+            const double inL = static_cast<double>(interleavedStereo[base]);
+            const double inR = static_cast<double>(interleavedStereo[base + 1]);
+
+            openStage.setMixImmediate(static_cast<float>(currentMix));
+            double wetL = inL;
+            double wetR = inR;
+            openStage.processSample(inL, inR, wetL, wetR);
+
+            double outL, outR;
+            applyBypassBlend(inL, inR, wetL, wetR, outL, outR);
+
+            interleavedStereo[base] = static_cast<SampleT>(outL);
+            interleavedStereo[base + 1] = static_cast<SampleT>(outR);
+        }
+    }
+
+    void updateCoefficients() noexcept
     {
         constexpr double pi = 3.14159265358979323846;
-        const double fcut = (double)currentCutoffHz;
-        const double mix = std::clamp((double)currentMix, 0.0, 1.0);
-        const double feed = mix * 6.5 + 3.0; // Map 0..1 mix to 3.0..9.5 dB feed
+        constexpr double kTwoPi = 6.28318530717958647692;
+        constexpr double kButterworthQInv = 1.4142135623730951;
 
-        const double level = feed / 10.0;
-        const double gb_lo = level * -5.0 / 6.0 - 3.0;
-        const double gb_hi = level / 6.0 - 3.0;
+        const double maxSafeCutoff = std::max(200.0, sampleRate * 0.42);
+        const double fcut = std::clamp(currentCutoffHz, 100.0, maxSafeCutoff);
+        const double mix = std::clamp(currentMix, 0.0, 1.0);
+        const double delayMs = std::clamp(currentDelayMs, 0.02, 5.0);
 
-        // Scale BS2B crossfeed and high-boost gains smoothly by mix so mix=0 is exact unity bypass
-        // without requiring a parallel dry/wet blend that would cause high-shelf phase comb filtering
-        const double g_lo_full = std::pow(10.0, gb_lo / 20.0);
-        const double g_hi_full = 1.0 - std::pow(10.0, gb_hi / 20.0);
-        const double g_lo = g_lo_full * mix;
-        const double g_hi = g_hi_full * mix;
-        const double fc_hi = fcut * std::pow(2.0, (gb_lo - 20.0 * std::log10(std::max(1.0e-6, g_hi_full))) / 12.0);
+        switch (activeAlgorithm)
+        {
+        case CrossfeedAlgorithm::Simple:
+        {
+            cachedDelaySamples = std::clamp(delayMs * 0.001 * sampleRate, 0.01, static_cast<double>(MAX_DELAY_SAMPLES - 2));
+            cachedSimpleCrossGain = mix * 0.55;
+            cachedSimpleDirectGain = outputCompensationEnabled
+                                         ? (1.0 / std::sqrt(1.0 + cachedSimpleCrossGain * cachedSimpleCrossGain))
+                                         : 1.0;
+            break;
+        }
 
-        double x = std::exp(-2.0 * pi * fcut / sampleRate);
-        bs2b_b1_lo = (float)x;
-        bs2b_a0_lo = (float)(g_lo * (1.0 - x));
+        case CrossfeedAlgorithm::BS2B:
+        {
+            // Exact libbs2b mapping: smaller feed dB = stronger crossfeed
+            // mix=0.30 -> 9.5 dB (Jan Meier), mix=0.65 -> 6.0 dB (Chu Moy), mix=0.80 -> 4.5 dB (Default)
+            const double level = std::clamp(12.5 - 10.0 * mix, 2.5, 15.0);
+            const double fade = std::clamp(mix / 0.20, 0.0, 1.0);
+            const double gb_lo = level * -5.0 / 6.0 - 3.0;
+            const double gb_hi = level / 6.0 - 3.0;
 
-        x = std::exp(-2.0 * pi * fc_hi / sampleRate);
-        bs2b_b1_hi = (float)x;
-        bs2b_a0_hi = (float)(1.0 - g_hi * (1.0 - x));
-        bs2b_a1_hi = (float)(-x);
+            const double g_lo_full = std::pow(10.0, gb_lo / 20.0);
+            const double g_hi_full = 1.0 - std::pow(10.0, gb_hi / 20.0);
+            const double g_lo = g_lo_full * fade;
+            const double g_hi = g_hi_full * fade;
+            const double fc_hi = std::min(
+                sampleRate * 0.45,
+                fcut * std::pow(2.0, (gb_lo - 20.0 * std::log10(std::max(1.0e-6, g_hi_full))) / 12.0));
 
-        bs2b_gain = (float)(1.0 / (1.0 - g_hi + g_lo));
+            const double x_lo = std::exp(-kTwoPi * fcut / sampleRate);
+            bs2b_b1_lo = x_lo;
+            bs2b_a0_lo = g_lo * (1.0 - x_lo);
 
-        // Jan Meier exact 1-pole matched-Z coefficient (-3 dB at fcut)
-        // Note: Using w/(1+w) without a (z+1) numerator halved the -3 dB cutoff to 0.5*fcut.
-        meierLpfAlpha = (float)(1.0 - std::exp(-2.0 * pi * fcut / sampleRate));
+            const double x_hi = std::exp(-kTwoPi * fc_hi / sampleRate);
+            bs2b_b1_hi = x_hi;
+            bs2b_a0_hi = 1.0 - g_hi * (1.0 - x_hi);
+            bs2b_a1_hi = -x_hi;
 
-        // Custom Natural 2-pole Butterworth SVF coefficients
-        const double g_nat = std::tan(pi * fcut / sampleRate);
-        constexpr double k_nat = 1.4142135623730951; // Q = 0.7071
-        const double a1_nat = 1.0 / (1.0 + g_nat * (g_nat + k_nat));
-        const double a2_nat = g_nat * a1_nat;
-        const double a3_nat = g_nat * a2_nat;
-        svf_a1 = (float)a1_nat;
-        svf_a2 = (float)a2_nat;
-        svf_a3 = (float)a3_nat;
+            bs2b_gain = outputCompensationEnabled ? (1.0 / (1.0 - g_hi + g_lo)) : 1.0;
+            break;
+        }
 
-        // Precompute RACE 1-pole head-shadow and center-bass coefficients (avoids per-sample std::exp)
-        const double x_race = std::exp(-2.0 * pi * fcut / sampleRate);
-        raceA0 = (float)(1.0 - x_race);
-        raceB1 = (float)x_race;
+        case CrossfeedAlgorithm::Meier:
+        {
+            meierLpfAlpha = 1.0 - std::exp(-kTwoPi * fcut / sampleRate);
+            cachedMeierCrossGain = mix * 0.60;
+            cachedMeierHighBoost = cachedMeierCrossGain * 0.70;
+            cachedMeierComp = outputCompensationEnabled
+                                  ? (1.0 / (1.0 + 0.5 * (cachedMeierCrossGain + cachedMeierHighBoost)))
+                                  : 1.0;
 
-        const double x_bass = std::exp(-2.0 * pi * 160.0 / sampleRate);
-        raceBassA0 = (float)(1.0 - x_bass);
-        raceBassB1 = (float)x_bass;
+            // Subtract net filter group delay (contra 1-pole LPF minus direct high-boost phase lead)
+            const double filterDelayMs = (1.0 + cachedMeierHighBoost) * (1000.0 / (kTwoPi * fcut));
+            const double extraDelayMs = std::max(0.0, delayMs - filterDelayMs);
+            cachedMeierExtraDelaySamples = std::clamp(extraDelayMs * 0.001 * sampleRate, 0.0, static_cast<double>(MAX_DELAY_SAMPLES - 2));
+            break;
+        }
+
+        case CrossfeedAlgorithm::Natural:
+        {
+            const double g_nat = std::tan(pi * fcut / sampleRate);
+            const double a1_nat = 1.0 / (1.0 + g_nat * (g_nat + kButterworthQInv));
+            const double a2_nat = g_nat * a1_nat;
+            const double a3_nat = g_nat * a2_nat;
+            svf_a1 = a1_nat;
+            svf_a2 = a2_nat;
+            svf_a3 = a3_nat;
+
+            cachedNaturalCrossGain = mix * 0.60;
+            cachedNaturalHighBoost = cachedNaturalCrossGain * 0.70;
+            cachedNaturalComp = outputCompensationEnabled
+                                    ? (1.0 / (1.0 + 0.5 * (cachedNaturalCrossGain + cachedNaturalHighBoost)))
+                                    : 1.0;
+
+            // Subtract net 2-pole Butterworth + direct high-boost group delay so total ITD matches delayMs
+            const double svfDelayMs = (1.0 + cachedNaturalHighBoost) * ((1000.0 * kButterworthQInv) / (kTwoPi * fcut));
+            const double extraDelayMs = std::max(0.0, delayMs - svfDelayMs);
+            cachedNaturalExtraDelaySamples = std::clamp(extraDelayMs * 0.001 * sampleRate, 0.0, static_cast<double>(MAX_DELAY_SAMPLES - 2));
+            break;
+        }
+
+        case CrossfeedAlgorithm::RACE:
+        {
+            const double raceFcut = std::clamp(currentRaceLpfHz, 200.0, maxSafeCutoff);
+            const double x_race = std::exp(-kTwoPi * raceFcut / sampleRate);
+            raceA0 = 1.0 - x_race;
+            raceB1 = x_race;
+
+            // 200 Hz 2-pole Butterworth HPF inside feedback loop
+            const double g_hp = std::tan(pi * 200.0 / sampleRate);
+            raceHp_a1 = 1.0 / (1.0 + g_hp * (g_hp + kButterworthQInv));
+            raceHp_a2 = g_hp * raceHp_a1;
+            raceHp_a3 = g_hp * raceHp_a2;
+
+            cachedRaceDelaySamples = std::clamp(currentRaceDelayMs * 0.001 * sampleRate, 1.0, static_cast<double>(MAX_DELAY_SAMPLES - 2));
+            cachedRaceEffectiveAlpha = std::clamp(currentRaceAlpha, 0.0, 0.85);
+            cachedRaceComp = outputCompensationEnabled
+                                 ? (1.0 / std::sqrt(1.0 + 0.35 * cachedRaceEffectiveAlpha * cachedRaceEffectiveAlpha))
+                                 : 1.0;
+            break;
+        }
+
+        case CrossfeedAlgorithm::OpenStage:
+        case CrossfeedAlgorithm::Off:
+        default:
+            break;
+        }
 
         lastCoeffCutoff = currentCutoffHz;
         lastCoeffMix = currentMix;
+        lastCoeffDelay = currentDelayMs;
+        lastRaceLpfHz = currentRaceLpfHz;
+        lastRaceAlpha = currentRaceAlpha;
+        lastRaceDelayMs = currentRaceDelayMs;
+        forceCoeffUpdate_ = false;
     }
 
     double sampleRate = 48000.0;
+    double alphaSmooth_ = 0.00208;
     CrossfeedAlgorithm targetAlgorithm = CrossfeedAlgorithm::Off;
-    CrossfeedAlgorithm currentAlgorithm = CrossfeedAlgorithm::Off;
+    CrossfeedAlgorithm activeAlgorithm = CrossfeedAlgorithm::Off;
+    bool enabled_ = false;
+    double targetBypassWet_ = 0.0;
+    double currentBypassWet_ = 0.0;
 
-    float targetMix = 0.5f;
-    float currentMix = 0.5f;
+    // Standard crossfeed smoothed parameters (Simple, BS2B, Meier, Natural, OpenStage mix)
+    double targetMix = 0.5;
+    double currentMix = 0.5;
+    double targetDelayMs = 0.40;
+    double currentDelayMs = 0.40;
+    double targetCutoffHz = 700.0;
+    double currentCutoffHz = 700.0;
 
-    float targetDelayMs = 0.40f; // Default ~0.4ms ITD
-    float currentDelayMs = 0.40f;
+    // Isolated RACE smoothed parameters
+    double targetRaceDelayMs = 0.166;
+    double currentRaceDelayMs = 0.166;
+    double targetRaceAlpha = 0.55;
+    double currentRaceAlpha = 0.55;
+    double targetRaceLpfHz = 2500.0;
+    double currentRaceLpfHz = 2500.0;
 
-    float targetCutoffHz = 700.0f; // Default 700Hz
-    float currentCutoffHz = 700.0f;
-
-    float lastCoeffCutoff = 0.0f;
-    float lastCoeffMix = -1.0f;
+    double lastCoeffCutoff = -1.0;
+    double lastCoeffMix = -1.0;
+    double lastCoeffDelay = -1.0;
+    double lastRaceLpfHz = -1.0;
+    double lastRaceAlpha = -1.0;
+    double lastRaceDelayMs = -1.0;
+    bool forceCoeffUpdate_ = true;
 
     bool outputCompensationEnabled = true;
 
-    // Delay ring buffers
-    float delayRingBufferL[MAX_DELAY_SAMPLES] = {};
-    float delayRingBufferR[MAX_DELAY_SAMPLES] = {};
+    // 64-bit delay ring buffers
+    double delayRingBufferL[MAX_DELAY_SAMPLES] = {};
+    double delayRingBufferR[MAX_DELAY_SAMPLES] = {};
     size_t writeIdx = 0;
 
-    // Filter states
-    float lpfStateL[2] = {};
-    float lpfStateR[2] = {};
-    float directHpfStateL = 0.0f;
-    float directHpfStateR = 0.0f;
+    // Cached per-algorithm gains & delays
+    double cachedDelaySamples = 19.2;
+    double cachedSimpleCrossGain = 0.275;
+    double cachedSimpleDirectGain = 0.964;
 
-    // BS2B filter states
-    float bs2b_a0_lo = 0.0f;
-    float bs2b_b1_lo = 0.0f;
-    float bs2b_a0_hi = 0.0f;
-    float bs2b_a1_hi = 0.0f;
-    float bs2b_b1_hi = 0.0f;
-    float bs2b_gain = 1.0f;
-    float bs2bAsisL = 0.0f;
-    float bs2bAsisR = 0.0f;
-    float bs2bHiStateL = 0.0f;
-    float bs2bHiStateR = 0.0f;
-    float bs2bLoStateL = 0.0f;
-    float bs2bLoStateR = 0.0f;
+    double cachedMeierCrossGain = 0.30;
+    double cachedMeierHighBoost = 0.21;
+    double cachedMeierComp = 0.797;
+    double cachedMeierExtraDelaySamples = 8.2;
 
-    // RACE filter states and cached coefficients
-    float raceLpfOutL = 0.0f;
-    float raceLpfOutR = 0.0f;
-    float raceBassState = 0.0f;
-    float raceA0 = 0.0f;
-    float raceB1 = 0.0f;
-    float raceBassA0 = 0.0f;
-    float raceBassB1 = 0.0f;
+    double cachedNaturalCrossGain = 0.30;
+    double cachedNaturalHighBoost = 0.21;
+    double cachedNaturalComp = 0.797;
+    double cachedNaturalExtraDelaySamples = 3.8;
 
-    // Cached filter coefficients
-    float meierLpfAlpha = 0.0f;
-    float svf_a1 = 0.0f;
-    float svf_a2 = 0.0f;
-    float svf_a3 = 0.0f;
+    double cachedRaceDelaySamples = 7.968;
+    double cachedRaceEffectiveAlpha = 0.55;
+    double cachedRaceComp = 0.951;
+
+    // Filter states (64-bit)
+    double lpfStateL[2] = {};
+    double lpfStateR[2] = {};
+
+    // BS2B filter states & coefficients
+    double bs2b_a0_lo = 0.0;
+    double bs2b_b1_lo = 0.0;
+    double bs2b_a0_hi = 1.0;
+    double bs2b_a1_hi = 0.0;
+    double bs2b_b1_hi = 0.0;
+    double bs2b_gain = 1.0;
+    double bs2bAsisL = 0.0;
+    double bs2bAsisR = 0.0;
+    double bs2bHiStateL = 0.0;
+    double bs2bHiStateR = 0.0;
+    double bs2bLoStateL = 0.0;
+    double bs2bLoStateR = 0.0;
+
+    // RACE filter states & cached coefficients
+    double raceLpfOutL = 0.0;
+    double raceLpfOutR = 0.0;
+    double raceHpfStateL[2] = {};
+    double raceHpfStateR[2] = {};
+    double raceA0 = 0.0;
+    double raceB1 = 0.0;
+    double raceHp_a1 = 0.0;
+    double raceHp_a2 = 0.0;
+    double raceHp_a3 = 0.0;
+
+    // Cached Meier & Natural filter coefficients
+    double meierLpfAlpha = 0.0;
+    double svf_a1 = 0.0;
+    double svf_a2 = 0.0;
+    double svf_a3 = 0.0;
 
     // OpenStage DSP engine
     sauti::dsp::OpenStageDSP openStage;

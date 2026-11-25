@@ -44,6 +44,9 @@ class AudioProfileSelector extends StatefulWidget {
     final dynamicBass = await AppStateService.instance.loadDynamicBass();
     final crystalizer = await AppStateService.instance.loadCrystalizer();
     final crossfeed = await AppStateService.instance.loadCrossfeed();
+    final raceParams = await AppStateService.instance.loadRaceParams();
+    final openStageParams =
+        await AppStateService.instance.loadOpenStageParams();
     final stereoWiden = await AppStateService.instance.loadStereoWiden();
     final stereoEnhancement =
         await AppStateService.instance.loadStereoEnhancement();
@@ -89,7 +92,24 @@ class AudioProfileSelector extends StatefulWidget {
           'highShelfEnabled': crystalizer.highShelfEnabled,
           'highShelfGainDb': crystalizer.highShelfGainDb
         },
-        'crossfeed': {'enabled': crossfeed.enabled, 'preset': crossfeed.preset},
+        'crossfeed': {
+          'enabled': crossfeed.enabled,
+          'preset': crossfeed.preset,
+          'algoIndex': crossfeed.algoIndex,
+          'mix': crossfeed.mix,
+          'delayMs': crossfeed.delayMs,
+          'cutoffHz': crossfeed.cutoffHz,
+          'outputCompensation': crossfeed.outputCompensation,
+          'race': {
+            'delayMs': raceParams.delayMs,
+            'alpha': raceParams.alpha,
+            'lpfHz': raceParams.lpfHz,
+          },
+          'openStage': {
+            'angle': openStageParams.angle,
+            'gainDb': openStageParams.gainDb,
+          },
+        },
         'stereoWiden': {
           'enabled': stereoWiden.enabled,
           'width': stereoWiden.width,
