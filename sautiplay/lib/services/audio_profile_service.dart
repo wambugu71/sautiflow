@@ -62,6 +62,7 @@ class AudioProfileService {
     player.setTapeDriftEnabled(false);
     player.setDeEsser(enabled: false);
     player.setDownwardExpander(enabled: false);
+    player.setNoiseGateEnabled(false);
     player.setConvolverEnabled(false);
     player.setMasterLimiter(enabled: false);
     await AppStateService.instance.saveSautiDspState(
@@ -293,7 +294,12 @@ class AudioProfileService {
       final intensity = (c['intensity'] as num?)?.toDouble() ?? 0.5;
       final highShelf = c['highShelfEnabled'] ?? true;
       final shelfGain = (c['highShelfGainDb'] as num?)?.toDouble() ?? 2.0;
-      player.setCrystalizer(enabled: enabled);
+      player.setCrystalizer(
+        enabled: enabled,
+        intensity: intensity,
+        highShelfEnabled: highShelf,
+        highShelfGainDb: shelfGain,
+      );
       await AppStateService.instance.saveCrystalizer(
         enabled: enabled,
         intensity: intensity,
@@ -530,6 +536,7 @@ class AudioProfileService {
       'tapeDriftEnabled': false,
       'deEsserEnabled': false,
       'expanderEnabled': false,
+      'noiseGateEnabled': false,
       'convolverEnabled': false,
       'limiterEnabled': false,
       'surroundEnabled': false,

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include "denormals.h"
 #include "simd_math.h"
 
@@ -50,7 +51,14 @@ public:
     void setEnabled(bool enabled) {
         if (enabled_ != enabled) {
             enabled_ = enabled;
-            if (!enabled) {
+            if (enabled) {
+                // Start Open at unity gain when enabled mid-stream so there is no sample-0 drop click
+                state_ = GateState::Open;
+                hold_counter_ = 0;
+                current_gain_linear_ = 1.0f;
+                sc_envelope_ = open_threshold_lin_;
+                gr_telemetry_.store(0.0f, std::memory_order_relaxed);
+            } else {
                 reset();
             }
         }
@@ -95,9 +103,7 @@ public:
     }
 
     float getGainReductionDb() const {
-        if (!enabled_ || current_gain_linear_ >= 0.999f) return 0.0f;
-        const float val = std::max(current_gain_linear_, 1.0e-5f);
-        return 20.0f * std::log10(val);
+        return gr_telemetry_.load(std::memory_order_relaxed);
     }
 
     GateState getState() const {
@@ -109,8 +115,9 @@ public:
         hold_counter_ = 0;
         current_gain_linear_ = 0.0f;
         sc_envelope_ = 0.0f;
-        sidechain_s1_ = 0.0;
-        sidechain_s2_ = 0.0;
+        sidechain_s1_.fill(0.0);
+        sidechain_s2_.fill(0.0);
+        gr_telemetry_.store(enabled_ ? -100.0f : 0.0f, std::memory_order_relaxed);
     }
 
     // Process 32-bit float interleaved samples in-place
@@ -122,23 +129,22 @@ public:
         ScopedDenormalsDisable denormalGuard;
         const float floor_lin = std::pow(10.0f, floor_db_ / 20.0f);
         const uint32_t hold_samples_total = static_cast<uint32_t>(hold_ms_ * 0.001f * sample_rate_);
+        const int sc_ch = std::min(channels, 16);
 
         for (size_t i = 0; i < frame_count; ++i) {
-            // 1. Compute mono sidechain input (unrectified AC audio for HPF)
-            float mono_in = 0.0f;
-            for (int c = 0; c < channels; ++c) {
-                mono_in += buffer[i * (size_t)channels + c];
+            // 1. Per-channel 2nd-order Butterworth Sidechain HPF (TDF2) + linked peak detection
+            //    Avoids mono-sum phase cancellation on wide or out-of-phase stereo material.
+            float sc_abs = 0.0f;
+            for (int c = 0; c < sc_ch; ++c) {
+                const double sc_sample = static_cast<double>(buffer[i * (size_t)channels + c]);
+                const double sc_filtered = sc_b0_ * sc_sample + sidechain_s1_[c];
+                sidechain_s1_[c] = sc_b1_ * sc_sample - sc_a1_ * sc_filtered + sidechain_s2_[c];
+                sidechain_s2_[c] = sc_b2_ * sc_sample - sc_a2_ * sc_filtered;
+                const float ch_abs = static_cast<float>(std::abs(sc_filtered));
+                if (ch_abs > sc_abs) sc_abs = ch_abs;
             }
-            mono_in /= static_cast<float>(channels);
 
-            // 2. 2nd-order Butterworth Sidechain HPF (TDF2)
-            double sc_sample = static_cast<double>(mono_in);
-            double sc_filtered = sc_b0_ * sc_sample + sidechain_s1_;
-            sidechain_s1_ = sc_b1_ * sc_sample - sc_a1_ * sc_filtered + sidechain_s2_;
-            sidechain_s2_ = sc_b2_ * sc_sample - sc_a2_ * sc_filtered;
-
-            // 3. Peak Envelope Detector
-            float sc_abs = static_cast<float>(std::abs(sc_filtered));
+            // 2. Peak Envelope Detector
             if (sc_abs > sc_envelope_) {
                 sc_envelope_ += sc_env_attack_coeff_ * (sc_abs - sc_envelope_);
             } else {
@@ -203,6 +209,11 @@ public:
                 buffer[i * (size_t)channels + c] *= current_gain_linear_;
             }
         }
+
+        const float gr_db = (current_gain_linear_ >= 0.999f)
+                                ? 0.0f
+                                : 20.0f * std::log10(std::max(current_gain_linear_, 1.0e-5f));
+        gr_telemetry_.store(gr_db, std::memory_order_relaxed);
     }
 
     // Process 64-bit double interleaved samples in-place
@@ -214,19 +225,19 @@ public:
         ScopedDenormalsDisable denormalGuard;
         const double floor_lin = std::pow(10.0, static_cast<double>(floor_db_) / 20.0);
         const uint32_t hold_samples_total = static_cast<uint32_t>(hold_ms_ * 0.001f * sample_rate_);
+        const int sc_ch = std::min(channels, 16);
 
         for (size_t i = 0; i < frame_count; ++i) {
-            double mono_in = 0.0;
-            for (int c = 0; c < channels; ++c) {
-                mono_in += buffer[i * (size_t)channels + c];
+            float sc_abs = 0.0f;
+            for (int c = 0; c < sc_ch; ++c) {
+                const double sc_sample = buffer[i * (size_t)channels + c];
+                const double sc_filtered = sc_b0_ * sc_sample + sidechain_s1_[c];
+                sidechain_s1_[c] = sc_b1_ * sc_sample - sc_a1_ * sc_filtered + sidechain_s2_[c];
+                sidechain_s2_[c] = sc_b2_ * sc_sample - sc_a2_ * sc_filtered;
+                const float ch_abs = static_cast<float>(std::abs(sc_filtered));
+                if (ch_abs > sc_abs) sc_abs = ch_abs;
             }
-            mono_in /= static_cast<double>(channels);
 
-            double sc_filtered = sc_b0_ * mono_in + sidechain_s1_;
-            sidechain_s1_ = sc_b1_ * mono_in - sc_a1_ * sc_filtered + sidechain_s2_;
-            sidechain_s2_ = sc_b2_ * mono_in - sc_a2_ * sc_filtered;
-
-            float sc_abs = static_cast<float>(std::abs(sc_filtered));
             if (sc_abs > sc_envelope_) {
                 sc_envelope_ += sc_env_attack_coeff_ * (sc_abs - sc_envelope_);
             } else {
@@ -289,6 +300,11 @@ public:
                 buffer[i * (size_t)channels + c] *= g;
             }
         }
+
+        const float gr_db = (current_gain_linear_ >= 0.999f)
+                                ? 0.0f
+                                : 20.0f * std::log10(std::max(current_gain_linear_, 1.0e-5f));
+        gr_telemetry_.store(gr_db, std::memory_order_relaxed);
     }
 
 private:
@@ -346,11 +362,12 @@ private:
     uint32_t hold_counter_ = 0;
     float current_gain_linear_ = 0.0f;
     float sc_envelope_ = 0.0f;
+    std::atomic<float> gr_telemetry_{0.0f};
 
-    // Sidechain HPF coefficients & state
+    // Sidechain HPF coefficients & per-channel state
     double sc_b0_ = 1.0, sc_b1_ = -2.0, sc_b2_ = 1.0, sc_a1_ = 0.0, sc_a2_ = 0.0;
-    double sidechain_s1_ = 0.0;
-    double sidechain_s2_ = 0.0;
+    std::array<double, 16> sidechain_s1_{};
+    std::array<double, 16> sidechain_s2_{};
 };
 
 } // namespace sauti::dsp

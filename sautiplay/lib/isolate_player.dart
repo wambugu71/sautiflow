@@ -1415,6 +1415,11 @@ class IsolateAudioPlayer {
         'sidechainHpfHz': sidechainHpfHz,
       });
 
+  Future<double> getDownwardExpanderGainReductionDB() async {
+    final response = await _request('getDownwardExpanderGainReductionDB');
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
+
   void setConvolverEnabled(bool enabled) =>
       _send({'cmd': 'setConvolverEnabled', 'enabled': enabled});
 
@@ -3747,6 +3752,13 @@ void _isolateEntry(_IsolateInitData initData) {
             sidechainHpfHz:
                 (message['sidechainHpfHz'] as num?)?.toDouble() ?? 50.0,
           );
+          break;
+        case 'getDownwardExpanderGainReductionDB':
+          try {
+            sendResponse(message, player.dsp.downwardExpanderGainReductionDb);
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
           break;
         case 'setConvolverEnabled':
           player.dsp.setConvolverEnabled(message['enabled'] == true);

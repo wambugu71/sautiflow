@@ -315,6 +315,60 @@ static void test_psychoacoustic_master() {
     double mudGainDb = 20.0 * std::log10(mudOutRms / (0.8 / std::sqrt(2.0)));
     std::printf("  Mud signal (240 Hz) gain reduction: %+.2f dB (want -1.5 to -3.0 dB)\n", mudGainDb);
     CHECK(mudGainDb < -1.0 && mudGainDb > -3.5, "Dynamic Low-Mid De-Masking engages peaking cut on excessive mud");
+
+    // 2. Neutral balanced signal (equal 250 Hz and 2 kHz energy) must NOT false-trigger mud cut
+    clarity.reset();
+    std::vector<float> balancedBuf(kFrames * 2);
+    for (int i = 0; i < kFrames; ++i) {
+        float low  = 0.25f * std::sin(2.0f * 3.14159f * 250.0f * (float)i / 48000.0f);
+        float high = 0.25f * std::sin(2.0f * 3.14159f * 2000.0f * (float)i / 48000.0f);
+        balancedBuf[2 * i] = low + high;
+        balancedBuf[2 * i + 1] = low + high;
+    }
+    clarity.process(balancedBuf.data(), kFrames);
+    double balOutSq = 0.0, balInSq = 0.0;
+    for (int i = kFrames - 1000; i < kFrames; ++i) {
+        float low  = 0.25f * std::sin(2.0f * 3.14159f * 250.0f * (float)i / 48000.0f);
+        float high = 0.25f * std::sin(2.0f * 3.14159f * 2000.0f * (float)i / 48000.0f);
+        balInSq += (low + high) * (low + high);
+        balOutSq += balancedBuf[2 * i] * balancedBuf[2 * i];
+    }
+    double balDiffDb = 10.0 * std::log10(balOutSq / balInSq);
+    std::printf("  Balanced 250 Hz + 2 kHz gain delta: %+.2f dB (want |dB| < 0.35)\n", balDiffDb);
+    CHECK(std::abs(balDiffDb) < 0.35, "Normalized de-masking detector does not false-trigger on balanced signal");
+
+    // 3. HarmonicBrilliance audibility at realistic -26 dBFS (A = 0.05) 5 kHz HF signal
+    clarity.setProfile(sauti::dsp::AudioClarityProfile::HarmonicBrilliance);
+    clarity.setIntensity(0.75f);
+    clarity.setOversampling(4);
+    clarity.reset();
+    const int kHarmFrames = 9600;
+    std::vector<float> quietHf(kHarmFrames * 2);
+    for (int i = 0; i < kHarmFrames; ++i) {
+        float v = 0.05f * std::sin(2.0f * 3.14159265f * 5000.0f * (float)i / 48000.0f);
+        quietHf[2 * i] = v;
+        quietHf[2 * i + 1] = v;
+    }
+    clarity.process(quietHf.data(), kHarmFrames);
+
+    // Measure 10 kHz (2nd) and 15 kHz (3rd) harmonic energy in last 4800 samples
+    const int M = 4800;
+    const int start = kHarmFrames - M;
+    auto binDb = [&](double freq) {
+        double re = 0.0, im = 0.0;
+        for (int n = 0; n < M; ++n) {
+            double ang = 2.0 * PI * freq * n / 48000.0;
+            double x = quietHf[2 * (start + n)];
+            re += x * std::cos(ang);
+            im -= x * std::sin(ang);
+        }
+        double amp = std::sqrt(re * re + im * im) / (M * 0.5);
+        return 20.0 * std::log10(std::max(amp, 1e-12) / 0.05);
+    };
+    double h2RelDb = binDb(10000.0);
+    double h3RelDb = binDb(15000.0);
+    std::printf("  -26 dBFS HarmonicBrilliance harmonics vs fundamental: H2=%.1f dB, H3=%.1f dB\n", h2RelDb, h3RelDb);
+    CHECK(h2RelDb > -28.0 && h3RelDb > -30.0, "Envelope-normalized Chebyshev synthesis remains audible at -26 dBFS");
 }
 
 int main() {

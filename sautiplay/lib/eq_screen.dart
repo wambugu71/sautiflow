@@ -204,6 +204,14 @@ class EqScreen extends StatefulWidget {
     );
     final clarityIntensity =
         (state['clarityIntensity'] as num?)?.toDouble() ?? 0.5;
+    final clarityWarmth =
+        (state['clarityWarmthDensity'] as num?)?.toDouble() ?? 0.35;
+    final claritySheen =
+        (state['clarityPresenceSheen'] as num?)?.toDouble() ?? 0.40;
+    final claritySnap =
+        (state['clarityTransientSnap'] as num?)?.toDouble() ?? 0.50;
+    final clarityDemask =
+        (state['clarityDeMaskAmount'] as num?)?.toDouble() ?? 0.45;
 
     final bassEnabled = masterEnabled && (state['bassEnabled'] ?? false);
     final bassProfile = HarmonicBassProfile.values.firstWhere(
@@ -265,6 +273,20 @@ class EqScreen extends StatefulWidget {
       enabled: clarityEnabled,
       profile: clarityProfile,
       intensity: clarityIntensity,
+    );
+    player.setClarityAdvancedParams(
+      warmthDensity: clarityWarmth,
+      presenceSheen: claritySheen,
+      transientSnap: claritySnap,
+      demaskAmount: clarityDemask,
+    );
+
+    final crystalizerSaved = await AppStateService.instance.loadCrystalizer();
+    player.setCrystalizer(
+      enabled: crystalizerSaved.enabled,
+      intensity: crystalizerSaved.intensity,
+      highShelfEnabled: crystalizerSaved.highShelfEnabled,
+      highShelfGainDb: crystalizerSaved.highShelfGainDb,
     );
 
     if (bassProfile == HarmonicBassProfile.dynamicMultiPole) {
@@ -338,14 +360,14 @@ class EqScreen extends StatefulWidget {
     final deEsserFrequencyHz =
         (state['deEsserFrequencyHz'] as num?)?.toDouble() ?? 5500.0;
     final deEsserThresholdDb =
-        (state['deEsserThresholdDb'] as num?)?.toDouble() ?? -22.0;
-    final deEsserRatio = (state['deEsserRatio'] as num?)?.toDouble() ?? 4.0;
+        (state['deEsserThresholdDb'] as num?)?.toDouble() ?? -24.0;
+    final deEsserRatio = (state['deEsserRatio'] as num?)?.toDouble() ?? 3.5;
     final deEsserMaxReductionDb =
-        (state['deEsserMaxReductionDb'] as num?)?.toDouble() ?? 12.0;
+        (state['deEsserMaxReductionDb'] as num?)?.toDouble() ?? 8.0;
     final deEsserAttackMs =
-        (state['deEsserAttackMs'] as num?)?.toDouble() ?? 1.0;
+        (state['deEsserAttackMs'] as num?)?.toDouble() ?? 1.5;
     final deEsserReleaseMs =
-        (state['deEsserReleaseMs'] as num?)?.toDouble() ?? 35.0;
+        (state['deEsserReleaseMs'] as num?)?.toDouble() ?? 40.0;
 
     player.setDeEsserEx(
       enabled: deEsserEnabled,
@@ -1777,11 +1799,11 @@ class _EqScreenState extends State<EqScreen>
   DeEsserMode _deEsserMode = DeEsserMode.splitBand;
   DeEsserPreset _deEsserPreset = DeEsserPreset.gentleVocal;
   double _deEsserFrequencyHz = 5500.0;
-  double _deEsserThresholdDb = -22.0;
-  double _deEsserRatio = 4.0;
-  double _deEsserMaxReductionDb = 12.0;
-  double _deEsserAttackMs = 1.0;
-  double _deEsserReleaseMs = 35.0;
+  double _deEsserThresholdDb = -24.0;
+  double _deEsserRatio = 3.5;
+  double _deEsserMaxReductionDb = 8.0;
+  double _deEsserAttackMs = 1.5;
+  double _deEsserReleaseMs = 40.0;
   final ValueNotifier<double> _deEsserGrNotifier = ValueNotifier(0.0);
 
   // 4b. Downward Expander (Vinyl & Tape Noise Floor Reducer)
@@ -1794,6 +1816,7 @@ class _EqScreenState extends State<EqScreen>
   double _expanderReleaseMs = 280.0;
   double _expanderKneeDb = 6.0;
   double _expanderHpfCutoffHz = 50.0;
+  final ValueNotifier<double> _expanderGrNotifier = ValueNotifier(0.0);
 
   // 5. FFT Convolver
   bool _convolverEnabled = false;
@@ -2550,6 +2573,7 @@ class _EqScreenState extends State<EqScreen>
       if (!mounted || !_isDynamicsModalActive) return;
       final anyDynamicsActive = _compressorEnabled ||
           _deEsserEnabled ||
+          _expanderEnabled ||
           _noiseGateEnabled ||
           _levellerEnabled ||
           _lookaheadAgcEnabled;
@@ -2560,6 +2584,9 @@ class _EqScreenState extends State<EqScreen>
         }
         if (_deEsserGrNotifier.value != 0.0) {
           _deEsserGrNotifier.value = 0.0;
+        }
+        if (_expanderGrNotifier.value != 0.0) {
+          _expanderGrNotifier.value = 0.0;
         }
         if (_noiseGateGrNotifier.value != 0.0) {
           _noiseGateGrNotifier.value = 0.0;
@@ -2604,6 +2631,17 @@ class _EqScreenState extends State<EqScreen>
         }));
       } else if (_deEsserGrNotifier.value != 0.0) {
         if (mounted) _deEsserGrNotifier.value = 0.0;
+      }
+
+      if (_expanderEnabled && _isPlaying) {
+        futures.add(
+            widget.player.getDownwardExpanderGainReductionDB().then((expGr) {
+          if (mounted && (_expanderGrNotifier.value - expGr).abs() > 0.05) {
+            _expanderGrNotifier.value = expGr;
+          }
+        }));
+      } else if (_expanderGrNotifier.value != 0.0) {
+        if (mounted) _expanderGrNotifier.value = 0.0;
       }
 
       if (_noiseGateEnabled && _isPlaying) {
@@ -2668,6 +2706,7 @@ class _EqScreenState extends State<EqScreen>
     _compressorMeterTimer = null;
     if (_compressorGrNotifier.value != 0.0) _compressorGrNotifier.value = 0.0;
     if (_deEsserGrNotifier.value != 0.0) _deEsserGrNotifier.value = 0.0;
+    if (_expanderGrNotifier.value != 0.0) _expanderGrNotifier.value = 0.0;
     if (_noiseGateGrNotifier.value != 0.0) _noiseGateGrNotifier.value = 0.0;
     if (_levellerGainNotifier.value != 0.0) _levellerGainNotifier.value = 0.0;
     _lookaheadAgcTelemetryNotifier.value = (
@@ -2684,6 +2723,7 @@ class _EqScreenState extends State<EqScreen>
     _stopDynamicsMeterTimer();
     _compressorGrNotifier.dispose();
     _deEsserGrNotifier.dispose();
+    _expanderGrNotifier.dispose();
     _noiseGateGrNotifier.dispose();
     _levellerGainNotifier.dispose();
     _lookaheadAgcTelemetryNotifier.dispose();
@@ -2985,14 +3025,14 @@ class _EqScreenState extends State<EqScreen>
         _deEsserFrequencyHz =
             (dspMap['deEsserFrequencyHz'] as num?)?.toDouble() ?? 5500.0;
         _deEsserThresholdDb =
-            (dspMap['deEsserThresholdDb'] as num?)?.toDouble() ?? -22.0;
-        _deEsserRatio = (dspMap['deEsserRatio'] as num?)?.toDouble() ?? 4.0;
+            (dspMap['deEsserThresholdDb'] as num?)?.toDouble() ?? -24.0;
+        _deEsserRatio = (dspMap['deEsserRatio'] as num?)?.toDouble() ?? 3.5;
         _deEsserMaxReductionDb =
-            (dspMap['deEsserMaxReductionDb'] as num?)?.toDouble() ?? 12.0;
+            (dspMap['deEsserMaxReductionDb'] as num?)?.toDouble() ?? 8.0;
         _deEsserAttackMs =
-            (dspMap['deEsserAttackMs'] as num?)?.toDouble() ?? 1.0;
+            (dspMap['deEsserAttackMs'] as num?)?.toDouble() ?? 1.5;
         _deEsserReleaseMs =
-            (dspMap['deEsserReleaseMs'] as num?)?.toDouble() ?? 35.0;
+            (dspMap['deEsserReleaseMs'] as num?)?.toDouble() ?? 40.0;
 
         _expanderEnabled = dspMap['expanderEnabled'] ?? false;
         _expanderPreset = DownwardExpanderPreset.values.firstWhere(
@@ -3284,6 +3324,8 @@ class _EqScreenState extends State<EqScreen>
     _updateHarmonicBass();
     _updateDynamicSystem();
     _updateAnalogWarmth();
+    _updateDeEsser();
+    _updateDownwardExpander();
     _updateConvolver();
     _updateSurround();
     _updateMasterLimiter();
@@ -3495,6 +3537,7 @@ class _EqScreenState extends State<EqScreen>
           break;
       }
     });
+    _subScreenSetState?.call(() {});
     if (_deEsserEnabled) _updateDeEsser();
     _saveEqState();
   }
@@ -4564,11 +4607,11 @@ class _EqScreenState extends State<EqScreen>
       _deEsserMode = DeEsserMode.splitBand;
       _deEsserPreset = DeEsserPreset.gentleVocal;
       _deEsserFrequencyHz = 5500.0;
-      _deEsserThresholdDb = -22.0;
-      _deEsserRatio = 4.0;
-      _deEsserMaxReductionDb = 12.0;
-      _deEsserAttackMs = 1.0;
-      _deEsserReleaseMs = 35.0;
+      _deEsserThresholdDb = -24.0;
+      _deEsserRatio = 3.5;
+      _deEsserMaxReductionDb = 8.0;
+      _deEsserAttackMs = 1.5;
+      _deEsserReleaseMs = 40.0;
       _deEsserGrNotifier.value = 0.0;
       widget.player.setDeEsser(enabled: false);
 
@@ -4581,6 +4624,7 @@ class _EqScreenState extends State<EqScreen>
       _expanderReleaseMs = 280.0;
       _expanderKneeDb = 6.0;
       _expanderHpfCutoffHz = 50.0;
+      _expanderGrNotifier.value = 0.0;
       widget.player.setDownwardExpander(enabled: false);
 
       _convolverEnabled = false;
@@ -4806,6 +4850,7 @@ class _EqScreenState extends State<EqScreen>
       {Shapes shape = Shapes.c4SidedCookie}) {
     final isDynamicsScreen = title == 'Compressor' ||
         title == 'De-Esser' ||
+        title == 'Expander' ||
         title == 'Noise Gate' ||
         title == 'Leveller' ||
         title == 'Auto Gain Control' ||
@@ -5998,7 +6043,7 @@ class _EqScreenState extends State<EqScreen>
                         },
                         onTapDetail: () => _openDetailScreen(
                           'Noise Gate',
-                          Icons.door_sliding_rounded,
+                          SautiIcons.noiseGate,
                           (_) => _buildNoiseGateSection(),
                           shape: Shapes.diamond,
                         ),
@@ -9886,6 +9931,7 @@ class _EqScreenState extends State<EqScreen>
       isEnabled: _clarityEnabled,
       onToggle: (v) {
         setState(() => _clarityEnabled = v);
+        _subScreenSetState?.call(() {});
         _updateClarity();
         _saveEqState();
       },
@@ -9929,6 +9975,7 @@ class _EqScreenState extends State<EqScreen>
                 ],
                 onChanged: (val) {
                   setState(() => _clarityProfile = val);
+                  _subScreenSetState?.call(() {});
                   if (_clarityEnabled) _updateClarity();
                   _saveEqState();
                 },
@@ -9944,6 +9991,10 @@ class _EqScreenState extends State<EqScreen>
             isEnabled: _clarityEnabled,
             height: 125.0,
             primaryColor: primaryColor,
+            warmthDensity: _clarityWarmthDensity,
+            presenceSheen: _clarityPresenceSheen,
+            transientSnap: _clarityTransientSnap,
+            demaskAmount: _clarityDeMaskAmount,
           ),
         ),
         const SizedBox(height: 16),
@@ -9961,6 +10012,7 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${(v * 100).toInt()}%',
               onChanged: (v) {
                 setState(() => _clarityIntensity = v);
+                _subScreenSetState?.call(() {});
                 if (_clarityEnabled) _updateClarity();
                 _saveEqState();
               },
@@ -9977,12 +10029,13 @@ class _EqScreenState extends State<EqScreen>
                 value: _clarityWarmthDensity,
                 min: 0.0,
                 max: 1.0,
-                flatValue: 0.0,
+                flatValue: 0.35,
                 activeColor: _clarityEnabled ? primaryColor : Colors.white54,
                 isPercentage: true,
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
                 onChanged: (v) {
                   setState(() => _clarityWarmthDensity = v);
+                  _subScreenSetState?.call(() {});
                   if (_clarityEnabled) _updateClarity();
                   _saveEqState();
                 },
@@ -9992,12 +10045,13 @@ class _EqScreenState extends State<EqScreen>
                 value: _clarityPresenceSheen,
                 min: 0.0,
                 max: 1.0,
-                flatValue: 0.0,
+                flatValue: 0.40,
                 activeColor: _clarityEnabled ? primaryColor : Colors.white54,
                 isPercentage: true,
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
                 onChanged: (v) {
                   setState(() => _clarityPresenceSheen = v);
+                  _subScreenSetState?.call(() {});
                   if (_clarityEnabled) _updateClarity();
                   _saveEqState();
                 },
@@ -10013,12 +10067,13 @@ class _EqScreenState extends State<EqScreen>
                 value: _clarityTransientSnap,
                 min: 0.0,
                 max: 1.0,
-                flatValue: 0.0,
+                flatValue: 0.50,
                 activeColor: _clarityEnabled ? primaryColor : Colors.white54,
                 isPercentage: true,
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
                 onChanged: (v) {
                   setState(() => _clarityTransientSnap = v);
+                  _subScreenSetState?.call(() {});
                   if (_clarityEnabled) _updateClarity();
                   _saveEqState();
                 },
@@ -10028,12 +10083,13 @@ class _EqScreenState extends State<EqScreen>
                 value: _clarityDeMaskAmount,
                 min: 0.0,
                 max: 1.0,
-                flatValue: 0.0,
+                flatValue: 0.45,
                 activeColor: _clarityEnabled ? primaryColor : Colors.white54,
                 isPercentage: true,
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
                 onChanged: (v) {
                   setState(() => _clarityDeMaskAmount = v);
+                  _subScreenSetState?.call(() {});
                   if (_clarityEnabled) _updateClarity();
                   _saveEqState();
                 },
@@ -10222,12 +10278,114 @@ class _EqScreenState extends State<EqScreen>
       subtitle: 'Reduces noise floor smoothly',
       isEnabled: _expanderEnabled,
       onToggle: (v) {
-        setState(() => _expanderEnabled = v);
+        setState(() {
+          _expanderEnabled = v;
+          if (!v) _expanderGrNotifier.value = 0.0;
+        });
         _subScreenSetState?.call(() {});
         _updateDownwardExpander();
         _saveEqState();
       },
       children: [
+        // Live Gain Reduction Meter
+        ValueListenableBuilder<double>(
+          valueListenable: _expanderGrNotifier,
+          builder: (context, currentGr, _) {
+            final grDb = currentGr.abs();
+            final isActive = _expanderEnabled && _isPlaying;
+            final maxFloorAbs = _expanderRangeDb.abs().clamp(6.0, 60.0);
+            final grFraction = (grDb / maxFloorAbs).clamp(0.0, 1.0);
+            final statusText = !_expanderEnabled
+                ? 'EXPANDER DISABLED'
+                : (!_isPlaying
+                    ? 'STANDBY (IDLE)'
+                    : (grDb > 0.2 ? 'EXPANDING NOISE FLOOR' : 'PASSING SIGNAL'));
+            final statusColor = !_expanderEnabled
+                ? Colors.white38
+                : (!_isPlaying
+                    ? Colors.white70
+                    : (grDb > 0.2 ? Colors.amberAccent : expanderColor));
+
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: surfaceDarkerColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: expanderColor.withValues(
+                      alpha: _expanderEnabled ? 0.35 : 0.1),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        statusText,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                      Text(
+                        !_expanderEnabled
+                            ? 'OFF'
+                            : (isActive && grDb > 0.05
+                                ? '-${grDb.toStringAsFixed(1)} dB'
+                                : '0.0 dB'),
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 8,
+                    child: Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.white10,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: isActive ? grFraction : 0.0,
+                          child: Container(
+                            height: 8,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  expanderColor.withValues(alpha: 0.7),
+                                  Colors.amberAccent,
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 14),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -10290,6 +10448,7 @@ class _EqScreenState extends State<EqScreen>
                   _expanderThresholdDb = v;
                   _expanderPreset = DownwardExpanderPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_expanderEnabled) _updateDownwardExpander();
                 _saveEqState();
               },
@@ -10307,6 +10466,7 @@ class _EqScreenState extends State<EqScreen>
                   _expanderRatio = v;
                   _expanderPreset = DownwardExpanderPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_expanderEnabled) _updateDownwardExpander();
                 _saveEqState();
               },
@@ -10324,6 +10484,7 @@ class _EqScreenState extends State<EqScreen>
                   _expanderRangeDb = v;
                   _expanderPreset = DownwardExpanderPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_expanderEnabled) _updateDownwardExpander();
                 _saveEqState();
               },
@@ -10347,6 +10508,7 @@ class _EqScreenState extends State<EqScreen>
                   _expanderAttackMs = v;
                   _expanderPreset = DownwardExpanderPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_expanderEnabled) _updateDownwardExpander();
                 _saveEqState();
               },
@@ -10364,6 +10526,31 @@ class _EqScreenState extends State<EqScreen>
                   _expanderReleaseMs = v;
                   _expanderPreset = DownwardExpanderPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
+                if (_expanderEnabled) _updateDownwardExpander();
+                _saveEqState();
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ModernAudioKnob(
+              label: 'KNEE',
+              value: _expanderKneeDb,
+              min: 0.0,
+              max: 18.0,
+              flatValue: 6.0,
+              activeColor: _expanderEnabled ? expanderColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              onChanged: (v) {
+                setState(() {
+                  _expanderKneeDb = v;
+                  _expanderPreset = DownwardExpanderPreset.custom;
+                });
+                _subScreenSetState?.call(() {});
                 if (_expanderEnabled) _updateDownwardExpander();
                 _saveEqState();
               },
@@ -10381,6 +10568,7 @@ class _EqScreenState extends State<EqScreen>
                   _expanderHpfCutoffHz = v;
                   _expanderPreset = DownwardExpanderPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_expanderEnabled) _updateDownwardExpander();
                 _saveEqState();
               },
@@ -10402,7 +10590,11 @@ class _EqScreenState extends State<EqScreen>
       subtitle: 'Attenuates harsh vocal sibilance',
       isEnabled: _deEsserEnabled,
       onToggle: (v) {
-        setState(() => _deEsserEnabled = v);
+        setState(() {
+          _deEsserEnabled = v;
+          if (!v) _deEsserGrNotifier.value = 0.0;
+        });
+        _subScreenSetState?.call(() {});
         _updateDeEsser();
         _saveEqState();
       },
@@ -10484,6 +10676,7 @@ class _EqScreenState extends State<EqScreen>
                     _deEsserMode = modes.first;
                     _deEsserPreset = DeEsserPreset.custom;
                   });
+                  _subScreenSetState?.call(() {});
                   if (_deEsserEnabled) _updateDeEsser();
                   _saveEqState();
                 }
@@ -10535,6 +10728,7 @@ class _EqScreenState extends State<EqScreen>
                   _deEsserFrequencyHz = v;
                   _deEsserPreset = DeEsserPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_deEsserEnabled) _updateDeEsser();
                 _saveEqState();
               },
@@ -10544,7 +10738,7 @@ class _EqScreenState extends State<EqScreen>
               value: _deEsserThresholdDb,
               min: -60.0,
               max: 0.0,
-              flatValue: -22.0,
+              flatValue: -24.0,
               activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
               valueFormatter: (v) => '${v.toInt()} dB',
               onChanged: (v) {
@@ -10552,6 +10746,7 @@ class _EqScreenState extends State<EqScreen>
                   _deEsserThresholdDb = v;
                   _deEsserPreset = DeEsserPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_deEsserEnabled) _updateDeEsser();
                 _saveEqState();
               },
@@ -10561,7 +10756,7 @@ class _EqScreenState extends State<EqScreen>
               value: _deEsserRatio,
               min: 1.0,
               max: 10.0,
-              flatValue: 4.0,
+              flatValue: 3.5,
               activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
               valueFormatter: (v) => '${v.toStringAsFixed(1)}:1',
               onChanged: (v) {
@@ -10569,6 +10764,7 @@ class _EqScreenState extends State<EqScreen>
                   _deEsserRatio = v;
                   _deEsserPreset = DeEsserPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_deEsserEnabled) _updateDeEsser();
                 _saveEqState();
               },
@@ -10584,7 +10780,7 @@ class _EqScreenState extends State<EqScreen>
               value: _deEsserMaxReductionDb,
               min: 2.0,
               max: 24.0,
-              flatValue: 12.0,
+              flatValue: 8.0,
               activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
               valueFormatter: (v) => '-${v.toInt()} dB',
               onChanged: (v) {
@@ -10592,6 +10788,7 @@ class _EqScreenState extends State<EqScreen>
                   _deEsserMaxReductionDb = v;
                   _deEsserPreset = DeEsserPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_deEsserEnabled) _updateDeEsser();
                 _saveEqState();
               },
@@ -10601,7 +10798,7 @@ class _EqScreenState extends State<EqScreen>
               value: _deEsserAttackMs,
               min: 0.1,
               max: 20.0,
-              flatValue: 1.0,
+              flatValue: 1.5,
               activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
               valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
               onChanged: (v) {
@@ -10609,6 +10806,7 @@ class _EqScreenState extends State<EqScreen>
                   _deEsserAttackMs = v;
                   _deEsserPreset = DeEsserPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_deEsserEnabled) _updateDeEsser();
                 _saveEqState();
               },
@@ -10618,7 +10816,7 @@ class _EqScreenState extends State<EqScreen>
               value: _deEsserReleaseMs,
               min: 5.0,
               max: 200.0,
-              flatValue: 35.0,
+              flatValue: 40.0,
               activeColor: _deEsserEnabled ? deEsserColor : Colors.white,
               valueFormatter: (v) => '${v.toInt()} ms',
               onChanged: (v) {
@@ -10626,6 +10824,7 @@ class _EqScreenState extends State<EqScreen>
                   _deEsserReleaseMs = v;
                   _deEsserPreset = DeEsserPreset.custom;
                 });
+                _subScreenSetState?.call(() {});
                 if (_deEsserEnabled) _updateDeEsser();
                 _saveEqState();
               },
@@ -14533,7 +14732,7 @@ class _EqScreenState extends State<EqScreen>
                         : (isClosed
                             ? secondaryGateColor
                             : primaryColor.withValues(alpha: 0.65))));
-            final grFraction = (grDb / 48.0).clamp(0.0, 1.0);
+            final grFraction = (grDb / 80.0).clamp(0.0, 1.0);
 
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -14583,7 +14782,7 @@ class _EqScreenState extends State<EqScreen>
                                         ? 'GATE OPEN'
                                         : (isClosed
                                             ? 'GATE CLOSED'
-                                            : 'GATE HOLD'))),
+                                            : 'ATTENUATING'))),
                             style: TextStyle(
                               color: _noiseGateEnabled
                                   ? (_isPlaying ? gateColor : Colors.white70)
@@ -14665,13 +14864,13 @@ class _EqScreenState extends State<EqScreen>
                       Text('0 dB',
                           style:
                               TextStyle(color: Colors.white30, fontSize: 8.5)),
-                      Text('-12 dB',
+                      Text('-20 dB',
                           style:
                               TextStyle(color: Colors.white30, fontSize: 8.5)),
-                      Text('-24 dB',
+                      Text('-40 dB',
                           style:
                               TextStyle(color: Colors.white30, fontSize: 8.5)),
-                      Text('-48 dB',
+                      Text('-80 dB',
                           style:
                               TextStyle(color: Colors.white30, fontSize: 8.5)),
                     ],
@@ -14701,7 +14900,11 @@ class _EqScreenState extends State<EqScreen>
                     label: p.$1,
                     type: M3EChipType.filter,
                     selected: (_noiseGateOpenThreshDb - p.$2).abs() < 0.5 &&
-                        (_noiseGateCloseThreshDb - p.$3).abs() < 0.5,
+                        (_noiseGateCloseThreshDb - p.$3).abs() < 0.5 &&
+                        (_noiseGateHoldMs - p.$4).abs() < 1.0 &&
+                        (_noiseGateAttackMs - p.$5).abs() < 0.1 &&
+                        (_noiseGateReleaseMs - p.$6).abs() < 1.0 &&
+                        (_noiseGateHpfHz - p.$7).abs() < 1.0,
                     onPressed: () {
                       setState(() {
                         _noiseGateOpenThreshDb = p.$2;
@@ -14738,18 +14941,19 @@ class _EqScreenState extends State<EqScreen>
                 setState(() {
                   _noiseGateOpenThreshDb = v;
                   if (_noiseGateCloseThreshDb > v) {
-                    _noiseGateCloseThreshDb = v - 6.0;
+                    _noiseGateCloseThreshDb = (v - 6.0).clamp(-80.0, -26.0);
                   }
                 });
+                _subScreenSetState?.call(() {});
                 if (_noiseGateEnabled) _updateNoiseGate();
                 _saveEqState();
               },
             ),
             ModernAudioKnob(
               label: 'CLOSE THRESH',
-              value: _noiseGateCloseThreshDb,
+              value: _noiseGateCloseThreshDb.clamp(-80.0, -26.0),
               min: -80.0,
-              max: -25.0,
+              max: -26.0,
               flatValue: -48.0,
               activeColor: _noiseGateEnabled ? primaryColor : Colors.white38,
               valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
@@ -14757,9 +14961,10 @@ class _EqScreenState extends State<EqScreen>
                 setState(() {
                   _noiseGateCloseThreshDb = v;
                   if (_noiseGateOpenThreshDb < v) {
-                    _noiseGateOpenThreshDb = v + 6.0;
+                    _noiseGateOpenThreshDb = (v + 6.0).clamp(-70.0, -20.0);
                   }
                 });
+                _subScreenSetState?.call(() {});
                 if (_noiseGateEnabled) _updateNoiseGate();
                 _saveEqState();
               },
@@ -14774,6 +14979,7 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${v.toInt()} ms',
               onChanged: (v) {
                 setState(() => _noiseGateHoldMs = v);
+                _subScreenSetState?.call(() {});
                 if (_noiseGateEnabled) _updateNoiseGate();
                 _saveEqState();
               },
@@ -14796,6 +15002,7 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
               onChanged: (v) {
                 setState(() => _noiseGateAttackMs = v);
+                _subScreenSetState?.call(() {});
                 if (_noiseGateEnabled) _updateNoiseGate();
                 _saveEqState();
               },
@@ -14810,6 +15017,7 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${v.toInt()} ms',
               onChanged: (v) {
                 setState(() => _noiseGateReleaseMs = v);
+                _subScreenSetState?.call(() {});
                 if (_noiseGateEnabled) _updateNoiseGate();
                 _saveEqState();
               },
@@ -14824,6 +15032,7 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${v.toInt()} Hz',
               onChanged: (v) {
                 setState(() => _noiseGateHpfHz = v);
+                _subScreenSetState?.call(() {});
                 if (_noiseGateEnabled) _updateNoiseGate();
                 _saveEqState();
               },

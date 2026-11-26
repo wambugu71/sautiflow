@@ -29,6 +29,7 @@
 #include "dsp/dynamic_system_dsp.h"
 #include "dsp/de_esser_dsp.h"
 #include "dsp/downward_expander_dsp.h"
+#include "dsp/noise_gate_dsp.h"
 #include "dsp/subsonic_filter.h"
 #include "dsp/denormals.h"
 #include "dsp/scaletempo_dsp.h"
@@ -2237,6 +2238,104 @@ static void test_uniform_f64_dsp_pipeline()
     }
 }
 
+static void test_dsp_audit_regressions()
+{
+    std::printf("\n== DSP Audit Regressions (DeEsser, NoiseGate, Expander) ==\n");
+
+    // 1. De-Esser: bandpass sidechain rejects 16 kHz ultrasonic air while catching 6 kHz sibilance,
+    //    and setFrequencyHz updates active shelf mid-compression.
+    {
+        sauti::dsp::DeEsserDSP deEsser;
+        deEsser.setSampleRate(48000.0f);
+        deEsser.setEnabled(true);
+        deEsser.setMode(sauti::dsp::DeEsserMode::SplitBand);
+        deEsser.setFrequencyHz(5000.0f);
+        deEsser.setThresholdDb(-24.0f);
+        deEsser.setRatio(6.0f);
+        deEsser.setMaxReductionDb(12.0f);
+        deEsser.reset();
+
+        const uint32_t N = 2400;
+        std::vector<float> airBuf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = 0.25f * std::sin(2.0f * static_cast<float>(M_PI) * 16000.0f * i / 48000.0f);
+            airBuf[2 * i] = s;
+            airBuf[2 * i + 1] = s;
+        }
+        deEsser.process(airBuf.data(), N);
+        float airGr = deEsser.getGainReductionDb();
+        CHECK(airGr < 2.0f, "DeEsser bandpass sidechain suppresses false-triggering on 16 kHz cymbal/air");
+
+        std::vector<float> sibBuf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = 0.5f * std::sin(2.0f * static_cast<float>(M_PI) * 6500.0f * i / 48000.0f);
+            sibBuf[2 * i] = s;
+            sibBuf[2 * i + 1] = s;
+        }
+        deEsser.process(sibBuf.data(), N);
+        float grBefore = deEsser.getGainReductionDb();
+        CHECK(grBefore > 3.0f, "DeEsser compresses 6.5 kHz sibilance strongly");
+
+        // Move fc above 6.5 kHz while actively compressing -> must update shelf and release 6.5 kHz
+        deEsser.setFrequencyHz(9500.0f);
+        deEsser.process(sibBuf.data(), N);
+        CHECK(deEsser.getGainReductionDb() < grBefore * 0.5f, "setFrequencyHz updates active shelf & detector mid-stream");
+    }
+
+    // 2. NoiseGateDSP: out-of-phase stereo (L=+s, R=-s) does NOT cancel in sidechain,
+    //    and enabling mid-stream starts open without sample-0 drop click.
+    {
+        sauti::dsp::NoiseGateDSP gate;
+        gate.setSampleRate(48000.0f);
+        gate.setParams(-40.0f, -46.0f, 80.0f, 1.0f, 100.0f, 80.0f, -80.0f);
+        gate.setEnabled(true);
+        gate.reset();
+
+        const uint32_t N = 2400;
+        std::vector<float> antiPhase(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float s = 0.25f * std::sin(2.0f * static_cast<float>(M_PI) * 1000.0f * i / 48000.0f);
+            antiPhase[2 * i] = s;
+            antiPhase[2 * i + 1] = -s;
+        }
+        gate.process(antiPhase.data(), N, 2);
+        CHECK(gate.getState() == sauti::dsp::NoiseGateDSP::GateState::Open && gate.getGainReductionDb() > -0.5f,
+              "NoiseGate per-channel sidechain keeps gate OPEN on out-of-phase stereo (no mono cancellation)");
+
+        sauti::dsp::NoiseGateDSP clickGate;
+        clickGate.setSampleRate(48000.0f);
+        clickGate.setEnabled(true); // without reset()
+        float singleFrame[2] = { 0.5f, 0.5f };
+        clickGate.process(singleFrame, 1, 2);
+        CHECK(singleFrame[0] > 0.45f, "NoiseGate mid-stream enable has no sample-0 zeroing pop");
+    }
+
+    // 3. DownwardExpanderDSP: 48 kHz initializes and DynamicGate 2ms attack opens fast (< 8ms).
+    {
+        sauti::dsp::DownwardExpanderDSP exp;
+        exp.setSampleRate(48000.0f);
+        exp.setEnabled(true);
+        exp.setPreset(sauti::dsp::ExpanderPreset::DynamicGate);
+        exp.reset();
+
+        // Drive expander down to -36 dB floor with silence
+        std::vector<float> silence(2 * 9600, 0.0f);
+        exp.process(silence.data(), 9600);
+        CHECK(exp.getCurrentGainReductionDb() < -30.0f, "DynamicGate settles near -36 dB floor during silence");
+
+        // Feed 0 dBFS transient burst for 8 ms (384 frames @ 48 kHz): must recover cleanly
+        std::vector<float> burst(2 * 384);
+        for (uint32_t i = 0; i < 384; ++i) {
+            float s = 0.8f * std::sin(2.0f * static_cast<float>(M_PI) * 1000.0f * i / 48000.0f);
+            burst[2 * i] = s;
+            burst[2 * i + 1] = s;
+        }
+        exp.process(burst.data(), 384);
+        CHECK(exp.getCurrentGainReductionDb() > -1.0f,
+              "DownwardExpander 48 kHz fast attack opens within 8 ms (not trapped by 20 ms smoother)");
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -2275,6 +2374,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "warmth_curves") test_analog_warmth_curves_and_dc_fixes();
     if (only.empty() || only == "p21") test_clarity_dsp_zero_heap_allocation_p21();
     if (only.empty() || only == "f64") test_uniform_f64_dsp_pipeline();
+    if (only.empty() || only == "audit") test_dsp_audit_regressions();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

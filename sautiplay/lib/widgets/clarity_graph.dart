@@ -16,6 +16,10 @@ class ClarityGraph extends StatefulWidget {
   final bool isEnabled;
   final double height;
   final Color? primaryColor;
+  final double warmthDensity;
+  final double presenceSheen;
+  final double transientSnap;
+  final double demaskAmount;
 
   const ClarityGraph({
     super.key,
@@ -24,6 +28,10 @@ class ClarityGraph extends StatefulWidget {
     this.isEnabled = true,
     this.height = 125.0,
     this.primaryColor,
+    this.warmthDensity = 0.40,
+    this.presenceSheen = 0.30,
+    this.transientSnap = 0.80,
+    this.demaskAmount = 0.60,
   });
 
   @override
@@ -79,6 +87,10 @@ class _ClarityGraphState extends State<ClarityGraph> {
               primaryColor: effectivePrimary,
               touchFreq: _touchFreq,
               touchDb: _touchDb,
+              warmthDensity: widget.warmthDensity,
+              presenceSheen: widget.presenceSheen,
+              transientSnap: widget.transientSnap,
+              demaskAmount: widget.demaskAmount,
             ),
           ),
         ),
@@ -97,7 +109,15 @@ class _ClarityGraphState extends State<ClarityGraph> {
     final norm = x / graphWidth;
     final freq = 20.0 * math.pow(20000.0 / 20.0, norm).toDouble();
     final db = widget.isEnabled
-        ? _ClarityPainter.computeGainDb(widget.profile, widget.intensity, freq)
+        ? _ClarityPainter.computeGainDb(
+            widget.profile,
+            widget.intensity,
+            freq,
+            warmthDensity: widget.warmthDensity,
+            presenceSheen: widget.presenceSheen,
+            transientSnap: widget.transientSnap,
+            demaskAmount: widget.demaskAmount,
+          )
         : 0.0;
 
     setState(() {
@@ -123,6 +143,10 @@ class _ClarityPainter extends CustomPainter {
   final Color primaryColor;
   final double? touchFreq;
   final double? touchDb;
+  final double warmthDensity;
+  final double presenceSheen;
+  final double transientSnap;
+  final double demaskAmount;
 
   _ClarityPainter({
     required this.profile,
@@ -131,6 +155,10 @@ class _ClarityPainter extends CustomPainter {
     required this.primaryColor,
     this.touchFreq,
     this.touchDb,
+    this.warmthDensity = 0.40,
+    this.presenceSheen = 0.30,
+    this.transientSnap = 0.80,
+    this.demaskAmount = 0.60,
   });
 
   static const double minFreq = 20.0;
@@ -182,7 +210,7 @@ class _ClarityPainter extends CustomPainter {
 
     // 5. Interactive Touch Marker
     if (touchFreq != null && touchDb != null) {
-      _drawTouchMarker(canvas, freqToX, dbToY);
+      _drawTouchMarker(canvas, size, paddingLeft, paddingRight, freqToX, dbToY);
     }
   }
 
@@ -301,9 +329,9 @@ class _ClarityPainter extends CustomPainter {
         break;
 
       case AudioClarityProfile.presenceExciter:
-        // Vocal presence band: 1.2 kHz - 8 kHz highlight
-        final xStart = freqToX(1200.0);
-        final xEnd = freqToX(8000.0);
+        // Vocal presence band: 350 Hz - 20 kHz dual-shelf lift
+        final xStart = freqToX(350.0);
+        final xEnd = freqToX(20000.0);
         final bandRect =
             Rect.fromLTRB(xStart, paddingTop, xEnd, paddingTop + graphHeight);
 
@@ -320,8 +348,8 @@ class _ClarityPainter extends CustomPainter {
         break;
 
       case AudioClarityProfile.harmonicBrilliance:
-        // 3.5 kHz HPF cutoff line
-        final xCutoff = freqToX(3500.0);
+        // 3.2 kHz LR4 HPF cutoff line
+        final xCutoff = freqToX(3200.0);
         final cutoffPaint = Paint()
           ..color = primaryColor.withValues(alpha: 0.35)
           ..strokeWidth = 1.0;
@@ -331,8 +359,8 @@ class _ClarityPainter extends CustomPainter {
           cutoffPaint,
         );
 
-        // Synthesized harmonic markers at 7kHz and 14kHz
-        for (final harmFreq in [7000.0, 14000.0]) {
+        // Synthesized harmonic markers at 6.4 kHz and 9.6 kHz
+        for (final harmFreq in [6400.0, 9600.0]) {
           final xHarm = freqToX(harmFreq);
           canvas.drawLine(
             Offset(xHarm, paddingTop + 6),
@@ -345,9 +373,9 @@ class _ClarityPainter extends CustomPainter {
         break;
 
       case AudioClarityProfile.transientCrisp:
-        // Attack band 2k - 16k
-        final xStart = freqToX(2000.0);
-        final xEnd = freqToX(16000.0);
+        // Attack detection band 2.5k - 12k
+        final xStart = freqToX(2500.0);
+        final xEnd = freqToX(12000.0);
         final bandRect =
             Rect.fromLTRB(xStart, paddingTop, xEnd, paddingTop + graphHeight);
         canvas.drawRect(
@@ -357,32 +385,32 @@ class _ClarityPainter extends CustomPainter {
         break;
 
       case AudioClarityProfile.psychoacousticMaster:
-        // 350 Hz dynamic de-masking center
-        final x350 = freqToX(350.0);
-        final marker350Paint = Paint()
+        // 240 Hz dynamic de-masking center
+        final x240 = freqToX(240.0);
+        final marker240Paint = Paint()
           ..color = primaryColor.withValues(alpha: 0.25)
           ..strokeWidth = 1.0;
         canvas.drawLine(
-          Offset(x350, paddingTop),
-          Offset(x350, paddingTop + graphHeight),
-          marker350Paint,
+          Offset(x240, paddingTop),
+          Offset(x240, paddingTop + graphHeight),
+          marker240Paint,
         );
 
-        // 3.5 kHz Chebyshev presence boundary
-        final x35k = freqToX(3500.0);
-        final marker35kPaint = Paint()
+        // 3.2 kHz Chebyshev presence boundary
+        final x32k = freqToX(3200.0);
+        final marker32kPaint = Paint()
           ..color = primaryColor.withValues(alpha: 0.35)
           ..strokeWidth = 1.0;
         canvas.drawLine(
-          Offset(x35k, paddingTop),
-          Offset(x35k, paddingTop + graphHeight),
-          marker35kPaint,
+          Offset(x32k, paddingTop),
+          Offset(x32k, paddingTop + graphHeight),
+          marker32kPaint,
         );
 
-        // Presence & Sheen band 3.5k - 20k highlight
+        // Presence & Sheen band 3.2k - 20k highlight
         final xEnd = freqToX(20000.0);
         final sheenRect =
-            Rect.fromLTRB(x35k, paddingTop, xEnd, paddingTop + graphHeight);
+            Rect.fromLTRB(x32k, paddingTop, xEnd, paddingTop + graphHeight);
         final sheenPaint = Paint()
           ..shader = LinearGradient(
             begin: Alignment.topCenter,
@@ -413,8 +441,17 @@ class _ClarityPainter extends CustomPainter {
     final fillPath = Path();
 
     double startX = freqToX(minFreq);
-    double startY =
-        isEnabled ? dbToY(computeGainDb(profile, intensity, minFreq)) : yZero;
+    double startY = isEnabled
+        ? dbToY(computeGainDb(
+            profile,
+            intensity,
+            minFreq,
+            warmthDensity: warmthDensity,
+            presenceSheen: presenceSheen,
+            transientSnap: transientSnap,
+            demaskAmount: demaskAmount,
+          ))
+        : yZero;
 
     path.moveTo(startX, startY);
     fillPath.moveTo(startX, yZero);
@@ -423,7 +460,17 @@ class _ClarityPainter extends CustomPainter {
     for (int i = 1; i <= numPoints; i++) {
       final t = i / numPoints;
       final freq = minFreq * math.pow(maxFreq / minFreq, t);
-      final db = isEnabled ? computeGainDb(profile, intensity, freq) : 0.0;
+      final db = isEnabled
+          ? computeGainDb(
+              profile,
+              intensity,
+              freq,
+              warmthDensity: warmthDensity,
+              presenceSheen: presenceSheen,
+              transientSnap: transientSnap,
+              demaskAmount: demaskAmount,
+            )
+          : 0.0;
       final x = freqToX(freq);
       final y = dbToY(db);
 
@@ -527,6 +574,9 @@ class _ClarityPainter extends CustomPainter {
 
   void _drawTouchMarker(
     Canvas canvas,
+    Size size,
+    double paddingLeft,
+    double paddingRight,
     double Function(double) freqToX,
     double Function(double) dbToY,
   ) {
@@ -563,8 +613,10 @@ class _ClarityPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     )..layout();
 
+    final minCenter = paddingLeft + tp.width / 2 + 5.0;
+    final maxCenter = math.max(minCenter, size.width - paddingRight - tp.width / 2 - 5.0);
     final tooltipRect = Rect.fromCenter(
-      center: Offset(x.clamp(35.0 + tp.width / 2, 280.0), y - 14.0),
+      center: Offset(x.clamp(minCenter, maxCenter), y - 14.0),
       width: tp.width + 10.0,
       height: tp.height + 6.0,
     );
@@ -602,12 +654,16 @@ class _ClarityPainter extends CustomPainter {
     }
   }
 
-  /// Calculates the exact DSP frequency response gain in dB at [freq] for [profile] and [intensity].
+  /// Calculates the DSP frequency response gain in dB at [freq] for [profile] and [intensity].
   static double computeGainDb(
     AudioClarityProfile profile,
     double intensity,
-    double freq,
-  ) {
+    double freq, {
+    double warmthDensity = 0.40,
+    double presenceSheen = 0.30,
+    double transientSnap = 0.80,
+    double demaskAmount = 0.60,
+  }) {
     if (intensity <= 0.0001) return 0.0;
 
     switch (profile) {
@@ -620,66 +676,59 @@ class _ClarityPainter extends CustomPainter {
       case AudioClarityProfile.harmonicBrilliance:
         return _computeHarmonicBrillianceGainDb(intensity, freq);
       case AudioClarityProfile.psychoacousticMaster:
-        return _computePsychoacousticMasterGainDb(intensity, freq);
+        return _computePsychoacousticMasterGainDb(
+          intensity,
+          freq,
+          warmthDensity: warmthDensity,
+          presenceSheen: presenceSheen,
+          transientSnap: transientSnap,
+          demaskAmount: demaskAmount,
+        );
     }
   }
 
-  /// 5. Psychoacoustic Master: Dynamic low-mid de-masking at 350 Hz + Chebyshev presence sheen >3.5 kHz.
-  static double _computePsychoacousticMasterGainDb(double intensity, double freq) {
+  /// 5. Psychoacoustic Master: 240 Hz de-masking + 4 kHz transient articulator + 3.2 kHz Chebyshev sheen.
+  static double _computePsychoacousticMasterGainDb(
+    double intensity,
+    double freq, {
+    double warmthDensity = 0.40,
+    double presenceSheen = 0.30,
+    double transientSnap = 0.80,
+    double demaskAmount = 0.60,
+  }) {
     double gain = 0.0;
-    // 350 Hz de-masking dip
-    final logDist350 = (math.log(freq / 350.0) / math.ln2).abs();
-    if (logDist350 < 1.5) {
-      final dipFactor = math.cos(logDist350 * math.pi / 3.0);
-      gain -= dipFactor * (1.8 * intensity);
+    // 240 Hz de-masking bell dip (Q = 1.8)
+    final octDist240 = (math.log(freq / 240.0) / math.ln2).abs();
+    if (octDist240 < 1.2) {
+      final dipFactor = math.cos(octDist240 * math.pi / 2.4);
+      gain -= dipFactor * (3.0 * intensity * demaskAmount);
     }
-    // >3.5 kHz presence and air sheen
-    if (freq > 3500.0) {
-      final octavesAbove = math.log(freq / 3500.0) / math.ln2;
-      final boost = math.min(octavesAbove * 1.2, 3.2) * intensity;
-      gain += boost;
-    }
+    // 4 kHz transient articulator high-shelf
+    gain += _computeHighShelfGainDb(4000.0, 5.5 * intensity * transientSnap * 0.65, freq);
+    // >3.2 kHz LR4 Chebyshev harmonic brilliance contribution
+    final (b0, b1, b2, a1, a2) = _calcHighpass(3200.0, 0.7071);
+    final hpC = _evaluateBiquadComplex(b0, b1, b2, a1, a2, freq);
+    final lr4Mag = hpC.$1 * hpC.$1 + hpC.$2 * hpC.$2;
+    final harmWeight = (warmthDensity + presenceSheen) * 0.5;
+    gain += 20.0 * (math.log(1.0 + intensity * 0.64 * harmWeight * lr4Mag) / math.ln10);
     return gain;
   }
 
-  /// 1. Transient Crisp: Differential pre-emphasis + 18 kHz smoothing low-pass.
+  /// 1. Transient Crisp: 4 kHz Dynamic Transient High-Shelf (+0 to +5.5 dB peak onset response).
   static double _computeTransientCrispGainDb(double intensity, double freq) {
-    final w = 2.0 * math.pi * freq / sampleRate;
-    final diffScale = intensity * 1.5;
-
-    // Differentiator H1(e^jw) = 1 + diffScale * (1 - e^-jw)
-    final cosW = math.cos(w);
-    final sinW = math.sin(w);
-    final r1 = 1.0 + diffScale * (1.0 - cosW);
-    final i1 = diffScale * sinW;
-    final mag1Sq = r1 * r1 + i1 * i1;
-
-    // Smoothing Low-Pass 18 kHz:
-    final fc = math.min(18000.0, sampleRate * 0.45);
-    final w0 = 2.0 * math.pi * fc / sampleRate;
-    final gamma = math.cos(w0) / (1.0 + math.sin(w0));
-    final smoothA1 = -gamma;
-    final smoothB0 = (1.0 - gamma) * 0.5;
-    final smoothB1 = (1.0 - gamma) * 0.5;
-
-    final nr = smoothB0 + smoothB1 * cosW;
-    final ni = -smoothB1 * sinW;
-    final dr = 1.0 + smoothA1 * cosW;
-    final di = -smoothA1 * sinW;
-    final mag2Sq = (nr * nr + ni * ni) / (dr * dr + di * di);
-
-    final totalMag = math.sqrt(mag1Sq * mag2Sq);
-    if (totalMag <= 1e-6) return -60.0;
-    return 20.0 * (math.log(totalMag) / math.ln10);
+    return _computeHighShelfGainDb(4000.0, intensity * 5.5, freq);
   }
 
   /// 2. Air Shelf: 12 kHz High-Shelf Biquad (+0 dB to +8 dB).
   static double _computeAirShelfGainDb(double intensity, double freq) {
-    final shelfGainDb = intensity * 8.0;
+    return _computeHighShelfGainDb(12000.0, intensity * 8.0, freq);
+  }
+
+  static double _computeHighShelfGainDb(double cutoffHz, double shelfGainDb, double freq) {
     if (shelfGainDb.abs() < 0.01) return 0.0;
 
     final A = math.pow(10.0, shelfGainDb / 40.0).toDouble();
-    double w0 = 2.0 * math.pi * 12000.0 / sampleRate;
+    double w0 = 2.0 * math.pi * cutoffHz / sampleRate;
     if (w0 > math.pi * 0.95) w0 = math.pi * 0.95;
 
     final cosW0 = math.cos(w0);
@@ -698,43 +747,22 @@ class _ClarityPainter extends CustomPainter {
     return _evaluateBiquadGainDb(b0, b1, b2, a1, a2, freq);
   }
 
-  /// 3. Presence Exciter: 3-way crossover (Low <120Hz, Mid 120-1200Hz, High >1200Hz).
+  /// 3. Presence Exciter: Dual phase-coherent High Shelves (350 Hz +2.5 dB, 2.2 kHz +3.0 dB).
   static double _computePresenceExciterGainDb(double intensity, double freq) {
-    final midGain = 1.0 + intensity * 0.4;
-    final highGain = 1.0 + intensity * 0.8;
-
-    // Lowpass 120 Hz
-    final (lB0, lB1, lB2, lA1, lA2) = _calcLowpass(120.0, 0.7071);
-    final lowC = _evaluateBiquadComplex(lB0, lB1, lB2, lA1, lA2, freq);
-
-    // Highpass 1200 Hz
-    final (hB0, hB1, hB2, hA1, hA2) = _calcHighpass(1200.0, 0.7071);
-    final highC = _evaluateBiquadComplex(hB0, hB1, hB2, hA1, hA2, freq);
-
-    // Mid is derived: mid = 1 - low - high
-    final midReal = 1.0 - lowC.$1 - highC.$1;
-    final midImag = -lowC.$2 - highC.$2;
-
-    // Total = low + mid * midGain + high * highGain
-    final totalReal = lowC.$1 + midReal * midGain + highC.$1 * highGain;
-    final totalImag = lowC.$2 + midImag * midGain + highC.$2 * highGain;
-
-    final magSq = totalReal * totalReal + totalImag * totalImag;
-    if (magSq <= 1e-12) return -60.0;
-    return 10.0 * (math.log(magSq) / math.ln10);
+    return _computeHighShelfGainDb(350.0, intensity * 2.5, freq) +
+        _computeHighShelfGainDb(2200.0, intensity * 3.0, freq);
   }
 
-  /// 4. Harmonic Brilliance: 3.5 kHz HPF Sidechain with Oversampled Harmonic Synthesis.
+  /// 4. Harmonic Brilliance: 3.2 kHz LR4 HPF Sidechain with 4x Oversampled Chebyshev Synthesis.
   static double _computeHarmonicBrillianceGainDb(
       double intensity, double freq) {
-    final mix = intensity * 0.45;
-    final (b0, b1, b2, a1, a2) = _calcHighpass(3500.0, 0.7071);
+    final mix = intensity * 0.32;
+    final (b0, b1, b2, a1, a2) = _calcHighpass(3200.0, 0.7071);
     final hpC = _evaluateBiquadComplex(b0, b1, b2, a1, a2, freq);
 
-    // Sidechain generates odd and even harmonics from the highpassed signal
-    // Effective spectral excitation magnitude:
-    final hpMag = math.sqrt(hpC.$1 * hpC.$1 + hpC.$2 * hpC.$2);
-    final harmonicBoost = 1.0 + mix * hpMag * 1.6;
+    // 4th-order LR4 magnitude = |H_bw2|^2
+    final lr4Mag = hpC.$1 * hpC.$1 + hpC.$2 * hpC.$2;
+    final harmonicBoost = 1.0 + mix * lr4Mag * 1.3;
 
     if (harmonicBoost <= 1e-6) return -60.0;
     return 20.0 * (math.log(harmonicBoost) / math.ln10);
@@ -783,25 +811,6 @@ class _ClarityPainter extends CustomPainter {
     return (real, imag);
   }
 
-  static (double, double, double, double, double) _calcLowpass(
-    double freq,
-    double q,
-  ) {
-    double w0 = 2.0 * math.pi * freq / sampleRate;
-    if (w0 > math.pi * 0.95) w0 = math.pi * 0.95;
-    final cosW0 = math.cos(w0);
-    final sinW0 = math.sin(w0);
-    final alpha = sinW0 / (2.0 * q);
-
-    final a0 = 1.0 + alpha;
-    final b0 = ((1.0 - cosW0) / 2.0) / a0;
-    final b1 = (1.0 - cosW0) / a0;
-    final b2 = ((1.0 - cosW0) / 2.0) / a0;
-    final a1 = (-2.0 * cosW0) / a0;
-    final a2 = (1.0 - alpha) / a0;
-    return (b0, b1, b2, a1, a2);
-  }
-
   static (double, double, double, double, double) _calcHighpass(
     double freq,
     double q,
@@ -828,6 +837,10 @@ class _ClarityPainter extends CustomPainter {
         oldDelegate.isEnabled != isEnabled ||
         oldDelegate.primaryColor != primaryColor ||
         oldDelegate.touchFreq != touchFreq ||
-        oldDelegate.touchDb != touchDb;
+        oldDelegate.touchDb != touchDb ||
+        oldDelegate.warmthDensity != warmthDensity ||
+        oldDelegate.presenceSheen != presenceSheen ||
+        oldDelegate.transientSnap != transientSnap ||
+        oldDelegate.demaskAmount != demaskAmount;
   }
 }

@@ -2786,34 +2786,40 @@ namespace
 
     // ============================================================
     // CrystalizerState
-    // High-frequency tone brightener / edge emphasis effect.
+    // High-frequency transient reconstruction & air enhancement effect.
     //
-    // Stage 1 — High-Frequency Tone Brightener (Discrete First-Difference)
-    //   Applies a first-difference differentiator: y = x + (x - prev) * intensity.
-    //   Acts as a high-frequency shelving/peaking tone effect, boosting presence
-    //   and HF attack. Intensity is capped to 0.4 max (Nyquist gain ~ +5.1 dB)
-    //   to prevent extreme high-frequency harshness and digital overs.
+    // Stage 1 — Sample-Rate-Invariant Transient Edge Emphasis
+    //   Uses a 1st-order Butterworth high-pass filter (fc = 3.5 kHz) in 64-bit
+    //   double precision so transient extraction is consistent across 44.1–192 kHz,
+    //   modulated by a stereo-linked fast/slow crest-factor detector.
     //
     // Stage 2 — High-Shelf "Air" Enhancement (optional)
-    //   A gentle 2nd-order biquad high-shelf applied above ~8 kHz adds airy sparkle.
+    //   2nd-order Audio EQ Cookbook high-shelf applied above 8 kHz.
     //
     // Stage 3 — Continuous Native Soft-Clip Guard
-    //   Continuous sample-accurate tanh saturation to prevent digital overs
-    //   without any block delay jumps, time shifts, or stale filter states.
+    //   Continuous sample-accurate tanh saturation above +/-0.95 to prevent overs.
     // ============================================================
     struct CrystalizerState
     {
-        float intensity = 0.4f;       // [0.0, 0.4] high-frequency tone boost strength (capped to prevent harshness)
+        float userIntensity = 0.5f;   // [0.0, 1.0] user-facing intensity
+        float intensity = 0.2f;       // [0.0, 0.4] scaled internal emphasis strength
         bool highShelfEnabled = true; // enable Stage 2 air shelf
         float highShelfGainDb = 2.0f; // [0.0, 6.0] shelf boost in dB
         int cachedSampleRate = 0;
 
-        // Per-channel previous sample and fast/slow transient envelopes (up to 8 ch)
-        float prevSample[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
-        float envFast[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
-        float envSlow[8] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+        // Sample-rate-invariant 1st-order HPF (3.5 kHz) state per channel (up to 8 ch)
+        double hpPrevIn[8] = {};
+        double hpPrevOut[8] = {};
+        double hpB0 = 0.78;
+        double hpA1 = -0.56;
+
+        // Stereo-linked fast/slow transient envelopes
+        float envFast = 0.0f;
+        float envSlow = 0.0f;
         float alphaFast = 0.02f;
         float alphaSlow = 0.0005f;
+        float antiPop = 1.0f;
+        float samplePeriod = 1.0f / 48000.0f;
 
         // 2nd-order high-shelf biquad coefficients (computed once on init/param change)
         // Using the Audio EQ Cookbook high-shelf formula
@@ -2834,8 +2840,10 @@ namespace
 
             void compute(double gainDb, double freqHz, double sampleRate)
             {
+                if (sampleRate <= 0.0) sampleRate = 48000.0;
+                const double clampedFreq = std::clamp(freqHz, 100.0, sampleRate * 0.45);
                 const double A = std::pow(10.0, gainDb / 40.0);
-                const double w0 = 2.0 * 3.14159265358979323846 * freqHz / sampleRate;
+                const double w0 = 2.0 * 3.14159265358979323846 * clampedFreq / sampleRate;
                 const double cw = std::cos(w0);
                 const double sw = std::sin(w0);
                 // slope = 1 (standard Butterworth-matched)
@@ -2867,23 +2875,36 @@ namespace
             }
         } shelf;
 
+        void resetState()
+        {
+            std::fill(hpPrevIn, hpPrevIn + 8, 0.0);
+            std::fill(hpPrevOut, hpPrevOut + 8, 0.0);
+            envFast = 0.0f;
+            envSlow = 0.0f;
+            shelf.reset();
+        }
+
         void init(int sampleRate)
         {
             if (sampleRate <= 0) sampleRate = 48000;
             cachedSampleRate = sampleRate;
-            std::fill(prevSample, prevSample + 8, 0.f);
-            std::fill(envFast, envFast + 8, 0.f);
-            std::fill(envSlow, envSlow + 8, 0.f);
+            samplePeriod = 1.0f / static_cast<float>(sampleRate);
+            resetState();
+            const double fc = std::min(3500.0, static_cast<double>(sampleRate) * 0.40);
+            const double k = std::tan(3.14159265358979323846 * fc / static_cast<double>(sampleRate));
+            const double a0 = 1.0 + k;
+            hpB0 = 1.0 / a0;
+            hpA1 = (k - 1.0) / a0;
             alphaFast = 1.0f - std::exp(-1.0f / (0.001f * (float)sampleRate));
             alphaSlow = 1.0f - std::exp(-1.0f / (0.040f * (float)sampleRate));
-            shelf.reset();
             shelf.compute((double)highShelfGainDb, 8000.0, (double)sampleRate);
         }
 
         void updateParams(int sampleRate, float newIntensity, bool newShelfEnabled, float newShelfGainDb)
         {
             if (sampleRate <= 0) sampleRate = 48000;
-            intensity = clampf(newIntensity, 0.0f, 0.4f); // Capped to 0.4 max to prevent extreme overs & harshness
+            userIntensity = clampf(newIntensity, 0.0f, 1.0f);
+            intensity = userIntensity * 0.4f; // Full [0.0, 1.0] UI knob maps smoothly to [0.0, 0.4]
             highShelfEnabled = newShelfEnabled;
             const float clampedGain = clampf(newShelfGainDb, 0.0f, 6.0f);
 
@@ -2919,50 +2940,64 @@ namespace
         template <typename T>
         void processImpl(T *interleaved, ma_uint32 frames, int channels)
         {
-            if (intensity <= 0.0f || !interleaved || frames == 0)
+            if (userIntensity <= 0.0f || !interleaved || frames == 0 || channels <= 0)
                 return;
 
+            sauti::dsp::ScopedDenormalsDisable denormalGuard;
             const int ch = std::min(channels, 8);
             const double intensD = static_cast<double>(intensity);
-            const double shelfBlend = intensD * 0.6; // max 60% blend at full intensity
+            const double shelfBlend = static_cast<double>(userIntensity) * 0.6; // full 60% blend at 100%
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
+                double maxDiff = 0.0;
+                double frameHp[8];
+
+                // Stage 1a — Sample-rate-invariant 3.5 kHz 1st-order HPF across channels
                 for (int c = 0; c < ch; ++c)
                 {
                     const size_t idx = (size_t)i * (size_t)channels + (size_t)c;
-                    double x = static_cast<double>(interleaved[idx]);
+                    const double x = static_cast<double>(interleaved[idx]);
+                    const double hp = hpB0 * (x - hpPrevIn[c]) - hpA1 * hpPrevOut[c];
+                    hpPrevIn[c] = x;
+                    hpPrevOut[c] = hp;
+                    frameHp[c] = hp;
+                    const double a = std::fabs(hp);
+                    if (a > maxDiff) maxDiff = a;
+                }
 
-                    // Stage 1 — Dynamic Transient & Level-Adaptive High-Frequency Edge Emphasis
-                    const double diff = x - static_cast<double>(prevSample[c]);
-                    prevSample[c] = static_cast<float>(x);
-                    const float absDiff = static_cast<float>(std::fabs(diff));
-                    envFast[c] += alphaFast * (absDiff - envFast[c]);
-                    envSlow[c] += alphaSlow * (absDiff - envSlow[c]);
-                    const double crest = static_cast<double>(clampf(envFast[c] / (envSlow[c] + 1.0e-5f) - 1.0f, 0.0f, 2.0f));
-                    const double levelScale = static_cast<double>(envSlow[c] / (envSlow[c] + 0.02f));
-                    const double dynGain = intensD * (0.35 + 0.65 * levelScale + 0.50 * crest);
-                    x = x + diff * dynGain;
+                // Stage 1b — Stereo-linked crest-factor & level-adaptive envelope
+                const float absDiff = static_cast<float>(maxDiff);
+                envFast += alphaFast * (absDiff - envFast);
+                envSlow += alphaSlow * (absDiff - envSlow);
+                const double crest = static_cast<double>(clampf(envFast / (envSlow + 1.0e-5f) - 1.0f, 0.0f, 2.0f));
+                const double levelScale = static_cast<double>(envSlow / (envSlow + 0.02f));
+                const double dynGain = intensD * (0.45 + 0.65 * levelScale + 0.50 * crest) * static_cast<double>(antiPop);
+                const double activeShelfBlend = shelfBlend * static_cast<double>(antiPop);
+
+                if (antiPop < 1.0f)
+                    antiPop = std::min(1.0f, antiPop + samplePeriod * 50.0f);
+
+                for (int c = 0; c < ch; ++c)
+                {
+                    const size_t idx = (size_t)i * (size_t)channels + (size_t)c;
+                    double x = static_cast<double>(interleaved[idx]) + frameHp[c] * dynGain;
 
                     // Stage 2 — High-shelf "air" enhancement (optional)
-                    if (highShelfEnabled && intensity > 0.0f)
+                    if (highShelfEnabled && highShelfGainDb > 0.01f)
                     {
                         const double shelfOut = shelf.process(x, c);
-                        x = x * (1.0 - shelfBlend) + shelfOut * shelfBlend;
+                        x = x * (1.0 - activeShelfBlend) + shelfOut * activeShelfBlend;
                     }
+
+                    // Stage 3 — Continuous Native Soft-Clip Guard
+                    if (x > 0.95)
+                        x = 0.95 + 0.05 * std::tanh((x - 0.95) / 0.05);
+                    else if (x < -0.95)
+                        x = -0.95 + 0.05 * std::tanh((x + 0.95) / 0.05);
 
                     interleaved[idx] = static_cast<T>(x);
                 }
-            }
-
-            // Stage 3 — Continuous Native Soft-Clip Guard
-            for (ma_uint32 i = 0; i < frames * channels; ++i)
-            {
-                double x = static_cast<double>(interleaved[i]);
-                if (x > 0.95)
-                    interleaved[i] = static_cast<T>(0.95 + 0.05 * std::tanh((x - 0.95) / 0.05));
-                else if (x < -0.95)
-                    interleaved[i] = static_cast<T>(-0.95 + 0.05 * std::tanh((x + 0.95) / 0.05));
             }
         }
     };
@@ -5545,21 +5580,31 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
         return;
 
     const ma_uint32 sampleRate = (ma_uint32)((e->sampleRate > 0) ? e->sampleRate : 48000);
-
     e->stereoEnhancement.refresh((int)sampleRate);
-    e->crystalizer.init((int)sampleRate);
+    e->surroundDsp.setSampleRate((float)sampleRate);
+}
 
-    const float srF = (float)sampleRate;
+static void reinit_clean_room_dsp_filters(AudioEngineHandle *e)
+{
+    if (e == nullptr)
+        return;
+
+    const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+    const float srF = static_cast<float>(sr);
+    const int ovFactor = e->dspOversamplingFactor.load(std::memory_order_relaxed);
+
+    e->crystalizer.init(sr);
     e->clarityDsp.setSampleRate(srF);
+    e->clarityDsp.setOversampling(ovFactor);
     e->dialogEnhancerDsp.setSampleRate(srF);
     e->harmonicBassDsp.setSampleRate(srF);
     e->dynamicSystemDsp.setSampleRate(srF);
     e->analogWarmthDsp.setSampleRate(srF);
+    e->analogWarmthDsp.setOversampling(ovFactor);
     e->deEsserDsp.setSampleRate(srF);
     e->downwardExpanderDsp.setSampleRate(srF);
     e->fftConvolverDsp.setSampleRate(srF);
     e->masterLimiterDsp.setSampleRate(srF);
-    e->surroundDsp.setSampleRate(srF);
     e->subsonicFilter.setSampleRate(srF);
     e->ultrasonicFilter.setSampleRate(srF);
     e->dynamicLoudnessDsp.setSampleRate(srF);
@@ -5683,10 +5728,8 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->eq.updateCoefficients(sr);
         e->toneCrossoverDsp.setSampleRate((float)sr);
         e->stereoWiden.reset(sr);
-        e->stereoEnhancement.refresh(sr);
         e->crossfeedNode.setSampleRate((double)sr);
         e->crossfeed.reset(sr, e->crossfeedPreset);
-        e->crystalizer.init(sr);
         e->reverbNode.setSampleRate((double)sr);
         e->limiter.updateCoefficients(sr);
         e->loudnessMeter.reset(sr);
@@ -5694,28 +5737,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
 
     {
         std::lock_guard<std::mutex> lock(e->dspMutex);
-        const float srF = (float)sr;
-        const int ovFactor = e->dspOversamplingFactor.load(std::memory_order_relaxed);
-        e->clarityDsp.setSampleRate(srF);
-        e->clarityDsp.setOversampling(ovFactor);
-        e->dialogEnhancerDsp.setSampleRate(srF);
-        e->harmonicBassDsp.setSampleRate(srF);
-        e->dynamicSystemDsp.setSampleRate(srF);
-        e->analogWarmthDsp.setSampleRate(srF);
-        e->analogWarmthDsp.setOversampling(ovFactor);
-        e->deEsserDsp.setSampleRate(srF);
-        e->downwardExpanderDsp.setSampleRate(srF);
-        e->fftConvolverDsp.setSampleRate(srF);
-        e->masterLimiterDsp.setSampleRate(srF);
-        e->subsonicFilter.setSampleRate(srF);
-        e->ultrasonicFilter.setSampleRate(srF);
-    e->ultrasonicFilter.setSampleRate(srF);
-        e->dynamicLoudnessDsp.setSampleRate(srF);
-        e->levellerDsp.setSampleRate(srF);
-    e->lookaheadAgcDsp.setSampleRate(srF);
-        e->noiseGateDsp.setSampleRate(srF);
-        e->dynamicEqDsp.setSampleRate(srF);
-        e->tapeDriftDsp.setSampleRate(srF);
+        reinit_clean_room_dsp_filters(e);
     }
 
     ma_uint32 decOutRate = (e->currentDecoder != nullptr) ? e->currentDecoder->outputSampleRate : (ma_uint32)plan.engineRate;
@@ -9463,9 +9485,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // Uniform native precision: 100% F64 when use64 is enabled, 100% F32
             // otherwise — zero F64<->F32 hopping, identical canonical order for
             // stereo and multichannel.
-            if (e->channels >= 2)
+            if (e->channels >= 1)
             {
                 const bool isStereo = (e->channels == 2);
+                const bool isMono   = (e->channels == 1);
                 const bool hasStereoOnlyPre = e->downwardExpanderDsp.isEnabled() ||
                                               e->deEsserDsp.isEnabled() ||
                                               e->harmonicBassDsp.isEnabled() ||
@@ -9475,7 +9498,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                               e->clarityDsp.isEnabled();
                 const bool hasMultiChPre = e->noiseGateDsp.isEnabled() ||
                                            e->dynamicEqDsp.isEnabled() ||
-                                           e->tapeDriftDsp.isEnabled();
+                                           e->tapeDriftDsp.isEnabled() ||
+                                           e->crystalizerEnabled;
 
                 if (hasStereoOnlyPre || hasMultiChPre)
                 {
@@ -9490,6 +9514,19 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 if (isStereo)
                                 {
                                     fn(buf);
+                                }
+                                else if (isMono)
+                                {
+                                    for (ma_uint32 i = 0; i < produced; ++i)
+                                    {
+                                        stScratch[i * 2 + 0] = buf[i];
+                                        stScratch[i * 2 + 1] = buf[i];
+                                    }
+                                    fn(stScratch);
+                                    for (ma_uint32 i = 0; i < produced; ++i)
+                                    {
+                                        buf[i] = stScratch[i * 2 + 0];
+                                    }
                                 }
                                 else
                                 {
@@ -9547,6 +9584,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             // Zone 3.6: Audio Clarity (Air Shelf & Harmonic Brilliance)
                             if (e->clarityDsp.isEnabled())
                                 runStereoOp([&](auto *s) { e->clarityDsp.process(s, produced); });
+
+                            // Zone 3.7: Crystalizer (Transient Reconstruction & Air Enhancement)
+                            if (e->crystalizerEnabled)
+                                e->crystalizer.process(buf, produced, e->channels);
                         };
 
                         if (use64)
@@ -9619,8 +9660,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                       e->stereoWidenEnabled ||
                                       e->stereoEnhancementEnabled ||
                                       (isStereoSpatial && e->surroundDsp.isEnabled()) ||
-                                      e->reverbEnabled ||
-                                      e->crystalizerEnabled;
+                                      e->reverbEnabled;
             if (hasSpatialFx)
             {
                 std::unique_lock<std::mutex> fxLock(e->fxMutex, std::try_to_lock);
@@ -9644,10 +9684,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         // 5.4 Studio-Grade Multi-Engine Reverb
                         if (e->reverbEnabled)
                             e->reverbNode.process(buf, produced, e->channels);
-
-                        // 5.5 Crystalizer (High-Frequency Air & Transient Dispersion)
-                        if (e->crystalizerEnabled)
-                            e->crystalizer.process(buf, produced, e->channels);
                     };
 
                     if (use64)
@@ -12601,7 +12637,7 @@ extern "C"
 
         e->eq.updateCoefficients(sample_rate);
         reinit_advanced_fx_filters(e);
-        e->crystalizer.init(sample_rate);
+        reinit_clean_room_dsp_filters(e);
 
         e->analyzerFrameSize = 512;
         e->analyzerAccumulator.assign((size_t)e->analyzerFrameSize, 0.0f);
@@ -12696,8 +12732,14 @@ extern "C"
             {
                 e->update_eq_filters();
                 e->update_multiband_fx_filters();
-                std::lock_guard<std::mutex> fx(e->fxMutex);
-                reinit_advanced_fx_filters(e);
+                {
+                    std::lock_guard<std::mutex> fx(e->fxMutex);
+                    reinit_advanced_fx_filters(e);
+                }
+                {
+                    std::lock_guard<std::mutex> dspLock(e->dspMutex);
+                    reinit_clean_room_dsp_filters(e);
+                }
             }
 
             sync_dac_valid_bit_depth(e);
@@ -12769,8 +12811,14 @@ extern "C"
             {
                 e->update_eq_filters();
                 e->update_multiband_fx_filters();
-                std::lock_guard<std::mutex> fx(e->fxMutex);
-                reinit_advanced_fx_filters(e);
+                {
+                    std::lock_guard<std::mutex> fx(e->fxMutex);
+                    reinit_advanced_fx_filters(e);
+                }
+                {
+                    std::lock_guard<std::mutex> dspLock(e->dspMutex);
+                    reinit_clean_room_dsp_filters(e);
+                }
             }
         }
 
@@ -14526,8 +14574,7 @@ extern "C"
         const bool hasSpatialOther = e->stereoWidenEnabled ||
             e->stereoEnhancementEnabled ||
             (isStereoSpatial && e->surroundDsp.isEnabled()) ||
-            e->reverbEnabled ||
-            e->crystalizerEnabled;
+            e->reverbEnabled;
         const bool hasFftConvolver = (e->channels >= 2 && e->fftConvolverDsp.isEnabled());
 
         // All DSP zones natively support both F32 and F64 with zero F64<->F32 hopping.
@@ -14537,8 +14584,8 @@ extern "C"
         if (!bypassAppDsp)
         {
             const bool z1Subsonic = e->subsonicFilter.isEnabled() || e->ultrasonicFilter.isEnabled();
-            const bool z1Gate = (e->channels >= 2 && e->noiseGateDsp.isEnabled());
-            const bool z1Expander = (e->channels >= 2 && e->downwardExpanderDsp.isEnabled());
+            const bool z1Gate = (e->channels >= 1 && e->noiseGateDsp.isEnabled());
+            const bool z1Expander = (e->channels >= 1 && e->downwardExpanderDsp.isEnabled());
             if (z1Subsonic || z1Gate || z1Expander)
                 mask |= (1u << 0); // Z1 Restoration
             if (z1Subsonic)
@@ -14547,11 +14594,12 @@ extern "C"
                 mask |= (1u << 13);
             if (z1Expander)
                 mask |= (1u << 14);
-            if (e->channels >= 2 && (e->dynamicEqDsp.isEnabled() || e->deEsserDsp.isEnabled()))
+            if (e->channels >= 1 && (e->dynamicEqDsp.isEnabled() || e->deEsserDsp.isEnabled()))
                 mask |= (1u << 1); // Z2 Tone & De-Esser
-            if (e->channels >= 2 && (e->harmonicBassDsp.isEnabled() || e->dynamicSystemDsp.isEnabled() ||
+            if (e->channels >= 1 && (e->harmonicBassDsp.isEnabled() || e->dynamicSystemDsp.isEnabled() ||
                                      e->analogWarmthDsp.isEnabled() || e->tapeDriftDsp.isEnabled() ||
-                                     e->dialogEnhancerDsp.isEnabled() || e->clarityDsp.isEnabled()))
+                                     e->dialogEnhancerDsp.isEnabled() || e->clarityDsp.isEnabled() ||
+                                     e->crystalizerEnabled))
                 mask |= (1u << 2); // Z3 Harmonics & Character
             const bool mbFxActive = e->multibandFxEnabled && e->has_active_multiband_fx();
             if (e->compressorEnabled || e->multibandEqEnabled || mbFxActive || e->eqEnabled || e->toneCrossoverDsp.isEnabled())
@@ -15084,9 +15132,9 @@ extern "C"
             if (e->crystalizerEnabled)
             {
                 appendNode("crystalizer", "Crystalizer", nativePrec,
-                           "Intensity " + fmtFloat(e->crystalizer.intensity * 100.0, 0) + "%" +
+                           "Intensity " + fmtFloat(e->crystalizer.userIntensity * 100.0, 0) + "%" +
                            (e->crystalizer.highShelfEnabled ? (" · Air " + fmtSignedDb(e->crystalizer.highShelfGainDb, 1)) : ""), 0.0,
-                           {{"Intensity", fmtFloat(e->crystalizer.intensity * 100.0, 0) + "%"},
+                           {{"Intensity", fmtFloat(e->crystalizer.userIntensity * 100.0, 0) + "%"},
                             {"Air Shelf", e->crystalizer.highShelfEnabled ? fmtSignedDb(e->crystalizer.highShelfGainDb, 1) : "OFF"}});
             }
 
@@ -15831,8 +15879,11 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->crystalizerEnabled = (enabled != 0);
+        std::lock_guard<std::mutex> lock(e->dspMutex);
+        const bool en = (enabled != 0);
+        if (en && !e->crystalizerEnabled)
+            e->crystalizer.antiPop = 0.0f;
+        e->crystalizerEnabled = en;
     }
 
     AE_API void ae_set_crystalizer_params(AudioEngineHandle *e, float intensity, int high_shelf_enabled, float high_shelf_gain_db)
@@ -15846,7 +15897,7 @@ extern "C"
                                   : ((e->sampleRate > 0)
                                          ? e->sampleRate
                                          : ((e->outputSampleRate > 0) ? e->outputSampleRate : 48000)));
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lock(e->dspMutex);
         e->crystalizer.updateParams(sr, intensity, high_shelf_enabled != 0, high_shelf_gain_db);
     }
 
@@ -15854,7 +15905,7 @@ extern "C"
     {
         if (e == nullptr)
             return 0.0f;
-        return e->crystalizer.intensity;
+        return e->crystalizer.userIntensity;
     }
 
     AE_API void ae_set_stereo_widen(AudioEngineHandle *e, int enabled, float width, float delay_ms)
@@ -16287,6 +16338,10 @@ extern "C"
             {
                 std::lock_guard<std::mutex> fx(e->fxMutex);
                 reinit_advanced_fx_filters(e);
+            }
+            {
+                std::lock_guard<std::mutex> dspLock(e->dspMutex);
+                reinit_clean_room_dsp_filters(e);
             }
 
             const ma_format requestedOutFmt = ae_format_to_ma_format(e->outputFormat);
@@ -16802,8 +16857,14 @@ extern "C"
                     e->channels = actualCh;
                     e->update_eq_filters();
                     e->update_multiband_fx_filters();
-                    std::lock_guard<std::mutex> fx(e->fxMutex);
-                    reinit_advanced_fx_filters(e);
+                    {
+                        std::lock_guard<std::mutex> fx(e->fxMutex);
+                        reinit_advanced_fx_filters(e);
+                    }
+                    {
+                        std::lock_guard<std::mutex> dspLock(e->dspMutex);
+                        reinit_clean_room_dsp_filters(e);
+                    }
                 }
                 e->outputChannels = actualCh;
             }
@@ -19262,6 +19323,7 @@ extern "C"
     {
         if (!engine) return;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (profile < 0 || profile > 4) profile = 0;
         engine->clarityDsp.setProfile(static_cast<sauti::dsp::AudioClarityProfile>(profile));
         engine->clarityDsp.setIntensity(intensity);
     }
@@ -19465,6 +19527,7 @@ extern "C"
         {
             std::lock_guard<std::mutex> lock(engine->dspMutex);
             engine->clarityDsp.reset();
+            engine->crystalizer.resetState();
             engine->harmonicBassDsp.reset();
             engine->dynamicSystemDsp.reset();
             engine->analogWarmthDsp.reset();
@@ -19591,7 +19654,6 @@ extern "C"
     AE_API float ae_dsp_get_noise_gate_gain_reduction_db(AudioEngineHandle *engine)
     {
         if (!engine) return 0.0f;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         return engine->noiseGateDsp.getGainReductionDb();
     }
 

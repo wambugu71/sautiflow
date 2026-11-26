@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include <atomic>
+#include "denormals.h"
 #include "simd_math.h"
 
 #ifndef M_PI
@@ -42,15 +44,21 @@ public:
 
     void setSampleRate(float sampleRate) {
         if (sampleRate <= 0.0f) sampleRate = 48000.0f;
-        if (std::abs(sample_rate_ - sampleRate) < 0.1f) return;
+        if (initialized_ && std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
-        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.020f * sample_rate_)); // 20ms gain smoothing
+        anti_pop_coeff_ = 1.0f - std::exp(-1.0f / (0.020f * sample_rate_));     // 20ms anti-pop crossfade
+        gain_smooth_coeff_ = 1.0f - std::exp(-1.0f / (0.0005f * sample_rate_)); // 0.5ms anti-zipper
         updateTimeConstants();
         updateSidechainFilter();
+        initialized_ = true;
     }
 
     void setEnabled(bool enabled) {
         if (enabled_ != enabled) {
+            if (enabled) {
+                anti_pop_ = 0.0f;
+                gain_linear_ = 1.0f;
+            }
             enabled_ = enabled;
         }
     }
@@ -163,6 +171,7 @@ public:
         gain_linear_ = 1.0f;
         anti_pop_ = enabled_ ? 1.0f : 0.0f;
         current_gr_db_ = 0.0f;
+        gr_telemetry_.store(0.0f, std::memory_order_relaxed);
         hp_x1_ = SimdDouble2(0.0);
         hp_x2_ = SimdDouble2(0.0);
         hp_y1_ = SimdDouble2(0.0);
@@ -170,7 +179,7 @@ public:
     }
 
     float getCurrentGainReductionDb() const {
-        return current_gr_db_;
+        return gr_telemetry_.load(std::memory_order_relaxed);
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
@@ -187,11 +196,13 @@ private:
     template <typename T>
     void processImpl(T* interleaved_samples, uint32_t frame_count) {
         if (!interleaved_samples || frame_count == 0) return;
+        ScopedDenormalsDisable denormalGuard;
 
         // If disabled and fully smoothed to identity pass, return early
         if (!enabled_ && anti_pop_ <= 1e-4f) {
             anti_pop_ = 0.0f;
             current_gr_db_ = 0.0f;
+            gr_telemetry_.store(0.0f, std::memory_order_relaxed);
             gain_linear_ = 1.0f;
             return;
         }
@@ -207,12 +218,12 @@ private:
         const SimdDouble2 va2(hp_a2_);
 
         for (uint32_t i = 0; i < frame_count; ++i) {
-            // Anti-pop crossfade smoothing
+            // Anti-pop crossfade smoothing (20 ms)
             if (enabled_ && anti_pop_ < 1.0f) {
-                anti_pop_ += smoothing_coeff_ * (1.0f - anti_pop_);
+                anti_pop_ += anti_pop_coeff_ * (1.0f - anti_pop_);
                 if (anti_pop_ > 0.999f) anti_pop_ = 1.0f;
             } else if (!enabled_ && anti_pop_ > 0.0f) {
-                anti_pop_ += smoothing_coeff_ * (0.0f - anti_pop_);
+                anti_pop_ += anti_pop_coeff_ * (0.0f - anti_pop_);
                 if (anti_pop_ < 0.001f) anti_pop_ = 0.0f;
             }
 
@@ -274,8 +285,8 @@ private:
                 target_gain_linear = std::exp(kDbToNeper * (target_gr_db * anti_pop_));
             }
 
-            // 4. Per-sample smooth gain application (eliminates zipper noise)
-            gain_linear_ += smoothing_coeff_ * (target_gain_linear - gain_linear_);
+            // 4. Per-sample 0.5 ms anti-zipper gain smoothing (preserves fast attack transients)
+            gain_linear_ += gain_smooth_coeff_ * (target_gain_linear - gain_linear_);
 
             const double g = static_cast<double>(gain_linear_);
             interleaved_samples[2 * i]     = static_cast<T>(in_l * g);
@@ -283,6 +294,7 @@ private:
         }
 
         current_gr_db_ = (gain_linear_ > 1e-4f) ? 20.0f * std::log10(gain_linear_) : -80.0f;
+        gr_telemetry_.store(current_gr_db_, std::memory_order_relaxed);
     }
 
     void updateTimeConstants() {
@@ -292,27 +304,28 @@ private:
 
     void updateSidechainFilter() {
         if (sidechain_hpf_hz_ < 15.0f) {
-            hp_b0_ = 1.0f; hp_b1_ = 0.0f; hp_b2_ = 0.0f;
-            hp_a1_ = 0.0f; hp_a2_ = 0.0f;
+            hp_b0_ = 1.0; hp_b1_ = 0.0; hp_b2_ = 0.0;
+            hp_a1_ = 0.0; hp_a2_ = 0.0;
             return;
         }
 
-        // 2nd-order Butterworth High-Pass Filter
-        const float fc = std::clamp(sidechain_hpf_hz_, 15.0f, sample_rate_ * 0.45f);
-        const float omega = 2.0f * static_cast<float>(M_PI) * fc / sample_rate_;
-        const float cos_w = std::cos(omega);
-        const float sin_w = std::sin(omega);
-        const float alpha = sin_w / (2.0f * 0.70710678f); // Q = 0.7071
+        // 2nd-order Butterworth High-Pass Filter in 64-bit precision (avoids 1-cos cancellation at low fc)
+        const double fc = std::clamp(static_cast<double>(sidechain_hpf_hz_), 15.0, static_cast<double>(sample_rate_) * 0.45);
+        const double omega = 2.0 * static_cast<double>(M_PI) * fc / static_cast<double>(sample_rate_);
+        const double cos_w = std::cos(omega);
+        const double sin_w = std::sin(omega);
+        const double alpha = sin_w / (2.0 * 0.7071067811865475); // Q = sqrt(2)/2
 
-        const float a0 = 1.0f + alpha;
-        hp_b0_ = ((1.0f + cos_w) * 0.5f) / a0;
-        hp_b1_ = (-(1.0f + cos_w)) / a0;
-        hp_b2_ = ((1.0f + cos_w) * 0.5f) / a0;
-        hp_a1_ = (-2.0f * cos_w) / a0;
-        hp_a2_ = (1.0f - alpha) / a0;
+        const double a0 = 1.0 + alpha;
+        hp_b0_ = ((1.0 + cos_w) * 0.5) / a0;
+        hp_b1_ = (-(1.0 + cos_w)) / a0;
+        hp_b2_ = ((1.0 + cos_w) * 0.5) / a0;
+        hp_a1_ = (-2.0 * cos_w) / a0;
+        hp_a2_ = (1.0 - alpha) / a0;
     }
 
     bool enabled_{false};
+    bool initialized_{false};
     float sample_rate_{48000.0f};
     ExpanderPreset preset_{ExpanderPreset::VinylClean};
 
@@ -327,10 +340,11 @@ private:
     // Filter & Ballistics coefficients
     float attack_coeff_{0.0f};
     float release_coeff_{0.0f};
-    float smoothing_coeff_{0.01f};
+    float anti_pop_coeff_{0.001f};
+    float gain_smooth_coeff_{0.04f};
 
-    float hp_b0_{1.0f}, hp_b1_{0.0f}, hp_b2_{0.0f};
-    float hp_a1_{0.0f}, hp_a2_{0.0f};
+    double hp_b0_{1.0}, hp_b1_{0.0}, hp_b2_{0.0};
+    double hp_a1_{0.0}, hp_a2_{0.0};
 
     // 64-bit Stereo Sidechain Biquad Filter states (Left=lane 0, Right=lane 1)
     SimdDouble2 hp_x1_{0.0};
@@ -343,6 +357,7 @@ private:
     float gain_linear_{1.0f};
     float anti_pop_{0.0f};
     float current_gr_db_{0.0f};
+    std::atomic<float> gr_telemetry_{0.0f};
 };
 
 } // namespace sauti::dsp

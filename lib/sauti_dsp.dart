@@ -1249,23 +1249,30 @@ class SautiDsp {
     if (_enginePtr == ffi.nullptr) return;
     _setExpanderEnabled(_enginePtr, enabled ? 1 : 0);
     _setExpanderPreset(_enginePtr, preset.value);
-    if (preset == DownwardExpanderPreset.custom ||
-        thresholdDb != null ||
+    final hasAnyManual = thresholdDb != null ||
         ratio != null ||
         rangeDb != null ||
         attackMs != null ||
         releaseMs != null ||
         kneeDb != null ||
-        sidechainHpfHz != null) {
+        sidechainHpfHz != null;
+    if (preset == DownwardExpanderPreset.custom || hasAnyManual) {
+      final defaults = switch (preset) {
+        DownwardExpanderPreset.vinylClean => (-52.0, 1.8, -16.0, 12.0, 280.0, 6.0, 50.0),
+        DownwardExpanderPreset.tapeHiss => (-50.0, 2.0, -18.0, 10.0, 220.0, 6.0, 40.0),
+        DownwardExpanderPreset.gentleExpansion => (-46.0, 1.4, -12.0, 20.0, 400.0, 8.0, 30.0),
+        DownwardExpanderPreset.dynamicGate => (-38.0, 6.0, -36.0, 2.0, 100.0, 3.0, 60.0),
+        DownwardExpanderPreset.custom => (-52.0, 1.8, -16.0, 12.0, 280.0, 6.0, 50.0),
+      };
       _setExpanderParamsEx(
         _enginePtr,
-        thresholdDb ?? -52.0,
-        ratio ?? 1.8,
-        rangeDb ?? -16.0,
-        attackMs ?? 12.0,
-        releaseMs ?? 280.0,
-        kneeDb ?? 6.0,
-        sidechainHpfHz ?? 50.0,
+        thresholdDb ?? defaults.$1,
+        ratio ?? defaults.$2,
+        rangeDb ?? defaults.$3,
+        attackMs ?? defaults.$4,
+        releaseMs ?? defaults.$5,
+        kneeDb ?? defaults.$6,
+        sidechainHpfHz ?? defaults.$7,
       );
     }
   }

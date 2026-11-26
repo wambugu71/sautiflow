@@ -61,12 +61,9 @@ public:
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
 
         updateFilters();
-        oversampler_.init(static_cast<int>(sample_rate_), 8192);
-        oversampler4x_.init(static_cast<int>(sample_rate_), 8192);
         oversampler64_.init(static_cast<int>(sample_rate_), 8192);
         oversampler4x64_.init(static_cast<int>(sample_rate_), 8192);
-        sidechain_buf_.assign(16384 * 2, 0.0);
-        highband_buf_.assign(16384 * 2, 0.0);
+        sidechain_buf_.assign(8192 * 2, 0.0);
         dry_ring_.assign(512, 0.0);
         dry_pos_ = 0;
 
@@ -107,7 +104,6 @@ public:
     // Intensity factor in range [0.0, 1.0]
     void setIntensity(float intensity) {
         target_intensity_ = std::clamp(intensity, 0.0f, 1.0f);
-        updateFilters();
     }
 
     float getIntensity() const { return target_intensity_; }
@@ -134,10 +130,10 @@ public:
 
     void reset() {
         // Reset envelope states
-        e_fast_l_ = e_fast_r_ = 0.0f;
-        e_slow_l_ = e_slow_r_ = 0.0f;
-        e_mud_l_  = e_mud_r_  = 0.0f;
-        e_pres_l_ = e_pres_r_ = 0.0f;
+        e_fast_ = 0.0f;
+        e_slow_ = 0.0f;
+        e_mud_  = 0.0f;
+        e_pres_ = 0.0f;
 
         // Reset DC blocker and Chebyshev envelope states
         dc_x_l_ = dc_x_r_ = 0.0;
@@ -146,30 +142,27 @@ public:
 
         // Reset SVF filters
         air_shelf_svf_.reset();
-        presence_low_svf_.reset();
+        presence_mid_svf_.reset();
         presence_high_svf_.reset();
+        transient_shelf_svf_.reset();
+        demask_peaking_svf_.reset();
         for (int c = 0; c < 2; ++c) {
             transient_band_hp_[c].reset();
             transient_band_lp_[c].reset();
-            transient_shelf_[c].reset();
             lr4_hp1_[c].reset();
             lr4_hp2_[c].reset();
             cheb_post_hp1_[c].reset();
             cheb_post_hp2_[c].reset();
             demask_mud_bpf_[c].reset();
             demask_pres_bpf_[c].reset();
-            demask_peaking_[c].reset();
         }
 
         current_intensity_ = target_intensity_;
-        last_air_intensity_ = target_intensity_;
-        last_boost_l_ = -1.0f;
-        last_boost_r_ = -1.0f;
-        last_cut_l_ = 1.0f;
-        last_cut_r_ = 1.0f;
+        last_air_intensity_ = -1.0f;
+        last_presence_intensity_ = -1.0f;
+        last_boost_ = -1.0f;
+        last_cut_ = 1.0f;
         anti_pop_ = 1.0f;
-        oversampler_.reset();
-        oversampler4x_.reset();
         oversampler64_.reset();
         oversampler4x64_.reset();
         if (!dry_ring_.empty()) {
@@ -192,10 +185,11 @@ private:
     template <typename T>
     void processImpl(T* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
+        ScopedDenormalsDisable denormalGuard;
 
         switch (profile_) {
             case AudioClarityProfile::TransientCrisp:
-                processTransientArticulator(interleaved_samples, frame_count);
+                processTransientArticulator(interleaved_samples, frame_count, false, true);
                 break;
             case AudioClarityProfile::AirShelf:
                 processAirShelf(interleaved_samples, frame_count);
@@ -204,7 +198,7 @@ private:
                 processPresenceExciter(interleaved_samples, frame_count);
                 break;
             case AudioClarityProfile::HarmonicBrilliance:
-                processChebyshevHarmonicExciter(interleaved_samples, frame_count);
+                processChebyshevHarmonicExciter(interleaved_samples, frame_count, false);
                 break;
             case AudioClarityProfile::PsychoacousticMaster:
                 processPsychoacousticMaster(interleaved_samples, frame_count);
@@ -219,11 +213,16 @@ private:
     // 1. Differential Envelope Transient Articulator (Profile 0)
     // =========================================================================
     template <typename T>
-    void processTransientArticulator(T* samples, uint32_t frame_count) {
+    void processTransientArticulator(T* samples, uint32_t frame_count,
+                                     bool use_snap_knob = false, bool step_smoothing = true) {
         constexpr float kEps = 1.0e-6f;
+        const float snap = use_snap_knob ? transient_snap_ : 1.0f;
+
         for (uint32_t i = 0; i < frame_count; ++i) {
-            current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
-            const float max_boost_db = 2.5f * current_intensity_ * transient_snap_;
+            if (step_smoothing) {
+                current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
+            }
+            const float max_boost_db = 5.5f * current_intensity_ * snap;
 
             const double in_l = static_cast<double>(samples[2 * i]);
             const double in_r = static_cast<double>(samples[2 * i + 1]);
@@ -234,51 +233,42 @@ private:
             double side_r = transient_band_lp_[1].processSample(
                                 transient_band_hp_[1].processSample(in_r));
 
-            float mag_l = static_cast<float>(std::abs(side_l));
-            float mag_r = static_cast<float>(std::abs(side_r));
+            // Stereo-linked detector prevents L/R image shift on asymmetric transients
+            float mag = static_cast<float>(std::max(std::abs(side_l), std::abs(side_r)));
 
-            // 2. Parallel Fast (0.8ms / 15ms) vs Slow (25ms / 150ms) Envelope Followers
-            e_fast_l_ = (mag_l > e_fast_l_) ? (e_fast_l_ + alpha_fast_att_ * (mag_l - e_fast_l_))
-                                            : (e_fast_l_ + alpha_fast_rel_ * (mag_l - e_fast_l_));
-            e_slow_l_ = (mag_l > e_slow_l_) ? (e_slow_l_ + alpha_slow_att_ * (mag_l - e_slow_l_))
-                                            : (e_slow_l_ + alpha_slow_rel_ * (mag_l - e_slow_l_));
-
-            e_fast_r_ = (mag_r > e_fast_r_) ? (e_fast_r_ + alpha_fast_att_ * (mag_r - e_fast_r_))
-                                            : (e_fast_r_ + alpha_fast_rel_ * (mag_r - e_fast_r_));
-            e_slow_r_ = (mag_r > e_slow_r_) ? (e_slow_r_ + alpha_slow_att_ * (mag_r - e_slow_r_))
-                                            : (e_slow_r_ + alpha_slow_rel_ * (mag_r - e_slow_r_));
+            // 2. Cascaded Fast (0.8ms / 15ms) -> Slow (25ms / 150ms) Envelope Followers
+            //    Feeding e_fast_ into e_slow_ eliminates waveform-ripple bias between asymmetric
+            //    peak detectors so steady-state tones/hiss converge strictly to ratio == 1.0.
+            e_fast_ = (mag > e_fast_) ? (e_fast_ + alpha_fast_att_ * (mag - e_fast_))
+                                      : (e_fast_ + alpha_fast_rel_ * (mag - e_fast_));
+            e_slow_ = (e_fast_ > e_slow_) ? (e_slow_ + alpha_slow_att_ * (e_fast_ - e_slow_))
+                                          : (e_slow_ + alpha_slow_rel_ * (e_fast_ - e_slow_));
 
             // 3. Dimensionless crest factor ratio D(n) = E_fast / (E_slow + eps)
-            float ratio_l = e_fast_l_ / (e_slow_l_ + kEps);
-            float ratio_r = e_fast_r_ / (e_slow_r_ + kEps);
+            float ratio = e_fast_ / (e_slow_ + kEps);
 
-            // 4. Modulate High-Shelf filter (up to +2.5 dB) on transient spikes
-            float boost_l = 0.0f;
-            if (ratio_l > 1.05f) {
-                boost_l = std::clamp((ratio_l - 1.05f) * 2.0f, 0.0f, max_boost_db);
+            // 4. Modulate High-Shelf filter (up to +5.5 dB) on transient spikes
+            float boost = 0.0f;
+            if (ratio > 1.10f) {
+                boost = std::clamp((ratio - 1.10f) * 4.0f, 0.0f, max_boost_db);
             }
-            float boost_r = 0.0f;
-            if (ratio_r > 1.05f) {
-                boost_r = std::clamp((ratio_r - 1.05f) * 2.0f, 0.0f, max_boost_db);
+            boost *= anti_pop_;
+
+            if ((i & 15u) == 0u) {
+                if (std::abs(boost - last_boost_) > 0.02f || (boost == 0.0f && last_boost_ > 0.0f)) {
+                    transient_shelf_svf_.setParameters(CytomicSVF::FilterType::HighShelf,
+                                                       sample_rate_, 4000.0,
+                                                       static_cast<double>(boost), 0.7071);
+                    last_boost_ = boost;
+                }
             }
 
-            if (anti_pop_ < 1.0f) {
-                boost_l *= anti_pop_;
-                boost_r *= anti_pop_;
+            if (step_smoothing && anti_pop_ < 1.0f) {
                 anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 100.0f);
             }
 
-            if (std::abs(boost_l - last_boost_l_) > 0.005f) {
-                transient_shelf_[0].setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 4000.0, boost_l, 0.7071);
-                last_boost_l_ = boost_l;
-            }
-            if (std::abs(boost_r - last_boost_r_) > 0.005f) {
-                transient_shelf_[1].setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 4000.0, boost_r, 0.7071);
-                last_boost_r_ = boost_r;
-            }
-
-            const double out_l = transient_shelf_[0].processSample(in_l);
-            const double out_r = transient_shelf_[1].processSample(in_r);
+            const double out_l = transient_shelf_svf_.processSample(in_l, 0);
+            const double out_r = transient_shelf_svf_.processSample(in_r, 1);
 
             samples[2 * i]     = static_cast<T>(out_l);
             samples[2 * i + 1] = static_cast<T>(out_r);
@@ -292,12 +282,17 @@ private:
     void processAirShelf(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
-            if (std::abs(current_intensity_ - last_air_intensity_) > 0.002f) {
-                air_shelf_svf_.setParameters(CytomicSVF::FilterType::HighShelf,
-                                             sample_rate_, 12000.0,
-                                             static_cast<double>(current_intensity_) * 8.0,
-                                             0.70710678);
-                last_air_intensity_ = current_intensity_;
+            if ((i & 15u) == 0u) {
+                if (std::abs(current_intensity_ - last_air_intensity_) > 0.002f ||
+                    (current_intensity_ < 1e-4f && last_air_intensity_ > 0.0f)) {
+                    const double gain_db = (current_intensity_ < 1e-4f)
+                                               ? 0.0
+                                               : static_cast<double>(current_intensity_) * 8.0;
+                    air_shelf_svf_.setParameters(CytomicSVF::FilterType::HighShelf,
+                                                 sample_rate_, 12000.0,
+                                                 gain_db, 0.70710678);
+                    last_air_intensity_ = current_intensity_;
+                }
             }
 
             const double in_l = static_cast<double>(samples[2 * i]);
@@ -319,30 +314,34 @@ private:
     }
 
     // =========================================================================
-    // 3. Presence Exciter (Profile 2) - 64-bit Cytomic SVF Flat-Sum Crossover
+    // 3. Presence Exciter (Profile 2) - Phase-Coherent 64-bit Cytomic Dual-Shelf
     // =========================================================================
     template <typename T>
     void processPresenceExciter(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
-            const double mid_gain = 1.0 + static_cast<double>(current_intensity_) * 0.4;
-            const double high_gain = 1.0 + static_cast<double>(current_intensity_) * 0.8;
+            if ((i & 15u) == 0u) {
+                if (std::abs(current_intensity_ - last_presence_intensity_) > 0.002f ||
+                    (current_intensity_ < 1e-4f && last_presence_intensity_ > 0.0f)) {
+                    const double mid_db = (current_intensity_ < 1e-4f)
+                                              ? 0.0
+                                              : static_cast<double>(current_intensity_) * 2.5;
+                    const double high_db = (current_intensity_ < 1e-4f)
+                                               ? 0.0
+                                               : static_cast<double>(current_intensity_) * 3.0;
+                    presence_mid_svf_.setParameters(CytomicSVF::FilterType::HighShelf,
+                                                    sample_rate_, 350.0, mid_db, 0.70710678);
+                    presence_high_svf_.setParameters(CytomicSVF::FilterType::HighShelf,
+                                                     sample_rate_, 2200.0, high_db, 0.70710678);
+                    last_presence_intensity_ = current_intensity_;
+                }
+            }
 
             const double in_l = static_cast<double>(samples[2 * i]);
             const double in_r = static_cast<double>(samples[2 * i + 1]);
 
-            const double low_l  = presence_low_svf_.processSample(in_l, 0);
-            const double high_l = presence_high_svf_.processSample(in_l, 0);
-
-            const double low_r  = presence_low_svf_.processSample(in_r, 1);
-            const double high_r = presence_high_svf_.processSample(in_r, 1);
-
-            // Mid band derived by subtraction for exact flat sum
-            const double mid_l = in_l - low_l - high_l;
-            const double mid_r = in_r - low_r - high_r;
-
-            double out_l = low_l + (mid_l * mid_gain) + (high_l * high_gain);
-            double out_r = low_r + (mid_r * mid_gain) + (high_r * high_gain);
+            double out_l = presence_high_svf_.processSample(presence_mid_svf_.processSample(in_l, 0), 0);
+            double out_r = presence_high_svf_.processSample(presence_mid_svf_.processSample(in_r, 1), 1);
 
             if (anti_pop_ < 1.0f) {
                 const double pop = static_cast<double>(anti_pop_);
@@ -360,17 +359,17 @@ private:
     // 4. 4x Oversampled Chebyshev Polynomial Exciter (Profile 3)
     // =========================================================================
     template <typename T>
-    void processChebyshevHarmonicExciter(T* samples, uint32_t frame_count) {
+    void processChebyshevHarmonicExciter(T* samples, uint32_t frame_count, bool use_adv_knobs = false) {
         if (!samples || frame_count == 0) return;
         const uint32_t max_block = static_cast<uint32_t>(sidechain_buf_.size() / 2);
         for (uint32_t offset = 0; offset < frame_count; offset += max_block) {
             uint32_t cur_frames = std::min(frame_count - offset, max_block);
-            processChebyshevBlock(samples + 2 * offset, cur_frames);
+            processChebyshevBlock(samples + 2 * offset, cur_frames, use_adv_knobs);
         }
     }
 
     template <typename T>
-    void processChebyshevBlock(T* samples, uint32_t frame_count) {
+    void processChebyshevBlock(T* samples, uint32_t frame_count, bool use_adv_knobs) {
         // 1. 4th-Order Linkwitz-Riley Crossover at 3.2 kHz (High-Pass Sidechain)
         for (uint32_t i = 0; i < frame_count; ++i) {
             const double in_l = static_cast<double>(samples[2 * i]);
@@ -383,27 +382,35 @@ private:
             sidechain_buf_[2 * i + 1] = hp_r;
         }
 
-        // 2. Chebyshev Polynomial Waveshaping with DC Blocking & Fundamental Cancellation in Oversampled Domain
-        const double g2 = static_cast<double>(g2_warmth_) * 0.40;
-        const double g3 = static_cast<double>(g3_presence_) * 0.30;
+        // 2. Envelope-Normalized Chebyshev Polynomial Waveshaping in Oversampled Domain
+        //    Prevents A^2 / A^3 amplitude collapse on realistic HF music levels (-30 to -12 dBFS).
+        const double g2 = use_adv_knobs ? static_cast<double>(g2_warmth_) : 0.70;
+        const double g3 = use_adv_knobs ? static_cast<double>(g3_presence_) : 0.60;
         const double dc_r = static_cast<double>(dc_block_r_);
         const double env_alpha = 1.0 - dc_r;
 
         auto apply_chebyshev = [this, g2, g3, dc_r, env_alpha](double* buf, uint32_t num_frames) {
+            constexpr double kFloor = 0.015; // ~ -36.5 dBFS gate floor so tape hiss is never amplified
             for (uint32_t i = 0; i < num_frames; ++i) {
                 const double xl = std::clamp(buf[2 * i], -1.0, 1.0);
                 const double xr = std::clamp(buf[2 * i + 1], -1.0, 1.0);
 
-                const double xl2 = xl * xl;
-                const double xr2 = xr * xr;
+                // Track peak envelope amplitude: 2 * mean(x^2) = A^2
+                cheb_env_sq_l_ += env_alpha * (2.0 * xl * xl - cheb_env_sq_l_);
+                cheb_env_sq_r_ += env_alpha * (2.0 * xr * xr - cheb_env_sq_r_);
 
-                // Track mean-square amplitude (A^2 / 2 for sine of amplitude A -> 2*mean(x^2) = A^2)
-                cheb_env_sq_l_ += env_alpha * (2.0 * xl2 - cheb_env_sq_l_);
-                cheb_env_sq_r_ += env_alpha * (2.0 * xr2 - cheb_env_sq_r_);
+                const double env_l = std::sqrt(std::max(cheb_env_sq_l_, 0.0));
+                const double env_r = std::sqrt(std::max(cheb_env_sq_r_, 0.0));
 
-                // Chebyshev 2nd Harmonic: 2x^2 with DC blocker removes offset (0 at silence)
-                const double t2_raw_l = 2.0 * xl2;
-                const double t2_raw_r = 2.0 * xr2;
+                const double ul = std::clamp(xl / std::max(env_l, kFloor), -1.0, 1.0);
+                const double ur = std::clamp(xr / std::max(env_r, kFloor), -1.0, 1.0);
+
+                const double ul2 = ul * ul;
+                const double ur2 = ur * ur;
+
+                // Chebyshev 2nd Harmonic on normalized carrier: 2u^2 -> DC blocker -> scale by envelope
+                const double t2_raw_l = 2.0 * ul2;
+                const double t2_raw_r = 2.0 * ur2;
 
                 const double dc_out_l = t2_raw_l - dc_x_l_ + dc_r * dc_y_l_;
                 dc_x_l_ = t2_raw_l; dc_y_l_ = dc_out_l;
@@ -411,12 +418,15 @@ private:
                 const double dc_out_r = t2_raw_r - dc_x_r_ + dc_r * dc_y_r_;
                 dc_x_r_ = t2_raw_r; dc_y_r_ = dc_out_r;
 
-                // Envelope-normalized Chebyshev T3(x): 4x^3 - 3*A^2*x cancels fundamental cos(wt) leaving pure cos(3wt)
-                const double t3_l = 4.0 * ((xl2 * xl) - 0.75 * cheb_env_sq_l_ * xl);
-                const double t3_r = 4.0 * ((xr2 * xr) - 0.75 * cheb_env_sq_r_ * xr);
+                const double h2_l = dc_out_l * env_l;
+                const double h2_r = dc_out_r * env_r;
 
-                buf[2 * i]     = (g2 * dc_out_l) + (g3 * t3_l);
-                buf[2 * i + 1] = (g2 * dc_out_r) + (g3 * t3_r);
+                // Chebyshev 3rd Harmonic on normalized carrier: T3(u) = 4u^3 - 3u -> scale by envelope
+                const double h3_l = (4.0 * ul2 * ul - 3.0 * ul) * env_l;
+                const double h3_r = (4.0 * ur2 * ur - 3.0 * ur) * env_r;
+
+                buf[2 * i]     = (g2 * h2_l) + (g3 * h3_l);
+                buf[2 * i + 1] = (g2 * h2_r) + (g3 * h3_r);
             }
         };
 
@@ -440,12 +450,12 @@ private:
             sidechain_buf_[2 * i + 1] = h_r;
         }
 
-        // 3. Mix back into dry signal at -20 dB nominal blend with group delay compensation (39.9 -> 40 for 4x)
+        // 3. Mix back into dry signal with group delay compensation (40 frames for 4x, 26 for 2x)
         const int delay_frames = (oversampling_factor_ == 4) ? 40 : ((oversampling_factor_ == 2) ? 26 : 0);
         constexpr int kRingFrames = 256;
         for (uint32_t i = 0; i < frame_count; ++i) {
             current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
-            const double mix = static_cast<double>(current_intensity_) * 0.125 * static_cast<double>(anti_pop_); // -18 dB to -24 dB range
+            const double mix = static_cast<double>(current_intensity_) * 0.32 * static_cast<double>(anti_pop_);
 
             const double in_l = static_cast<double>(samples[2 * i]);
             const double in_r = static_cast<double>(samples[2 * i + 1]);
@@ -474,60 +484,73 @@ private:
     // =========================================================================
     template <typename T>
     void processPsychoacousticMaster(T* samples, uint32_t frame_count) {
+        const float start_intensity = current_intensity_;
+        const float start_anti_pop = anti_pop_;
+
         // Step 1: Dynamic Low-Mid De-Masking (240 Hz Anti-Mud Peaking Cut)
         processDeMasking(samples, frame_count);
 
         // Step 2: Differential Envelope Transient Articulator
-        processTransientArticulator(samples, frame_count);
+        current_intensity_ = start_intensity;
+        anti_pop_ = start_anti_pop;
+        processTransientArticulator(samples, frame_count, true, true);
 
         // Step 3: 4x Oversampled Chebyshev Harmonic Exciter
-        processChebyshevHarmonicExciter(samples, frame_count);
+        current_intensity_ = start_intensity;
+        anti_pop_ = start_anti_pop;
+        processChebyshevHarmonicExciter(samples, frame_count, true);
     }
 
     template <typename T>
     void processDeMasking(T* samples, uint32_t frame_count) {
         if (demask_amount_ <= 0.01f) return;
         constexpr float kEps = 1.0e-5f;
+        // CytomicSVF::BandPass peak gain is Q (m1 = 1.0). Normalize detectors to 0 dB peak.
+        constexpr double kMudNorm = 1.0 / 1.5;
+        constexpr double kPresNorm = 1.0 / 0.7;
 
         for (uint32_t i = 0; i < frame_count; ++i) {
+            current_intensity_ += smoothing_coeff_ * (target_intensity_ - current_intensity_);
+
             const double in_l = static_cast<double>(samples[2 * i]);
             const double in_r = static_cast<double>(samples[2 * i + 1]);
 
-            // Measure Mud band (180-350 Hz) vs Vocal Presence band (1-4 kHz)
-            double mud_l = std::abs(demask_mud_bpf_[0].processSample(in_l));
-            double mud_r = std::abs(demask_mud_bpf_[1].processSample(in_r));
-            double pres_l = std::abs(demask_pres_bpf_[0].processSample(in_l));
-            double pres_r = std::abs(demask_pres_bpf_[1].processSample(in_r));
+            // Measure normalized Mud band (180-350 Hz) vs Vocal Presence band (1-4 kHz)
+            double mud_l  = std::abs(demask_mud_bpf_[0].processSample(in_l)) * kMudNorm;
+            double mud_r  = std::abs(demask_mud_bpf_[1].processSample(in_r)) * kMudNorm;
+            double pres_l = std::abs(demask_pres_bpf_[0].processSample(in_l)) * kPresNorm;
+            double pres_r = std::abs(demask_pres_bpf_[1].processSample(in_r)) * kPresNorm;
 
-            e_mud_l_  += alpha_demask_ * (static_cast<float>(mud_l)  - e_mud_l_);
-            e_mud_r_  += alpha_demask_ * (static_cast<float>(mud_r)  - e_mud_r_);
-            e_pres_l_ += alpha_demask_ * (static_cast<float>(pres_l) - e_pres_l_);
-            e_pres_r_ += alpha_demask_ * (static_cast<float>(pres_r) - e_pres_r_);
+            float mud_peak  = static_cast<float>(std::max(mud_l, mud_r));
+            float pres_peak = static_cast<float>(std::max(pres_l, pres_r));
 
-            float ratio_l = e_mud_l_ / (e_pres_l_ + kEps);
-            float ratio_r = e_mud_r_ / (e_pres_r_ + kEps);
+            e_mud_  += alpha_demask_ * (mud_peak  - e_mud_);
+            e_pres_ += alpha_demask_ * (pres_peak - e_pres_);
 
-            // Dip 240 Hz peaking cut by -1.5 dB to -3.0 dB when low-mid mud masks presence
-            float cut_l = 0.0f;
-            if (ratio_l > 1.25f) {
-                cut_l = -std::clamp((ratio_l - 1.25f) * 2.0f, 0.0f, 3.0f) * demask_amount_;
-            }
-            float cut_r = 0.0f;
-            if (ratio_r > 1.25f) {
-                cut_r = -std::clamp((ratio_r - 1.25f) * 2.0f, 0.0f, 3.0f) * demask_amount_;
+            float ratio = e_mud_ / (e_pres_ + kEps);
+
+            // Dip 240 Hz peaking cut by up to -3.0 dB when low-mid mud masks presence
+            float cut = 0.0f;
+            if (ratio > 1.25f) {
+                cut = -std::clamp((ratio - 1.25f) * 2.0f, 0.0f, 3.0f)
+                      * demask_amount_ * current_intensity_ * anti_pop_;
             }
 
-            if (std::abs(cut_l - last_cut_l_) > 0.005f) {
-                demask_peaking_[0].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 240.0, cut_l, 1.8);
-                last_cut_l_ = cut_l;
-            }
-            if (std::abs(cut_r - last_cut_r_) > 0.005f) {
-                demask_peaking_[1].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 240.0, cut_r, 1.8);
-                last_cut_r_ = cut_r;
+            if ((i & 15u) == 0u) {
+                if (std::abs(cut - last_cut_) > 0.02f || (cut == 0.0f && last_cut_ < 0.0f)) {
+                    demask_peaking_svf_.setParameters(CytomicSVF::FilterType::Bell,
+                                                      sample_rate_, 240.0,
+                                                      static_cast<double>(cut), 1.8);
+                    last_cut_ = cut;
+                }
             }
 
-            samples[2 * i]     = static_cast<T>(demask_peaking_[0].processSample(in_l));
-            samples[2 * i + 1] = static_cast<T>(demask_peaking_[1].processSample(in_r));
+            if (anti_pop_ < 1.0f) {
+                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 100.0f);
+            }
+
+            samples[2 * i]     = static_cast<T>(demask_peaking_svf_.processSample(in_l, 0));
+            samples[2 * i + 1] = static_cast<T>(demask_peaking_svf_.processSample(in_r, 1));
         }
     }
 
@@ -541,19 +564,21 @@ private:
         for (int c = 0; c < 2; ++c) {
             transient_band_hp_[c].setParameters(CytomicSVF::FilterType::HighPass, sample_rate_, 2500.0, 0.0, 0.70710678);
             transient_band_lp_[c].setParameters(CytomicSVF::FilterType::LowPass, sample_rate_, 12000.0, 0.0, 0.70710678);
-            transient_shelf_[c].setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 4000.0, 0.0, 0.7071);
         }
-        last_boost_l_ = 0.0f;
-        last_boost_r_ = 0.0f;
+        transient_shelf_svf_.setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 4000.0, 0.0, 0.7071);
+        last_boost_ = 0.0f;
 
         // 2. Air Shelf: 12 kHz High-Shelf SVF (+0 dB to +8 dB)
-        double shelf_gain_db = static_cast<double>(current_intensity_) * 8.0;
+        double shelf_gain_db = (current_intensity_ < 1e-4f) ? 0.0 : static_cast<double>(current_intensity_) * 8.0;
         air_shelf_svf_.setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 12000.0, shelf_gain_db, 0.70710678);
         last_air_intensity_ = current_intensity_;
 
-        // 3. 3-Way Crossover (PresenceExciter) in 64-bit Cytomic SVF
-        presence_low_svf_.setParameters(CytomicSVF::FilterType::LowPass, sample_rate_, 120.0, 0.0, 0.70710678);
-        presence_high_svf_.setParameters(CytomicSVF::FilterType::HighPass, sample_rate_, 1200.0, 0.0, 0.70710678);
+        // 3. Presence Exciter (Profile 2): Phase-coherent dual high shelves
+        double mid_db = (current_intensity_ < 1e-4f) ? 0.0 : static_cast<double>(current_intensity_) * 2.5;
+        double high_db = (current_intensity_ < 1e-4f) ? 0.0 : static_cast<double>(current_intensity_) * 3.0;
+        presence_mid_svf_.setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 350.0, mid_db, 0.70710678);
+        presence_high_svf_.setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, 2200.0, high_db, 0.70710678);
+        last_presence_intensity_ = current_intensity_;
 
         // 4. 4th-Order Linkwitz-Riley Crossover at 3.2 kHz (Pre- and Post-Shaper High-Pass)
         for (int c = 0; c < 2; ++c) {
@@ -567,8 +592,9 @@ private:
         for (int c = 0; c < 2; ++c) {
             demask_mud_bpf_[c].setParameters(CytomicSVF::FilterType::BandPass, sample_rate_, 250.0, 0.0, 1.5);
             demask_pres_bpf_[c].setParameters(CytomicSVF::FilterType::BandPass, sample_rate_, 2000.0, 0.0, 0.7);
-            demask_peaking_[c].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 240.0, 0.0, 1.8);
         }
+        demask_peaking_svf_.setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 240.0, 0.0, 1.8);
+        last_cut_ = 0.0f;
     }
 
     bool enabled_ = false;
@@ -578,11 +604,10 @@ private:
     float sample_period_ = 1.0f / 48000.0f;
     float target_intensity_ = 0.5f;
     float current_intensity_ = 0.5f;
-    float last_air_intensity_ = 0.5f;
-    float last_boost_l_ = -1.0f;
-    float last_boost_r_ = -1.0f;
-    float last_cut_l_ = 1.0f;
-    float last_cut_r_ = 1.0f;
+    float last_air_intensity_ = -1.0f;
+    float last_presence_intensity_ = -1.0f;
+    float last_boost_ = -1.0f;
+    float last_cut_ = 1.0f;
     float smoothing_coeff_ = 0.002f;
     float anti_pop_ = 0.0f;
 
@@ -599,11 +624,11 @@ private:
     float alpha_slow_rel_ = 0.0f;
     float alpha_demask_   = 0.0f;
 
-    // Envelope followers
-    float e_fast_l_ = 0.0f, e_fast_r_ = 0.0f;
-    float e_slow_l_ = 0.0f, e_slow_r_ = 0.0f;
-    float e_mud_l_  = 0.0f, e_mud_r_  = 0.0f;
-    float e_pres_l_ = 0.0f, e_pres_r_ = 0.0f;
+    // Stereo-linked envelope followers
+    float e_fast_ = 0.0f;
+    float e_slow_ = 0.0f;
+    float e_mud_  = 0.0f;
+    float e_pres_ = 0.0f;
 
     // Chebyshev DC blocker & envelope tracker (64-bit precision)
     float dc_block_r_ = 0.999f;
@@ -611,32 +636,29 @@ private:
     double dc_y_l_ = 0.0, dc_y_r_ = 0.0;
     double cheb_env_sq_l_ = 0.0, cheb_env_sq_r_ = 0.0;
 
-    // 2x and 4x Polyphase Half-Band Oversamplers (F32 and F64)
-    PolyphaseOversampler2x oversampler_;
-    PolyphaseOversampler4x oversampler4x_;
+    // 2x and 4x Polyphase Half-Band Oversamplers (F64)
     PolyphaseOversampler2x64 oversampler64_;
     PolyphaseOversampler4x64 oversampler4x64_;
     int oversampling_factor_ = 4;
     std::vector<double> sidechain_buf_;
-    std::vector<double> highband_buf_;
     std::vector<double> dry_ring_;
     int dry_pos_ = 0;
 
     // Cytomic SVFs for High Precision Dynamics
     CytomicSVF transient_band_hp_[2];
     CytomicSVF transient_band_lp_[2];
-    CytomicSVF transient_shelf_[2];
+    CytomicSVF transient_shelf_svf_;
     CytomicSVF lr4_hp1_[2];
     CytomicSVF lr4_hp2_[2];
     CytomicSVF cheb_post_hp1_[2];
     CytomicSVF cheb_post_hp2_[2];
     CytomicSVF demask_mud_bpf_[2];
     CytomicSVF demask_pres_bpf_[2];
-    CytomicSVF demask_peaking_[2];
+    CytomicSVF demask_peaking_svf_;
 
     // Air Shelf (Profile 1) & Presence Exciter (Profile 2) 64-bit Cytomic SVFs
     CytomicSVF air_shelf_svf_;
-    CytomicSVF presence_low_svf_;
+    CytomicSVF presence_mid_svf_;
     CytomicSVF presence_high_svf_;
 };
 

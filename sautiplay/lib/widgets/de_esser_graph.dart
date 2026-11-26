@@ -104,9 +104,9 @@ class _DeEsserGraphState extends State<DeEsserGraph> {
     const minFreq = 20.0;
     const maxFreq = 20000.0;
     final w = context.size?.width ?? 300.0;
-    if (w <= 0) return;
+    final graphWidth = (w - 38.0).clamp(1.0, double.infinity);
 
-    final t = (pos.dx / w).clamp(0.0, 1.0);
+    final t = (pos.dx / graphWidth).clamp(0.0, 1.0);
     final logMin = math.log(minFreq);
     final logMax = math.log(maxFreq);
     final freq = math.exp(logMin + t * (logMax - logMin));
@@ -167,21 +167,18 @@ class _DeEsserPainter extends CustomPainter {
   ) {
     if (!enabled) return 0.0;
 
-    // Display live gain reduction if currently compressing, else preview max reduction depth
-    final displayReduction = liveGrDb.abs() > 0.05
-        ? liveGrDb.abs().clamp(0.0, maxReductionDb)
-        : (maxReductionDb * 0.5).clamp(2.0, 18.0);
+    // Show actual live reduction (0.0 dB flat pass when not compressing)
+    final displayReduction = liveGrDb.abs().clamp(0.0, maxReductionDb);
+    if (displayReduction < 0.05) return 0.0;
 
     if (mode == DeEsserMode.wideBand) {
       return -displayReduction;
     }
 
-    // SplitBand: 2nd-order High-Shelf approximation
-    final ratio = f / fc;
-    if (ratio <= 0.5) return 0.0;
-
-    // Smooth sigmoidal shelving transition centered around fc
-    final t = 1.0 / (1.0 + math.pow(ratio, -3.0));
+    // SplitBand: smooth 2nd-order High-Shelf magnitude response
+    final ratio = f / math.max(fc, 100.0);
+    final r4 = ratio * ratio * ratio * ratio;
+    final t = r4 / (1.0 + r4);
     return -displayReduction * t;
   }
 
@@ -421,8 +418,9 @@ class _DeEsserPainter extends CustomPainter {
     );
 
     // Meter fill (Gain reduction fills downward from 0 dB)
-    final effectiveGrDb = isEnabled ? gainReductionDb.abs().clamp(0.0, 18.0) : 0.0;
-    final grFraction = (effectiveGrDb / 18.0).clamp(0.0, 1.0);
+    final meterMaxDb = math.max(18.0, maxReductionDb);
+    final effectiveGrDb = isEnabled ? gainReductionDb.abs().clamp(0.0, meterMaxDb) : 0.0;
+    final grFraction = (effectiveGrDb / meterMaxDb).clamp(0.0, 1.0);
 
     if (grFraction > 0.01) {
       final fillH = meterH * grFraction;

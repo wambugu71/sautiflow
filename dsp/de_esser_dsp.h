@@ -3,7 +3,9 @@
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#include <atomic>
 #include <vector>
+#include "denormals.h"
 #include "simd_math.h"
 #include "cytomic_svf_dsp.h"
 
@@ -140,7 +142,7 @@ public:
         preset_ = DeEsserPreset::Custom;
         frequency_hz_ = std::clamp(freqHz, 2000.0f, 12000.0f);
         updateSidechainFilter();
-        updateShelfCoeffs(-current_gr_db_);
+        updateShelfCoeffs(-current_gr_db_, true);
     }
 
     float getFrequencyHz() const { return frequency_hz_; }
@@ -204,20 +206,27 @@ public:
         // Reset dynamic shelf 64-bit Cytomic SVF state
         shelf_svf_.reset();
 
-        // Reset Sidechain HPF states
+        // Reset Sidechain HPF + LPF states
         sc_x1_ = SimdDouble2(0.0);
         sc_x2_ = SimdDouble2(0.0);
         sc_y1_ = SimdDouble2(0.0);
         sc_y2_ = SimdDouble2(0.0);
+        sc_lp_x1_ = SimdDouble2(0.0);
+        sc_lp_x2_ = SimdDouble2(0.0);
+        sc_lp_y1_ = SimdDouble2(0.0);
+        sc_lp_y2_ = SimdDouble2(0.0);
 
         env_l_ = 0.0f;
         env_r_ = 0.0f;
         current_gr_db_ = 0.0f;
+        gr_telemetry_.store(0.0f, std::memory_order_relaxed);
         current_intensity_ = target_intensity_;
         current_threshold_db_ = target_threshold_db_;
+        knee_start_lin_ = std::pow(10.0f, (current_threshold_db_ - 2.0f) / 20.0f);
+        prev_thresh_for_lin_ = current_threshold_db_;
         anti_pop_ = 0.0f;
         prev_shelf_gain_db_ = 999.0f;
-        updateShelfCoeffs(0.0f);
+        updateShelfCoeffs(0.0f, true);
         shelf_b0_ = tgt_shelf_b0_;
     }
 
@@ -226,9 +235,9 @@ public:
     float getTargetShelfB0() const { return tgt_shelf_b0_; }
     float getPrevShelfGainDb() const { return prev_shelf_gain_db_; }
 
-    // Real-time gain reduction in dB for meters / UI
+    // Real-time gain reduction in dB for meters / UI (lock-free atomic read)
     float getGainReductionDb() const {
-        return current_gr_db_;
+        return gr_telemetry_.load(std::memory_order_relaxed);
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
@@ -245,12 +254,19 @@ private:
     template <typename T>
     void processImpl(T* interleaved_samples, uint32_t frame_count) {
         if (!enabled_ || frame_count == 0 || !interleaved_samples) return;
+        ScopedDenormalsDisable denormalGuard;
 
         const SimdDouble2 v_sc_b0(sc_b0_);
         const SimdDouble2 v_sc_b1(sc_b1_);
         const SimdDouble2 v_sc_b2(sc_b2_);
         const SimdDouble2 v_sc_a1(sc_a1_);
         const SimdDouble2 v_sc_a2(sc_a2_);
+
+        const SimdDouble2 v_lp_b0(sc_lp_b0_);
+        const SimdDouble2 v_lp_b1(sc_lp_b1_);
+        const SimdDouble2 v_lp_b2(sc_lp_b2_);
+        const SimdDouble2 v_lp_a1(sc_lp_a1_);
+        const SimdDouble2 v_lp_a2(sc_lp_a2_);
 
         for (uint32_t i = 0; i < frame_count; i++) {
             // Smooth macro intensity and threshold parameters
@@ -262,20 +278,31 @@ private:
                 current_threshold_db_ = target_threshold_db_;
             }
 
+            if (std::abs(current_threshold_db_ - prev_thresh_for_lin_) > 0.05f) {
+                knee_start_lin_ = std::pow(10.0f, (current_threshold_db_ - 2.0f) / 20.0f);
+                prev_thresh_for_lin_ = current_threshold_db_;
+            }
+
             const double in_l = static_cast<double>(interleaved_samples[2 * i]);
             const double in_r = static_cast<double>(interleaved_samples[2 * i + 1]);
 
-            // 1. Sidechain High-Pass Filter (vectorized stereo Direct Form I in 64-bit precision)
+            // 1. Sidechain Bandpass Filter (2nd-order HPF -> 2nd-order LPF in 64-bit SimdDouble2)
+            //    Rejects vocal fundamentals below fc AND ultrasonic cymbal/air energy above 11 kHz.
             const SimdDouble2 v_sc_in(in_l, in_r);
-            const SimdDouble2 sc_y = (v_sc_b0 * v_sc_in) + (v_sc_b1 * sc_x1_) + (v_sc_b2 * sc_x2_)
+            const SimdDouble2 hp_y = (v_sc_b0 * v_sc_in) + (v_sc_b1 * sc_x1_) + (v_sc_b2 * sc_x2_)
                                    - (v_sc_a1 * sc_y1_) - (v_sc_a2 * sc_y2_);
             sc_x2_ = sc_x1_; sc_x1_ = v_sc_in;
-            sc_y2_ = sc_y1_; sc_y1_ = sc_y;
+            sc_y2_ = sc_y1_; sc_y1_ = hp_y;
+
+            const SimdDouble2 sc_y = (v_lp_b0 * hp_y) + (v_lp_b1 * sc_lp_x1_) + (v_lp_b2 * sc_lp_x2_)
+                                   - (v_lp_a1 * sc_lp_y1_) - (v_lp_a2 * sc_lp_y2_);
+            sc_lp_x2_ = sc_lp_x1_; sc_lp_x1_ = hp_y;
+            sc_lp_y2_ = sc_lp_y1_; sc_lp_y1_ = sc_y;
 
             const float sc_l = static_cast<float>(sc_y.get_low());
             const float sc_r = static_cast<float>(sc_y.get_high());
 
-            // 2. Sidechain Envelope Detection (Fast Attack / Smooth Release)
+            // 2. Sidechain Envelope Detection (Attack / Release ballistics)
             float sc_abs_l = std::abs(sc_l);
             float sc_abs_r = std::abs(sc_r);
 
@@ -294,18 +321,17 @@ private:
             // Coupled stereo detector peak
             float env_peak = std::max(env_l_, env_r_);
 
-            // 3. Compute Target Gain Reduction with 4 dB Soft Knee (C1 continuous)
+            // 3. Compute Target Gain Reduction with 4 dB Soft Knee (skip log10 below knee)
             float target_gr_db = 0.0f;
-            if (env_peak > 1e-5f) {
+            if (env_peak > std::max(1e-5f, knee_start_lin_)) {
                 const float env_db = 20.0f * std::log10(env_peak);
                 target_gr_db = computeKneeGainReduction(env_db, current_threshold_db_, ratio_, max_reduction_db_);
             }
 
-            // Smooth gain reduction to eliminate audio clicks
-            if (target_gr_db > current_gr_db_) {
-                current_gr_db_ += attack_gr_coeff_ * (target_gr_db - current_gr_db_); // Fast smoothed attack
-            } else {
-                current_gr_db_ += gain_smooth_coeff_ * (target_gr_db - current_gr_db_); // Smooth release
+            // Fast 0.25 ms anti-zipper smoother (preserves true attack_ms_ / release_ms_ without 1.5x lag)
+            current_gr_db_ += gr_anti_zipper_coeff_ * (target_gr_db - current_gr_db_);
+            if (current_gr_db_ < 1e-4f && target_gr_db == 0.0f) {
+                current_gr_db_ = 0.0f;
             }
 
             double out_l = in_l;
@@ -313,17 +339,21 @@ private:
 
             // 4. Output Processing based on Mode
             if (mode_ == DeEsserMode::SplitBand) {
-                // 64-bit Cytomic TPT SVF dynamic HighShelf: state-invariant under modulation
-                updateShelfCoeffs(-current_gr_db_);
-                shelf_b0_ = tgt_shelf_b0_;
+                // 64-bit Cytomic TPT SVF dynamic HighShelf updated smoothly at control rate
+                if ((i & 7u) == 0u || i + 1 == frame_count) {
+                    updateShelfCoeffs(-current_gr_db_);
+                    shelf_b0_ = tgt_shelf_b0_;
+                }
 
                 out_l = shelf_svf_.processSample(in_l, 0);
                 out_r = shelf_svf_.processSample(in_r, 1);
             } else {
-                // WideBand Mode: Direct linear attenuation
-                const double lin_gain = std::pow(10.0, static_cast<double>(-current_gr_db_) / 20.0);
-                out_l = in_l * lin_gain;
-                out_r = in_r * lin_gain;
+                // WideBand Mode: Direct linear attenuation (skip pow when idle)
+                if (current_gr_db_ >= 0.005f) {
+                    const double lin_gain = std::pow(10.0, static_cast<double>(-current_gr_db_) / 20.0);
+                    out_l = in_l * lin_gain;
+                    out_r = in_r * lin_gain;
+                }
             }
 
             // Anti-pop crossfade on enable / reset
@@ -337,6 +367,8 @@ private:
             interleaved_samples[2 * i]     = static_cast<T>(out_l);
             interleaved_samples[2 * i + 1] = static_cast<T>(out_r);
         }
+
+        gr_telemetry_.store(current_gr_db_, std::memory_order_relaxed);
     }
 
     bool enabled_ = false;
@@ -361,11 +393,12 @@ private:
     float smoothing_coeff_ = 0.002f;
     float attack_coeff_ = 0.1f;
     float release_coeff_ = 0.001f;
-    float gain_smooth_coeff_ = 0.001f;
-    float attack_gr_coeff_ = 0.05f;
-    float coeff_interp_coeff_ = 0.05f;
+    float gr_anti_zipper_coeff_ = 0.08f;
     float anti_pop_ = 0.0f;
     float current_gr_db_ = 0.0f;
+    std::atomic<float> gr_telemetry_{0.0f};
+    float knee_start_lin_ = 0.063f;
+    float prev_thresh_for_lin_ = -22.0f;
 
     // Dynamic High-Shelf 64-bit Cytomic SVF & Telemetry
     CytomicSVF shelf_svf_;
@@ -375,12 +408,17 @@ private:
     float tgt_shelf_a1_ = 0.0f, tgt_shelf_a2_ = 0.0f;
     float prev_shelf_gain_db_ = 999.0f;
 
-    // Sidechain HPF Coefficients and states (SimdDouble2 stereo Direct Form I)
-    float sc_b0_ = 1.0f, sc_b1_ = 0.0f, sc_b2_ = 0.0f, sc_a1_ = 0.0f, sc_a2_ = 0.0f;
+    // Sidechain HPF + LPF Coefficients (64-bit double precision) and states (SimdDouble2 stereo DFI)
+    double sc_b0_ = 1.0, sc_b1_ = 0.0, sc_b2_ = 0.0, sc_a1_ = 0.0, sc_a2_ = 0.0;
+    double sc_lp_b0_ = 1.0, sc_lp_b1_ = 0.0, sc_lp_b2_ = 0.0, sc_lp_a1_ = 0.0, sc_lp_a2_ = 0.0;
     SimdDouble2 sc_x1_{0.0};
     SimdDouble2 sc_x2_{0.0};
     SimdDouble2 sc_y1_{0.0};
     SimdDouble2 sc_y2_{0.0};
+    SimdDouble2 sc_lp_x1_{0.0};
+    SimdDouble2 sc_lp_x2_{0.0};
+    SimdDouble2 sc_lp_y1_{0.0};
+    SimdDouble2 sc_lp_y2_{0.0};
 
     // Envelope followers
     float env_l_ = 0.0f;
@@ -403,16 +441,14 @@ private:
         // Ballistics
         attack_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * (attack_ms_ * 0.001f)));
         release_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * (release_ms_ * 0.001f)));
-        gain_smooth_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * (release_ms_ * 0.0005f)));
-        attack_gr_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * 0.0005f)); // 0.5ms attack smoothing
-        coeff_interp_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * 0.001f)); // 1ms coeff interpolation
+        gr_anti_zipper_coeff_ = 1.0f - std::exp(-1.0f / (sample_rate_ * 0.00025f)); // 0.25ms anti-zipper
     }
 
     void updateSidechainFilter() {
         constexpr double PI = 3.14159265358979323846;
         const float fc = std::clamp(frequency_hz_, 1000.0f, sample_rate_ * 0.45f);
 
-        // 2nd-order Butterworth High-Pass Filter at fc
+        // 2nd-order Butterworth High-Pass Filter at fc (64-bit precision)
         double w0 = 2.0 * PI * static_cast<double>(fc) / static_cast<double>(sample_rate_);
         if (w0 > PI * 0.95) w0 = PI * 0.95;
         const double cos_w0 = std::cos(w0);
@@ -420,23 +456,38 @@ private:
         const double alpha = sin_w0 / (2.0 * 0.7071067811865475);
 
         const double a0 = 1.0 + alpha;
-        sc_b0_ = static_cast<float>(((1.0 + cos_w0) / 2.0) / a0);
-        sc_b1_ = static_cast<float>(-(1.0 + cos_w0) / a0);
-        sc_b2_ = static_cast<float>(((1.0 + cos_w0) / 2.0) / a0);
-        sc_a1_ = static_cast<float>((-2.0 * cos_w0) / a0);
-        sc_a2_ = static_cast<float>((1.0 - alpha) / a0);
+        sc_b0_ = ((1.0 + cos_w0) / 2.0) / a0;
+        sc_b1_ = -(1.0 + cos_w0) / a0;
+        sc_b2_ = ((1.0 + cos_w0) / 2.0) / a0;
+        sc_a1_ = (-2.0 * cos_w0) / a0;
+        sc_a2_ = (1.0 - alpha) / a0;
+
+        // 2nd-order Butterworth Low-Pass Filter at max(11 kHz, 1.35 * fc) to prevent cymbal false-triggers
+        const float lp_fc = std::clamp(std::max(11000.0f, fc * 1.35f), 4000.0f, sample_rate_ * 0.45f);
+        double w_lp = 2.0 * PI * static_cast<double>(lp_fc) / static_cast<double>(sample_rate_);
+        if (w_lp > PI * 0.95) w_lp = PI * 0.95;
+        const double cos_lp = std::cos(w_lp);
+        const double sin_lp = std::sin(w_lp);
+        const double alpha_lp = sin_lp / (2.0 * 0.7071067811865475);
+
+        const double a0_lp = 1.0 + alpha_lp;
+        sc_lp_b0_ = ((1.0 - cos_lp) / 2.0) / a0_lp;
+        sc_lp_b1_ = (1.0 - cos_lp) / a0_lp;
+        sc_lp_b2_ = ((1.0 - cos_lp) / 2.0) / a0_lp;
+        sc_lp_a1_ = (-2.0 * cos_lp) / a0_lp;
+        sc_lp_a2_ = (1.0 - alpha_lp) / a0_lp;
     }
 
-    void updateShelfCoeffs(float gain_db) {
-        // Throttled recalculation: recompute only when gain change exceeds 0.1 dB
-        if (std::abs(gain_db) >= 0.01f && std::abs(gain_db - prev_shelf_gain_db_) < 0.1f) return;
-        prev_shelf_gain_db_ = gain_db;
+    void updateShelfCoeffs(float gain_db, bool force = false) {
+        const float clamped = (std::abs(gain_db) < 0.005f) ? 0.0f : gain_db;
+        if (!force && std::abs(clamped - prev_shelf_gain_db_) < 0.01f) return;
+        prev_shelf_gain_db_ = clamped;
 
-        const double effective_gain = (std::abs(gain_db) < 0.01f) ? 0.0 : static_cast<double>(gain_db);
+        const double effective_gain = static_cast<double>(clamped);
         const double fc = static_cast<double>(std::clamp(frequency_hz_, 1000.0f, sample_rate_ * 0.45f));
         shelf_svf_.setParameters(CytomicSVF::FilterType::HighShelf, sample_rate_, fc, effective_gain, 0.70710678);
 
-        tgt_shelf_b0_ = static_cast<float>(std::pow(10.0, effective_gain / 20.0));
+        tgt_shelf_b0_ = (clamped == 0.0f) ? 1.0f : static_cast<float>(std::pow(10.0, effective_gain / 20.0));
         tgt_shelf_b1_ = 0.0f;
         tgt_shelf_b2_ = 0.0f;
         tgt_shelf_a1_ = 0.0f;
