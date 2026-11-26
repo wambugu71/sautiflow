@@ -427,6 +427,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadUiSettings() async {
     final saved = await AppStateService.instance.loadUiSettings();
+    final rgSaved = await AppStateService.instance.loadReplayGainSettings();
     final eqSaved = await AppStateService.instance.loadEqBands();
     final eqExt = await AppStateService.instance
         .loadEqExtendedSettings(bandCount: eqSaved.bandCount);
@@ -470,7 +471,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _enableHostedFallback = fallback;
       _streamingQuality = saved.streamingQuality;
       _gaplessPlayback = saved.gaplessPlayback;
-      _normalizeVolume = saved.normalizeVolume;
+      _normalizeVolume = rgSaved.mode != ReplayGainMode.none;
       _streamOverWifi = saved.streamOverWifi;
       _resampleAlgorithm = saved.resampleAlgorithm;
       _ditherMode = saved.ditherMode;
@@ -4169,9 +4170,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: 'Keeps consistent volume level across tracks',
                   secondary: _buildLeadingIcon(SautiIcons.replaygain),
                   value: _normalizeVolume,
-                  onChanged: (v) {
+                  onChanged: (v) async {
                     setState(() => _normalizeVolume = v);
                     setSubState(() {});
+                    final rg = await AppStateService.instance
+                        .loadReplayGainSettings();
+                    final newMode =
+                        v ? ReplayGainMode.track : ReplayGainMode.none;
+                    await AppStateService.instance.saveReplayGainSettings(
+                      mode: newMode,
+                      preamp: rg.preamp,
+                    );
+                    widget.player.setReplayGain(v ? rg.preamp : 0.0);
                     _persistUiSettings();
                   },
                 ),

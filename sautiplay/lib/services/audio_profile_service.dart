@@ -132,6 +132,31 @@ class AudioProfileService {
     player.setCustomLpf1(enabled: false, cutoffHz: 500.0);
     player.setCustomHpf1(enabled: false, cutoffHz: 120.0);
     player.setLimiterEnabled(false);
+    player.setLimiterParams(threshold: 0.95, attackMs: 2.0, releaseMs: 50.0);
+    await AppStateService.instance.saveLimiter(
+      enabled: false,
+      threshold: 0.95,
+      attackMs: 2.0,
+      releaseMs: 50.0,
+    );
+    player.setLookaheadLimiterEnabled(false);
+    player.setLookaheadLimiterParams(
+      ceilingDBTP: -1.0,
+      attackMs: 2.0,
+      releaseMs: 50.0,
+    );
+    await AppStateService.instance.saveLookaheadLimiter(
+      enabled: false,
+      ceilingDBTP: -1.0,
+      attackMs: 2.0,
+      releaseMs: 50.0,
+    );
+    player.setLoudnessNormalizerEnabled(false);
+    player.setLoudnessNormalizerTarget(-14.0);
+    await AppStateService.instance.saveLoudnessNormalizer(
+      enabled: false,
+      targetLUFS: -14.0,
+    );
     player.setCompressorEnabled(false);
 
     // Reset & disable all Sauti DSP Suite modules directly in engine
@@ -147,11 +172,18 @@ class AudioProfileService {
     player.setNoiseGateEnabled(false);
     player.setConvolverEnabled(false);
     player.setMasterLimiter(enabled: false);
+    player.setDynamicLoudnessEnabled(false);
+    player.setLevellerEnabled(false);
+    player.setLookaheadAgcEnabled(false);
     player.setDynamicEqEnabled(false);
     await AppStateService.instance.saveSautiDspState({
-      'dspMasterEnabled': false,
+      'dspMasterEnabled': true,
       'surroundEnabled': false,
       'dynamicEqEnabled': false,
+      'limiterEnabled': false,
+      'dynamicLoudnessEnabled': false,
+      'levellerEnabled': false,
+      'lookaheadAgcEnabled': false,
     });
 
     // 2. Persist baseline disabled state to storage in parallel
@@ -720,11 +752,40 @@ class AudioProfileService {
       );
     } else {
       player.setLimiterEnabled(false);
+    player.setLimiterParams(threshold: 0.95, attackMs: 2.0, releaseMs: 50.0);
+    await AppStateService.instance.saveLimiter(
+      enabled: false,
+      threshold: 0.95,
+      attackMs: 2.0,
+      releaseMs: 50.0,
+    );
       await AppStateService.instance.saveLimiter(
         enabled: false,
         threshold: 0.95,
         attackMs: 2.0,
         releaseMs: 50.0,
+      );
+    }
+
+    if (dsp.containsKey('lookaheadLimiter')) {
+      final lal = dsp['lookaheadLimiter'] as Map;
+      final enabled = lal['enabled'] ?? false;
+      final ceilingDBTP = (lal['ceilingDBTP'] as num?)?.toDouble() ?? -1.0;
+      final attackMs = (lal['attackMs'] as num?)?.toDouble() ?? 2.0;
+      final releaseMs = (lal['releaseMs'] as num?)?.toDouble() ?? 50.0;
+      player.setLookaheadLimiterEnabled(enabled);
+      if (enabled) {
+        player.setLookaheadLimiterParams(
+          ceilingDBTP: ceilingDBTP,
+          attackMs: attackMs,
+          releaseMs: releaseMs,
+        );
+      }
+      await AppStateService.instance.saveLookaheadLimiter(
+        enabled: enabled,
+        ceilingDBTP: ceilingDBTP,
+        attackMs: attackMs,
+        releaseMs: releaseMs,
       );
     }
 
@@ -800,8 +861,9 @@ class AudioProfileService {
 
     // 3. Apply Sauti DSP Suite State
     final cleanDspState = <String, dynamic>{
-      'dspMasterEnabled': profile.sautiDspState['dspMasterEnabled'] ?? false,
+      'dspMasterEnabled': true,
       'clarityEnabled': false,
+      'dynamicLoudnessEnabled': false,
       'dialogEnhancerEnabled': false,
       'bassEnabled': false,
       'dynamicSystemEnabled': false,
@@ -1020,7 +1082,7 @@ class AudioProfileService {
           ],
         },
         dspEffectsState: {},
-        sautiDspState: {'dspMasterEnabled': false},
+        sautiDspState: {'dspMasterEnabled': true},
       ),
       AudioProfile(
         id: 'builtin_basshead',

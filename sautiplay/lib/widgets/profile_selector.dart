@@ -56,6 +56,8 @@ class AudioProfileSelector extends StatefulWidget {
     final toneCrossover = await AppStateService.instance.loadToneCrossover();
     final true3d = await AppStateService.instance.loadTrue3d();
     final limiter = await AppStateService.instance.loadLimiter();
+    final lookaheadLimiter =
+        await AppStateService.instance.loadLookaheadLimiter();
     final compressor = await AppStateService.instance.loadCompressor();
     final loudnessNorm =
         await AppStateService.instance.loadLoudnessNormalizer();
@@ -162,7 +164,13 @@ class AudioProfileSelector extends StatefulWidget {
           'enabled': limiter.enabled,
           'threshold': limiter.threshold,
           'attackMs': limiter.attackMs,
-          'releaseMs': limiter.releaseMs
+          'releaseMs': limiter.releaseMs,
+        },
+        'lookaheadLimiter': {
+          'enabled': lookaheadLimiter.enabled,
+          'ceilingDBTP': lookaheadLimiter.ceilingDBTP,
+          'attackMs': lookaheadLimiter.attackMs,
+          'releaseMs': lookaheadLimiter.releaseMs,
         },
         'compressor': {
           'enabled': compressor.enabled,

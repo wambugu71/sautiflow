@@ -635,6 +635,22 @@ class EqScreen extends StatefulWidget {
       releaseMs: limiterReleaseMs,
     );
 
+    final lookaheadSaved = await AppStateService.instance.loadLookaheadLimiter();
+    player.setLookaheadLimiterParams(
+      ceilingDBTP: lookaheadSaved.ceilingDBTP,
+      attackMs: lookaheadSaved.attackMs,
+      releaseMs: lookaheadSaved.releaseMs,
+    );
+    player.setLookaheadLimiterEnabled(lookaheadSaved.enabled);
+
+    final limiterSaved = await AppStateService.instance.loadLimiter();
+    player.setLimiterParams(
+      threshold: limiterSaved.threshold,
+      attackMs: limiterSaved.attackMs,
+      releaseMs: limiterSaved.releaseMs,
+    );
+    player.setLimiterEnabled(limiterSaved.enabled);
+
     final compressor = await AppStateService.instance.loadCompressor();
     player.setCompressorEnabled(compressor.enabled);
     if (compressor.enabled) {
@@ -1776,6 +1792,10 @@ class _EqScreenState extends State<EqScreen>
   // Look-Ahead True-Peak Limiter
   bool _lookaheadLimiterEnabled = true;
   double _lookaheadLimiterCeilingDBTP = -1.0;
+  double _lookaheadLimiterAttackMs = 2.0;
+  double _lookaheadLimiterReleaseMs = 50.0;
+  Timer? _saveLookaheadTimer;
+  Timer? _saveNormalizerTimer;
 
   // ITU-R BS.1770-4 Loudness Normalizer
   bool _loudnessNormalizerEnabled = true;
@@ -2077,6 +2097,12 @@ class _EqScreenState extends State<EqScreen>
   double _levellerMaxAttenuationDb = 12.0;
   double _levellerSilenceGateLufs = -45.0;
   final ValueNotifier<double> _levellerGainNotifier = ValueNotifier(0.0);
+  final ValueNotifier<double> _masterLimiterGrNotifier = ValueNotifier(0.0);
+  final ValueNotifier<double> _lookaheadLimiterGrNotifier = ValueNotifier(0.0);
+  final ValueNotifier<({double bassDb, double trebleDb})>
+      _dynamicLoudnessBoostNotifier = ValueNotifier((bassDb: 0.0, trebleDb: 0.0));
+  final ValueNotifier<({double gainDb, double shortLufs, double intLufs})>
+      _normalizerTelemetryNotifier = ValueNotifier((gainDb: 0.0, shortLufs: -100.0, intLufs: -100.0));
 
   // 9b. 3-Band Lookahead AGC + Limiter
   bool _lookaheadAgcEnabled = false;
@@ -2709,6 +2735,28 @@ class _EqScreenState extends State<EqScreen>
     });
   }
 
+  void _scheduleSaveLookaheadLimiter() {
+    _saveLookaheadTimer?.cancel();
+    _saveLookaheadTimer = Timer(const Duration(milliseconds: 300), () {
+      AppStateService.instance.saveLookaheadLimiter(
+        enabled: _lookaheadLimiterEnabled,
+        ceilingDBTP: _lookaheadLimiterCeilingDBTP,
+        attackMs: _lookaheadLimiterAttackMs,
+        releaseMs: _lookaheadLimiterReleaseMs,
+      );
+    });
+  }
+
+  void _scheduleSaveLoudnessNormalizer() {
+    _saveNormalizerTimer?.cancel();
+    _saveNormalizerTimer = Timer(const Duration(milliseconds: 300), () {
+      AppStateService.instance.saveLoudnessNormalizer(
+        enabled: _loudnessNormalizerEnabled,
+        targetLUFS: _loudnessNormalizerTargetLUFS,
+      );
+    });
+  }
+
   void _syncDynamicEqMeterTimer() {
     if (_dynamicEqEnabled && _isPlaying && mounted) {
       if (_dynamicEqMeterTimer != null) return;
@@ -2917,6 +2965,69 @@ class _EqScreenState extends State<EqScreen>
         }
       }
 
+      if (_masterLimiterEnabled && _isPlaying) {
+        futures.add(widget.player.getMasterLimiterGainReductionDb().then((gr) {
+          if (mounted && (_masterLimiterGrNotifier.value - gr).abs() > 0.05) {
+            _masterLimiterGrNotifier.value = gr;
+          }
+        }));
+      } else if (_masterLimiterGrNotifier.value != 0.0) {
+        if (mounted) _masterLimiterGrNotifier.value = 0.0;
+      }
+
+      if (_lookaheadLimiterEnabled && _isPlaying) {
+        futures.add(widget.player.getLookaheadLimiterGainReductionDB().then((gr) {
+          if (mounted && (_lookaheadLimiterGrNotifier.value - gr).abs() > 0.05) {
+            _lookaheadLimiterGrNotifier.value = gr;
+          }
+        }));
+      } else if (_lookaheadLimiterGrNotifier.value != 0.0) {
+        if (mounted) _lookaheadLimiterGrNotifier.value = 0.0;
+      }
+
+      if (_dynamicLoudnessEnabled && _isPlaying) {
+        futures.add(widget.player.getDynamicLoudnessCurrentBoost().then((b) {
+          if (!mounted) return;
+          final prev = _dynamicLoudnessBoostNotifier.value;
+          if ((prev.bassDb - b.bassBoostDb).abs() > 0.05 ||
+              (prev.trebleDb - b.trebleBoostDb).abs() > 0.05) {
+            _dynamicLoudnessBoostNotifier.value =
+                (bassDb: b.bassBoostDb, trebleDb: b.trebleBoostDb);
+          }
+        }));
+      } else if (_dynamicLoudnessBoostNotifier.value.bassDb != 0.0 ||
+          _dynamicLoudnessBoostNotifier.value.trebleDb != 0.0) {
+        if (mounted) {
+          _dynamicLoudnessBoostNotifier.value = (bassDb: 0.0, trebleDb: 0.0);
+        }
+      }
+
+      if (_loudnessNormalizerEnabled && _isPlaying) {
+        futures.add(Future.wait([
+          widget.player.getLoudnessNormalizerGainDb(),
+          widget.player.getLoudnessMetrics(),
+        ]).then((res) {
+          if (!mounted) return;
+          final gDb = res[0] as double;
+          final m = res[1] as ({
+            double momentaryLufs,
+            double shortTermLufs,
+            double integratedLufs,
+            double lra
+          });
+          final prev = _normalizerTelemetryNotifier.value;
+          if ((prev.gainDb - gDb).abs() > 0.05 ||
+              (prev.shortLufs - m.shortTermLufs).abs() > 0.1 ||
+              (prev.intLufs - m.integratedLufs).abs() > 0.1) {
+            _normalizerTelemetryNotifier.value = (
+              gainDb: gDb,
+              shortLufs: m.shortTermLufs,
+              intLufs: m.integratedLufs,
+            );
+          }
+        }));
+      }
+
       if (futures.isNotEmpty) {
         await Future.wait(futures);
       }
@@ -2945,6 +3056,10 @@ class _EqScreenState extends State<EqScreen>
   void dispose() {
     _saveDebounceTimer?.cancel();
     _saveDebounceTimer = null;
+    _saveLookaheadTimer?.cancel();
+    _saveLookaheadTimer = null;
+    _saveNormalizerTimer?.cancel();
+    _saveNormalizerTimer = null;
     _dynamicEqMeterTimer?.cancel();
     _dynamicEqMeterTimer = null;
     _dynamicEqOffsetsNotifier.dispose();
@@ -2954,6 +3069,10 @@ class _EqScreenState extends State<EqScreen>
     _expanderGrNotifier.dispose();
     _noiseGateGrNotifier.dispose();
     _levellerGainNotifier.dispose();
+    _masterLimiterGrNotifier.dispose();
+    _lookaheadLimiterGrNotifier.dispose();
+    _dynamicLoudnessBoostNotifier.dispose();
+    _normalizerTelemetryNotifier.dispose();
     _lookaheadAgcTelemetryNotifier.dispose();
     _statusSub?.cancel();
     _autoEqSub?.cancel();
@@ -3012,6 +3131,8 @@ class _EqScreenState extends State<EqScreen>
       // Look-Ahead Limiter, Loudness Normalizer & ReplayGain
       _lookaheadLimiterEnabled = lookaheadLim.enabled;
       _lookaheadLimiterCeilingDBTP = lookaheadLim.ceilingDBTP;
+      _lookaheadLimiterAttackMs = lookaheadLim.attackMs;
+      _lookaheadLimiterReleaseMs = lookaheadLim.releaseMs;
       _loudnessNormalizerEnabled = loudnessNorm.enabled;
       _loudnessNormalizerTargetLUFS = loudnessNorm.targetLUFS;
       _replayGainMode = rgSaved.mode;
@@ -3533,9 +3654,12 @@ class _EqScreenState extends State<EqScreen>
     if (_toneCrossoverEnabled) {
       _updateToneCrossover();
     }
+    widget.player.setLookaheadLimiterParams(
+      ceilingDBTP: _lookaheadLimiterCeilingDBTP,
+      attackMs: _lookaheadLimiterAttackMs,
+      releaseMs: _lookaheadLimiterReleaseMs,
+    );
     widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
-    widget.player
-        .setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
     widget.player.setLoudnessNormalizerEnabled(_loudnessNormalizerEnabled);
     widget.player.setLoudnessNormalizerTarget(_loudnessNormalizerTargetLUFS);
 
@@ -4144,10 +4268,15 @@ class _EqScreenState extends State<EqScreen>
     AppStateService.instance.saveLookaheadLimiter(
       enabled: _lookaheadLimiterEnabled,
       ceilingDBTP: _lookaheadLimiterCeilingDBTP,
+      attackMs: _lookaheadLimiterAttackMs,
+      releaseMs: _lookaheadLimiterReleaseMs,
+    );
+    widget.player.setLookaheadLimiterParams(
+      ceilingDBTP: _lookaheadLimiterCeilingDBTP,
+      attackMs: _lookaheadLimiterAttackMs,
+      releaseMs: _lookaheadLimiterReleaseMs,
     );
     widget.player.setLookaheadLimiterEnabled(_lookaheadLimiterEnabled);
-    widget.player
-        .setLookaheadLimiterParams(ceilingDBTP: _lookaheadLimiterCeilingDBTP);
     _subScreenSetState?.call(() {});
   }
 
@@ -4315,7 +4444,7 @@ class _EqScreenState extends State<EqScreen>
 
     // Save Sauti DSP Suite state
     AppStateService.instance.saveSautiDspState({
-      'dspMasterEnabled': _masterEqEnabled,
+      'dspMasterEnabled': true,
       'clarityEnabled': _clarityEnabled,
       'clarityProfile': _clarityProfile.value,
       'clarityIntensity': _clarityIntensity,
@@ -13058,26 +13187,121 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
+  Widget _buildDspConflictBanner(String message) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.amber.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 1),
+            child: Icon(Icons.info_outline_rounded,
+                color: Colors.amberAccent, size: 16),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: Colors.amber.shade100,
+                fontSize: 11.2,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _zone7ConflictText() {
+    final active = <String>[
+      if (_masterLimiterEnabled) 'Peak Limiter',
+      if (_lookaheadLimiterEnabled) 'Look-Ahead Limiter',
+      if (_limiterEnabled) 'Soft Limiter',
+    ];
+    if (active.length < 2) return '';
+    return 'Multiple Zone 7 limiters enabled (${active.join(" + ")}). '
+        'Only ${active.first} runs (priority: Peak Limiter > Look-Ahead > Soft Limiter).';
+  }
+
+  String _loudnessConflictText() {
+    final sources = <String>[
+      if (_loudnessNormalizerEnabled) 'Loudness Normalizer',
+      if (_replayGainMode != ReplayGainMode.none) 'ReplayGain',
+      if (_levellerEnabled) 'Broadcast Leveller',
+      if (_lookaheadAgcEnabled) 'Lookahead AGC',
+    ];
+    if (sources.length < 2) return '';
+    if (_loudnessNormalizerEnabled &&
+        _replayGainMode != ReplayGainMode.none &&
+        sources.length == 2) {
+      return 'Loudness Normalizer supersedes ReplayGain so track gain does not stack twice.';
+    }
+    return 'Multiple loudness/AGC stages active (${sources.join(" + ")}). '
+        'Consider enabling a single target stage for predictable gain.';
+  }
+
   Widget _buildLookaheadLimiterSection() {
+    final z7Warn = _zone7ConflictText();
     return _CollapsibleSection(
       icon: Center(
         child: Icon(SautiIcons.masterLookaheadLimiter, color: primaryColor, size: 20),
       ),
       title: 'Look-Ahead Limiter',
-      subtitle: '2ms look-ahead protection',
+      subtitle: '${_lookaheadLimiterAttackMs.toStringAsFixed(1)} ms 4x true-peak protection',
       isEnabled: _lookaheadLimiterEnabled,
       onToggle: (v) {
         setState(() => _lookaheadLimiterEnabled = v);
         _persistLookaheadLimiterSettings();
       },
       children: [
+        if (z7Warn.isNotEmpty) _buildDspConflictBanner(z7Warn),
+        ValueListenableBuilder<double>(
+          valueListenable: _lookaheadLimiterGrNotifier,
+          builder: (context, grDb, _) {
+            final mag = grDb.abs().clamp(0.0, 24.0);
+            final frac = (mag / 24.0).clamp(0.0, 1.0);
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: surfaceDarkerColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('GAIN REDUCTION',
+                          style: TextStyle(color: Colors.white60, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                      Text(_lookaheadLimiterEnabled ? '${grDb.toStringAsFixed(1)} dB' : 'OFF',
+                          style: TextStyle(color: mag > 0.2 ? Colors.amberAccent : Colors.white70, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(value: frac, minHeight: 5, backgroundColor: Colors.white10, valueColor: AlwaysStoppedAnimation(mag > 3.0 ? Colors.amberAccent : primaryColor)),
+                ],
+              ),
+            );
+          },
+        ),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
+              size: 56,
               label: 'CEILING',
-              value: _lookaheadLimiterCeilingDBTP,
-              min: -6.0,
+              value: _lookaheadLimiterCeilingDBTP.clamp(-12.0, 0.0),
+              min: -12.0,
               max: 0.0,
               flatValue: -1.0,
               activeColor:
@@ -13085,7 +13309,55 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${v.toStringAsFixed(1)} dBTP',
               onChanged: (v) {
                 setState(() => _lookaheadLimiterCeilingDBTP = v);
-                _persistLookaheadLimiterSettings();
+                widget.player.setLookaheadLimiterParams(
+                  ceilingDBTP: _lookaheadLimiterCeilingDBTP,
+                  attackMs: _lookaheadLimiterAttackMs,
+                  releaseMs: _lookaheadLimiterReleaseMs,
+                );
+                _scheduleSaveLookaheadLimiter();
+                _subScreenSetState?.call(() {});
+              },
+            ),
+            ModernAudioKnob(
+              size: 56,
+              label: 'LOOKAHEAD',
+              value: _lookaheadLimiterAttackMs.clamp(0.5, 10.0),
+              min: 0.5,
+              max: 10.0,
+              flatValue: 2.0,
+              activeColor:
+                  _lookaheadLimiterEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
+              onChanged: (v) {
+                setState(() => _lookaheadLimiterAttackMs = v);
+                widget.player.setLookaheadLimiterParams(
+                  ceilingDBTP: _lookaheadLimiterCeilingDBTP,
+                  attackMs: _lookaheadLimiterAttackMs,
+                  releaseMs: _lookaheadLimiterReleaseMs,
+                );
+                _scheduleSaveLookaheadLimiter();
+                _subScreenSetState?.call(() {});
+              },
+            ),
+            ModernAudioKnob(
+              size: 56,
+              label: 'RELEASE',
+              value: _lookaheadLimiterReleaseMs.clamp(10.0, 1000.0),
+              min: 10.0,
+              max: 1000.0,
+              flatValue: 50.0,
+              activeColor:
+                  _lookaheadLimiterEnabled ? primaryColor : Colors.white,
+              valueFormatter: (v) => '${v.toStringAsFixed(0)} ms',
+              onChanged: (v) {
+                setState(() => _lookaheadLimiterReleaseMs = v);
+                widget.player.setLookaheadLimiterParams(
+                  ceilingDBTP: _lookaheadLimiterCeilingDBTP,
+                  attackMs: _lookaheadLimiterAttackMs,
+                  releaseMs: _lookaheadLimiterReleaseMs,
+                );
+                _scheduleSaveLookaheadLimiter();
+                _subScreenSetState?.call(() {});
               },
             ),
           ],
@@ -13096,13 +13368,22 @@ class _EqScreenState extends State<EqScreen>
           runSpacing: 6,
           alignment: WrapAlignment.center,
           children: [
-            for (final c in [-0.1, -0.5, -1.0, -2.0, -3.0])
+            for (final p in [
+              ('Mastering (-0.3 dBTP)', -0.3, 1.5, 40.0),
+              ('Transparent (-1.0 dBTP)', -1.0, 2.0, 50.0),
+              ('Broadcast (-2.0 dBTP)', -2.0, 3.0, 100.0),
+            ])
               M3EChip(
-                label: '${c.toStringAsFixed(1)} dBTP',
+                label: p.$1,
                 type: M3EChipType.filter,
-                selected: (_lookaheadLimiterCeilingDBTP - c).abs() < 0.05,
+                selected: (_lookaheadLimiterCeilingDBTP - p.$2).abs() < 0.05 &&
+                    (_lookaheadLimiterAttackMs - p.$3).abs() < 0.2,
                 onPressed: () {
-                  setState(() => _lookaheadLimiterCeilingDBTP = c);
+                  setState(() {
+                    _lookaheadLimiterCeilingDBTP = p.$2;
+                    _lookaheadLimiterAttackMs = p.$3;
+                    _lookaheadLimiterReleaseMs = p.$4;
+                  });
                   _persistLookaheadLimiterSettings();
                 },
               ),
@@ -13172,25 +13453,63 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildLoudnessNormalizerSection() {
+    final loudWarn = _loudnessConflictText();
     return _CollapsibleSection(
       icon: Center(
         child:
             Icon(SautiIcons.loudnessNormalizer, color: primaryColor, size: 20),
       ),
       title: 'Loudness Normalizer',
-      subtitle: 'EBU R128 K-weighted loudness matching',
+      subtitle: 'EBU R128 / ITU-R BS.1770-4 loudness matching',
       isEnabled: _loudnessNormalizerEnabled,
       onToggle: (v) {
         setState(() => _loudnessNormalizerEnabled = v);
         _persistLoudnessNormalizerSettings();
       },
       children: [
+        if (loudWarn.isNotEmpty) _buildDspConflictBanner(loudWarn),
+        ValueListenableBuilder<({double gainDb, double shortLufs, double intLufs})>(
+          valueListenable: _normalizerTelemetryNotifier,
+          builder: (context, tel, _) {
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: surfaceDarkerColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    tel.intLufs > -70.0
+                        ? 'Int ${tel.intLufs.toStringAsFixed(1)} · ST ${tel.shortLufs.toStringAsFixed(1)} LUFS'
+                        : 'Measuring BS.1770 LUFS...',
+                    style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'monospace'),
+                  ),
+                  Text(
+                    _loudnessNormalizerEnabled
+                        ? 'Gain ${tel.gainDb >= 0 ? "+" : ""}${tel.gainDb.toStringAsFixed(1)} dB'
+                        : 'OFF',
+                    style: TextStyle(
+                      color: _loudnessNormalizerEnabled ? primaryColor : Colors.white38,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
               label: 'TARGET',
-              value: _loudnessNormalizerTargetLUFS,
+              value: _loudnessNormalizerTargetLUFS.clamp(-24.0, -8.0),
               min: -24.0,
               max: -8.0,
               flatValue: -14.0,
@@ -13199,7 +13518,9 @@ class _EqScreenState extends State<EqScreen>
               valueFormatter: (v) => '${v.toStringAsFixed(1)} LUFS',
               onChanged: (v) {
                 setState(() => _loudnessNormalizerTargetLUFS = v);
-                _persistLoudnessNormalizerSettings();
+                widget.player.setLoudnessNormalizerTarget(v);
+                _scheduleSaveLoudnessNormalizer();
+                _subScreenSetState?.call(() {});
               },
             ),
           ],
@@ -13298,12 +13619,13 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildMasterLimiterSection() {
+    final z7Warn = _zone7ConflictText();
     return _CollapsibleSection(
       icon: Center(
         child: Icon(SautiIcons.masterPeakLimiter, color: primaryColor, size: 20),
       ),
       title: 'Peak Limiter',
-      subtitle: 'Lookahead brickwall limiting',
+      subtitle: '4x true-peak brickwall limiting (highest Zone 7 priority)',
       isEnabled: _masterLimiterEnabled,
       onToggle: (v) {
         setState(() => _masterLimiterEnabled = v);
@@ -13311,6 +13633,38 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        if (z7Warn.isNotEmpty) _buildDspConflictBanner(z7Warn),
+        ValueListenableBuilder<double>(
+          valueListenable: _masterLimiterGrNotifier,
+          builder: (context, grDb, _) {
+            final mag = grDb.abs().clamp(0.0, 24.0);
+            final frac = (mag / 24.0).clamp(0.0, 1.0);
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: surfaceDarkerColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('GAIN REDUCTION',
+                          style: TextStyle(color: Colors.white60, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                      Text(_masterLimiterEnabled ? '${grDb.toStringAsFixed(1)} dB' : 'OFF',
+                          style: TextStyle(color: mag > 0.2 ? Colors.amberAccent : Colors.white70, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(value: frac, minHeight: 5, backgroundColor: Colors.white10, valueColor: AlwaysStoppedAnimation(mag > 3.0 ? Colors.amberAccent : primaryColor)),
+                ],
+              ),
+            );
+          },
+        ),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
@@ -13321,11 +13675,11 @@ class _EqScreenState extends State<EqScreen>
               max: 0.0,
               flatValue: -0.1,
               activeColor: _masterLimiterEnabled ? primaryColor : Colors.white,
-              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              valueFormatter: (v) => '${v.toStringAsFixed(1)} dBTP',
               onChanged: (v) {
                 setState(() => _masterLimiterCeilingDb = v);
                 if (_masterLimiterEnabled) _updateMasterLimiter();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
             ModernAudioKnob(
@@ -13340,7 +13694,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _masterLimiterOutputGainDb = v);
                 if (_masterLimiterEnabled) _updateMasterLimiter();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
             ModernAudioKnob(
@@ -13354,9 +13708,38 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _masterLimiterReleaseMs = v);
                 if (_masterLimiterEnabled) _updateMasterLimiter();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          alignment: WrapAlignment.center,
+          children: [
+            for (final p in [
+              ('Transparent (-0.1)', -0.1, 0.0, 60.0),
+              ('Streaming (-1.0)', -1.0, 0.0, 80.0),
+              ('Broadcast (-2.0)', -2.0, 0.0, 120.0),
+              ('Loudness (+3 dB)', -1.0, 3.0, 75.0),
+            ])
+              M3EChip(
+                label: p.$1,
+                type: M3EChipType.filter,
+                selected: (_masterLimiterCeilingDb - p.$2).abs() < 0.05 &&
+                    (_masterLimiterOutputGainDb - p.$3).abs() < 0.1,
+                onPressed: () {
+                  setState(() {
+                    _masterLimiterCeilingDb = p.$2;
+                    _masterLimiterOutputGainDb = p.$3;
+                    _masterLimiterReleaseMs = p.$4;
+                  });
+                  if (_masterLimiterEnabled) _updateMasterLimiter();
+                  _saveEqState();
+                },
+              ),
           ],
         ),
       ],
@@ -13375,12 +13758,13 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildLimiterSection() {
+    final z7Warn = _zone7ConflictText();
     return _CollapsibleSection(
       icon: Center(
         child: Icon(SautiIcons.anticlippingLimiter, color: primaryColor, size: 20),
       ),
       title: 'Soft Limiter',
-      subtitle: 'Anti-clipping protection',
+      subtitle: 'Zero-latency C1 soft-knee anti-clipping',
       isEnabled: _limiterEnabled,
       onToggle: (v) {
         setState(() => _limiterEnabled = v);
@@ -13388,22 +13772,27 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        if (z7Warn.isNotEmpty) _buildDspConflictBanner(z7Warn),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
               label: 'THRESHOLD',
-              value: _limiterThreshold,
+              value: _limiterThreshold.clamp(0.1, 0.995),
               min: 0.1,
-              max: 1.0,
+              max: 0.995,
               flatValue: 0.95,
               activeColor: _limiterEnabled ? primaryColor : Colors.white,
               isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}%',
+              valueFormatter: (v) {
+                final db = 20.0 * math.log(v.clamp(0.1, 0.995)) / math.ln10;
+                return '${db.toStringAsFixed(1)} dBFS';
+              },
               onChanged: _limiterEnabled
                   ? (v) {
                       setState(() => _limiterThreshold = v);
                       _applyLimiter();
+                      _scheduleSaveEqState();
                     }
                   : (_) {},
             ),
@@ -13419,6 +13808,7 @@ class _EqScreenState extends State<EqScreen>
                   ? (v) {
                       setState(() => _limiterAttackMs = v);
                       _applyLimiter();
+                      _scheduleSaveEqState();
                     }
                   : (_) {},
             ),
@@ -13434,6 +13824,7 @@ class _EqScreenState extends State<EqScreen>
                   ? (v) {
                       setState(() => _limiterReleaseMs = v);
                       _applyLimiter();
+                      _scheduleSaveEqState();
                     }
                   : (_) {},
             ),
@@ -14019,7 +14410,7 @@ class _EqScreenState extends State<EqScreen>
               for (final p in [
                 ('Gentle (+6dB / +3dB)', 0.0, 6.0, 3.0),
                 ('Standard (+9dB / +4.5dB)', 0.0, 9.0, 4.5),
-                ('Night (+12dB / +6dB)', -3.0, 12.0, 6.0),
+                ('Night (+12dB / +6dB)', 6.0, 12.0, 6.0),
                 ('Subtle (+3.5dB / +2dB)', 0.0, 3.5, 2.0),
               ])
                 Padding(
@@ -14045,23 +14436,55 @@ class _EqScreenState extends State<EqScreen>
         ),
         const SizedBox(height: 16),
 
+        ValueListenableBuilder<({double bassDb, double trebleDb})>(
+          valueListenable: _dynamicLoudnessBoostNotifier,
+          builder: (context, boost, _) {
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: surfaceDarkerColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('LIVE CONTOUR BOOST',
+                      style: TextStyle(color: Colors.white60, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+                  Text(
+                    _dynamicLoudnessEnabled
+                        ? 'Bass +${boost.bassDb.toStringAsFixed(1)} · Treble +${boost.trebleDb.toStringAsFixed(1)} dB'
+                        : 'OFF',
+                    style: TextStyle(
+                      color: _dynamicLoudnessEnabled ? primaryColor : Colors.white38,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
         // Knobs Row 1: Ref Level, Max Bass Boost, Max Treble Boost
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             ModernAudioKnob(
               label: 'REF LEVEL',
-              value: _dynamicLoudnessRefDb,
+              value: _dynamicLoudnessRefDb.clamp(-30.0, 12.0),
               min: -30.0,
-              max: 0.0,
+              max: 12.0,
               flatValue: 0.0,
               activeColor:
                   _dynamicLoudnessEnabled ? primaryColor : Colors.white38,
-              valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+              valueFormatter: (v) => '${v >= 0 ? "+" : ""}${v.toStringAsFixed(1)} dB',
               onChanged: (v) {
                 setState(() => _dynamicLoudnessRefDb = v);
                 if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
             ModernAudioKnob(
@@ -14076,7 +14499,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _dynamicLoudnessMaxBassDb = v);
                 if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
             ModernAudioKnob(
@@ -14091,7 +14514,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _dynamicLoudnessMaxTrebleDb = v);
                 if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
           ],
@@ -14114,7 +14537,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _dynamicLoudnessBassCutoff = v);
                 if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
             ModernAudioKnob(
@@ -14129,7 +14552,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _dynamicLoudnessTrebleCutoff = v);
                 if (_dynamicLoudnessEnabled) _updateDynamicLoudness();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
           ],
@@ -14176,7 +14599,7 @@ class _EqScreenState extends State<EqScreen>
                 ? primaryColor
                 : (isAttenuating ? secondaryAccent : Colors.white54);
             final clampedRatio =
-                _isPlaying ? (currentGain / 18.0).clamp(-1.0, 1.0) : 0.0;
+                _isPlaying ? (currentGain / 24.0).clamp(-1.0, 1.0) : 0.0;
 
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -14252,7 +14675,7 @@ class _EqScreenState extends State<EqScreen>
                     ],
                   ),
                   const SizedBox(height: 8),
-                  // Bipolar Offset Meter Bar (-18dB to +18dB with 0dB center)
+                  // Bipolar Offset Meter Bar (-24dB to +24dB with 0dB center)
                   SizedBox(
                     height: 12,
                     child: Stack(
@@ -14344,13 +14767,13 @@ class _EqScreenState extends State<EqScreen>
                   const Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('-18 dB',
+                      Text('-24 dB',
                           style:
                               TextStyle(color: Colors.white30, fontSize: 8.5)),
                       Text('0 dB',
                           style:
                               TextStyle(color: Colors.white30, fontSize: 8.5)),
-                      Text('+18 dB',
+                      Text('+24 dB',
                           style:
                               TextStyle(color: Colors.white30, fontSize: 8.5)),
                     ],
@@ -14360,6 +14783,10 @@ class _EqScreenState extends State<EqScreen>
             );
           },
         ),
+        if (_loudnessConflictText().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _buildDspConflictBanner(_loudnessConflictText()),
+        ],
         const SizedBox(height: 14),
 
         // Quick Preset Chips
@@ -14372,7 +14799,7 @@ class _EqScreenState extends State<EqScreen>
                 ('EBU (-23 LUFS)', -23.0, 0.5, 1.0, 9.0, 12.0),
                 ('Streaming (-16 LUFS)', -16.0, 0.75, 1.5, 9.0, 12.0),
                 ('Pop (-14 LUFS)', -14.0, 1.0, 2.0, 6.0, 14.0),
-                ('Flat (-18  LUFS)', -18.0, 0.35, 0.8, 6.0, 8.0),
+                ('Gentle (-18 LUFS)', -18.0, 0.35, 0.8, 6.0, 8.0),
               ])
                 Padding(
                   padding: const EdgeInsets.only(right: 6.0),
@@ -14415,7 +14842,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _levellerTargetLufs = v);
                 if (_levellerEnabled) _updateLeveller();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
             ModernAudioKnob(
@@ -14429,7 +14856,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _levellerMaxBoostDb = v);
                 if (_levellerEnabled) _updateLeveller();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
             ModernAudioKnob(
@@ -14443,7 +14870,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _levellerMaxAttenuationDb = v);
                 if (_levellerEnabled) _updateLeveller();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
           ],
@@ -14465,7 +14892,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _levellerMaxRiseDbSec = v);
                 if (_levellerEnabled) _updateLeveller();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
             ModernAudioKnob(
@@ -14479,7 +14906,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _levellerMaxFallDbSec = v);
                 if (_levellerEnabled) _updateLeveller();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
             ModernAudioKnob(
@@ -14493,7 +14920,7 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() => _levellerSilenceGateLufs = v);
                 if (_levellerEnabled) _updateLeveller();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
           ],
@@ -14594,6 +15021,8 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        if (_loudnessConflictText().isNotEmpty)
+          _buildDspConflictBanner(_loudnessConflictText()),
         // Live Real-Time Telemetry: AGC Gain + 3-Band GR + Peak Safety
         ValueListenableBuilder<
             ({
@@ -14886,7 +15315,7 @@ class _EqScreenState extends State<EqScreen>
                     setState(() => _lookaheadAgcTargetLufs = v);
                     _subScreenSetState?.call(() {});
                     if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                    _saveEqState();
+                    _scheduleSaveEqState();
                   },
                 ),
               ),
@@ -14907,7 +15336,7 @@ class _EqScreenState extends State<EqScreen>
                     setState(() => _lookaheadAgcMaxBoostDb = v);
                     _subScreenSetState?.call(() {});
                     if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                    _saveEqState();
+                    _scheduleSaveEqState();
                   },
                 ),
               ),
@@ -14928,7 +15357,7 @@ class _EqScreenState extends State<EqScreen>
                     setState(() => _lookaheadAgcSilenceGateLufs = v);
                     _subScreenSetState?.call(() {});
                     if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                    _saveEqState();
+                    _scheduleSaveEqState();
                   },
                 ),
               ),
@@ -14966,7 +15395,7 @@ class _EqScreenState extends State<EqScreen>
                     setState(() => _lookaheadAgcLookaheadMs = v);
                     _subScreenSetState?.call(() {});
                     if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                    _saveEqState();
+                    _scheduleSaveEqState();
                   },
                 ),
               ),
@@ -14987,7 +15416,7 @@ class _EqScreenState extends State<EqScreen>
                     setState(() => _lookaheadAgcLowXoverHz = v);
                     _subScreenSetState?.call(() {});
                     if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                    _saveEqState();
+                    _scheduleSaveEqState();
                   },
                 ),
               ),
@@ -15008,7 +15437,7 @@ class _EqScreenState extends State<EqScreen>
                     setState(() => _lookaheadAgcBassReleaseMs = v);
                     _subScreenSetState?.call(() {});
                     if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                    _saveEqState();
+                    _scheduleSaveEqState();
                   },
                 ),
               ),
@@ -15043,7 +15472,7 @@ class _EqScreenState extends State<EqScreen>
                     ),
                   ),
                   Text(
-                    '${_lookaheadAgcCeilingDb.toStringAsFixed(1)} dBFS',
+                    '${_lookaheadAgcCeilingDb.toStringAsFixed(1)} dBTP',
                     style: TextStyle(
                       color:
                           _lookaheadAgcEnabled ? primaryColor : Colors.white54,
@@ -15074,7 +15503,7 @@ class _EqScreenState extends State<EqScreen>
                     setState(() => _lookaheadAgcCeilingDb = v);
                     _subScreenSetState?.call(() {});
                     if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                    _saveEqState();
+                    _scheduleSaveEqState();
                   },
                 ),
               ),

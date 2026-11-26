@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
+#include "bs1770_kweight.h"
 #include "denormals.h"
 #include "oversampler.h"
 #include "simd_math.h"
@@ -37,46 +38,49 @@ public:
     static constexpr float kMaxLookaheadMs = 25.0f;
 
     LookaheadAgcLimiterDSP() {
-        setSampleRate(48000.0f);
-        reset();
+        applySampleRateInternal(48000.0f);
+        resetInternal();
     }
 
     void setSampleRate(float sampleRate) {
-        if (sampleRate <= 0.0f) sampleRate = 48000.0f;
-        if (std::abs(sample_rate_ - sampleRate) < 0.1f && initialized_) return;
-        sample_rate_ = sampleRate;
-
-        // Pre-allocate ring buffers for maximum lookahead + margin (zero RT allocs).
-        max_delay_samples_ = static_cast<size_t>(std::ceil(sample_rate_ * (kMaxLookaheadMs * 0.001f))) + 8;
-        max_delay_samples_ = std::max<size_t>(max_delay_samples_, 64);
-
-        for (int b = 0; b < 3; ++b) {
-            for (int c = 0; c < kMaxChannels; ++c) {
-                delay_buf_[b][c].assign(max_delay_samples_, 0.0);
-            }
-            band_env_[b].allocate(max_delay_samples_ + 4);
+        if (!std::isfinite(sampleRate) || sampleRate <= 0.0f) sampleRate = 48000.0f;
+        const float prev = target_sample_rate_.load(std::memory_order_relaxed);
+        if (initialized_.load(std::memory_order_acquire) && std::abs(prev - sampleRate) < 0.1f) {
+            return;
         }
-        for (int c = 0; c < kMaxChannels; ++c) {
-            post_delay_buf_[c].assign(kStageBDelay + 4, 0.0);
+        target_sample_rate_.store(sampleRate, std::memory_order_relaxed);
+        if (!in_process_.load(std::memory_order_relaxed)) {
+            // Safe initialization path prior to audio streaming; updates latency immediately
+            applySampleRateInternal(sampleRate);
+            resetInternal();
+        } else {
+            // Estimate new latency immediately for PDC queries and apply safely on audio thread
+            const float la_ms = lookahead_ms_.load(std::memory_order_relaxed);
+            const size_t est_la = static_cast<size_t>(std::llround(
+                static_cast<double>(sampleRate) * (static_cast<double>(la_ms) * 0.001)));
+            active_latency_samples_.store(std::max<size_t>(est_la, 16), std::memory_order_release);
+            reconfig_requested_.store(true, std::memory_order_release);
         }
-        agc_headroom_env_.allocate(max_delay_samples_ + 4);
-        tp_safety_env_.allocate(kStageBDelay + 8);
-
-        updateCrossoverCoeffs();
-        updateTimingConstants(true);
-        initialized_ = true;
+        initialized_.store(true, std::memory_order_release);
     }
 
-    float getSampleRate() const { return sample_rate_; }
+    float getSampleRate() const { return target_sample_rate_.load(std::memory_order_relaxed); }
 
     void setEnabled(bool enabled) {
-        const bool wasEnabled = enabled_.exchange(enabled, std::memory_order_release);
-        if (!enabled && wasEnabled) {
-            reset();
+        const bool wasEnabled = enabled_.exchange(enabled, std::memory_order_acq_rel);
+        if (!enabled) {
+            telemetry_agc_gain_db_.store(0.0f, std::memory_order_relaxed);
+            telemetry_low_gr_db_.store(0.0f, std::memory_order_relaxed);
+            telemetry_mid_gr_db_.store(0.0f, std::memory_order_relaxed);
+            telemetry_high_gr_db_.store(0.0f, std::memory_order_relaxed);
+            telemetry_peak_gr_db_.store(0.0f, std::memory_order_relaxed);
+            reset_requested_.store(true, std::memory_order_release);
+        } else if (!wasEnabled) {
+            reset_requested_.store(true, std::memory_order_release);
         }
     }
 
-    bool isEnabled() const { return enabled_.load(std::memory_order_relaxed); }
+    bool isEnabled() const { return enabled_.load(std::memory_order_acquire); }
 
     void setParams(float target_lufs,
                    float max_boost_db,
@@ -146,46 +150,19 @@ public:
         if (out_peak_gr_db) *out_peak_gr_db = telemetry_peak_gr_db_.load(std::memory_order_relaxed);
     }
 
-    size_t getLatencySamples() const { return lookahead_samples_; }
+    size_t getLatencySamples() const { return active_latency_samples_.load(std::memory_order_acquire); }
 
     void reset() {
-        lp1_.reset();
-        hp1_.reset();
-        ap2_.reset();
-        lp2_.reset();
-        hp2_.reset();
-        tp_filter1_.reset();
-        tp_filter2_.reset();
-
-        for (int b = 0; b < 3; ++b) {
-            for (int c = 0; c < kMaxChannels; ++c) {
-                std::fill(delay_buf_[b][c].begin(), delay_buf_[b][c].end(), 0.0);
-            }
-            band_env_[b].reset(1.0);
-        }
-        for (int c = 0; c < kMaxChannels; ++c) {
-            std::fill(post_delay_buf_[c].begin(), post_delay_buf_[c].end(), 0.0);
-        }
-        agc_headroom_env_.reset(1.0);
-        tp_safety_env_.reset(1.0);
-        delay_pos_ = 0;
-        post_delay_pos_ = 0;
-
-        agc_gain_db_ = 0.0;
-        agc_linear_ = 1.0;
-        loudness_sum_sq_ = 0.0;
-        loudness_sample_count_ = 0.0;
-        future_short_term_lufs_ = -100.0;
-
-        mid_peak_hold_ = 0.0;
-        high_peak_hold_ = 0.0;
-        final_safety_gain_ = 1.0;
-
         telemetry_agc_gain_db_.store(0.0f, std::memory_order_relaxed);
         telemetry_low_gr_db_.store(0.0f, std::memory_order_relaxed);
         telemetry_mid_gr_db_.store(0.0f, std::memory_order_relaxed);
         telemetry_high_gr_db_.store(0.0f, std::memory_order_relaxed);
         telemetry_peak_gr_db_.store(0.0f, std::memory_order_relaxed);
+        if (!in_process_.load(std::memory_order_relaxed)) {
+            resetInternal();
+        } else {
+            reset_requested_.store(true, std::memory_order_release);
+        }
     }
 
     void process(float* buffer, size_t frame_count, int channels) {
@@ -361,7 +338,11 @@ private:
     static constexpr double kPi = 3.14159265358979323846;
     static constexpr double kInvSqrt2 = 0.70710678118654752440;
     static constexpr size_t kOversamplerDelay = 20;
-    static constexpr size_t kStageBDelay = 32;
+    static constexpr size_t kMaxStageBDelay = 192;
+    static constexpr size_t kPostDelayCap = 256; // Power of 2 > kMaxStageBDelay
+    static constexpr size_t kPostDelayMask = kPostDelayCap - 1;
+    static constexpr size_t kAgcControlHop = 32;
+    static constexpr size_t kDelayXfadeSamples = 64;
 
     static void designButterworthLP2(BiquadCoeffs& c, double fs, double fc) {
         fc = std::clamp(fc, 10.0, fs * 0.48);
@@ -418,6 +399,92 @@ private:
         active_high_xover_hz_ = static_cast<float>(f2);
     }
 
+    void applySampleRateInternal(float sampleRate) {
+        sample_rate_ = sampleRate;
+        target_sample_rate_.store(sampleRate, std::memory_order_relaxed);
+        initialized_.store(true, std::memory_order_release);
+
+        max_delay_samples_ = static_cast<size_t>(std::ceil(sample_rate_ * (kMaxLookaheadMs * 0.001f))) + 8;
+        max_delay_samples_ = std::max<size_t>(max_delay_samples_, 64);
+
+        // Next power of 2 >= max_delay_samples_ + 8 for mask-based RT ring indexing
+        size_t req_cap = 256;
+        while (req_cap < max_delay_samples_ + 8) {
+            req_cap <<= 1;
+        }
+        if (req_cap > delay_ring_cap_) {
+            delay_ring_cap_ = req_cap;
+            delay_ring_mask_ = req_cap - 1;
+            for (int b = 0; b < 3; ++b) {
+                for (int c = 0; c < kMaxChannels; ++c) {
+                    delay_buf_[b][c].assign(delay_ring_cap_, 0.0);
+                }
+                band_env_[b].allocate(delay_ring_cap_);
+            }
+            agc_headroom_env_.allocate(delay_ring_cap_);
+        }
+
+        if (post_delay_buf_[0].size() < kPostDelayCap) {
+            for (int c = 0; c < kMaxChannels; ++c) {
+                post_delay_buf_[c].assign(kPostDelayCap, 0.0);
+            }
+            tp_safety_env_.allocate(kPostDelayCap);
+        }
+
+        kweight_.updateSampleRate(static_cast<double>(sample_rate_));
+        updateCrossoverCoeffs();
+        updateTimingConstants(true);
+    }
+
+    void resetInternal() {
+        lp1_.reset();
+        hp1_.reset();
+        ap2_.reset();
+        lp2_.reset();
+        hp2_.reset();
+        tp_filter1_.reset();
+        tp_filter2_.reset();
+        kweight_.reset();
+
+        for (int b = 0; b < 3; ++b) {
+            for (int c = 0; c < kMaxChannels; ++c) {
+                std::fill(delay_buf_[b][c].begin(), delay_buf_[b][c].end(), 0.0);
+            }
+            band_env_[b].reset(1.0);
+        }
+        for (int c = 0; c < kMaxChannels; ++c) {
+            std::fill(post_delay_buf_[c].begin(), post_delay_buf_[c].end(), 0.0);
+        }
+        agc_headroom_env_.reset(1.0);
+        tp_safety_env_.reset(1.0);
+        delay_pos_ = 0;
+        post_delay_pos_ = 0;
+        delay_xfade_rem_ = 0;
+        prev_stage_a_delay_ = stage_a_delay_;
+
+        agc_gain_db_ = 0.0;
+        prev_agc_gain_db_ = 0.0;
+        agc_linear_ = 1.0;
+        cached_target_agc_lin_ = 1.0;
+        agc_lin_step_ = 0.0;
+        agc_hop_energy_ = 0.0;
+        agc_hop_samples_ = 0;
+        agc_frozen_ = false;
+        loudness_sum_sq_ = 0.0;
+        loudness_sample_count_ = 0.0;
+        future_short_term_lufs_ = -100.0;
+
+        mid_peak_hold_ = 0.0;
+        high_peak_hold_ = 0.0;
+        final_safety_gain_ = 1.0;
+
+        telemetry_agc_gain_db_.store(0.0f, std::memory_order_relaxed);
+        telemetry_low_gr_db_.store(0.0f, std::memory_order_relaxed);
+        telemetry_mid_gr_db_.store(0.0f, std::memory_order_relaxed);
+        telemetry_high_gr_db_.store(0.0f, std::memory_order_relaxed);
+        telemetry_peak_gr_db_.store(0.0f, std::memory_order_relaxed);
+    }
+
     void updateTimingConstants(bool hard_reset) {
         const double fs = static_cast<double>(sample_rate_);
         const float la_ms = lookahead_ms_.load(std::memory_order_relaxed);
@@ -428,18 +495,34 @@ private:
 
         if (hard_reset || new_la != lookahead_samples_) {
             lookahead_samples_ = new_la;
-            stage_b_delay_ = (lookahead_samples_ >= 80) ? kStageBDelay : 0;
-            stage_a_delay_ = lookahead_samples_ - stage_b_delay_;
-            for (int b = 0; b < 3; ++b) {
-                for (int c = 0; c < kMaxChannels; ++c) {
-                    std::fill(delay_buf_[b][c].begin(), delay_buf_[b][c].end(), 0.0);
+            const size_t desired_sb = std::clamp(
+                static_cast<size_t>(fs * 0.001) + kOversamplerDelay,
+                static_cast<size_t>(48), kMaxStageBDelay);
+            const size_t new_sb = (lookahead_samples_ >= desired_sb + 16) ? desired_sb : 0;
+            const size_t new_sa = lookahead_samples_ - new_sb;
+
+            if (!hard_reset && new_sb == stage_b_delay_) {
+                // Keep continuous ring buffer intact and crossfade delay offset cleanly
+                prev_stage_a_delay_ = stage_a_delay_;
+                stage_a_delay_ = new_sa;
+                delay_xfade_rem_ = kDelayXfadeSamples;
+            } else {
+                stage_b_delay_ = new_sb;
+                stage_a_delay_ = new_sa;
+                prev_stage_a_delay_ = new_sa;
+                delay_xfade_rem_ = 0;
+                for (int b = 0; b < 3; ++b) {
+                    for (int c = 0; c < kMaxChannels; ++c) {
+                        std::fill(delay_buf_[b][c].begin(), delay_buf_[b][c].end(), 0.0);
+                    }
                 }
+                for (int c = 0; c < kMaxChannels; ++c) {
+                    std::fill(post_delay_buf_[c].begin(), post_delay_buf_[c].end(), 0.0);
+                }
+                delay_pos_ = 0;
+                post_delay_pos_ = 0;
             }
-            for (int c = 0; c < kMaxChannels; ++c) {
-                std::fill(post_delay_buf_[c].begin(), post_delay_buf_[c].end(), 0.0);
-            }
-            delay_pos_ = 0;
-            post_delay_pos_ = 0;
+            active_latency_samples_.store(stage_a_delay_ + stage_b_delay_, std::memory_order_release);
         }
 
         const double bass_rel_s = static_cast<double>(bass_release_ms_.load(std::memory_order_relaxed)) * 0.001;
@@ -455,7 +538,7 @@ private:
         band_env_[2].setParams(env_win, high_rel_coeff, hard_reset);
 
         const size_t tp_win = (stage_b_delay_ > kOversamplerDelay)
-            ? (stage_b_delay_ - kOversamplerDelay + 1)
+            ? (stage_b_delay_ - kOversamplerDelay + 2)
             : 12;
         tp_safety_env_.setParams(tp_win, mid_rel_coeff, hard_reset);
 
@@ -467,6 +550,17 @@ private:
     }
 
     void syncDirtyParams() {
+        bool need_reset = reset_requested_.exchange(false, std::memory_order_acq_rel);
+        if (reconfig_requested_.exchange(false, std::memory_order_acq_rel)) {
+            const float new_sr = target_sample_rate_.load(std::memory_order_acquire);
+            if (std::abs(new_sr - sample_rate_) >= 0.1f) {
+                applySampleRateInternal(new_sr);
+                need_reset = true;
+            }
+        }
+        if (need_reset) {
+            resetInternal();
+        }
         if (!params_dirty_.exchange(false, std::memory_order_acquire)) {
             return;
         }
@@ -478,28 +572,42 @@ private:
         updateTimingConstants(false);
     }
 
+    struct ProcessScopeGuard {
+        std::atomic<bool>& flag;
+        explicit ProcessScopeGuard(std::atomic<bool>& f) noexcept : flag(f) {
+            flag.store(true, std::memory_order_relaxed);
+        }
+        ~ProcessScopeGuard() noexcept {
+            flag.store(false, std::memory_order_relaxed);
+        }
+    };
+
     template <typename SampleT>
     void processImpl(SampleT* buffer, size_t frame_count, int channels) {
-        if (!enabled_.load(std::memory_order_relaxed) || !buffer || frame_count == 0 || channels <= 0) {
+        if (!enabled_.load(std::memory_order_acquire) || !buffer || frame_count == 0 || channels <= 0) {
             return;
         }
 
+        ProcessScopeGuard scope_guard(in_process_);
         ScopedDenormalsDisable denormalGuard;
         syncDirtyParams();
 
         const int chs = std::min(channels, kMaxChannels);
+        if (chs != active_channels_) {
+            active_channels_ = chs;
+            resetInternal();
+        }
         const double fs = static_cast<double>(sample_rate_);
         const double target_lufs = static_cast<double>(target_lufs_.load(std::memory_order_relaxed));
         const double max_boost_db = static_cast<double>(max_boost_db_.load(std::memory_order_relaxed));
         const double max_atten_db = static_cast<double>(max_attenuation_db_.load(std::memory_order_relaxed));
-        const double rise_per_sample = static_cast<double>(agc_rise_db_sec_.load(std::memory_order_relaxed)) / fs;
-        const double fall_per_sample = static_cast<double>(agc_fall_db_sec_.load(std::memory_order_relaxed)) / fs;
+        const double rise_per_sec = static_cast<double>(agc_rise_db_sec_.load(std::memory_order_relaxed));
+        const double fall_per_sec = static_cast<double>(agc_fall_db_sec_.load(std::memory_order_relaxed));
         const double silence_gate = static_cast<double>(silence_gate_lufs_.load(std::memory_order_relaxed));
         const double ceiling_db = static_cast<double>(ceiling_db_.load(std::memory_order_relaxed));
         const double ceiling_lin = std::pow(10.0, ceiling_db * 0.05);
 
-        const double decay_1 = std::exp(-1.0 / loudness_tau_samples_);
-        const bool use_4x_tp = (chs == 2) && (stage_b_delay_ > kOversamplerDelay);
+        const bool use_4x_tp = (chs <= 2) && (stage_b_delay_ > kOversamplerDelay);
 
         double min_low_gain = 1.0;
         double min_mid_gain = 1.0;
@@ -523,8 +631,10 @@ private:
 
             // 1. Read un-delayed future frame & split via phase-coherent 3-band LR4 crossover
             for (int c = 0; c < chs; ++c) {
-                const double x = static_cast<double>(buffer[base_idx + c]);
-                frame_energy += x * x;
+                double x = static_cast<double>(buffer[base_idx + c]);
+                if (!std::isfinite(x)) x = 0.0;
+                const double kw = kweight_.processSample(c, x);
+                frame_energy += BS1770KWeightFilter::channelWeight(c, chs) * kw * kw;
                 in_peak = std::max(in_peak, std::abs(x));
 
                 const double x_low1  = lp1_.process(lp1_coeffs_, c, x);
@@ -542,28 +652,55 @@ private:
                 high_peak = std::max(high_peak, std::abs(x_high));
                 sum_peak = std::max(sum_peak, std::abs(x_low + x_mid + x_high));
             }
-            frame_energy /= static_cast<double>(chs);
 
-            // 2. Lookahead Loudness Detector + Silence-Gated AGC
-            loudness_sum_sq_ = loudness_sum_sq_ * decay_1 + frame_energy;
-            loudness_sample_count_ = loudness_sample_count_ * decay_1 + 1.0;
+            // 2. Decimated Lookahead Loudness Detector + Silence-Gated AGC (every 32 samples)
+            agc_hop_energy_ += frame_energy;
+            ++agc_hop_samples_;
+            if (agc_hop_samples_ >= kAgcControlHop) {
+                const double decay_hop = std::exp(-static_cast<double>(agc_hop_samples_) / loudness_tau_samples_);
+                loudness_sum_sq_ = loudness_sum_sq_ * decay_hop + agc_hop_energy_;
+                loudness_sample_count_ = loudness_sample_count_ * decay_hop + static_cast<double>(agc_hop_samples_);
 
-            if (loudness_sample_count_ >= loudness_min_fill_) {
-                const double mean_pwr = loudness_sum_sq_ / loudness_sample_count_;
-                future_short_term_lufs_ = (mean_pwr > 1.0e-12)
-                    ? (-0.691 + 10.0 * std::log10(mean_pwr))
-                    : -100.0;
-            }
-
-            if (future_short_term_lufs_ > silence_gate) {
-                const double desired_db = std::clamp(target_lufs - future_short_term_lufs_, -max_atten_db, max_boost_db);
-                if (desired_db > agc_gain_db_) {
-                    agc_gain_db_ = std::min(desired_db, agc_gain_db_ + rise_per_sample);
-                } else if (desired_db < agc_gain_db_) {
-                    agc_gain_db_ = std::max(desired_db, agc_gain_db_ - fall_per_sample);
+                if (loudness_sample_count_ >= loudness_min_fill_) {
+                    const double mean_pwr = loudness_sum_sq_ / loudness_sample_count_;
+                    future_short_term_lufs_ = (mean_pwr > 1.0e-12)
+                        ? (-0.691 + 10.0 * std::log10(mean_pwr))
+                        : -100.0;
                 }
-                agc_linear_ = std::pow(10.0, agc_gain_db_ * 0.05);
+
+                if (!agc_frozen_) {
+                    if (future_short_term_lufs_ <= silence_gate) {
+                        agc_frozen_ = true;
+                    }
+                } else if (future_short_term_lufs_ > silence_gate + 2.0) {
+                    agc_frozen_ = false;
+                }
+
+                if (!agc_frozen_) {
+                    const double dt_hop = static_cast<double>(agc_hop_samples_) / fs;
+                    const double desired_db = std::clamp(target_lufs - future_short_term_lufs_, -max_atten_db, max_boost_db);
+                    if (desired_db > agc_gain_db_) {
+                        agc_gain_db_ = std::min(desired_db, agc_gain_db_ + rise_per_sec * dt_hop);
+                    } else if (desired_db < agc_gain_db_) {
+                        agc_gain_db_ = std::max(desired_db, agc_gain_db_ - fall_per_sec * dt_hop);
+                    }
+                    if (std::abs(agc_gain_db_ - prev_agc_gain_db_) > 1.0e-6) {
+                        prev_agc_gain_db_ = agc_gain_db_;
+                        cached_target_agc_lin_ = std::pow(10.0, agc_gain_db_ * 0.05);
+                        agc_lin_step_ = (cached_target_agc_lin_ - agc_linear_) / static_cast<double>(agc_hop_samples_);
+                    } else {
+                        agc_linear_ = cached_target_agc_lin_;
+                        agc_lin_step_ = 0.0;
+                    }
+                } else {
+                    agc_linear_ = cached_target_agc_lin_;
+                    agc_lin_step_ = 0.0;
+                }
+
+                agc_hop_energy_ = 0.0;
+                agc_hop_samples_ = 0;
             }
+            agc_linear_ += agc_lin_step_;
 
             // 3. Pre-Emptive AGC Headroom Guard (only backs off AGC boost above unity/agc_floor,
             //    so loud bass notes never cause the AGC to pump quiet mids when AGC is at <= 0 dB).
@@ -609,33 +746,49 @@ private:
             min_mid_gain = std::min(min_mid_gain, g_mid);
             min_high_gain = std::min(min_high_gain, g_high);
 
-            // 5. Stage A: Read delayed band samples and recombine
+            // 5. Stage A: Read delayed band samples from power-of-2 ring (with click-free crossfade on lookahead changes) and recombine
             double recombined[kMaxChannels];
             double recombined_peak = 0.0;
+            const size_t read_idx = (delay_pos_ - stage_a_delay_) & delay_ring_mask_;
+            const bool do_xfade = (delay_xfade_rem_ > 0);
+            const size_t old_read_idx = do_xfade ? ((delay_pos_ - prev_stage_a_delay_) & delay_ring_mask_) : read_idx;
+            const double xfade_t = do_xfade
+                ? (1.0 - static_cast<double>(delay_xfade_rem_) / static_cast<double>(kDelayXfadeSamples))
+                : 1.0;
+            if (do_xfade) {
+                --delay_xfade_rem_;
+            }
 
             for (int c = 0; c < chs; ++c) {
-                const double d_low  = delay_buf_[0][c][delay_pos_];
-                const double d_mid  = delay_buf_[1][c][delay_pos_];
-                const double d_high = delay_buf_[2][c][delay_pos_];
-
                 delay_buf_[0][c][delay_pos_] = future_low[c];
                 delay_buf_[1][c][delay_pos_] = future_mid[c];
                 delay_buf_[2][c][delay_pos_] = future_high[c];
+
+                double d_low  = delay_buf_[0][c][read_idx];
+                double d_mid  = delay_buf_[1][c][read_idx];
+                double d_high = delay_buf_[2][c][read_idx];
+                if (do_xfade) {
+                    d_low  = delay_buf_[0][c][old_read_idx] * (1.0 - xfade_t) + d_low * xfade_t;
+                    d_mid  = delay_buf_[1][c][old_read_idx] * (1.0 - xfade_t) + d_mid * xfade_t;
+                    d_high = delay_buf_[2][c][old_read_idx] * (1.0 - xfade_t) + d_high * xfade_t;
+                }
 
                 const double y_band = (d_low * g_low + d_mid * g_mid + d_high * g_high) * effective_agc_lin;
                 recombined[c] = y_band;
                 recombined_peak = std::max(recombined_peak, std::abs(y_band));
             }
-            delay_pos_ = (delay_pos_ + 1) % stage_a_delay_;
+            delay_pos_ = (delay_pos_ + 1) & delay_ring_mask_;
 
-            // 6. Stage B: Post-recombination 4x oversampled True-Peak Guard (stereo) + final brickwall safety
+            // 6. Stage B: Post-recombination 4x oversampled True-Peak Guard (mono/stereo) + final brickwall safety
             double stage_b_out[kMaxChannels];
             double stage_b_peak = 0.0;
             double tp_guard_gain = 1.0;
 
             if (use_4x_tp) {
+                const double in_l = recombined[0];
+                const double in_r = (chs > 1) ? recombined[1] : 0.0;
                 double l0, r0, l1, r1;
-                tp_filter1_.upsample2xFrame(recombined[0], recombined[1], l0, r0, l1, r1);
+                tp_filter1_.upsample2xFrame(in_l, in_r, l0, r0, l1, r1);
                 double l00, r00, l01, r01, l10, r10, l11, r11;
                 tp_filter2_.upsample2xFrame(l0, r0, l00, r00, l01, r01);
                 tp_filter2_.upsample2xFrame(l1, r1, l10, r10, l11, r11);
@@ -646,17 +799,18 @@ private:
                     SimdDouble2(std::abs(l10), std::abs(r10)),
                     SimdDouble2(std::abs(l11), std::abs(r11)));
                 const SimdDouble2 m_all = SimdDouble2::max(m01, m23);
-                const double tp_peak = std::max(recombined_peak, std::max(m_all.get(0), m_all.get(1)));
+                const double tp_peak = (chs == 1) ? m_all.get(0) : std::max(m_all.get(0), m_all.get(1));
                 const double tp_req = (tp_peak > ceiling_lin) ? (ceiling_lin / tp_peak) : 1.0;
                 tp_guard_gain = tp_safety_env_.process(tp_req);
 
+                const size_t sb_read_idx = (post_delay_pos_ - stage_b_delay_) & kPostDelayMask;
                 for (int c = 0; c < chs; ++c) {
-                    const double delayed_post = post_delay_buf_[c][post_delay_pos_];
                     post_delay_buf_[c][post_delay_pos_] = recombined[c];
+                    const double delayed_post = post_delay_buf_[c][sb_read_idx];
                     stage_b_out[c] = delayed_post * tp_guard_gain;
                     stage_b_peak = std::max(stage_b_peak, std::abs(stage_b_out[c]));
                 }
-                post_delay_pos_ = (post_delay_pos_ + 1) % stage_b_delay_;
+                post_delay_pos_ = (post_delay_pos_ + 1) & kPostDelayMask;
             } else {
                 for (int c = 0; c < chs; ++c) {
                     stage_b_out[c] = recombined[c];
@@ -696,8 +850,14 @@ private:
 
     std::atomic<bool> enabled_{false};
     std::atomic<bool> params_dirty_{false};
-    bool initialized_ = false;
+    std::atomic<bool> initialized_{false};
+    std::atomic<bool> reset_requested_{false};
+    std::atomic<bool> reconfig_requested_{false};
+    std::atomic<bool> in_process_{false};
+    std::atomic<float> target_sample_rate_{48000.0f};
+    std::atomic<size_t> active_latency_samples_{480};
     float sample_rate_ = 48000.0f;
+    int active_channels_ = 2;
 
     // Parameters
     std::atomic<float> target_lufs_{-14.0f};
@@ -740,22 +900,33 @@ private:
 
     // Pre-allocated lookahead ring buffers [band][channel][frame]
     size_t max_delay_samples_ = 1208;
+    size_t delay_ring_cap_ = 0;
+    size_t delay_ring_mask_ = 0;
     size_t lookahead_samples_ = 480;
-    size_t stage_a_delay_ = 448;
-    size_t stage_b_delay_ = 32;
+    size_t stage_a_delay_ = 412;
+    size_t prev_stage_a_delay_ = 412;
+    size_t stage_b_delay_ = 68;
+    size_t delay_xfade_rem_ = 0;
     size_t delay_pos_ = 0;
     size_t post_delay_pos_ = 0;
     std::array<std::array<std::vector<double>, kMaxChannels>, 3> delay_buf_;
     std::array<std::vector<double>, kMaxChannels> post_delay_buf_;
 
-    // Lookahead envelopes
+    // Lookahead envelopes & BS.1770 K-weighting detector
     LookaheadEnvelope agc_headroom_env_;
     std::array<LookaheadEnvelope, 3> band_env_;
     LookaheadEnvelope tp_safety_env_;
+    BS1770KWeightFilter kweight_;
 
     // AGC & detector state
     double agc_gain_db_ = 0.0;
+    double prev_agc_gain_db_ = 0.0;
     double agc_linear_ = 1.0;
+    double cached_target_agc_lin_ = 1.0;
+    double agc_lin_step_ = 0.0;
+    double agc_hop_energy_ = 0.0;
+    size_t agc_hop_samples_ = 0;
+    bool agc_frozen_ = false;
     double loudness_sum_sq_ = 0.0;
     double loudness_sample_count_ = 0.0;
     double loudness_tau_samples_ = 36000.0;

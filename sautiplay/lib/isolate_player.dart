@@ -975,6 +975,30 @@ class IsolateAudioPlayer {
         'releaseMs': releaseMs,
       });
 
+  Future<double> getLookaheadLimiterGainReductionDB() async {
+    final response = await _request('getLookaheadLimiterGainReductionDB');
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
+
+  Future<double> getLoudnessNormalizerGainDb() async {
+    final response = await _request('getLoudnessNormalizerGainDb');
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
+
+  Future<({double momentaryLufs, double shortTermLufs, double integratedLufs, double lra})>
+      getLoudnessMetrics() async {
+    final response = await _request('getLoudnessMetrics');
+    if (response is Map) {
+      return (
+        momentaryLufs: (response['momentaryLufs'] as num?)?.toDouble() ?? -100.0,
+        shortTermLufs: (response['shortTermLufs'] as num?)?.toDouble() ?? -100.0,
+        integratedLufs: (response['integratedLufs'] as num?)?.toDouble() ?? -100.0,
+        lra: (response['lra'] as num?)?.toDouble() ?? 0.0,
+      );
+    }
+    return (momentaryLufs: -100.0, shortTermLufs: -100.0, integratedLufs: -100.0, lra: 0.0);
+  }
+
   void setDelay(
       {double? mix, double? feedback, double? delayMs, bool? enabled}) {
     _send({
@@ -1544,6 +1568,11 @@ class IsolateAudioPlayer {
         'outputGainDb': outputGainDb,
         'releaseMs': releaseMs,
       });
+
+  Future<double> getMasterLimiterGainReductionDb() async {
+    final response = await _request('getMasterLimiterGainReductionDb');
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
 
   // --- Dynamic Loudness (ISO 226 Equal-Loudness Contour) ---
   void setDynamicLoudnessEnabled(bool enabled) =>
@@ -2235,6 +2264,11 @@ void _isolateEntry(_IsolateInitData initData) {
   List<AudioSource> isolateSources = [];
   int lastLoudnessSampleIndex = -1;
   double lastLoudnessSampleSeconds = 0.0;
+  bool spActive = false;
+  bool userMasterLimiterEnabled = false;
+  double userMasterCeilingDb = -0.1;
+  double userMasterOutputGainDb = 0.0;
+  double userMasterReleaseMs = 60.0;
 
   player.statusStream.listen((status) {
     initData.sendPort.send(status);
@@ -2950,10 +2984,11 @@ void _isolateEntry(_IsolateInitData initData) {
                 (message['subsonicCutoffHz'] as num?)?.toDouble() ?? 25.0;
             final double ultraHz =
                 (message['ultrasonicCutoffHz'] as num?)?.toDouble() ?? 20000.0;
-            final double threshold =
-                (message['limiterThreshold'] as num?)?.toDouble() ?? 0.95;
+            final double safetyAtt =
+                (message['safetyAttenuationDb'] as num?)?.toDouble() ?? 3.0;
 
             if (enabled) {
+              spActive = true;
               if (subHz > 0) {
                 player.setHighpass(enabled: true, cutoffHz: subHz);
               } else {
@@ -2964,11 +2999,25 @@ void _isolateEntry(_IsolateInitData initData) {
               } else {
                 player.setLowpass(enabled: false, cutoffHz: 20000.0);
               }
-              player.setLimiterEnabled(true);
-              player.setLimiterParams(threshold: threshold);
+              final double spCeilDb = (-safetyAtt.abs()).clamp(-12.0, -0.1);
+              player.dsp.setMasterLimiter(
+                enabled: true,
+                ceilingDb: spCeilDb,
+                outputGainDb: 0.0,
+                releaseMs: 50.0,
+              );
             } else {
               player.setHighpass(enabled: false, cutoffHz: 20.0);
               player.setLowpass(enabled: false, cutoffHz: 20000.0);
+              if (spActive) {
+                spActive = false;
+                player.dsp.setMasterLimiter(
+                  enabled: userMasterLimiterEnabled,
+                  ceilingDb: userMasterCeilingDb,
+                  outputGainDb: userMasterOutputGainDb,
+                  releaseMs: userMasterReleaseMs,
+                );
+              }
             }
           }
           break;
@@ -3082,6 +3131,33 @@ void _isolateEntry(_IsolateInitData initData) {
             attackMs: (message['attackMs'] as num?)?.toDouble() ?? 2.0,
             releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 50.0,
           );
+          break;
+        case 'getLookaheadLimiterGainReductionDB':
+          try {
+            sendResponse(message, player.getLookaheadLimiterGainReductionDB());
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'getLoudnessNormalizerGainDb':
+          try {
+            sendResponse(message, player.getLoudnessNormalizerGainDb());
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'getLoudnessMetrics':
+          try {
+            final m = player.getLoudnessMetrics();
+            sendResponse(message, {
+              'momentaryLufs': m.momentaryLUFS,
+              'shortTermLufs': m.shortTermLUFS,
+              'integratedLufs': m.integratedLUFS,
+              'lra': m.loudnessRangeLRA,
+            });
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
           break;
         case 'set64BitProcessingEnabled':
           player.set64BitProcessingEnabled(message['enabled'] == true);
@@ -3873,12 +3949,26 @@ void _isolateEntry(_IsolateInitData initData) {
           );
           break;
         case 'setMasterLimiter':
+          userMasterLimiterEnabled = message['enabled'] == true;
+          userMasterCeilingDb =
+              (message['ceilingDb'] as num?)?.toDouble() ?? -0.1;
+          userMasterOutputGainDb =
+              (message['outputGainDb'] as num?)?.toDouble() ?? 0.0;
+          userMasterReleaseMs =
+              (message['releaseMs'] as num?)?.toDouble() ?? 60.0;
           player.dsp.setMasterLimiter(
-            enabled: message['enabled'] == true,
-            ceilingDb: (message['ceilingDb'] as num?)?.toDouble() ?? -0.1,
-            outputGainDb: (message['outputGainDb'] as num?)?.toDouble() ?? 0.0,
-            releaseMs: (message['releaseMs'] as num?)?.toDouble() ?? 60.0,
+            enabled: userMasterLimiterEnabled,
+            ceilingDb: userMasterCeilingDb,
+            outputGainDb: userMasterOutputGainDb,
+            releaseMs: userMasterReleaseMs,
           );
+          break;
+        case 'getMasterLimiterGainReductionDb':
+          try {
+            sendResponse(message, player.dsp.limiterGainReductionDb);
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
           break;
         case 'setDynamicLoudnessEnabled':
           player.dsp.setDynamicLoudnessEnabled(message['enabled'] == true);

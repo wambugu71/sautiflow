@@ -54,6 +54,8 @@
 #include "dsp/downward_expander_dsp.h"
 #include "dsp/fft_convolver_dsp.h"
 #include "dsp/master_limiter_dsp.h"
+#include "dsp/oversampler.h"
+#include "dsp/bs1770_kweight.h"
 #include "dsp/spatial_surround_dsp.h"
 #include "dsp/denormals.h"
 #include "dsp/subsonic_filter.h"
@@ -1434,16 +1436,21 @@ namespace
 
     struct LimiterState
     {
-        float threshold = 0.95f; // Level above which gain reduction starts (linear)
-        float attackMs = 2.0f;   // Attack time in ms
-        float releaseMs = 50.0f; // Release time in ms
+        std::atomic<float> threshold{0.95f}; // Level above which gain reduction starts (linear)
+        std::atomic<float> attackMs{2.0f};   // Attack time in ms
+        std::atomic<float> releaseMs{50.0f}; // Release time in ms
 
-        float attackCoeff = 0.0f;
-        float releaseCoeff = 0.0f;
+        std::atomic<float> attackCoeff{0.989637f};  // Initialized for 48 kHz, 2.0 ms
+        std::atomic<float> releaseCoeff{0.999583f}; // Initialized for 48 kHz, 50.0 ms
         float gainEnvelope = 1.0f;
+        std::atomic<float> currentGainReductionDB{0.0f};
 
-        // This limiter is a zero-latency gain smoother (no delay line).
-        // Reporting attackMs here was fictional and shifted position reporting.
+        LimiterState()
+        {
+            updateCoefficients(48000);
+        }
+
+        // Zero-latency soft-knee peak limiter (no lookahead delay line)
         double getLatencySamples(int) const
         {
             return 0.0;
@@ -1451,112 +1458,58 @@ namespace
 
         void updateCoefficients(int sampleRate)
         {
-            // Simple 1-pole exponential moving average coefficients
-            attackCoeff = std::exp(-1.0f / (attackMs * 0.001f * (float)sampleRate));
-            releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * (float)sampleRate));
+            const float sr = (sampleRate > 0) ? (float)sampleRate : 48000.0f;
+            const float att = attackMs.load(std::memory_order_relaxed);
+            const float rel = releaseMs.load(std::memory_order_relaxed);
+            attackCoeff.store(std::exp(-1.0f / std::max(1.0f, att * 0.001f * sr)), std::memory_order_release);
+            releaseCoeff.store(std::exp(-1.0f / std::max(1.0f, rel * 0.001f * sr)), std::memory_order_release);
         }
 
         void updateParams(int sampleRate, float newThreshold, float newAttackMs, float newReleaseMs)
         {
-            threshold = clampf(newThreshold, 0.1f, 1.0f);
-            attackMs = clampf(newAttackMs, 0.1f, 100.0f);
-            releaseMs = clampf(newReleaseMs, 10.0f, 1000.0f);
+            if (!std::isfinite(newThreshold)) newThreshold = 0.95f;
+            if (!std::isfinite(newAttackMs)) newAttackMs = 2.0f;
+            if (!std::isfinite(newReleaseMs)) newReleaseMs = 50.0f;
+            threshold.store(clampf(newThreshold, 0.1f, 0.995f), std::memory_order_release);
+            attackMs.store(clampf(newAttackMs, 0.1f, 100.0f), std::memory_order_release);
+            releaseMs.store(clampf(newReleaseMs, 10.0f, 1000.0f), std::memory_order_release);
             updateCoefficients(sampleRate);
         }
 
-        void process(float *interleaved, ma_uint32 frames, int channels)
+        template <typename SampleT>
+        void processImpl(SampleT *interleaved, ma_uint32 frames, int channels)
         {
-            if (channels < 1)
+            if (!interleaved || frames == 0 || channels < 1)
                 return;
+
+            const double threshD = static_cast<double>(threshold.load(std::memory_order_acquire));
+            const double headroom = std::max(1.0 - threshD, 0.005);
+            const double invHeadroom = 1.0 / headroom;
+            const double attD = static_cast<double>(attackCoeff.load(std::memory_order_acquire));
+            const double relD = static_cast<double>(releaseCoeff.load(std::memory_order_acquire));
+
+            double envD = static_cast<double>(gainEnvelope);
+            double minEffGain = 1.0;
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
-                // Find peak absolute value across all channels for this frame (linked channels)
-                float peak = 0.0f;
-                size_t base = (size_t)i * (size_t)channels;
-                for (int c = 0; c < channels; ++c)
-                {
-                    float absVal = std::abs(interleaved[base + (size_t)c]);
-                    if (absVal > peak)
-                        peak = absVal;
-                }
-
-                // Calculate desired gain
-                float targetGain = 1.0f;
-                if (peak > threshold)
-                {
-                    targetGain = threshold / peak;
-                }
-
-                // Smooth the gain matching attack/release (Averaging the bulk volume)
-                if (targetGain < gainEnvelope)
-                {
-                    // Attack phase (gain is reducing)
-                    gainEnvelope = attackCoeff * gainEnvelope + (1.0f - attackCoeff) * targetGain;
-                }
-                else
-                {
-                    // Release phase (gain is recovering)
-                    gainEnvelope = releaseCoeff * gainEnvelope + (1.0f - releaseCoeff) * targetGain;
-                }
-
-                // Apply gain reduction and Analog Soft-Knee Saturation to catch the 2ms transient escapes
-                for (int c = 0; c < channels; ++c)
-                {
-                    float sample = interleaved[base + (size_t)c] * gainEnvelope;
-
-                    // The Soft-Knee Saturator guarantees that no transient escaping the 2ms attack can ever cross 1.0 (Digital 0dBFS)
-                    // We use poly saturation for absolute mathematical safety without harsh digital crackling
-                    if (sample > 1.0f)
-                        sample = 1.0f;
-                    else if (sample < -1.0f)
-                        sample = -1.0f;
-                    else if (sample > threshold)
-                    {
-                        float overshoot = sample - threshold;
-                        sample = threshold + (overshoot / (1.0f + (overshoot / (1.0f - threshold))));
-                    }
-                    else if (sample < -threshold)
-                    {
-                        float overshoot = -sample - threshold;
-                        sample = -(threshold + (overshoot / (1.0f + (overshoot / (1.0f - threshold)))));
-                    }
-
-                    interleaved[base + (size_t)c] = sample;
-                }
-            }
-        }
-
-        void process(double *interleaved, ma_uint32 frames, int channels)
-        {
-            if (channels < 1)
-                return;
-
-            const double threshD = static_cast<double>(threshold);
-            const double attD = static_cast<double>(attackCoeff);
-            const double relD = static_cast<double>(releaseCoeff);
-
-            for (ma_uint32 i = 0; i < frames; ++i)
-            {
-                // Find peak absolute value across all channels for this frame (linked channels)
                 double peak = 0.0;
-                size_t base = (size_t)i * (size_t)channels;
+                const size_t base = (size_t)i * (size_t)channels;
                 for (int c = 0; c < channels; ++c)
                 {
-                    double absVal = std::abs(interleaved[base + (size_t)c]);
+                    double v = static_cast<double>(interleaved[base + (size_t)c]);
+                    if (!std::isfinite(v)) v = 0.0;
+                    const double absVal = std::abs(v);
                     if (absVal > peak)
                         peak = absVal;
                 }
 
-                // Calculate desired gain
                 double targetGain = 1.0;
                 if (peak > threshD)
                 {
                     targetGain = threshD / peak;
                 }
 
-                // Smooth the gain matching attack/release
-                double envD = static_cast<double>(gainEnvelope);
                 if (targetGain < envD)
                 {
                     envD = attD * envD + (1.0 - attD) * targetGain;
@@ -1565,31 +1518,47 @@ namespace
                 {
                     envD = relD * envD + (1.0 - relD) * targetGain;
                 }
-                gainEnvelope = static_cast<float>(envD);
+                if (envD > 1.0) envD = 1.0;
+                if (envD < minEffGain) minEffGain = envD;
 
-                // Apply gain reduction and Analog Soft-Knee Saturation in double precision
+                // Apply envelope + C1-continuous asymptotic tanh soft-knee saturator
+                // (derivative = 1.0 at threshold; asymptotically bounded strictly < 1.0)
                 for (int c = 0; c < channels; ++c)
                 {
-                    double sample = interleaved[base + (size_t)c] * envD;
-
-                    if (sample > 1.0)
-                        sample = 1.0;
-                    else if (sample < -1.0)
-                        sample = -1.0;
-                    else if (sample > threshD)
+                    double raw = static_cast<double>(interleaved[base + (size_t)c]);
+                    if (!std::isfinite(raw)) raw = 0.0;
+                    double sample = raw * envD;
+                    const double absS = std::abs(sample);
+                    if (absS > threshD)
                     {
-                        double overshoot = sample - threshD;
-                        sample = threshD + (overshoot / (1.0 + (overshoot / (1.0 - threshD))));
+                        const double excess = (absS - threshD) * invHeadroom;
+                        const double shaped = threshD + headroom * std::tanh(excess);
+                        sample = (sample >= 0.0) ? shaped : -shaped;
+                        if (absS > 1e-9)
+                        {
+                            const double eff = envD * (shaped / absS);
+                            if (eff < minEffGain) minEffGain = eff;
+                        }
                     }
-                    else if (sample < -threshD)
-                    {
-                        double overshoot = -sample - threshD;
-                        sample = -(threshD + (overshoot / (1.0 + (overshoot / (1.0 - threshD)))));
-                    }
-
-                    interleaved[base + (size_t)c] = sample;
+                    interleaved[base + (size_t)c] = static_cast<SampleT>(sample);
                 }
             }
+
+            gainEnvelope = static_cast<float>(envD);
+            const float grDb = (minEffGain < 0.9999)
+                ? static_cast<float>(20.0 * std::log10(std::max(minEffGain, 1.0e-4)))
+                : 0.0f;
+            currentGainReductionDB.store(grDb, std::memory_order_relaxed);
+        }
+
+        void process(float *interleaved, ma_uint32 frames, int channels)
+        {
+            processImpl<float>(interleaved, frames, channels);
+        }
+
+        void process(double *interleaved, ma_uint32 frames, int channels)
+        {
+            processImpl<double>(interleaved, frames, channels);
         }
     };
 
@@ -1770,26 +1739,89 @@ namespace
         static constexpr int TAPS = 12;
         static constexpr int PHASES = 4;
 
-        float polyphaseCoeffs[4][12] = {
-            { 0.0f,    0.0f,    0.0f,    0.0f,    0.0f,   1.0f,   0.0f,    0.0f,    0.0f,    0.0f,    0.0f,    0.0f},
-            {-0.008f,  0.024f, -0.056f,  0.120f, -0.240f, 0.880f, 0.360f, -0.120f,  0.056f, -0.024f,  0.008f,  0.000f},
-            {-0.012f,  0.040f, -0.096f,  0.200f, -0.400f, 0.760f, 0.600f, -0.200f,  0.096f, -0.040f,  0.012f,  0.000f},
-            { 0.000f,  0.008f, -0.024f,  0.056f, -0.120f, 0.360f, 0.880f, -0.240f,  0.120f, -0.056f,  0.024f, -0.008f}
-        };
-
-        float history[8][12] = {0};
+        float polyphaseCoeffs[PHASES][TAPS]{};
+        float history[8][TAPS]{};
         int histIdx = 0;
 
         std::atomic<float> peakLeftDBTP{-100.0f};
         std::atomic<float> peakRightDBTP{-100.0f};
         std::atomic<float> maxTruePeakDBTP{-100.0f};
-        // True sample peak (no interpolation) - reported honestly instead of the
-        // old "truepeak - 0.5 dB" fabrication.
         std::atomic<float> samplePeakDBTP{-100.0f};
 
-        void process(const float *interleaved, ma_uint32 frames, int channels)
+        static double besselI0(double x) noexcept
         {
-            if (channels < 1) return;
+            double sum = 1.0;
+            double term = 1.0;
+            const double x2 = 0.25 * x * x;
+            for (int k = 1; k < 24; ++k)
+            {
+                term *= x2 / (static_cast<double>(k) * static_cast<double>(k));
+                sum += term;
+                if (term < 1.0e-15 * sum) break;
+            }
+            return sum;
+        }
+
+        void initCoeffs() noexcept
+        {
+            // Normalized 48-tap (4x12) Kaiser-windowed sinc 4x interpolator per ITU-R BS.1770-4 Annex 2:
+            // Phase 0 is exact unit impulse; Phases 1..3 each sum strictly to 1.000000.
+            constexpr double beta = 5.5;
+            constexpr double pi = 3.14159265358979323846;
+            const double invI0Beta = 1.0 / besselI0(beta);
+            constexpr double halfSpan = 5.5;
+
+            for (int p = 0; p < PHASES; ++p)
+            {
+                if (p == 0)
+                {
+                    for (int t = 0; t < TAPS; ++t)
+                        polyphaseCoeffs[0][t] = (t == 5) ? 1.0f : 0.0f;
+                    continue;
+                }
+
+                const double center = 5.0 + static_cast<double>(p) * 0.25;
+                double raw[TAPS];
+                double sum = 0.0;
+                for (int t = 0; t < TAPS; ++t)
+                {
+                    const double d = static_cast<double>(t) - center;
+                    const double sincVal = (std::abs(d) < 1.0e-12)
+                        ? 1.0
+                        : (std::sin(pi * d) / (pi * d));
+                    const double u = (static_cast<double>(t) - halfSpan) / halfSpan;
+                    const double arg = std::max(0.0, 1.0 - u * u);
+                    const double win = besselI0(beta * std::sqrt(arg)) * invI0Beta;
+                    raw[t] = sincVal * win;
+                    sum += raw[t];
+                }
+                const double invSum = (sum != 0.0) ? (1.0 / sum) : 1.0;
+                for (int t = 0; t < TAPS; ++t)
+                {
+                    polyphaseCoeffs[p][t] = static_cast<float>(raw[t] * invSum);
+                }
+            }
+        }
+
+        TruePeakMeterState()
+        {
+            initCoeffs();
+        }
+
+        void reset() noexcept
+        {
+            std::memset(history, 0, sizeof(history));
+            histIdx = 0;
+            peakLeftDBTP.store(-100.0f, std::memory_order_relaxed);
+            peakRightDBTP.store(-100.0f, std::memory_order_relaxed);
+            maxTruePeakDBTP.store(-100.0f, std::memory_order_relaxed);
+            samplePeakDBTP.store(-100.0f, std::memory_order_relaxed);
+        }
+
+        template <typename SampleT>
+        void process(const SampleT *interleaved, ma_uint32 frames, int channels)
+        {
+            if (!interleaved || frames == 0 || channels < 1) return;
             const int ch = std::min(channels, 8);
 
             float maxL = 0.0f, maxR = 0.0f;
@@ -1800,7 +1832,8 @@ namespace
             {
                 for (int c = 0; c < ch; ++c)
                 {
-                    float x = interleaved[i * (size_t)channels + c];
+                    float x = static_cast<float>(interleaved[i * (size_t)channels + c]);
+                    if (!std::isfinite(x)) x = 0.0f;
                     const float absX = std::abs(x);
                     if (absX > maxSample) maxSample = absX;
                     history[c][histIdx] = x;
@@ -1810,12 +1843,11 @@ namespace
                         float y = 0.0f;
                         for (int t = 0; t < TAPS; ++t)
                         {
-                            int tapIdx = (histIdx - t + TAPS) % TAPS;
+                            int tapIdx = histIdx - t;
+                            if (tapIdx < 0) tapIdx += TAPS;
                             y += history[c][tapIdx] * polyphaseCoeffs[p][t];
                         }
-                        float absY = std::abs(y);
-                        // Keep L/R metrics honest per channel; multichannel peaks
-                        // (c > 1) feed the aggregate instead of polluting "left".
+                        const float absY = std::abs(y);
                         if (c == 0 && absY > maxL) maxL = absY;
                         else if (c == 1 && absY > maxR) maxR = absY;
                         else if (c > 1 && absY > maxExtra) maxExtra = absY;
@@ -1824,12 +1856,12 @@ namespace
                 histIdx = (histIdx + 1) % TAPS;
             }
 
-            float leftDBTP  = (maxL > 1e-5f) ? 20.0f * std::log10(maxL) : -100.0f;
-            float rightDBTP = (maxR > 1e-5f) ? 20.0f * std::log10(maxR) : -100.0f;
+            const float leftDBTP  = (maxL > 1e-5f) ? 20.0f * std::log10(maxL) : -100.0f;
+            const float rightDBTP = (maxR > 1e-5f) ? 20.0f * std::log10(maxR) : -100.0f;
             const float extraDBTP = (maxExtra > 1e-5f) ? 20.0f * std::log10(maxExtra) : -100.0f;
 
-            float prevL = peakLeftDBTP.load(std::memory_order_relaxed);
-            float prevR = peakRightDBTP.load(std::memory_order_relaxed);
+            const float prevL = peakLeftDBTP.load(std::memory_order_relaxed);
+            const float prevR = peakRightDBTP.load(std::memory_order_relaxed);
             peakLeftDBTP.store(std::max(leftDBTP, prevL - 0.2f), std::memory_order_relaxed);
             peakRightDBTP.store(std::max(rightDBTP, prevR - 0.2f), std::memory_order_relaxed);
             maxTruePeakDBTP.store(std::max({peakLeftDBTP.load(std::memory_order_relaxed),
@@ -1843,110 +1875,303 @@ namespace
 
     struct LookAheadLimiterState
     {
-        float ceilingDBTP = -1.0f;
-        float attackMs = 2.0f;
-        float releaseMs = 50.0f;
+        static constexpr int kMaxChannels = 8;
+        static constexpr int kMaxStereoPairs = kMaxChannels / 2;
+        static constexpr size_t kOversamplerDelay = 20;
+        static constexpr size_t kMinLookaheadSamples = 24;
+        static constexpr size_t kMaxLookaheadSamples = 3900; // 10 ms @ 384 kHz = 3840
+        static constexpr size_t kDelayCap = 4096;            // Power of 2 > kMaxLookaheadSamples
+        static constexpr size_t kDelayMask = kDelayCap - 1;
+        static constexpr size_t kEnvCap = 4096;
+        static constexpr size_t kEnvMask = kEnvCap - 1;
 
-        std::vector<float> delayBuffer;
-        std::vector<double> delayBuffer64;
-        size_t writeIdx = 0;
-        size_t lookAheadSamples = 0;
-        float gainEnvelope = 1.0f;
+        std::atomic<float> ceilingDBTP{-1.0f};
+        std::atomic<double> targetCeilingLinear_{0.8912509381337456};
+        std::atomic<float> attackMs{2.0f};
+        std::atomic<float> releaseMs{50.0f};
         std::atomic<float> currentGainReductionDB{0.0f};
+
+        std::atomic<int> targetSampleRate_{48000};
+        std::atomic<size_t> activeLookAheadSamples_{96};
+        std::atomic<bool> resetRequested_{false};
+        std::atomic<bool> reconfigRequested_{false};
+
+        int activeSampleRate_ = 48000;
+        int activeChannels_ = 2;
+        float activeAttackMs_ = 2.0f;
+        float activeReleaseMs_ = 50.0f;
+        size_t activeLookAhead_ = 96;
+        size_t rampLen_ = 76;
+        size_t holdLen_ = 80;
+        double invRampLen_ = 1.0 / 76.0;
+        double releaseCoeff_ = 0.0;
+        double releaseEnv_ = 1.0;
+
+        std::array<std::array<double, kDelayCap>, kMaxChannels> delayLine_{};
+        size_t delayIdx_ = 0;
+
+        std::array<sauti::dsp::HalfBandFilter2xT<double>, kMaxStereoPairs> osStage1_{};
+        std::array<sauti::dsp::HalfBandFilter2xT<double>, kMaxStereoPairs> osStage2_{};
+
+        std::array<uint64_t, kEnvCap> dequeIdx_{};
+        std::array<double, kEnvCap> dequeVal_{};
+        size_t dequeHead_ = 0;
+        size_t dequeTail_ = 0;
+        uint64_t sampleClock_ = 0;
+
+        std::array<double, kEnvCap> maBuf_{};
+        size_t maIdx_ = 0;
+        double deficitSum_ = 0.0;
+
+        LookAheadLimiterState()
+        {
+            applyConfig(48000, 2.0f, 50.0f);
+            resetInternal();
+        }
+
+        static size_t computeLookAheadSamples(int sampleRate, float attMs) noexcept
+        {
+            const double sr = (sampleRate > 0) ? static_cast<double>(sampleRate) : 48000.0;
+            const size_t raw = static_cast<size_t>(std::llround(static_cast<double>(attMs) * 0.001 * sr));
+            return std::clamp(raw, kMinLookaheadSamples, kMaxLookaheadSamples);
+        }
+
+        void applyConfig(int sampleRate, float attMs, float relMs) noexcept
+        {
+            activeSampleRate_ = (sampleRate > 0) ? sampleRate : 48000;
+            activeAttackMs_ = attMs;
+            activeReleaseMs_ = relMs;
+            activeLookAhead_ = computeLookAheadSamples(activeSampleRate_, activeAttackMs_);
+            activeLookAheadSamples_.store(activeLookAhead_, std::memory_order_release);
+
+            rampLen_ = (activeLookAhead_ > kOversamplerDelay) ? (activeLookAhead_ - kOversamplerDelay) : 4;
+            holdLen_ = std::min(rampLen_ + 4, kEnvCap - 1);
+            invRampLen_ = 1.0 / static_cast<double>(rampLen_);
+
+            const double releaseSec = static_cast<double>(activeReleaseMs_) * 0.001;
+            releaseCoeff_ = 1.0 - std::exp(-1.0 / std::max(1.0, releaseSec * static_cast<double>(activeSampleRate_)));
+        }
+
+        void resetInternal() noexcept
+        {
+            for (int c = 0; c < kMaxChannels; ++c)
+                delayLine_[c].fill(0.0);
+            delayIdx_ = 0;
+            for (int p = 0; p < kMaxStereoPairs; ++p)
+            {
+                osStage1_[p].reset();
+                osStage2_[p].reset();
+            }
+            dequeHead_ = 0;
+            dequeTail_ = 0;
+            sampleClock_ = 0;
+            releaseEnv_ = 1.0;
+            maBuf_.fill(0.0);
+            maIdx_ = 0;
+            deficitSum_ = 0.0;
+            currentGainReductionDB.store(0.0f, std::memory_order_relaxed);
+        }
+
+        void setSampleRate(int sampleRate)
+        {
+            const int sr = (sampleRate > 0) ? sampleRate : 48000;
+            targetSampleRate_.store(sr, std::memory_order_relaxed);
+            const float att = attackMs.load(std::memory_order_relaxed);
+            activeLookAheadSamples_.store(computeLookAheadSamples(sr, att), std::memory_order_release);
+            reconfigRequested_.store(true, std::memory_order_release);
+        }
+
+        void requestReset()
+        {
+            currentGainReductionDB.store(0.0f, std::memory_order_relaxed);
+            resetRequested_.store(true, std::memory_order_release);
+        }
 
         uint64_t getLatencySamples(int sampleRate) const
         {
-            return (sampleRate > 0) ? (uint64_t)((double)attackMs * 0.001 * (double)sampleRate) : 0;
+            if (sampleRate > 0 && sampleRate != targetSampleRate_.load(std::memory_order_relaxed))
+            {
+                return static_cast<uint64_t>(computeLookAheadSamples(sampleRate, attackMs.load(std::memory_order_relaxed)));
+            }
+            return static_cast<uint64_t>(activeLookAheadSamples_.load(std::memory_order_acquire));
         }
 
-        void updateParams(int sampleRate, int channels, float ceiling, float attack, float release)
+        void updateParams(int sampleRate, int /*channels*/, float ceiling, float attack, float release)
         {
-            ceilingDBTP = clampf(ceiling, -12.0f, 0.0f);
-            attackMs = clampf(attack, 0.5f, 10.0f);
-            releaseMs = clampf(release, 10.0f, 1000.0f);
+            if (!std::isfinite(ceiling)) ceiling = -1.0f;
+            if (!std::isfinite(attack)) attack = 2.0f;
+            if (!std::isfinite(release)) release = 50.0f;
 
-            int ch = std::max(1, channels);
-            lookAheadSamples = (size_t)((attackMs * 0.001f) * (float)sampleRate);
-            if (lookAheadSamples < 1) lookAheadSamples = 1;
+            const float clampedCeil = clampf(ceiling, -12.0f, 0.0f);
+            const float clampedAtt = clampf(attack, 0.5f, 10.0f);
+            const float clampedRel = clampf(release, 10.0f, 1000.0f);
+            const int sr = (sampleRate > 0) ? sampleRate : targetSampleRate_.load(std::memory_order_relaxed);
 
-            size_t neededBufSize = lookAheadSamples * (size_t)ch;
-            if (delayBuffer.size() != neededBufSize)
-            {
-                delayBuffer.assign(neededBufSize, 0.0f);
-                delayBuffer64.assign(neededBufSize, 0.0);
-                writeIdx = 0;
-            }
-            gainEnvelope = 1.0f;
+            ceilingDBTP.store(clampedCeil, std::memory_order_relaxed);
+            const double ceilLin = (std::abs(clampedCeil) < 1e-6f)
+                ? 1.0
+                : std::pow(10.0, static_cast<double>(clampedCeil) / 20.0);
+            targetCeilingLinear_.store(ceilLin, std::memory_order_release);
+            attackMs.store(clampedAtt, std::memory_order_relaxed);
+            releaseMs.store(clampedRel, std::memory_order_relaxed);
+            targetSampleRate_.store(sr, std::memory_order_relaxed);
+            activeLookAheadSamples_.store(computeLookAheadSamples(sr, clampedAtt), std::memory_order_release);
+            reconfigRequested_.store(true, std::memory_order_release);
         }
 
         template <typename SampleT>
         void process(SampleT *interleaved, ma_uint32 frames, int channels, int sampleRate)
         {
-            if (channels < 1) return;
-            const bool is64 = std::is_same<SampleT, double>::value;
-            if (is64 ? delayBuffer64.empty() : delayBuffer.empty()) return;
-            const float linearCeiling = std::pow(10.0f, ceilingDBTP / 20.0f);
+            if (!interleaved || frames == 0 || channels < 1) return;
 
-            const float releaseCoeff = std::exp(-1.0f / (releaseMs * 0.001f * (float)sampleRate));
+            sauti::dsp::ScopedDenormalsDisable denormalsGuard;
 
-            float maxGRThisBlock = 1.0f;
+            const int ch = std::clamp(channels, 1, kMaxChannels);
+            bool needReset = resetRequested_.exchange(false, std::memory_order_acq_rel);
+            const int effSr = (sampleRate > 0) ? sampleRate : targetSampleRate_.load(std::memory_order_relaxed);
+
+            if (reconfigRequested_.exchange(false, std::memory_order_acq_rel) || effSr != activeSampleRate_)
+            {
+                const float reqAtt = attackMs.load(std::memory_order_acquire);
+                const float reqRel = releaseMs.load(std::memory_order_acquire);
+                const size_t newLa = computeLookAheadSamples(effSr, reqAtt);
+                const bool laChanged = (newLa != activeLookAhead_) || (effSr != activeSampleRate_);
+                applyConfig(effSr, reqAtt, reqRel);
+                if (laChanged) needReset = true;
+            }
+            if (ch != activeChannels_)
+            {
+                activeChannels_ = ch;
+                needReset = true;
+            }
+            if (needReset)
+            {
+                resetInternal();
+            }
+
+            const double ceil = targetCeilingLinear_.load(std::memory_order_acquire);
+            const int numPairs = (ch + 1) / 2;
+            const size_t lookahead = activeLookAhead_;
+            const size_t holdLen = holdLen_;
+            const size_t rampLen = rampLen_;
+            const double invRamp = invRampLen_;
+            const double relC = releaseCoeff_;
+
+            double minGainThisBlock = 1.0;
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
-                float peak = 0.0f;
-                size_t base = (size_t)i * (size_t)channels;
-                for (int c = 0; c < channels; ++c)
+                SampleT *framePtr = interleaved + static_cast<size_t>(i) * static_cast<size_t>(channels);
+                const size_t readIdx = (delayIdx_ - lookahead) & kDelayMask;
+
+                double driven[kMaxChannels];
+                double delayed[kMaxChannels];
+                for (int c = 0; c < ch; ++c)
                 {
-                    float absVal = std::abs(static_cast<float>(interleaved[base + (size_t)c]));
-                    if (absVal > peak) peak = absVal;
+                    double x = static_cast<double>(framePtr[c]);
+                    if (!std::isfinite(x)) x = 0.0;
+                    driven[c] = x;
+                    delayLine_[c][delayIdx_] = x;
+                    delayed[c] = delayLine_[c][readIdx];
                 }
 
-                float targetGain = (peak > linearCeiling) ? (linearCeiling / peak) : 1.0f;
-
-                if (targetGain < gainEnvelope)
+                // 4x True-Peak detection (time-aligned at oversampler delay)
+                double truePeak = 0.0;
+                for (int p = 0; p < numPairs; ++p)
                 {
-                    // Instant attack: a transient must be attenuated on the very
-                    // first sample it appears, otherwise the first ~1-2 ms shoot
-                    // past the ceiling and the final hard clamp does the work
-                    // (pumping / distortion).
-                    gainEnvelope = targetGain;
+                    const int c0 = p * 2;
+                    const int c1 = c0 + 1;
+                    const double inL = driven[c0];
+                    const double inR = (c1 < ch) ? driven[c1] : 0.0;
+
+                    double u2L0, u2R0, u2L1, u2R1;
+                    osStage1_[p].upsample2xFrame(inL, inR, u2L0, u2R0, u2L1, u2R1);
+
+                    double u4L0, u4R0, u4L1, u4R1;
+                    double u4L2, u4R2, u4L3, u4R3;
+                    osStage2_[p].upsample2xFrame(u2L0, u2R0, u4L0, u4R0, u4L1, u4R1);
+                    osStage2_[p].upsample2xFrame(u2L1, u2R1, u4L2, u4R2, u4L3, u4R3);
+
+                    const double peakL = std::max(
+                        std::max(std::abs(u4L0), std::abs(u4L1)),
+                        std::max(std::abs(u4L2), std::abs(u4L3)));
+                    if (peakL > truePeak) truePeak = peakL;
+
+                    if (c1 < ch)
+                    {
+                        const double peakR = std::max(
+                            std::max(std::abs(u4R0), std::abs(u4R1)),
+                            std::max(std::abs(u4R2), std::abs(u4R3)));
+                        if (peakR > truePeak) truePeak = peakR;
+                    }
+                }
+
+                double gReq = 1.0;
+                if (truePeak > ceil)
+                {
+                    gReq = std::max(ceil / truePeak, 1.0e-6);
+                }
+
+                while (dequeTail_ != dequeHead_)
+                {
+                    const size_t backSlot = (dequeTail_ - 1) & kEnvMask;
+                    if (dequeVal_[backSlot] >= gReq) dequeTail_ = backSlot;
+                    else break;
+                }
+                dequeIdx_[dequeTail_] = sampleClock_;
+                dequeVal_[dequeTail_] = gReq;
+                dequeTail_ = (dequeTail_ + 1) & kEnvMask;
+
+                while (dequeHead_ != dequeTail_ && (sampleClock_ - dequeIdx_[dequeHead_]) >= holdLen)
+                {
+                    dequeHead_ = (dequeHead_ + 1) & kEnvMask;
+                }
+                const double gMin = dequeVal_[dequeHead_];
+
+                if (gMin < releaseEnv_)
+                {
+                    releaseEnv_ = gMin;
                 }
                 else
                 {
-                    gainEnvelope = releaseCoeff * gainEnvelope + (1.0f - releaseCoeff) * targetGain;
+                    releaseEnv_ += relC * (gMin - releaseEnv_);
+                    if (releaseEnv_ > 1.0 - 1.0e-12) releaseEnv_ = 1.0;
                 }
 
-                if (gainEnvelope < maxGRThisBlock) maxGRThisBlock = gainEnvelope;
+                const double deficit = 1.0 - releaseEnv_;
+                const double oldDeficit = maBuf_[maIdx_];
+                maBuf_[maIdx_] = deficit;
+                if (++maIdx_ >= rampLen) maIdx_ = 0;
+                deficitSum_ += (deficit - oldDeficit);
 
-                if constexpr (std::is_same<SampleT, double>::value)
+                if ((sampleClock_ & 4095ULL) == 0ULL)
                 {
-                    size_t readIdx = (writeIdx + delayBuffer64.size() - lookAheadSamples * (size_t)channels) % delayBuffer64.size();
-
-                    for (int c = 0; c < channels; ++c)
-                    {
-                        double delayedSample = delayBuffer64[readIdx + (size_t)c];
-                        delayBuffer64[writeIdx + (size_t)c] = interleaved[base + (size_t)c];
-                        interleaved[base + (size_t)c] = delayedSample * static_cast<double>(gainEnvelope);
-                    }
-
-                    writeIdx = (writeIdx + (size_t)channels) % delayBuffer64.size();
+                    double exactSum = 0.0;
+                    for (size_t k = 0; k < rampLen; ++k) exactSum += maBuf_[k];
+                    deficitSum_ = exactSum;
                 }
-                else
+                if (deficitSum_ < 1.0e-15) deficitSum_ = 0.0;
+
+                double gain = 1.0 - deficitSum_ * invRamp;
+                if (gain < 1.0e-6) gain = 1.0e-6;
+                else if (gain > 1.0) gain = 1.0;
+                if (gain < minGainThisBlock) minGainThisBlock = gain;
+
+                for (int c = 0; c < ch; ++c)
                 {
-                    size_t readIdx = (writeIdx + delayBuffer.size() - lookAheadSamples * (size_t)channels) % delayBuffer.size();
-
-                    for (int c = 0; c < channels; ++c)
-                    {
-                        float delayedSample = delayBuffer[readIdx + (size_t)c];
-                        delayBuffer[writeIdx + (size_t)c] = interleaved[base + (size_t)c];
-                        interleaved[base + (size_t)c] = delayedSample * gainEnvelope;
-                    }
-
-                    writeIdx = (writeIdx + (size_t)channels) % delayBuffer.size();
+                    double out = delayed[c] * gain;
+                    if (out > ceil) out = ceil;
+                    else if (out < -ceil) out = -ceil;
+                    framePtr[c] = static_cast<SampleT>(out);
                 }
+
+                delayIdx_ = (delayIdx_ + 1) & kDelayMask;
+                ++sampleClock_;
             }
 
-            float grDB = (maxGRThisBlock < 1.0f) ? 20.0f * std::log10(maxGRThisBlock) : 0.0f;
+            const float grDB = (minGainThisBlock < 0.9999)
+                ? static_cast<float>(20.0 * std::log10(std::max(minGainThisBlock, 1.0e-4)))
+                : 0.0f;
             currentGainReductionDB.store(grDB, std::memory_order_relaxed);
         }
     };
@@ -1963,34 +2188,49 @@ namespace
             double hp_a1=-1.99004745483398, hp_a2=0.99007225036621;
             double hp_z1=0.0, hp_z2=0.0;
 
+            void clearStates() noexcept
+            {
+                hs_z1 = 0.0;
+                hs_z2 = 0.0;
+                hp_z1 = 0.0;
+                hp_z2 = 0.0;
+            }
+
             void updateCoefficients(double fs)
             {
-                double db = 3.999843853973347;
-                double f0 = 1681.974450955533;
-                double Q  = 0.7071752369554193;
-                double K  = std::tan(M_PI * f0 / fs);
-                double Vh = std::pow(10.0, db / 20.0);
-                double V0 = Vh - 1.0;
-                double den = 1.0 + K / Q + K * K;
-                hs_b0 = (1.0 + K * V0 + K * K * Vh) / den;
-                hs_b1 = 2.0 * (K * K * Vh - 1.0) / den;
-                hs_b2 = (1.0 - K * V0 + K * K * Vh) / den;
-                hs_a1 = 2.0 * (K * K - 1.0) / den;
-                hs_a2 = (1.0 - K / Q + K * K) / den;
+                if (fs <= 0.0) fs = 48000.0;
+                const double nyqGuard = fs * 0.45;
+                // Stage 1: Exact BS.1770-4 / Brecht De Man +4 dB high-shelf pre-filter
+                const double db = 3.999843853973347;
+                const double f0 = std::min(1681.974450955533, nyqGuard);
+                const double Q  = 0.7071752369554196;
+                const double K  = std::tan(M_PI * f0 / fs);
+                const double Vh = std::pow(10.0, db / 20.0);
+                const double Vb = std::pow(Vh, 0.4996667741545416);
+                const double K2 = K * K;
+                const double den = 1.0 + K / Q + K2;
+                hs_b0 = (Vh + Vb * K / Q + K2) / den;
+                hs_b1 = 2.0 * (K2 - Vh) / den;
+                hs_b2 = (Vh - Vb * K / Q + K2) / den;
+                hs_a1 = 2.0 * (K2 - 1.0) / den;
+                hs_a2 = (1.0 - K / Q + K2) / den;
 
-                double f0_hp = 38.13547087602444;
-                double Q_hp  = 0.5003270373253927;
-                double K_hp  = std::tan(M_PI * f0_hp / fs);
-                double den_hp = 1.0 + K_hp / Q_hp + K_hp * K_hp;
+                // Stage 2: Exact BS.1770-4 RLB high-pass filter (normalized to unity passband)
+                const double f0_hp = std::min(38.13547087602444, nyqGuard);
+                const double Q_hp  = 0.5003270373238773;
+                const double K_hp  = std::tan(M_PI * f0_hp / fs);
+                const double K2_hp = K_hp * K_hp;
+                const double den_hp = 1.0 + K_hp / Q_hp + K2_hp;
                 hp_b0 = 1.0 / den_hp;
                 hp_b1 = -2.0 / den_hp;
                 hp_b2 = 1.0 / den_hp;
-                hp_a1 = 2.0 * (K_hp * K_hp - 1.0) / den_hp;
-                hp_a2 = (1.0 - K_hp / Q_hp + K_hp * K_hp) / den_hp;
+                hp_a1 = 2.0 * (K2_hp - 1.0) / den_hp;
+                hp_a2 = (1.0 - K_hp / Q_hp + K2_hp) / den_hp;
             }
 
             inline double process(double in)
             {
+                if (!std::isfinite(in)) in = 0.0;
                 double hs_out = hs_b0 * in + hs_z1;
                 hs_z1 = hs_b1 * in - hs_a1 * hs_out + hs_z2;
                 hs_z2 = hs_b2 * in - hs_a2 * hs_out;
@@ -2010,26 +2250,28 @@ namespace
         uint32_t blockSampleCount = 0;
         uint32_t blockTargetSamples = 4800;
 
-        static constexpr size_t RING_SIZE = 300;
+        static constexpr size_t RING_SIZE = 30;
+        static constexpr int kHistBins = 800; // [-70.0 .. +10.0 LUFS] at 0.1 LU resolution
         struct BlockPower {
             double power = 0.0;
             bool valid = false;
         };
-        BlockPower blockRing[RING_SIZE];
+        BlockPower blockRing[RING_SIZE]{};
         size_t ringHead = 0;
         size_t totalBlocksCount = 0;
 
-        // Bounded history for integrated loudness / LRA gating.
-        // std::deque gives O(1) front eviction (the old vector erase-from-front
-        // was an O(N) memmove of up to ~108k doubles on the audio thread).
-        static constexpr size_t MAX_ACCUMULATED_BLOCKS = 18000; // 30 min @ 100 ms blocks
-        std::vector<double> accumulatedBlocks = std::vector<double>(MAX_ACCUMULATED_BLOCKS, 0.0);
-        size_t accHead = 0;
-        size_t accCount = 0;
-        double absGateSum = 0.0;   // running sum of blocks passing the absolute gate
-        size_t absGateCount = 0;   // running count of blocks passing the absolute gate
+        // Zero-allocation fixed histograms for gated integrated LUFS and EBU R128 LRA
+        uint32_t intHistCounts[kHistBins]{};
+        double intHistPwrSum[kHistBins]{};
+        double absGateSum = 0.0;
+        size_t absGateCount = 0;
+
+        uint32_t lraHistCounts[kHistBins]{};
+        double lraAbsSum = 0.0;
+        size_t lraAbsCount = 0;
+
         uint32_t blocksSinceAnalysis = 0;
-        std::vector<double> pass2Powers;
+        size_t gatedBlocksCount = 0;
 
         std::atomic<float> momentaryLUFS{-100.0f};
         std::atomic<float> shortTermLUFS{-100.0f};
@@ -2038,37 +2280,54 @@ namespace
 
         std::atomic<bool> normalizerEnabled{false};
         std::atomic<float> normalizerTargetLUFS{-14.0f};
+        std::atomic<float> maxSafeGainDb_{6.0f};
         std::atomic<float> currentGainLinear_{1.0f};
         std::atomic<float> currentGainDb_{0.0f};
+        std::atomic<bool> resetRequested_{false};
+        std::atomic<bool> inProcess_{false};
+        std::atomic<int> pendingSampleRate_{48000};
+        std::atomic<float> pendingSeedLufs_{-100.0f};
         float seedLufsInitial{-100.0f};
 
-        void reset(int sampleRate, float seedLufs = -100.0f)
+        static inline int lufsToBin(double lufs) noexcept
+        {
+            const int b = static_cast<int>(std::floor((lufs + 70.0) * 10.0));
+            return std::clamp(b, 0, kHistBins - 1);
+        }
+
+        void applyResetInternal(int sampleRate, float seedLufs) noexcept
         {
             currentSampleRate = (sampleRate > 0) ? sampleRate : 48000;
-            blockTargetSamples = (uint32_t)(0.1 * (double)currentSampleRate);
+            blockTargetSamples = std::max<uint32_t>(1u, (uint32_t)(0.1 * (double)currentSampleRate));
             for (int c = 0; c < 8; ++c)
             {
                 kFilters[c].updateCoefficients((double)currentSampleRate);
+                kFilters[c].clearStates();
                 blockSumSq[c] = 0.0;
             }
             blockSampleCount = 0;
             ringHead = 0;
             totalBlocksCount = 0;
             for (size_t i = 0; i < RING_SIZE; ++i) blockRing[i] = {0.0, false};
-            std::fill(accumulatedBlocks.begin(), accumulatedBlocks.end(), 0.0);
-            accHead = 0;
-            accCount = 0;
+
+            std::memset(intHistCounts, 0, sizeof(intHistCounts));
+            std::memset(intHistPwrSum, 0, sizeof(intHistPwrSum));
             absGateSum = 0.0;
             absGateCount = 0;
+
+            std::memset(lraHistCounts, 0, sizeof(lraHistCounts));
+            lraAbsSum = 0.0;
+            lraAbsCount = 0;
+
             blocksSinceAnalysis = 0;
-            pass2Powers.reserve(MAX_ACCUMULATED_BLOCKS);
-            pass2Powers.clear();
+            gatedBlocksCount = 0;
 
             seedLufsInitial = seedLufs;
             float initGainDb = 0.0f;
+            const float maxUpDb = maxSafeGainDb_.load(std::memory_order_relaxed);
             if (seedLufs > -70.0f)
             {
-                initGainDb = clampf(normalizerTargetLUFS.load(std::memory_order_relaxed) - seedLufs, -12.0f, 6.0f);
+                initGainDb = clampf(normalizerTargetLUFS.load(std::memory_order_relaxed) - seedLufs, -12.0f, maxUpDb);
             }
             currentGainDb_.store(initGainDb, std::memory_order_relaxed);
             currentGainLinear_.store(std::pow(10.0f, initGainDb / 20.0f), std::memory_order_relaxed);
@@ -2080,19 +2339,50 @@ namespace
             loudnessRangeLRA.store(0.0f, std::memory_order_relaxed);
         }
 
+        void reset(int sampleRate, float seedLufs = -100.0f)
+        {
+            const int sr = (sampleRate > 0) ? sampleRate : 48000;
+            pendingSampleRate_.store(sr, std::memory_order_relaxed);
+            pendingSeedLufs_.store(seedLufs, std::memory_order_relaxed);
+            if (!inProcess_.load(std::memory_order_relaxed))
+            {
+                resetRequested_.store(false, std::memory_order_relaxed);
+                applyResetInternal(sr, seedLufs);
+            }
+            else
+            {
+                const float initLufs = (seedLufs > -70.0f) ? seedLufs : -100.0f;
+                momentaryLUFS.store(initLufs, std::memory_order_relaxed);
+                shortTermLUFS.store(initLufs, std::memory_order_relaxed);
+                integratedLUFS.store(initLufs, std::memory_order_relaxed);
+                loudnessRangeLRA.store(0.0f, std::memory_order_relaxed);
+                resetRequested_.store(true, std::memory_order_release);
+            }
+        }
+
         void process(const float *interleaved, ma_uint32 frames, int channels, float invGain = 1.0f)
         {
-            if (channels < 1) return;
+            if (!interleaved || frames == 0 || channels < 1) return;
+
+            inProcess_.store(true, std::memory_order_relaxed);
+            if (resetRequested_.exchange(false, std::memory_order_acq_rel))
+            {
+                applyResetInternal(
+                    pendingSampleRate_.load(std::memory_order_relaxed),
+                    pendingSeedLufs_.load(std::memory_order_relaxed));
+            }
+
             const int ch = std::min(channels, 8);
             static const double channelWeights[8] = {1.0, 1.0, 1.0, 0.0, 1.41, 1.41, 1.0, 1.0};
             const double invG = (double)invGain;
+            constexpr double absThresholdPwr = 1.17762e-7; // -70 LUFS
 
             for (ma_uint32 i = 0; i < frames; ++i)
             {
                 for (int c = 0; c < ch; ++c)
                 {
-                    double inSample = (double)interleaved[i * (size_t)channels + c] * invG;
-                    double kFiltered = kFilters[c].process(inSample);
+                    const double inSample = (double)interleaved[i * (size_t)channels + c] * invG;
+                    const double kFiltered = kFilters[c].process(inSample);
                     blockSumSq[c] += kFiltered * kFiltered;
                 }
                 blockSampleCount++;
@@ -2102,7 +2392,7 @@ namespace
                     double blockPower = 0.0;
                     for (int c = 0; c < ch; ++c)
                     {
-                        double meanSq = blockSumSq[c] / (double)blockSampleCount;
+                        const double meanSq = blockSumSq[c] / (double)blockSampleCount;
                         blockPower += channelWeights[c] * meanSq;
                         blockSumSq[c] = 0.0;
                     }
@@ -2112,166 +2402,141 @@ namespace
                     ringHead = (ringHead + 1) % RING_SIZE;
                     totalBlocksCount++;
 
+                    // 400 ms sliding momentary block (75% overlap at 100 ms hop) per ITU-R BS.1770-4
                     double momSum = 0.0;
                     int momCount = 0;
                     for (int b = 0; b < 4; ++b)
                     {
-                        size_t idx = (ringHead + RING_SIZE - 1 - (size_t)b) % RING_SIZE;
+                        const size_t idx = (ringHead + RING_SIZE - 1 - (size_t)b) % RING_SIZE;
                         if (blockRing[idx].valid) { momSum += blockRing[idx].power; momCount++; }
                     }
+                    double momPwr = 0.0;
                     if (momCount > 0)
                     {
-                        double meanPwr = momSum / (double)momCount;
-                        float mLufs = (meanPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(meanPwr)) : -100.0f;
+                        momPwr = momSum / (double)momCount;
+                        const float mLufs = (momPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(momPwr)) : -100.0f;
                         momentaryLUFS.store(mLufs, std::memory_order_relaxed);
                     }
 
+                    // 3.0 s sliding short-term block (30 x 100 ms sub-blocks)
                     double stSum = 0.0;
                     int stCount = 0;
                     for (int b = 0; b < 30; ++b)
                     {
-                        size_t idx = (ringHead + RING_SIZE - 1 - (size_t)b) % RING_SIZE;
+                        const size_t idx = (ringHead + RING_SIZE - 1 - (size_t)b) % RING_SIZE;
                         if (blockRing[idx].valid) { stSum += blockRing[idx].power; stCount++; }
                     }
+                    double stPwr = 0.0;
                     if (stCount > 0)
                     {
-                        double meanPwr = stSum / (double)stCount;
-                        float stLufs = (meanPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(meanPwr)) : -100.0f;
+                        stPwr = stSum / (double)stCount;
+                        const float stLufs = (stPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(stPwr)) : -100.0f;
                         shortTermLUFS.store(stLufs, std::memory_order_relaxed);
                     }
 
-                    // Accumulate gated-block history with O(1) zero-allocation bookkeeping.
-                    if (blockPower > 1e-10)
+                    // Record 400 ms gating block (after full 400 ms window or during fast initial 1-3 hops)
+                    if (momCount > 0 && momPwr >= absThresholdPwr)
                     {
-                        constexpr double absThresholdPwr = 1.17762e-7; // -70 LUFS
-                        if (accCount >= MAX_ACCUMULATED_BLOCKS)
-                        {
-                            const double oldest = accumulatedBlocks[accHead];
-                            if (oldest >= absThresholdPwr && absGateCount > 0)
-                            {
-                                absGateSum -= oldest;
-                                --absGateCount;
-                            }
-                        }
-                        else
-                        {
-                            ++accCount;
-                        }
-
-                        accumulatedBlocks[accHead] = blockPower;
-                        accHead = (accHead + 1) % MAX_ACCUMULATED_BLOCKS;
-
-                        if (blockPower >= absThresholdPwr)
-                        {
-                            absGateSum += blockPower;
-                            ++absGateCount;
-                        }
+                        const double momLufs = -0.691 + 10.0 * std::log10(momPwr);
+                        const int bin = lufsToBin(momLufs);
+                        intHistCounts[bin]++;
+                        intHistPwrSum[bin] += momPwr;
+                        absGateSum += momPwr;
+                        absGateCount++;
+                        gatedBlocksCount++;
                     }
 
-                    // Integrated loudness / LRA are perceptually slow metrics.
-                    // Throttle to once per second, but provide fast initial convergence
-                    // on the first 10 blocks (first 1.0s) so the normalizer locks in immediately.
+                    // Record 3 s LRA block once at least 1.0 s accumulated
+                    if (stCount >= 10 && stPwr >= absThresholdPwr)
+                    {
+                        const double stLufsD = -0.691 + 10.0 * std::log10(stPwr);
+                        const int bin = lufsToBin(stLufsD);
+                        lraHistCounts[bin]++;
+                        lraAbsSum += stPwr;
+                        lraAbsCount++;
+                    }
+
                     ++blocksSinceAnalysis;
                     const bool runGatedAnalysis =
-                        ((accCount > 0 && accCount <= 10) || blocksSinceAnalysis >= 10) && accCount > 0;
+                        ((absGateCount > 0 && absGateCount <= 10) || blocksSinceAnalysis >= 10) && absGateCount > 0;
 
                     if (runGatedAnalysis)
                     {
                         blocksSinceAnalysis = 0;
-                        {
-                        constexpr double absThresholdPwr = 1.17762e-7;
-                        double ungatedMeanPwr = 0.0;
-                        bool pass2Skip = false;
-                        if (absGateCount > 0)
-                        {
-                            ungatedMeanPwr = absGateSum / (double)absGateCount;
-                        }
-                        else
-                        {
-                            double pass1Sum = 0.0;
-                            size_t pass1Count = 0;
-                            for (size_t k = 0; k < accCount; ++k)
-                            {
-                                size_t idx = (accCount < MAX_ACCUMULATED_BLOCKS) ? k : ((accHead + k) % MAX_ACCUMULATED_BLOCKS);
-                                double pwr = accumulatedBlocks[idx];
-                                if (pwr >= absThresholdPwr) { pass1Sum += pwr; pass1Count++; }
-                            }
-                            if (pass1Count == 0)
-                            {
-                                ungatedMeanPwr = 0.0;
-                                pass2Skip = true;
-                            }
-                            else
-                            {
-                                ungatedMeanPwr = pass1Sum / (double)pass1Count;
-                            }
-                        }
 
-                        const double relThresholdLUFS = -0.691 + 10.0 * std::log10(ungatedMeanPwr > 1e-12 ? ungatedMeanPwr : 1e-12) - 10.0;
-                        const double relThresholdPwr = std::pow(10.0, (relThresholdLUFS + 0.691) / 10.0);
+                        // Pass 2: relative -10 LU gate via O(800) fixed histogram scan (zero allocation/sort)
+                        const double ungatedMeanPwr = absGateSum / (double)absGateCount;
+                        const double relThresholdLUFS = -0.691 + 10.0 * std::log10(std::max(ungatedMeanPwr, 1e-12)) - 10.0;
+                        const int startBin = lufsToBin(relThresholdLUFS);
 
                         double pass2Sum = 0.0;
-                        size_t pass2Count = 0;
-                        pass2Powers.clear();
-                        if (!pass2Skip)
+                        uint64_t pass2Count = 0;
+                        for (int b = startBin; b < kHistBins; ++b)
                         {
-                            for (size_t k = 0; k < accCount; ++k)
-                            {
-                                size_t idx = (accCount < MAX_ACCUMULATED_BLOCKS) ? k : ((accHead + k) % MAX_ACCUMULATED_BLOCKS);
-                                double pwr = accumulatedBlocks[idx];
-                                if (pwr >= relThresholdPwr)
-                                {
-                                    pass2Sum += pwr;
-                                    pass2Count++;
-                                    pass2Powers.push_back(pwr);
-                                }
-                            }
+                            pass2Count += intHistCounts[b];
+                            pass2Sum += intHistPwrSum[b];
                         }
 
                         if (pass2Count > 0)
                         {
-                            double finalMeanPwr = pass2Sum / (double)pass2Count;
-                            float intLufs = (float)(-0.691 + 10.0 * std::log10(finalMeanPwr));
+                            const double finalMeanPwr = pass2Sum / (double)pass2Count;
+                            const float intLufs = (float)(-0.691 + 10.0 * std::log10(finalMeanPwr));
                             integratedLUFS.store(intLufs, std::memory_order_relaxed);
+                        }
 
-                            // Compute Loudness Range (LRA) between 10th percentile and 95th percentile
-                            if (pass2Powers.size() >= 20)
+                        // LRA via EBU R128 relative -20 LU gate on O(800) histogram (10th to 95th percentile)
+                        if (lraAbsCount >= 2)
+                        {
+                            const double lraMeanPwr = lraAbsSum / (double)lraAbsCount;
+                            const double lraRelThresh = -0.691 + 10.0 * std::log10(std::max(lraMeanPwr, 1e-12)) - 20.0;
+                            const int lraStart = lufsToBin(lraRelThresh);
+
+                            uint64_t lraGatedTotal = 0;
+                            for (int b = lraStart; b < kHistBins; ++b)
                             {
-                                std::sort(pass2Powers.begin(), pass2Powers.end());
-                                size_t idx10 = (size_t)(0.10 * (double)pass2Powers.size());
-                                size_t idx95 = (size_t)(0.95 * (double)pass2Powers.size());
-                                if (idx95 >= pass2Powers.size()) idx95 = pass2Powers.size() - 1;
+                                lraGatedTotal += lraHistCounts[b];
+                            }
 
-                                double lufs10 = -0.691 + 10.0 * std::log10(pass2Powers[idx10]);
-                                double lufs95 = -0.691 + 10.0 * std::log10(pass2Powers[idx95]);
-                                float lra = (float)(lufs95 - lufs10);
-                                if (lra < 0.0f) lra = 0.0f;
+                            if (lraGatedTotal >= 10)
+                            {
+                                const uint64_t rank10 = (uint64_t)(0.10 * (double)lraGatedTotal);
+                                const uint64_t rank95 = std::max<uint64_t>(rank10, (uint64_t)(0.95 * (double)lraGatedTotal));
+                                uint64_t cum = 0;
+                                int bin10 = lraStart;
+                                int bin95 = kHistBins - 1;
+                                bool found10 = false;
+                                for (int b = lraStart; b < kHistBins; ++b)
+                                {
+                                    cum += lraHistCounts[b];
+                                    if (!found10 && cum > rank10) { bin10 = b; found10 = true; }
+                                    if (cum >= rank95) { bin95 = b; break; }
+                                }
+                                const float lra = std::max(0.0f, static_cast<float>((bin95 - bin10) * 0.1));
                                 loudnessRangeLRA.store(lra, std::memory_order_relaxed);
                             }
-                        }
                         }
                     }
                 }
             }
+            inProcess_.store(false, std::memory_order_relaxed);
         }
 
         float getNormalizerGainLinear(float dt = 0.0f)
         {
             if (!normalizerEnabled.load(std::memory_order_relaxed)) return 1.0f;
-            float currentIntegrated = integratedLUFS.load(std::memory_order_relaxed);
+            const float currentIntegrated = integratedLUFS.load(std::memory_order_relaxed);
             if (currentIntegrated < -70.0f) return 1.0f;
 
+            const float maxUpDb = maxSafeGainDb_.load(std::memory_order_relaxed);
             float targetGainDB = normalizerTargetLUFS.load(std::memory_order_relaxed) - currentIntegrated;
-            // Anti-blast guard: If loudness was not pre-seeded, prevent excessive upward boost
-            // during quiet intros (< -30 LUFS) or during the first ~2 seconds.
-            if ((accCount < 20 && seedLufsInitial <= -70.0f) || currentIntegrated < -30.0f)
+            if ((totalBlocksCount < 20 && seedLufsInitial <= -70.0f) || currentIntegrated < -30.0f)
             {
                 if (targetGainDB > 0.0f) targetGainDB = 0.0f;
                 targetGainDB = clampf(targetGainDB, -12.0f, 0.0f);
             }
             else
             {
-                targetGainDB = clampf(targetGainDB, -12.0f, 6.0f);
+                targetGainDB = clampf(targetGainDB, -12.0f, maxUpDb);
             }
 
             if (dt <= 0.0f)
@@ -2279,9 +2544,6 @@ namespace
                 return std::pow(10.0f, targetGainDB / 20.0f);
             }
 
-            // Professional broadcast AGC slew rate:
-            // Upward slew rate: 0.75 dB/sec (transparent, imperceptible to ear)
-            // Downward slew rate: 1.50 dB/sec (gentle, avoids sudden ducking)
             float curDb = currentGainDb_.load(std::memory_order_relaxed);
             if (targetGainDB > curDb)
             {
@@ -2303,6 +2565,7 @@ namespace
     struct AutomatedParamFloat
     {
         std::atomic<float> target{1.0f};
+        std::atomic<float> currentAtomic{1.0f};
         float current = 1.0f;
         float step = 0.0f;
 
@@ -2322,6 +2585,7 @@ namespace
             if (smoothingMs <= 0.0f || frames == 0 || sampleRate <= 0)
             {
                 current = tgt;
+                currentAtomic.store(tgt, std::memory_order_relaxed);
                 step = 0.0f;
                 return;
             }
@@ -2341,8 +2605,6 @@ namespace
         inline float next()
         {
             current += step;
-            // Clamp to the target: linear stepping otherwise overshoots/undershoots
-            // and micro-oscillates around the setpoint forever.
             const float tgt = target.load(std::memory_order_relaxed);
             if ((step > 0.0f && current > tgt) || (step < 0.0f && current < tgt))
             {
@@ -2350,6 +2612,11 @@ namespace
                 step = 0.0f;
             }
             return current;
+        }
+
+        inline void publishAtomic() noexcept
+        {
+            currentAtomic.store(current, std::memory_order_relaxed);
         }
     };
 
@@ -3700,7 +3967,7 @@ struct AudioEngineHandle
     EqState eq;
 
     // Audio Limiter & Clipping Detection
-    bool limiterEnabled = false;
+    std::atomic<bool> limiterEnabled{false};
     LimiterState limiter;
 
     // Dynamic Range Compressor
@@ -5436,6 +5703,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     const ma_uint32 sampleRate = (ma_uint32)((e->sampleRate > 0) ? e->sampleRate : 48000);
     e->stereoEnhancement.refresh((int)sampleRate);
     e->surroundDsp.setSampleRate((float)sampleRate);
+    e->lookaheadLimiter.setSampleRate((int)sampleRate);
 }
 
 static void reinit_clean_room_dsp_filters(AudioEngineHandle *e)
@@ -6375,9 +6643,8 @@ static void apply_initial_track_loudness(AudioEngineHandle *e, ma_decoder *decod
     }
 
     e->currentTrackNormalizerGain.store(chosenLinear, std::memory_order_relaxed);
-    e->currentTrackReplayGain.store(chosenLinear, std::memory_order_relaxed);
-    e->replayGainLinear.store(chosenLinear, std::memory_order_relaxed);
     e->paramNormalizerGain.current = chosenLinear;
+    e->paramNormalizerGain.currentAtomic.store(chosenLinear, std::memory_order_relaxed);
     e->paramNormalizerGain.setTarget(chosenLinear);
 
     const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
@@ -8652,9 +8919,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // Bass, Clarity, or Warmth effects, or during crossfades/transitions.
         // =====================================================================
         if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
-            e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
-            e->levellerDsp.isEnabled() ||
-            e->lookaheadAgcDsp.isEnabled())
+            e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
         {
             e->loudnessMeter.process(processBuffer, produced, e->channels, 1.0f);
         }
@@ -8730,8 +8995,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->currentTrackNormalizerGain.store(inNorm, std::memory_order_relaxed);
                 }
 
-                const float outGain = (loudnessAware ? e->fadingOutReplayGain.load(std::memory_order_relaxed) : 1.0f) * outNorm;
-                const float inGain  = (loudnessAware ? e->currentTrackReplayGain.load(std::memory_order_relaxed) : 1.0f) * inNorm;
+                const float outRg = loudnessAware ? e->fadingOutReplayGain.load(std::memory_order_relaxed) : 1.0f;
+                const float inRg  = loudnessAware ? e->currentTrackReplayGain.load(std::memory_order_relaxed) : 1.0f;
+                const float outGain = normEnabled ? outNorm : outRg;
+                const float inGain  = normEnabled ? inNorm  : inRg;
 
                 // Graceful-abort ramp (user skipped mid-fade): the outgoing
                 // track follows a linear envelope from its current perceived
@@ -9217,10 +9484,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
         if (!bypassAppDsp)
         {
             const bool crossfadeMixing = (e->isCrossfading.load(std::memory_order_relaxed) || crossfadeProcessedThisBlock);
-            const float rg = crossfadeMixing ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
+            const bool normEnabled = e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed);
+            const float rg = (crossfadeMixing || normEnabled) ? 1.0f : e->replayGainLinear.load(std::memory_order_relaxed);
 
             float normTarget = 1.0f;
-            if (e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
+            if (normEnabled)
             {
                 if (crossfadeMixing)
                 {
@@ -9248,14 +9516,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 if (use64)
                 {
-                    const double rg64 = static_cast<double>(rg);
                     for (size_t i = 0; i < producedSamples; ++i)
-                        buf64[i] = buf64[i] * rg64 * static_cast<double>(e->paramNormalizerGain.next());
+                        buf64[i] *= static_cast<double>(e->paramNormalizerGain.next());
                 }
                 else
                 {
                     for (size_t i = 0; i < producedSamples; ++i)
-                        processBuffer[i] *= rg * e->paramNormalizerGain.next();
+                        processBuffer[i] *= e->paramNormalizerGain.next();
                 }
             }
             else if (rg != 1.0f)
@@ -9272,6 +9539,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         processBuffer[i] *= rg;
                 }
             }
+            e->paramNormalizerGain.publishAtomic();
         }
 
         if (!bypassAppDsp)
@@ -9617,16 +9885,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // Placed BEFORE read-only metering so meters measure the true levelled programme.
             if (e->levellerDsp.isEnabled())
             {
+                if (use64)
                 {
-                    const float shortTermLufs = e->loudnessMeter.shortTermLUFS.load(std::memory_order_relaxed);
-                    if (use64)
-                    {
-                        e->levellerDsp.process(buf64, produced, e->channels, shortTermLufs);
-                    }
-                    else
-                    {
-                        e->levellerDsp.process(processBuffer, produced, e->channels, shortTermLufs);
-                    }
+                    e->levellerDsp.process(buf64, produced, e->channels, -100.0f);
+                }
+                else
+                {
+                    e->levellerDsp.process(processBuffer, produced, e->channels, -100.0f);
                 }
             }
 
@@ -9652,18 +9917,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
         //    (incorporating Broadcast Leveller AGC) and never fights the user's volume knob.
         // 2) FFT visualizer remains lively and dynamic at any volume setting.
         // =====================================================================
-        const bool needMeters = e->truePeakMeterEnabled.load(std::memory_order_relaxed) ||
-                                e->analyzerEnabled.load(std::memory_order_relaxed);
-        if (use64 && needMeters)
+        const bool needAnalyzer = e->analyzerEnabled.load(std::memory_order_relaxed);
+        if (use64 && needAnalyzer)
         {
             for (size_t i = 0; i < producedSamples; ++i)
                 processBuffer[i] = static_cast<float>(buf64[i]);
         }
-        if (e->truePeakMeterEnabled.load(std::memory_order_relaxed))
-        {
-            e->truePeakMeter.process(processBuffer, produced, e->channels);
-        }
-
         e->capture_analyzer_frames(processBuffer, produced, e->channels);
 
         // =====================================================================
@@ -9717,6 +9976,40 @@ static void decode_producer_loop(AudioEngineHandle *e)
         }
 
         // =====================================================================
+        // Pre-Limiter Monitor Balance & Per-Channel Gain Trim (Stage 5a)
+        // Executed BEFORE Zone 7 Limiters so positive L/R boosts (up to +12 dB)
+        // cannot bypass limiter ceiling protection.
+        // =====================================================================
+        {
+            const int ch = (e->channels > 0) ? e->channels : 2;
+            const float panVal = e->pan.load(std::memory_order_relaxed);
+            const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
+            const float rg = e->channelGainRight.load(std::memory_order_relaxed);
+            if (ch >= 2 && (panVal != 0.0f || lg != 1.0f || rg != 1.0f))
+            {
+                const double p = static_cast<double>(panVal);
+                const double lGain = clampd(1.0 - std::max(0.0, p), 0.0, 1.0) * static_cast<double>(lg);
+                const double rGain = clampd(1.0 + std::min(0.0, p), 0.0, 1.0) * static_cast<double>(rg);
+                if (use64 && buf64 != nullptr)
+                {
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        buf64[i * (size_t)ch + 0] *= lGain;
+                        buf64[i * (size_t)ch + 1] *= rGain;
+                    }
+                }
+                else
+                {
+                    for (ma_uint32 i = 0; i < produced; ++i)
+                    {
+                        processBuffer[i * (size_t)ch + 0] = static_cast<float>(static_cast<double>(processBuffer[i * (size_t)ch + 0]) * lGain);
+                        processBuffer[i * (size_t)ch + 1] = static_cast<float>(static_cast<double>(processBuffer[i * (size_t)ch + 1]) * rGain);
+                    }
+                }
+            }
+        }
+
+        // =====================================================================
         // ZONE 7: MASTERING BRICKWALL LIMITER & DAC INTERFACE
         // Catches user volume boosts (> 1.0), ISO 226 low-end boosts, or hot
         // transients before DAC. Unifies MasterLimiterDSP as the studio-grade
@@ -9726,123 +10019,46 @@ static void decode_producer_loop(AudioEngineHandle *e)
         {
             if (e->masterLimiterDsp.isEnabled())
             {
-                const bool isStereo = (e->channels == 2);
-                if (isStereo)
-                {
-                    if (use64)
-                        e->masterLimiterDsp.process(buf64, produced);
-                    else
-                        e->masterLimiterDsp.process(processBuffer, produced);
-                }
+                if (use64)
+                    e->masterLimiterDsp.process(buf64, produced, e->channels);
                 else
-                {
-                    const size_t ch = (size_t)e->channels;
-                    if (use64)
-                    {
-                        double *stBuf64 = e->dspStereoBuffer64.data();
-                        for (ma_uint32 i = 0; i < produced; ++i)
-                        {
-                            stBuf64[i * 2 + 0] = buf64[i * ch + 0];
-                            stBuf64[i * 2 + 1] = buf64[i * ch + 1];
-                        }
-                        e->masterLimiterDsp.process(stBuf64, produced);
-                        for (ma_uint32 i = 0; i < produced; ++i)
-                        {
-                            buf64[i * ch + 0] = stBuf64[i * 2 + 0];
-                            buf64[i * ch + 1] = stBuf64[i * 2 + 1];
-                        }
-                    }
-                    else
-                    {
-                        float *stBuf = e->dspStereoBuffer.data();
-                        for (ma_uint32 i = 0; i < produced; ++i)
-                        {
-                            stBuf[i * 2 + 0] = processBuffer[i * ch + 0];
-                            stBuf[i * 2 + 1] = processBuffer[i * ch + 1];
-                        }
-                        e->masterLimiterDsp.process(stBuf, produced);
-                        for (ma_uint32 i = 0; i < produced; ++i)
-                        {
-                            processBuffer[i * ch + 0] = stBuf[i * 2 + 0];
-                            processBuffer[i * ch + 1] = stBuf[i * 2 + 1];
-                        }
-                    }
-                }
+                    e->masterLimiterDsp.process(processBuffer, produced, e->channels);
             }
-            else if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+            else if (e->lookaheadLimiterEnabled.load(std::memory_order_acquire))
             {
                 if (use64)
                     e->lookaheadLimiter.process(buf64, produced, e->channels, e->engineSampleRate);
                 else
                     e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
             }
-            else if (e->limiterEnabled)
+            else if (e->limiterEnabled.load(std::memory_order_acquire))
             {
-                std::unique_lock<std::mutex> fxLock(e->fxMutex, std::try_to_lock);
-                if (fxLock.owns_lock())
-                {
-                    if (use64)
-                        e->limiter.process(buf64, produced, e->channels);
-                    else
-                        e->limiter.process(processBuffer, produced, e->channels);
-                }
+                if (use64)
+                    e->limiter.process(buf64, produced, e->channels);
+                else
+                    e->limiter.process(processBuffer, produced, e->channels);
             }
         }
 
     // =========================================================================
-    // Stage 5: Monitor & Channel Routing Stage
-    // Balance (Pan), Channel Mute (L/R Trim), Polarity Invert, and L/R Swap.
-    // Executed at output so muting or panning never bleeds through reverb/crossfeed.
+    // Stage 5b: Output Routing (Polarity Invert, L/R Swap) & Post-Limiter True Peak
     // =========================================================================
     {
         const int ch = (e->channels > 0) ? e->channels : 2;
-        const float panVal = e->pan.load(std::memory_order_relaxed);
-        const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
-        const float rg = e->channelGainRight.load(std::memory_order_relaxed);
         const bool invL  = e->phaseInvertLeft.load(std::memory_order_relaxed);
         const bool invR  = e->phaseInvertRight.load(std::memory_order_relaxed);
         const bool doSwap = e->lrSwapEnabled.load(std::memory_order_relaxed);
 
         if (use64 && buf64 != nullptr)
         {
-            // 1. Balance / Pan
-            if (ch >= 2 && panVal != 0.0f)
-            {
-                const double p = static_cast<double>(panVal);
-                const double l = clampd(1.0 - std::max(0.0, p), 0.0, 1.0);
-                const double r = clampd(1.0 + std::min(0.0, p), 0.0, 1.0);
-                for (ma_uint32 i = 0; i < produced; ++i)
-                {
-                    buf64[i * (size_t)ch + 0] *= l;
-                    buf64[i * (size_t)ch + 1] *= r;
-                }
-            }
-
-            // 2. Per-Channel Gain / Channel Mute (independent L and R trim)
-            if (ch >= 2 && (lg != 1.0f || rg != 1.0f))
-            {
-                const double lgD = static_cast<double>(lg);
-                const double rgD = static_cast<double>(rg);
-                for (ma_uint32 i = 0; i < produced; ++i)
-                {
-                    buf64[i * (size_t)ch + 0] *= lgD;
-                    buf64[i * (size_t)ch + 1] *= rgD;
-                }
-            }
-
-            // 3. Polarity Inversion (Phase Flip)
             if (invL || invR)
             {
                 for (ma_uint32 i = 0; i < produced; ++i)
                 {
-                    if (invL)
-                        buf64[i * (size_t)ch + 0] = -buf64[i * (size_t)ch + 0];
-                    if (ch > 1 && invR)
-                        buf64[i * (size_t)ch + 1] = -buf64[i * (size_t)ch + 1];
+                    if (invL) buf64[i * (size_t)ch + 0] = -buf64[i * (size_t)ch + 0];
+                    if (ch > 1 && invR) buf64[i * (size_t)ch + 1] = -buf64[i * (size_t)ch + 1];
                 }
             }
-
-            // 4. L/R Swap: exchange left and right output channels
             if (doSwap && ch >= 2)
             {
                 for (ma_uint32 i = 0; i < produced; ++i)
@@ -9852,46 +10068,17 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     buf64[i * (size_t)ch + 1] = tmp;
                 }
             }
-
         }
         else
         {
-            // 1. Balance / Pan
-            if (ch >= 2 && panVal != 0.0f)
-            {
-                const float p = panVal;
-                const float l = clampf(1.0f - std::max(0.0f, p), 0.0f, 1.0f);
-                const float r = clampf(1.0f + std::min(0.0f, p), 0.0f, 1.0f);
-                for (ma_uint32 i = 0; i < produced; ++i)
-                {
-                    processBuffer[i * (size_t)ch + 0] *= l;
-                    processBuffer[i * (size_t)ch + 1] *= r;
-                }
-            }
-
-            // 2. Per-Channel Gain / Channel Mute (independent L and R trim)
-            if (ch >= 2 && (lg != 1.0f || rg != 1.0f))
-            {
-                for (ma_uint32 i = 0; i < produced; ++i)
-                {
-                    processBuffer[i * (size_t)ch + 0] = (float)((double)processBuffer[i * (size_t)ch + 0] * (double)lg);
-                    processBuffer[i * (size_t)ch + 1] = (float)((double)processBuffer[i * (size_t)ch + 1] * (double)rg);
-                }
-            }
-
-            // 3. Polarity Inversion (Phase Flip)
             if (invL || invR)
             {
                 for (ma_uint32 i = 0; i < produced; ++i)
                 {
-                    if (invL)
-                        processBuffer[i * (size_t)ch + 0] = -processBuffer[i * (size_t)ch + 0];
-                    if (ch > 1 && invR)
-                        processBuffer[i * (size_t)ch + 1] = -processBuffer[i * (size_t)ch + 1];
+                    if (invL) processBuffer[i * (size_t)ch + 0] = -processBuffer[i * (size_t)ch + 0];
+                    if (ch > 1 && invR) processBuffer[i * (size_t)ch + 1] = -processBuffer[i * (size_t)ch + 1];
                 }
             }
-
-            // 4. L/R Swap: exchange left and right output channels
             if (doSwap && ch >= 2)
             {
                 for (ma_uint32 i = 0; i < produced; ++i)
@@ -9901,6 +10088,14 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     processBuffer[i * (size_t)ch + 1] = tmp;
                 }
             }
+        }
+
+        if (e->truePeakMeterEnabled.load(std::memory_order_relaxed))
+        {
+            if (use64 && buf64 != nullptr)
+                e->truePeakMeter.process(buf64, produced, ch);
+            else
+                e->truePeakMeter.process(processBuffer, produced, ch);
         }
 
         if (e->clippingDetectionEnabled.load(std::memory_order_relaxed))
@@ -14044,10 +14239,9 @@ extern "C"
             if (linear > maxSafeLinear)
                 linear = maxSafeLinear;
         }
-        e->currentTrackReplayGain.store(linear, std::memory_order_relaxed);
         e->currentTrackNormalizerGain.store(linear, std::memory_order_relaxed);
-        e->replayGainLinear.store(linear, std::memory_order_relaxed);
         e->paramNormalizerGain.current = linear;
+        e->paramNormalizerGain.currentAtomic.store(linear, std::memory_order_relaxed);
         e->paramNormalizerGain.setTarget(linear);
 
         const float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
@@ -14213,53 +14407,46 @@ extern "C"
 
         double totalLatency = 0.0;
         const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+        const bool bypassAppDsp = e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+            (e->castPcmTapEnabled.load(std::memory_order_relaxed) &&
+             e->castBypassDsp.load(std::memory_order_relaxed));
 
         {
             std::lock_guard<std::mutex> fx(e->fxMutex);
-
-            if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+            if (!bypassAppDsp)
             {
-                totalLatency += (double)e->lookaheadLimiter.getLatencySamples(sr);
-            }
-            // The simple limiter has no delay line - it contributes no latency.
-            if (e->stereoWidenEnabled)
-            {
-                totalLatency += e->stereoWiden.getLatencySamples(sr);
-            }
-            if (e->stereoEnhancementEnabled)
-            {
-                totalLatency += e->stereoEnhancement.getLatencySamples(sr);
-            }
-            if (e->crossfeedEnabled)
-            {
-                totalLatency += e->crossfeedNode.getLatencySamples();
-            }
-            if (e->reverbEnabled)
-            {
-                totalLatency += e->reverbNode.getLatencySamples();
+                if (e->stereoWidenEnabled)
+                {
+                    totalLatency += e->stereoWiden.getLatencySamples(sr);
+                }
+                if (e->stereoEnhancementEnabled)
+                {
+                    totalLatency += e->stereoEnhancement.getLatencySamples(sr);
+                }
+                if (e->crossfeedEnabled)
+                {
+                    totalLatency += e->crossfeedNode.getLatencySamples();
+                }
+                if (e->reverbEnabled)
+                {
+                    totalLatency += e->reverbNode.getLatencySamples();
+                }
             }
             if (e->deviceResamplerInit)
             {
                 totalLatency += (double)ma_resampler_get_input_latency(&e->deviceResampler);
             }
         }
-        // Clean-room DSP suite: report real pipeline latencies so position
-        // reporting / PDC stays aligned when these nodes are active.
+
+        if (!bypassAppDsp)
         {
             std::lock_guard<std::mutex> dspLock(e->dspMutex);
             if (e->fftConvolverDsp.isEnabled() && e->fftConvolverDsp.hasImpulseResponse())
             {
-                // Partitioned overlap-add convolver delays output by BLOCK_SIZE.
                 totalLatency += (double)sauti::dsp::FFTConvolverDSP::BLOCK_SIZE;
-            }
-            if (e->masterLimiterDsp.isEnabled())
-            {
-                // Look-ahead limiter delays the signal by its exact lookahead window.
-                totalLatency += (double)e->masterLimiterDsp.getLatencySamples();
             }
             if (e->lookaheadAgcDsp.isEnabled())
             {
-                // 3-band lookahead AGC + limiter delays the signal by its lookahead window.
                 totalLatency += (double)e->lookaheadAgcDsp.getLatencySamples();
             }
             if (e->analogWarmthDsp.isEnabled())
@@ -14269,6 +14456,16 @@ extern "C"
             if (e->tapeDriftDsp.isEnabled())
             {
                 totalLatency += e->tapeDriftDsp.getLatencySamples();
+            }
+
+            // Zone 7 priority cascade: only ONE limiter executes per frame
+            if (e->masterLimiterDsp.isEnabled())
+            {
+                totalLatency += (double)e->masterLimiterDsp.getLatencySamples();
+            }
+            else if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+            {
+                totalLatency += (double)e->lookaheadLimiter.getLatencySamples(sr);
             }
         }
         totalLatency += (double)e->trackResamplerOutputLatencyFrames.load(std::memory_order_relaxed);
@@ -14427,7 +14624,7 @@ extern "C"
         std::lock_guard<std::mutex> fx(e->fxMutex);
         ps.eq_enabled = e->eqEnabled ? 1 : 0;
         ps.reverb_enabled = e->reverbEnabled ? 1 : 0;
-        ps.limiter_enabled = (e->limiterEnabled || e->masterLimiterDsp.isEnabled()) ? 1 : 0;
+        ps.limiter_enabled = (e->limiterEnabled.load(std::memory_order_relaxed) || e->masterLimiterDsp.isEnabled() || e->lookaheadLimiterEnabled.load(std::memory_order_relaxed)) ? 1 : 0;
         ps.stereo_widen_enabled = e->stereoWidenEnabled ? 1 : 0;
         ps.stereo_enhancement_enabled = e->stereoEnhancementEnabled ? 1 : 0;
         ps.spatialization_enabled = e->surroundDsp.isEnabled() ? 1 : 0;
@@ -14451,7 +14648,7 @@ extern "C"
         {
             ps.active_limiter = 2;
         }
-        else if (e->limiterEnabled)
+        else if (e->limiterEnabled.load(std::memory_order_relaxed))
         {
             ps.active_limiter = 3;
         }
@@ -15106,7 +15303,7 @@ extern "C"
                 e->dynamicLoudnessDsp.getCurrentBoost(&curBass, &curTreb);
                 appendNode("dynamic_loudness", "Dynamic Loudness (ISO 226)", nativePrec,
                            "Bass " + fmtSignedDb(curBass, 1) + " · Treble " + fmtSignedDb(curTreb, 1), 0.0,
-                           {{"Ref SPL", fmtFloat(refDb, 0) + " dB"},
+                           {{"Ref Level", fmtFloat(refDb, 0) + " dB"},
                             {"Live Bass Boost", fmtSignedDb(curBass, 1) + " @ " + fmtFloat(bassHz, 0) + " Hz"},
                             {"Live Treble Boost", fmtSignedDb(curTreb, 1) + " @ " + fmtFloat(trebHz / 1000.0, 1) + " kHz"},
                             {"Max Bass / Treble", "+" + fmtFloat(maxBass, 1) + " / +" + fmtFloat(maxTreb, 1) + " dB"}});
@@ -15128,25 +15325,30 @@ extern "C"
             }
             else if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
             {
-                const float ceilDb = e->lookaheadLimiter.ceilingDBTP;
+                const float ceilDb = e->lookaheadLimiter.ceilingDBTP.load(std::memory_order_relaxed);
+                const float attMs = e->lookaheadLimiter.attackMs.load(std::memory_order_relaxed);
+                const float relMs = e->lookaheadLimiter.releaseMs.load(std::memory_order_relaxed);
                 const float gr = e->lookaheadLimiter.currentGainReductionDB.load(std::memory_order_relaxed);
                 const double latMs = (sr > 0.0) ? ((double)e->lookaheadLimiter.getLatencySamples((int)sr) * 1000.0 / sr) : 0.0;
                 appendNode("lookahead_limiter", "Look-Ahead Limiter", nativePrec,
                            "Ceiling " + fmtFloat(ceilDb, 1) + " dBTP · GR " + fmtFloat(gr, 1) + " dB", latMs,
                            {{"Mode", "Look-Ahead True Peak"},
                             {"Ceiling", fmtFloat(ceilDb, 1) + " dBTP"},
-                            {"Attack / Release", fmtFloat(e->lookaheadLimiter.attackMs, 1) + " / " + fmtFloat(e->lookaheadLimiter.releaseMs, 0) + " ms"},
+                            {"Attack / Release", fmtFloat(attMs, 1) + " / " + fmtFloat(relMs, 0) + " ms"},
                             {"Live GR", fmtFloat(gr, 1) + " dB"}});
             }
-            else if (e->limiterEnabled)
+            else if (e->limiterEnabled.load(std::memory_order_relaxed))
             {
-                const double threshDb = (e->limiter.threshold > 1e-6f) ? 20.0 * std::log10(e->limiter.threshold) : -60.0;
-                const double grDb = (e->limiter.gainEnvelope > 1e-6f) ? 20.0 * std::log10(e->limiter.gainEnvelope) : 0.0;
+                const float threshLin = e->limiter.threshold.load(std::memory_order_relaxed);
+                const double threshDb = (threshLin > 1e-6f) ? 20.0 * std::log10(threshLin) : -60.0;
+                const double grDb = static_cast<double>(e->limiter.currentGainReductionDB.load(std::memory_order_relaxed));
+                const float attMs = e->limiter.attackMs.load(std::memory_order_relaxed);
+                const float relMs = e->limiter.releaseMs.load(std::memory_order_relaxed);
                 appendNode("simple_limiter", "Anti-Clipping Limiter", nativePrec,
                            "Thresh " + fmtFloat(threshDb, 1) + " dB · GR " + fmtFloat(grDb, 1) + " dB", 0.0,
                            {{"Mode", "Zero-Latency Anti-Clip"},
                             {"Threshold", fmtFloat(threshDb, 1) + " dB"},
-                            {"Attack / Release", fmtFloat(e->limiter.attackMs, 1) + " / " + fmtFloat(e->limiter.releaseMs, 0) + " ms"},
+                            {"Attack / Release", fmtFloat(attMs, 1) + " / " + fmtFloat(relMs, 0) + " ms"},
                             {"Live GR", fmtFloat(grDb, 1) + " dB"}});
             }
         }
@@ -17911,16 +18113,15 @@ extern "C"
     {
         if (!engine)
             return;
-        std::lock_guard<std::mutex> fx(engine->fxMutex);
-        engine->limiterEnabled = (enabled != 0);
+        engine->limiterEnabled.store(enabled != 0, std::memory_order_release);
     }
 
     AE_API void ae_set_limiter_params(AudioEngineHandle *engine, float threshold, float attack_ms, float release_ms)
     {
         if (!engine)
             return;
-        std::lock_guard<std::mutex> fx(engine->fxMutex);
-        engine->limiter.updateParams(engine->sampleRate, threshold, attack_ms, release_ms);
+        const int sr = (engine->engineSampleRate > 0) ? engine->engineSampleRate : engine->sampleRate;
+        engine->limiter.updateParams(sr, threshold, attack_ms, release_ms);
     }
 
     // Dynamic Range Compressor
@@ -19573,15 +19774,12 @@ extern "C"
     AE_API void ae_dsp_set_dynamic_loudness_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->dynamicLoudnessDsp.setEnabled(enabled != 0);
     }
 
     AE_API int ae_dsp_get_dynamic_loudness_enabled(AudioEngineHandle *engine)
     {
-        if (!engine) return 0;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
-        return engine->dynamicLoudnessDsp.isEnabled() ? 1 : 0;
+        return engine && engine->dynamicLoudnessDsp.isEnabled() ? 1 : 0;
     }
 
     AE_API void ae_dsp_set_dynamic_loudness_params(AudioEngineHandle *engine,
@@ -19592,7 +19790,6 @@ extern "C"
                                                    float treble_freq_hz)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->dynamicLoudnessDsp.setParams(ref_level_db, max_bass_boost_db, max_treble_boost_db, bass_freq_hz, treble_freq_hz);
     }
 
@@ -19604,14 +19801,12 @@ extern "C"
                                                    float *out_treble_freq_hz)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->dynamicLoudnessDsp.getParams(out_ref_level_db, out_max_bass_boost_db, out_max_treble_boost_db, out_bass_freq_hz, out_treble_freq_hz);
     }
 
     AE_API void ae_dsp_get_dynamic_loudness_current_boost(AudioEngineHandle *engine, float *out_bass_boost_db, float *out_treble_boost_db)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->dynamicLoudnessDsp.getCurrentBoost(out_bass_boost_db, out_treble_boost_db);
     }
 
@@ -19666,15 +19861,12 @@ extern "C"
     AE_API void ae_dsp_set_leveller_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->levellerDsp.setEnabled(enabled != 0);
     }
 
     AE_API int ae_dsp_get_leveller_enabled(AudioEngineHandle *engine)
     {
-        if (!engine) return 0;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
-        return engine->levellerDsp.isEnabled() ? 1 : 0;
+        return engine && engine->levellerDsp.isEnabled() ? 1 : 0;
     }
 
     AE_API void ae_dsp_set_leveller_params(AudioEngineHandle *engine,
@@ -19686,7 +19878,6 @@ extern "C"
                                            float silence_gate_lufs)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->levellerDsp.setParams(target_lufs, max_rise_db_sec, max_fall_db_sec, max_boost_db, max_attenuation_db, silence_gate_lufs);
     }
 
@@ -19699,14 +19890,12 @@ extern "C"
                                            float *out_silence_gate)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->levellerDsp.getParams(out_target_lufs, out_max_rise, out_max_fall, out_max_boost, out_max_attenuation, out_silence_gate);
     }
 
     AE_API float ae_dsp_get_leveller_current_gain_db(AudioEngineHandle *engine)
     {
         if (!engine) return 0.0f;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         return engine->levellerDsp.getCurrentGainDb();
     }
 
@@ -19714,15 +19903,12 @@ extern "C"
     AE_API void ae_dsp_set_lookahead_agc_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->lookaheadAgcDsp.setEnabled(enabled != 0);
     }
 
     AE_API int ae_dsp_get_lookahead_agc_enabled(AudioEngineHandle *engine)
     {
-        if (!engine) return 0;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
-        return engine->lookaheadAgcDsp.isEnabled() ? 1 : 0;
+        return engine && engine->lookaheadAgcDsp.isEnabled() ? 1 : 0;
     }
 
     AE_API void ae_dsp_set_lookahead_agc_params(AudioEngineHandle *engine,
@@ -19739,7 +19925,6 @@ extern "C"
                                                  float bass_release_ms)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->lookaheadAgcDsp.setParams(target_lufs, max_boost_db, max_attenuation_db,
                                           agc_rise_db_sec, agc_fall_db_sec, silence_gate_lufs,
                                           lookahead_ms, ceiling_db, low_xover_hz, high_xover_hz, bass_release_ms);
@@ -19759,7 +19944,6 @@ extern "C"
                                                  float *out_bass_release_ms)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->lookaheadAgcDsp.getParams(out_target_lufs, out_max_boost_db, out_max_attenuation_db,
                                           out_agc_rise_db_sec, out_agc_fall_db_sec, out_silence_gate_lufs,
                                           out_lookahead_ms, out_ceiling_db, out_low_xover_hz, out_high_xover_hz, out_bass_release_ms);
@@ -19773,7 +19957,6 @@ extern "C"
                                                    float *out_peak_gr_db)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->lookaheadAgcDsp.getTelemetry(out_agc_gain_db, out_low_gr_db, out_mid_gr_db, out_high_gr_db, out_peak_gr_db);
     }
 
@@ -20133,14 +20316,12 @@ extern "C"
     AE_API void ae_dsp_set_master_limiter_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->masterLimiterDsp.setEnabled(enabled != 0);
     }
 
     AE_API void ae_dsp_set_master_limiter_params(AudioEngineHandle *engine, float ceiling_db, float output_gain_db, float release_ms)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->masterLimiterDsp.setCeilingDb(ceiling_db);
         engine->masterLimiterDsp.setOutputGainDb(output_gain_db);
         engine->masterLimiterDsp.setReleaseMs(release_ms);
@@ -21245,7 +21426,7 @@ extern "C"
     AE_API float ae_get_loudness_normalizer_gain_db(AudioEngineHandle *engine)
     {
         if (!engine) return 0.0f;
-        const float g = engine->paramNormalizerGain.current;
+        const float g = engine->paramNormalizerGain.currentAtomic.load(std::memory_order_relaxed);
         if (g <= 1e-6f) return -120.0f;
         return 20.0f * std::log10(g);
     }
@@ -21274,33 +21455,41 @@ extern "C"
 
     AE_API void ae_set_lookahead_limiter_enabled(AudioEngineHandle *engine, int enabled)
     {
-        if (engine)
+        if (!engine) return;
+        const bool enable = (enabled != 0);
+        const bool wasEnabled = engine->lookaheadLimiterEnabled.load(std::memory_order_relaxed);
+        if (enable && !wasEnabled)
         {
-            engine->lookaheadLimiterEnabled.store(enabled != 0, std::memory_order_relaxed);
-            if (enabled != 0)
-            {
-                engine->lookaheadLimiter.updateParams(
-                    engine->engineSampleRate,
-                    engine->channels,
-                    engine->lookaheadLimiter.ceilingDBTP,
-                    engine->lookaheadLimiter.attackMs,
-                    engine->lookaheadLimiter.releaseMs
-                );
-            }
+            const int sr = (engine->engineSampleRate > 0) ? engine->engineSampleRate : engine->sampleRate;
+            engine->lookaheadLimiter.updateParams(
+                sr,
+                engine->channels,
+                engine->lookaheadLimiter.ceilingDBTP.load(std::memory_order_relaxed),
+                engine->lookaheadLimiter.attackMs.load(std::memory_order_relaxed),
+                engine->lookaheadLimiter.releaseMs.load(std::memory_order_relaxed)
+            );
+            engine->lookaheadLimiter.requestReset();
+            engine->lookaheadLimiterEnabled.store(true, std::memory_order_release);
+        }
+        else if (!enable)
+        {
+            engine->lookaheadLimiterEnabled.store(false, std::memory_order_release);
+            engine->lookaheadLimiter.requestReset();
         }
     }
 
     AE_API int ae_get_lookahead_limiter_enabled(AudioEngineHandle *engine)
     {
-        return engine ? (engine->lookaheadLimiterEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
+        return engine ? (engine->lookaheadLimiterEnabled.load(std::memory_order_acquire) ? 1 : 0) : 0;
     }
 
     AE_API void ae_set_lookahead_limiter_params(AudioEngineHandle *engine, float ceiling_dbtp, float attack_ms, float release_ms)
     {
         if (engine)
         {
+            const int sr = (engine->engineSampleRate > 0) ? engine->engineSampleRate : engine->sampleRate;
             engine->lookaheadLimiter.updateParams(
-                engine->engineSampleRate,
+                sr,
                 engine->channels,
                 ceiling_dbtp,
                 attack_ms,
@@ -21313,9 +21502,9 @@ extern "C"
     {
         if (engine)
         {
-            if (out_ceiling_dbtp) *out_ceiling_dbtp = engine->lookaheadLimiter.ceilingDBTP;
-            if (out_attack_ms) *out_attack_ms = engine->lookaheadLimiter.attackMs;
-            if (out_release_ms) *out_release_ms = engine->lookaheadLimiter.releaseMs;
+            if (out_ceiling_dbtp) *out_ceiling_dbtp = engine->lookaheadLimiter.ceilingDBTP.load(std::memory_order_relaxed);
+            if (out_attack_ms) *out_attack_ms = engine->lookaheadLimiter.attackMs.load(std::memory_order_relaxed);
+            if (out_release_ms) *out_release_ms = engine->lookaheadLimiter.releaseMs.load(std::memory_order_relaxed);
         }
     }
 
@@ -21415,7 +21604,16 @@ extern "C"
             t.integrated_lufs = lm.integrated_lufs;
             t.loudness_range_lra = lm.loudness_range_lra;
             t.crest_factor_db = (tp.max_dbtp > -90.0f && lm.short_term_lufs > -90.0f) ? (tp.max_dbtp - lm.short_term_lufs) : 0.0f;
-            t.limiter_gain_reduction_db = ae_get_lookahead_limiter_gain_reduction_db(engine);
+            float activeLimiterGr = 0.0f;
+            if (engine->masterLimiterDsp.isEnabled())
+                activeLimiterGr = engine->masterLimiterDsp.getCurrentGainReductionDb();
+            else if (engine->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+                activeLimiterGr = ae_get_lookahead_limiter_gain_reduction_db(engine);
+            else if (engine->limiterEnabled.load(std::memory_order_relaxed))
+                activeLimiterGr = engine->limiter.currentGainReductionDB.load(std::memory_order_relaxed);
+            else if (engine->lookaheadAgcDsp.isEnabled())
+                engine->lookaheadAgcDsp.getTelemetry(nullptr, nullptr, nullptr, nullptr, &activeLimiterGr);
+            t.limiter_gain_reduction_db = activeLimiterGr;
             t.resampler_latency_ms = ae_get_resampling_policy_info(engine).resampler_latency_ms;
             t.total_engine_latency_ms = ae_get_engine_latency_ms(engine);
             t.clipped_samples_count = ae_get_clipped_samples_count(engine);

@@ -1792,21 +1792,35 @@ class AppStateService {
     );
   }
 
+  static const _kLookaheadLimiterAttackMs = 'sp_lookahead_limiter_attack_ms';
+  static const _kLookaheadLimiterReleaseMs = 'sp_lookahead_limiter_release_ms';
+
   Future<void> saveLookaheadLimiter({
     required bool enabled,
     required double ceilingDBTP,
+    double? attackMs,
+    double? releaseMs,
   }) async {
     final prefs = PreferencesStore.instance;
     await prefs.setBool(_kLookaheadLimiterEnabled, enabled);
     await prefs.setDouble(_kLookaheadLimiterCeiling, ceilingDBTP);
+    if (attackMs != null) {
+      await prefs.setDouble(_kLookaheadLimiterAttackMs, attackMs);
+    }
+    if (releaseMs != null) {
+      await prefs.setDouble(_kLookaheadLimiterReleaseMs, releaseMs);
+    }
     audioProcessingSettingsChanged.add(null);
   }
 
-  Future<({bool enabled, double ceilingDBTP})> loadLookaheadLimiter() async {
+  Future<({bool enabled, double ceilingDBTP, double attackMs, double releaseMs})>
+      loadLookaheadLimiter() async {
     final prefs = PreferencesStore.instance;
     return (
       enabled: prefs.getBool(_kLookaheadLimiterEnabled) ?? true,
       ceilingDBTP: prefs.getDouble(_kLookaheadLimiterCeiling) ?? -1.0,
+      attackMs: prefs.getDouble(_kLookaheadLimiterAttackMs) ?? 2.0,
+      releaseMs: prefs.getDouble(_kLookaheadLimiterReleaseMs) ?? 50.0,
     );
   }
 
