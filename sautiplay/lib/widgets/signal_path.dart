@@ -351,9 +351,9 @@ SignalPathResult buildSignalPath(
   final bool float64EndToEnd = hasFloat64EndToEndField
       ? (t['float64EndToEnd'] == true)
       : (is64BitDsp && !deviceSrcActive);
-  final bool appDspBypassed = t['appDspBypassed'] == true ||
-      specs.isDirectPcm ||
-      (hw['isExclusiveMode'] == true && !t.containsKey('appDspBypassed'));
+  final bool appDspBypassed = t.containsKey('appDspBypassed')
+      ? (t['appDspBypassed'] == true)
+      : (specs.isDirectPcm || hw['isExclusiveMode'] == true);
 
   // F5-F7: SRC & Resampler labels
   final bool isNetworkStream = t['isNetworkStream'] == true;

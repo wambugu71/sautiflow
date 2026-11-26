@@ -34,8 +34,8 @@ class TrackAutomixInfo {
     return TrackAutomixInfo(
       uri: uri,
       bpm: 120.0,
-      musicalKey: 'C',
-      camelotKey: '8B',
+      musicalKey: '',
+      camelotKey: '',
       introEndSeconds: math.min(16.0, durationSec * 0.1),
       outroStartSeconds: math.max(durationSec - 32.0, durationSec * 0.85),
     );
@@ -79,8 +79,9 @@ class AutomixAnalysisService {
   };
 
   /// Parses a musical key tag (e.g. "Am", "8A", "C# minor") to a standardized Camelot code ("8A").
+  /// Returns empty string `''` if [raw] is null, empty, or unrecognized.
   String parseCamelotKey(String? raw) {
-    if (raw == null || raw.trim().isEmpty) return '8B';
+    if (raw == null || raw.trim().isEmpty) return '';
     final clean = raw.trim().toUpperCase();
 
     // Direct Camelot format (e.g. "8A", "11B")
@@ -90,15 +91,21 @@ class AutomixAnalysisService {
     }
 
     final lower = raw.trim().toLowerCase().replaceAll('major', 'maj').replaceAll('minor', 'min');
-    return _kKeyToCamelot[lower] ?? '8B';
+    return _kKeyToCamelot[lower] ?? '';
   }
 
   /// Determines the harmonic relationship between two Camelot keys.
   CamelotHarmonicRelation getHarmonicRelation(String keyA, String keyB) {
+    if (keyA.isEmpty || keyB.isEmpty) {
+      return CamelotHarmonicRelation.nearMiss;
+    }
     if (keyA == keyB) return CamelotHarmonicRelation.exactMatch;
 
-    final numA = int.tryParse(keyA.replaceAll(RegExp(r'[^0-9]'), '')) ?? 8;
-    final numB = int.tryParse(keyB.replaceAll(RegExp(r'[^0-9]'), '')) ?? 8;
+    final numA = int.tryParse(keyA.replaceAll(RegExp(r'[^0-9]'), ''));
+    final numB = int.tryParse(keyB.replaceAll(RegExp(r'[^0-9]'), ''));
+    if (numA == null || numB == null) {
+      return CamelotHarmonicRelation.nearMiss;
+    }
     final letterA = keyA.endsWith('B') ? 'B' : 'A';
     final letterB = keyB.endsWith('B') ? 'B' : 'A';
 
@@ -132,6 +139,9 @@ class AutomixAnalysisService {
 
   /// Calculates a harmonic compatibility score [0.0 - 1.0] for transition planning.
   double getHarmonicScore(String keyA, String keyB) {
+    if (keyA.isEmpty || keyB.isEmpty) {
+      return 0.5;
+    }
     switch (getHarmonicRelation(keyA, keyB)) {
       case CamelotHarmonicRelation.exactMatch:
         return 1.0;
@@ -147,6 +157,16 @@ class AutomixAnalysisService {
       case CamelotHarmonicRelation.incompatible:
         return 0.20;
     }
+  }
+
+  static double _foldBpmRatio(double fromBpm, double toBpm) {
+    double ratio = (toBpm > 0 && fromBpm > 0) ? (fromBpm / toBpm) : 1.0;
+    if (ratio > 1.41421356) {
+      ratio *= 0.5;
+    } else if (ratio < 0.70710678) {
+      ratio *= 2.0;
+    }
+    return ratio;
   }
 
   /// Re-orders an input playlist for optimal Auto DJ sequencing by
@@ -166,8 +186,8 @@ class AutomixAnalysisService {
         final candidate = unvisited[i];
         final harmonicScore = getHarmonicScore(current.camelotKey, candidate.camelotKey);
 
-        // BPM proximity factor (penalize large tempo jumps)
-        final bpmRatio = candidate.bpm > 0 ? (current.bpm / candidate.bpm) : 1.0;
+        // BPM proximity factor with octave folding (penalize large tempo jumps)
+        final bpmRatio = _foldBpmRatio(current.bpm, candidate.bpm);
         final bpmDelta = (1.0 - bpmRatio).abs();
         final bpmScore = math.max(0.0, 1.0 - (bpmDelta * 5.0));
 
@@ -190,7 +210,7 @@ class AutomixAnalysisService {
   /// based on Camelot harmonic compatibility and tempo difference.
   AutomixStyle recommendTransitionStyle(TrackAutomixInfo fromTrack, TrackAutomixInfo toTrack) {
     final relation = getHarmonicRelation(fromTrack.camelotKey, toTrack.camelotKey);
-    final bpmRatio = toTrack.bpm > 0 ? (fromTrack.bpm / toTrack.bpm) : 1.0;
+    final bpmRatio = _foldBpmRatio(fromTrack.bpm, toTrack.bpm);
     final bpmDelta = (1.0 - bpmRatio).abs();
 
     // Large tempo jump or harmonic clash -> Drop Cut or Filter Sweep

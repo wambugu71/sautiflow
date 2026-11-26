@@ -516,30 +516,42 @@ class M3uPlaylistService {
 
     while (remaining.isNotEmpty) {
       final prev = ordered.last;
-      final prevKey = prev.camelotKey ??
-          automix.parseCamelotKey(prev.musicalKey ?? 'C');
-      final prevBpm = prev.bpm ?? 120.0;
+      final prevKey = (prev.camelotKey != null && prev.camelotKey!.isNotEmpty)
+          ? prev.camelotKey!
+          : automix.parseCamelotKey(prev.musicalKey);
+      final prevBpm = (prev.bpm != null && prev.bpm! >= 40.0) ? prev.bpm! : 120.0;
 
       int bestIdx = 0;
       double bestScore = double.infinity;
 
       for (int i = 0; i < remaining.length; i++) {
         final cand = remaining[i];
-        final candKey = cand.camelotKey ??
-            automix.parseCamelotKey(cand.musicalKey ?? 'C');
-        final candBpm = cand.bpm ?? 120.0;
-        final rel = automix.getHarmonicRelation(prevKey, candKey);
-
-        final harmonicPenalty = switch (rel) {
-          CamelotHarmonicRelation.exactMatch => 0.0,
-          CamelotHarmonicRelation.relativePair => 3.0,
-          CamelotHarmonicRelation.subdominant => 5.0,
-          CamelotHarmonicRelation.dominant => 5.0,
-          CamelotHarmonicRelation.energyBoost => 10.0,
-          CamelotHarmonicRelation.nearMiss => 16.0,
-          CamelotHarmonicRelation.incompatible => 35.0,
-        };
-        final bpmPenalty = (candBpm - prevBpm).abs();
+        final candKey = (cand.camelotKey != null && cand.camelotKey!.isNotEmpty)
+            ? cand.camelotKey!
+            : automix.parseCamelotKey(cand.musicalKey);
+        final candBpm = (cand.bpm != null && cand.bpm! >= 40.0) ? cand.bpm! : 120.0;
+        final double harmonicPenalty;
+        if (prevKey.isEmpty || candKey.isEmpty) {
+          harmonicPenalty = 12.0;
+        } else {
+          final rel = automix.getHarmonicRelation(prevKey, candKey);
+          harmonicPenalty = switch (rel) {
+            CamelotHarmonicRelation.exactMatch => 0.0,
+            CamelotHarmonicRelation.relativePair => 3.0,
+            CamelotHarmonicRelation.subdominant => 5.0,
+            CamelotHarmonicRelation.dominant => 5.0,
+            CamelotHarmonicRelation.energyBoost => 10.0,
+            CamelotHarmonicRelation.nearMiss => 16.0,
+            CamelotHarmonicRelation.incompatible => 35.0,
+          };
+        }
+        double bpmRatio = candBpm > 0 ? (prevBpm / candBpm) : 1.0;
+        if (bpmRatio > 1.41421356) {
+          bpmRatio *= 0.5;
+        } else if (bpmRatio < 0.70710678) {
+          bpmRatio *= 2.0;
+        }
+        final bpmPenalty = ((1.0 - bpmRatio).abs()) * 100.0;
         final score = harmonicPenalty + bpmPenalty;
         if (score < bestScore) {
           bestScore = score;

@@ -1915,6 +1915,35 @@ class IsolateAudioPlayer {
     return response as bool? ?? false;
   }
 
+  Future<bool> isExclusiveModeActive() async {
+    final response = await _request('isExclusiveModeActive');
+    return response as bool? ?? false;
+  }
+
+  void applyOutputConfig({
+    AudioFormat? format,
+    int? sampleRate,
+    int? channels,
+    bool? exclusiveMode,
+    bool? autoSampleRate,
+    AudioOutputBackend? backend,
+    int? resampleAlgorithm,
+    int? ditherMode,
+    int? dacValidBitDepth,
+  }) =>
+      _send({
+        'cmd': 'applyOutputConfig',
+        'format': format?.index,
+        'sampleRate': sampleRate,
+        'channels': channels,
+        'exclusiveMode': exclusiveMode,
+        'autoSampleRate': autoSampleRate,
+        'backend': backend?.value,
+        'resampleAlgorithm': resampleAlgorithm,
+        'ditherMode': ditherMode,
+        'dacValidBitDepth': dacValidBitDepth,
+      });
+
   void setOutputBackend(AudioOutputBackend backend) =>
       _send({'cmd': 'setOutputBackend', 'backend': backend.value});
 
@@ -3222,6 +3251,30 @@ void _isolateEntry(_IsolateInitData initData) {
           } catch (e) {
             sendResponse(message, null, e);
           }
+          break;
+        case 'isExclusiveModeActive':
+          try {
+            sendResponse(message, player.isExclusiveModeActive());
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'applyOutputConfig':
+          final fmtIdx = message['format'] as int?;
+          final bkVal = message['backend'] as int?;
+          player.applyOutputConfig(
+            format: (fmtIdx != null && fmtIdx >= 0 && fmtIdx < AudioFormat.values.length)
+                ? AudioFormat.values[fmtIdx]
+                : null,
+            sampleRate: message['sampleRate'] as int?,
+            channels: message['channels'] as int?,
+            exclusiveMode: message['exclusiveMode'] as bool?,
+            autoSampleRate: message['autoSampleRate'] as bool?,
+            backend: bkVal != null ? AudioOutputBackend.fromInt(bkVal) : null,
+            resampleAlgorithm: message['resampleAlgorithm'] as int?,
+            ditherMode: message['ditherMode'] as int?,
+            dacValidBitDepth: message['dacValidBitDepth'] as int?,
+          );
           break;
         case 'getOutputBackend':
           try {

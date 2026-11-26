@@ -383,6 +383,11 @@ class AudioProfileService {
       final roomSize = (s['roomSize'] as num?)?.toDouble() ?? 0.3;
       final echo = (s['echo'] as num?)?.toDouble() ?? 0.15;
       player.setReverbEnabled(enabled);
+      player.setReverb(
+        mix: reverbMix,
+        feedback: roomSize,
+        delayMs: echo * 1000.0,
+      );
       await AppStateService.instance.saveSpatialAudio(
         enabled: enabled,
         reverbMix: reverbMix,
@@ -709,6 +714,7 @@ class AudioProfileService {
       final y = (t3d['y'] as num?)?.toDouble() ?? 0.0;
       final z = (t3d['z'] as num?)?.toDouble() ?? 0.0;
       player.setSpatializationEnabled(enabled);
+      player.setPosition(x: x, y: y, z: z);
       await AppStateService.instance
           .saveTrue3d(enabled: enabled, x: x, y: y, z: z);
     } else {
@@ -728,6 +734,11 @@ class AudioProfileService {
       final attack = (l['attackMs'] as num?)?.toDouble() ?? 2.0;
       final release = (l['releaseMs'] as num?)?.toDouble() ?? 50.0;
       player.setLimiterEnabled(enabled);
+      player.setLimiterParams(
+        threshold: threshold,
+        attackMs: attack,
+        releaseMs: release,
+      );
       await AppStateService.instance.saveLimiter(
         enabled: enabled,
         threshold: threshold,
@@ -736,13 +747,7 @@ class AudioProfileService {
       );
     } else {
       player.setLimiterEnabled(false);
-    player.setLimiterParams(threshold: 0.95, attackMs: 2.0, releaseMs: 50.0);
-    await AppStateService.instance.saveLimiter(
-      enabled: false,
-      threshold: 0.95,
-      attackMs: 2.0,
-      releaseMs: 50.0,
-    );
+      player.setLimiterParams(threshold: 0.95, attackMs: 2.0, releaseMs: 50.0);
       await AppStateService.instance.saveLimiter(
         enabled: false,
         threshold: 0.95,
@@ -1184,10 +1189,10 @@ class AudioProfileService {
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
         eqState: {
-          'enabled': true,
-          'preampDb': -3.5,
+          'enabled': false,
+          'preampDb': -4.0,
           'freqs': defaultFrequencies,
-          'gains': [-2.0, -1.5, -0.5, -1.0, 0.5, 1.5, 2.5, 2.0, 1.0, 0.0],
+          'gains': List<double>.filled(10, 0.0),
           'parametricEnabled': true,
           'parametricPreset': 'Vocal Clarity & Air',
           'parametricBands': [
@@ -1245,6 +1250,9 @@ class AudioProfileService {
           'dialogEnhancerDucking': 0.35,
           'dialogEnhancerClarity': 0.50,
           'dialogEnhancerCenterFocus': 0.70,
+          'limiterEnabled': true,
+          'limiterCeilingDb': -0.5,
+          'limiterReleaseMs': 50.0,
         },
       ),
       AudioProfile(
@@ -1256,10 +1264,10 @@ class AudioProfileService {
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
         eqState: {
-          'enabled': true,
-          'preampDb': -4.5,
+          'enabled': false,
+          'preampDb': -4.0,
           'freqs': defaultFrequencies,
-          'gains': [2.0, 3.0, 1.0, -1.5, -1.5, 0.0, 1.5, 2.5, 2.0, 1.5],
+          'gains': List<double>.filled(10, 0.0),
           'parametricEnabled': true,
           'parametricPreset': 'Rock & Metal Punch',
           'parametricBands': [
@@ -1306,6 +1314,9 @@ class AudioProfileService {
           'clarityEnabled': true,
           'clarityProfile': AudioClarityProfile.transientCrisp.value,
           'clarityIntensity': 0.30,
+          'limiterEnabled': true,
+          'limiterCeilingDb': -0.5,
+          'limiterReleaseMs': 50.0,
         },
       ),
       AudioProfile(
@@ -1317,10 +1328,10 @@ class AudioProfileService {
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
         eqState: {
-          'enabled': true,
-          'preampDb': 0.0,
+          'enabled': false,
+          'preampDb': -2.5,
           'freqs': defaultFrequencies,
-          'gains': [0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0],
+          'gains': List<double>.filled(10, 0.0),
           'parametricEnabled': true,
           'parametricPreset': 'Acoustic Guitar Natural',
           'parametricBands': [
@@ -1372,6 +1383,9 @@ class AudioProfileService {
           'dynamicSystemEnabled': true,
           'dynamicSystemProfile': TransducerProfile.audiophileReference.value,
           'dynamicSystemStrength': 0.30,
+          'limiterEnabled': true,
+          'limiterCeilingDb': -0.5,
+          'limiterReleaseMs': 50.0,
         },
       ),
       AudioProfile(
@@ -1383,10 +1397,10 @@ class AudioProfileService {
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
         eqState: {
-          'enabled': true,
-          'preampDb': -4.5,
+          'enabled': false,
+          'preampDb': -4.0,
           'freqs': defaultFrequencies,
-          'gains': [3.0, 2.5, 0.0, -0.5, 0.0, 0.5, 1.5, 1.5, 2.0, 2.5],
+          'gains': List<double>.filled(10, 0.0),
           'parametricEnabled': true,
           'parametricPreset': 'Smiley Loudness',
           'parametricBands': [
@@ -1462,6 +1476,9 @@ class AudioProfileService {
           'dialogEnhancerProfile': DialogEnhancerProfile.cinema.value,
           'dialogEnhancerAmount': 0.45,
           'dialogEnhancerCenterFocus': 0.70,
+          'limiterEnabled': true,
+          'limiterCeilingDb': -0.5,
+          'limiterReleaseMs': 50.0,
         },
       ),
       AudioProfile(
@@ -1473,10 +1490,10 @@ class AudioProfileService {
         createdAt: DateTime(2026, 1, 1),
         updatedAt: DateTime(2026, 1, 1),
         eqState: {
-          'enabled': true,
-          'preampDb': -1.0,
+          'enabled': false,
+          'preampDb': -2.5,
           'freqs': defaultFrequencies,
-          'gains': [1.5, 2.0, 1.0, 0.8, 0.5, 0.0, -0.5, -1.0, -1.5, -2.5],
+          'gains': List<double>.filled(10, 0.0),
           'parametricEnabled': true,
           'parametricPreset': 'Warm Vintage Tube',
           'parametricBands': [
@@ -1523,6 +1540,9 @@ class AudioProfileService {
           'dynamicSystemEnabled': true,
           'dynamicSystemProfile': TransducerProfile.deepAcousticWarmth.value,
           'dynamicSystemStrength': 0.35,
+          'limiterEnabled': true,
+          'limiterCeilingDb': -0.5,
+          'limiterReleaseMs': 50.0,
         },
       ),
     ];

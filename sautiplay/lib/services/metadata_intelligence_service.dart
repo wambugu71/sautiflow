@@ -246,7 +246,8 @@ class MetadataIntelligenceService {
   /// Resolves a Camelot key automatically if [musicalKey] is provided.
   String? resolveCamelot(String? musicalKey) {
     if (musicalKey == null || musicalKey.trim().isEmpty) return null;
-    return AutomixAnalysisService.instance.parseCamelotKey(musicalKey);
+    final parsed = AutomixAnalysisService.instance.parseCamelotKey(musicalKey);
+    return parsed.isEmpty ? null : parsed;
   }
 
   /// Applies inferred metadata only to missing/generic fields (or all if [overwriteAll]).

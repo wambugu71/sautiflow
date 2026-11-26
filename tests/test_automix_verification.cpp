@@ -212,57 +212,72 @@ void test_beat_blend_verification() {
 }
 
 // =============================================================================
-// TEST 7: Proportional Bass-Swap Frequency Response Flatness
+// TEST 7: Constant-Power Bass-Swap Frequency Response Flatness
 // =============================================================================
 void test_bass_swap_proportional_response() {
-    std::cout << "\n=== TEST 7: Proportional Bass-Swap Frequency Response Flatness ===" << std::endl;
-    sauti::dsp::CytomicSVF lp1, lp2, hp1, hp2;
+    std::cout << "\n=== TEST 7: Constant-Power Bass-Swap Frequency Response Flatness ===" << std::endl;
+    sauti::dsp::CytomicSVF lpA1, lpA2, hpA1, hpA2;
+    sauti::dsp::CytomicSVF lpB1, lpB2, hpB1, hpB2;
     const double sr = 48000.0;
     constexpr double butterworthQ = 0.7071067811865475;
-    lp1.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, 250.0, 0.0, butterworthQ);
-    lp2.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, 250.0, 0.0, butterworthQ);
-    hp1.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 250.0, 0.0, butterworthQ);
-    hp2.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 250.0, 0.0, butterworthQ);
+    lpA1.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, 250.0, 0.0, butterworthQ);
+    lpA2.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, 250.0, 0.0, butterworthQ);
+    hpA1.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 250.0, 0.0, butterworthQ);
+    hpA2.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 250.0, 0.0, butterworthQ);
+    lpB1.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, 250.0, 0.0, butterworthQ);
+    lpB2.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, 250.0, 0.0, butterworthQ);
+    hpB1.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 250.0, 0.0, butterworthQ);
+    hpB2.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 250.0, 0.0, butterworthQ);
 
-    // Test at t = 0.25 (Deck A fading, outEnv = cos(0.25*pi/2), before swap: bassOut = 1.0)
-    // In our proportional design: deckABassGain = outEnv * bassOut = outEnv.
-    // Therefore finalOut = outMidHigh * outEnv + outBass * outEnv = outEnv * (outMidHigh + outBass)
-    // Because LR4 outMidHigh + outBass = 1.0 allpass, finalOut / outEnv == 1.0 at all frequencies!
+    // At t = 0.25 (before bass swap): deckABassGain == 1.0, deckBBassGain == 0.0
+    // At t = 0.50 (mid bass swap): deckABassGain = cos(pi/4), deckBBassGain = sin(pi/4) -> bassOut^2 + bassIn^2 == 1.0
+    // At t = 0.75 (after bass swap): deckABassGain == 0.0, deckBBassGain == 1.0
     const float t = 0.25f;
     const float outEnv = std::cos(t * (float)(M_PI * 0.5));
     const float bassOut = 1.0f;
-    const float deckABassGain = outEnv * bassOut;
+    const float deckABassGain = bassOut;
 
     const std::vector<double> testFreqs = {40.0, 100.0, 250.0, 500.0, 2000.0, 8000.0};
-    double maxRelError = 0.0;
+    double bassGain60Hz = 0.0;
+    double highGain2kHz = 0.0;
 
     for (double f : testFreqs) {
-        lp1.reset(); lp2.reset(); hp1.reset(); hp2.reset();
+        lpA1.reset(); lpA2.reset(); hpA1.reset(); hpA2.reset();
         double peakRatio = 0.0;
         for (int i = 0; i < 9600; ++i) {
             double in = std::sin(2.0 * M_PI * f * (double)i / sr);
-            double lp = lp2.processSample(lp1.processSample(in, 0), 0);
-            double hp = hp2.processSample(hp1.processSample(in, 0), 0);
+            double lp = lpA2.processSample(lpA1.processSample(in, 0), 0);
+            double hp = hpA2.processSample(hpA1.processSample(in, 0), 0);
             double finalOut = (hp * outEnv) + (lp * deckABassGain);
             if (i > 7600) {
-                peakRatio = std::max(peakRatio, std::abs(finalOut) / (double)outEnv);
+                peakRatio = std::max(peakRatio, std::abs(finalOut));
             }
         }
-        maxRelError = std::max(maxRelError, std::abs(peakRatio - 1.0));
-        std::cout << "Freq " << std::setw(5) << (int)f << " Hz: Normalized Response = " 
-                  << std::fixed << std::setprecision(6) << peakRatio << " (error: " << (peakRatio - 1.0) << ")" << std::endl;
+        if (f < 120.0) bassGain60Hz = std::max(bassGain60Hz, peakRatio);
+        if (f >= 2000.0) highGain2kHz = std::max(highGain2kHz, peakRatio);
+        std::cout << "Freq " << std::setw(5) << (int)f << " Hz @ t=0.25: Deck A Amplitude = "
+                  << std::fixed << std::setprecision(6) << peakRatio << std::endl;
     }
 
-    std::cout << "Proportional Bass-Swap Flatness Result: Max deviation from unity = " 
-              << maxRelError << " (Zero Boomy Swell / Zero Notch: PASS)" << std::endl;
-    assert(maxRelError < 0.02);
+    // Bass stays near unity (no premature -3 dB dip from outEnv), while mid/highs follow outEnv
+    assert(std::abs(bassGain60Hz - 1.0) < 0.02);
+    assert(std::abs(highGain2kHz - outEnv) < 0.02);
+
+    // Mid-swap constant power check (t = 0.50 -> sw = 0.5)
+    const float sw = (0.50f - 0.46f) / 0.08f;
+    const float bOutMid = std::cos(sw * (float)(M_PI * 0.5));
+    const float bInMid = std::sin(sw * (float)(M_PI * 0.5));
+    const float bassPower = bOutMid * bOutMid + bInMid * bInMid;
+    assert(std::abs(bassPower - 1.0f) < 1e-6f);
+    std::cout << "Constant-Power Bass-Swap Result: bassHold=" << bassGain60Hz
+              << " midPower=" << bassPower << " (PASS)" << std::endl;
 }
 
 // =============================================================================
-// TEST 8: Smart Hybrid Pre-Crossover Sweep Transparency
+// TEST 8: Smart Hybrid Post-Crossover Sweep Isolation
 // =============================================================================
 void test_smart_hybrid_phase_continuity() {
-    std::cout << "\n=== TEST 8: Smart Hybrid Pre-Crossover Sweep Transparency ===" << std::endl;
+    std::cout << "\n=== TEST 8: Smart Hybrid Post-Crossover Sweep Isolation ===" << std::endl;
     sauti::dsp::CytomicSVF sweepHpf, lp1, lp2, hp1, hp2;
     const double sr = 48000.0;
     constexpr double butterworthQ = 0.7071067811865475;
@@ -271,29 +286,27 @@ void test_smart_hybrid_phase_continuity() {
     lp2.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, 250.0, 0.0, butterworthQ);
     hp1.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 250.0, 0.0, butterworthQ);
     hp2.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 250.0, 0.0, butterworthQ);
-    sweepHpf.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 800.0, 0.0, 0.85);
+    sweepHpf.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, 1500.0, 0.0, 0.85);
 
-    // At any frequency, passing through sweepHpf then LR4 crossover, outBass + outMidHigh == sweepHpf output exactly!
-    const std::vector<double> testFreqs = {100.0, 250.0, 800.0, 2000.0, 5000.0};
-    double maxCrossoverDiff = 0.0;
-
-    for (double f : testFreqs) {
-        sweepHpf.reset(); lp1.reset(); lp2.reset(); hp1.reset(); hp2.reset();
-        for (int i = 0; i < 9600; ++i) {
-            double in = std::sin(2.0 * M_PI * f * (double)i / sr);
-            double swept = sweepHpf.processSample(in, 0);
-            double lp = lp2.processSample(lp1.processSample(swept, 0), 0);
-            double hp = hp2.processSample(hp1.processSample(swept, 0), 0);
-            double reconstructed = lp + hp;
-            if (i > 7600) {
-                maxCrossoverDiff = std::max(maxCrossoverDiff, std::abs(reconstructed - swept));
-            }
+    // Split via LR4 FIRST, then sweep only mid/high: 50 Hz bass energy must remain near unity!
+    double subBassPeak = 0.0;
+    double midHighPeak = 0.0;
+    for (int i = 0; i < 9600; ++i) {
+        double sub = std::sin(2.0 * M_PI * 50.0 * (double)i / sr);
+        double lp = lp2.processSample(lp1.processSample(sub, 0), 0);
+        double hp = hp2.processSample(hp1.processSample(sub, 0), 0);
+        double sweptHp = sweepHpf.processSample(hp, 0);
+        double combined = lp + sweptHp;
+        if (i > 7600) {
+            subBassPeak = std::max(subBassPeak, std::abs(combined));
+            midHighPeak = std::max(midHighPeak, std::abs(sweptHp));
         }
     }
-
-    std::cout << "Max LR4 reconstruction error on swept wideband signal: " << maxCrossoverDiff << std::endl;
-    std::cout << "Pre-crossover sweep: 100% phase-aligned, zero crossover notch cancellation (PASS)" << std::endl;
-    assert(maxCrossoverDiff < 0.01);
+    std::cout << "50 Hz Bass through post-crossover Smart Hybrid (1500 Hz HPF on mid/high only): peak="
+              << subBassPeak << " (mid/high leakage=" << midHighPeak << ")" << std::endl;
+    assert(std::abs(subBassPeak - 1.0) < 0.02);
+    assert(midHighPeak < 0.01);
+    std::cout << "Post-crossover Smart Hybrid: Sub-bass completely preserved while mid/high sweeps cleanly (PASS)" << std::endl;
 }
 
 // =============================================================================

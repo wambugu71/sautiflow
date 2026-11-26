@@ -13,21 +13,40 @@ void main() {
     expect(player.isAutoBitPerfectEnabled, isFalse);
     expect(initialRate, greaterThan(0));
 
-    // 2. Enable Auto Bit-Perfect mode
+    // 2. Enable Auto Bit-Perfect mode in fixed-clock Shared Mode.
     player.setAutoBitPerfectEnabled(true);
     expect(player.isAutoBitPerfectEnabled, isTrue);
 
-    // Dynamic rate change while playing 44.1 kHz track in Auto Bit-Perfect mode
+    // Shared Mode locks to the OS mixer rate (initialRate) to prevent hidden OS SRC,
+    // without corrupting userOutputSampleRate.
     player.setOutputSampleRate(44100);
-    expect(player.getOutputSampleRate(), equals(44100));
+    expect(player.getOutputSampleRate(), equals(initialRate));
 
-    // 3. Disable Auto Bit-Perfect mode
+    // 3. If Exclusive Mode is accepted by host hardware, verify dynamic 44.1 kHz
+    // switching when supported, then return to Shared Mode.
+    player.setExclusiveMode(true);
+    if (player.isExclusiveModeActive()) {
+      final supportedRates = player.getHardwareSupportedSampleRates();
+      if (supportedRates.contains(44100)) {
+        player.setOutputSampleRate(44100);
+        expect(player.getOutputSampleRate(), equals(44100));
+      }
+      player.setExclusiveMode(false);
+    }
+
+    // 4. Disable Auto Bit-Perfect mode and confirm initial rate is restored cleanly.
     player.setAutoBitPerfectEnabled(false);
     expect(player.isAutoBitPerfectEnabled, isFalse);
+    expect(player.getOutputSampleRate(), equals(initialRate));
 
-    // 4. Verify output sample rate is restored (drops the forced 44100 Hz and
-    // returns to the active hardware rate) instead of remaining stuck at 44100 Hz
-    expect(player.getOutputSampleRate(), isNot(equals(44100)));
+    // 5. Verify batched applyOutputConfig updates format and dither cleanly.
+    player.applyOutputConfig(
+      format: AudioFormat.s32,
+      ditherMode: 2,
+      autoSampleRate: false,
+    );
+    expect(player.getOutputFormat(), equals(AudioFormat.s32));
+    expect(player.getEngineDitherMode(), equals(2));
 
     player.dispose();
   });

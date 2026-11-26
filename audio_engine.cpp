@@ -9,6 +9,14 @@
 #include <windows.h>
 #endif
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if !TARGET_OS_IPHONE
+#include <CoreAudio/CoreAudio.h>
+#include <unistd.h>
+#endif
+#endif
+
 #ifndef MA_NO_ASSERT
 #define MA_NO_ASSERT
 #endif
@@ -783,15 +791,14 @@ namespace
 
     static ma_result src_onSetRate(void *pUserData, ma_resampling_backend *pBackend, ma_uint32 sampleRateIn, ma_uint32 sampleRateOut)
     {
+        (void)pUserData;
         LibSampleRateBackend *backend = (LibSampleRateBackend *)pBackend;
         if (!backend)
             return MA_ERROR;
         backend->ratio = (sampleRateIn > 0) ? ((float)sampleRateOut / (float)sampleRateIn) : 1.0f;
-        engine_log("src_onSetRate: sampleRateIn=%u sampleRateOut=%u -> new ratio=%.4f", sampleRateIn, sampleRateOut, backend->ratio);
-        if (backend->state)
-        {
-            src_set_ratio(backend->state, backend->ratio);
-        }
+        // Do not call src_set_ratio() here: libsamplerate's src_process() smoothly
+        // interpolates from the previous ratio to srcData.src_ratio, whereas
+        // src_set_ratio() causes a hard step discontinuity during smooth tempo glides.
         return MA_SUCCESS;
     }
 
@@ -1002,30 +1009,6 @@ namespace
         R8brainRingBuffer outputRing;
     };
 
-    static void r8b_prime_filter(R8brainBackend *backend)
-    {
-        if (!backend || backend->resamplers.empty() || !backend->resamplers[0])
-            return;
-        int latIn = backend->resamplers[0]->getInLenBeforeOutPos(0);
-        if (latIn <= 0)
-            return;
-        const int ch = backend->channels;
-        int remaining = latIn;
-        while (remaining > 0)
-        {
-            int chunk = std::min(remaining, backend->maxInLen);
-            for (int c = 0; c < ch; ++c)
-            {
-                std::fill(backend->inBufs[c].begin(), backend->inBufs[c].begin() + chunk, 0.0);
-                double *dummy = nullptr;
-                backend->resamplers[c]->process(backend->inBufs[c].data(), chunk, dummy);
-            }
-            remaining -= chunk;
-        }
-        backend->outputRing.reset();
-        backend->flushZeroFed = 0;
-    }
-
     static ma_result r8b_onGetHeapSize(void *pUserData, const ma_resampler_config *pConfig, size_t *pHeapSizeInBytes)
     {
         if (!pHeapSizeInBytes)
@@ -1084,7 +1067,7 @@ namespace
             size_t maxOutFramesPerChunk = (size_t)std::ceil((double)backend->maxInLen * maxRatio) + 4096;
             size_t ringCapacityFrames = std::max<size_t>((size_t)65536, maxOutFramesPerChunk * 4);
             backend->outputRing.init(ringCapacityFrames * (size_t)backend->channels);
-            r8b_prime_filter(backend);
+            backend->flushZeroFed = 0;
         }
         catch (...)
         {
@@ -1214,7 +1197,12 @@ namespace
         }
         else
         {
-            inFramesToProcess = std::min<size_t>((size_t)*pFrameCountIn, (size_t)backend->maxInLen);
+            const size_t ringFreeFrames = backend->outputRing.available_write() / (size_t)ch;
+            const size_t totalOutBudget = (size_t)(outTarget - outProduced) + ringFreeFrames;
+            const size_t safeMaxIn = (backend->ratio > 0.0)
+                ? std::max<size_t>(1, (size_t)std::floor((double)totalOutBudget / backend->ratio))
+                : (size_t)backend->maxInLen;
+            inFramesToProcess = std::min({(size_t)*pFrameCountIn, (size_t)backend->maxInLen, safeMaxIn});
 
             for (size_t i = 0; i < inFramesToProcess; ++i)
             {
@@ -1318,7 +1306,6 @@ namespace
             size_t ringCapacityFrames = std::max<size_t>((size_t)65536, maxOutFramesPerChunk * 4);
             backend->outputRing.init(ringCapacityFrames * (size_t)backend->channels);
             backend->flushZeroFed = 0; // fresh filter state: tail flush is armed again
-            r8b_prime_filter(backend);
             return MA_SUCCESS;
         }
         catch (...)
@@ -1405,10 +1392,6 @@ namespace
             }
             backend->outputRing.reset();
             backend->flushZeroFed = 0;
-            if (std::fabs(backend->ratio - 1.0) >= 1.0e-5)
-            {
-                r8b_prime_filter(backend);
-            }
         }
         return MA_SUCCESS;
     }
@@ -3121,7 +3104,7 @@ namespace
 
     struct DitherProcessorState
     {
-        float history[16][8] = {}; // Up to 16 channels, 8 taps history
+        double history[16][8] = {}; // Up to 16 channels, 8 taps history (double precision)
         // One PRNG stream per channel: a single shared stream produced mono-
         // correlated dither across channels (visible on up-mixes).
         uint32_t prngState[16] = {
@@ -3232,14 +3215,16 @@ namespace
             }
 
             const double ditherAmp = lsbScale;
+            // Signed N-bit PCM spans [-1.0, 1.0 - lsbScale] (e.g., [-32768, +32767]/32768).
+            const double maxPos = 1.0 - lsbScale;
+            const double maxNeg = -1.0;
 
             // 4. Noise-shaping check:
             // Pointless at >= 24-bit (-144 dB floor); human hearing cannot detect
-            // quantization noise at this depth, but shaping adds ~+24 dB noise near Nyquist
-            // which wastes ultrasonic headroom and risks inter-sample clipping.
+            // quantization noise at this depth, but shaping adds ultrasonic noise
+            // which wastes headroom and risks inter-sample clipping.
             // Also, for sample rates < 40000 Hz (32k, 22k, etc.), noise shaping curves
-            // designed for 44.1k shift the +24 dB noise hump down into the audible audio band
-            // (< 15 kHz). In both cases, disable shaping and fall back to flat TPDF (Mode 2).
+            // designed for 44.1k shift the ultrasonic hump down into the audible band.
             if (ditherMode >= 3 && (targetDepth >= 24 || sampleRate < 40000))
             {
                 ditherMode = 2; // Flat triangular (TPDF) dither
@@ -3256,10 +3241,8 @@ namespace
                         SampleT x = inOutSamples[base + c];
                         double d = getRpdfDither(ditherAmp, c);
                         double q = std::round((static_cast<double>(x) + d) / lsbScale) * lsbScale;
-                        // Dither can push a near-full-scale sample past ±1.0;
-                        // clamp so the downstream converter doesn't wrap/clip.
-                        if (q > 1.0) q = 1.0;
-                        else if (q < -1.0) q = -1.0;
+                        if (q > maxPos) q = maxPos;
+                        else if (q < maxNeg) q = maxNeg;
                         inOutSamples[base + c] = static_cast<SampleT>(q);
                     }
                 }
@@ -3277,52 +3260,52 @@ namespace
                         SampleT x = inOutSamples[base + c];
                         double d = getTpdfDither(ditherAmp, c);
                         double q = std::round((static_cast<double>(x) + d) / lsbScale) * lsbScale;
-                        if (q > 1.0) q = 1.0;
-                        else if (q < -1.0) q = -1.0;
+                        if (q > maxPos) q = maxPos;
+                        else if (q < maxNeg) q = maxNeg;
                         inOutSamples[base + c] = static_cast<SampleT>(q);
                     }
                 }
                 return;
             }
 
-            // Modes 3-8: Psychoacoustic Noise Shaping
-            // 44.1 kHz standard curves (human audiological contour, minimum-phase stabilized):
-            static const float coefLipshitz_44k[5]   = {2.0330f, -2.1650f, 1.9590f, -1.1370f, 0.3210f};
-            static const float coefFWeighted_44k[5]  = {2.4120f, -2.9700f, 2.4530f, -1.3320f, 0.3660f};
-            static const float coefModE_44k[5]       = {1.8360f, -1.5740f, 1.2120f, -0.6380f, 0.1740f};
-            static const float coefShibata_44k[5]    = {2.2700f, -2.4200f, 1.9600f, -1.0900f, 0.2800f};
-            static const float coefLowShibata_44k[5] = {1.4500f, -1.0200f, 0.5800f, -0.2100f, 0.0400f};
-            static const float coefHighShibata_44k[5]= {2.1558f, -2.4724f, 1.9359f, -0.9595f, 0.2282f};
+            // Modes 3-8: Psychoacoustic Noise Shaping (strictly minimum-phase, max|z| < 0.97)
+            // 44.1 kHz calibrated curves:
+            static const double coefLipshitz_44k[5]   = {2.0330, -2.1650, 1.9590, -1.5900, 0.6149};
+            static const double coefFWeighted_44k[5]  = {2.4120, -2.9700, 2.4530, -1.3320, 0.3660};
+            static const double coefModE_44k[5]       = {1.6702, -1.4380, 1.0892, -0.5618, 0.1456};
+            static const double coefShibata_44k[5]    = {2.1300, -2.2422, 1.7990, -0.9766, 0.2408};
+            static const double coefLowShibata_44k[5] = {1.4500, -1.0200, 0.5800, -0.2100, 0.0400};
+            static const double coefHighShibata_44k[5]= {2.5200, -3.1800, 2.6200, -1.4200, 0.3800};
 
             // 48 kHz calibrated curves:
-            static const float coefLipshitz_48k[5]   = {2.2330f, -2.5120f, 2.2210f, -1.2290f, 0.3210f};
-            static const float coefFWeighted_48k[5]  = {2.5710f, -3.2840f, 2.7150f, -1.4250f, 0.3660f};
-            static const float coefModE_48k[5]       = {2.0120f, -1.8650f, 1.4110f, -0.6980f, 0.1740f};
-            static const float coefShibata_48k[5]    = {2.4350f, -2.7560f, 2.2150f, -1.1680f, 0.2800f};
-            static const float coefLowShibata_48k[5] = {1.5640f, -1.1820f, 0.6650f, -0.2280f, 0.0400f};
-            static const float coefHighShibata_48k[5]= {2.2498f, -2.6552f, 2.0491f, -0.9659f, 0.2133f};
+            static const double coefLipshitz_48k[5]   = {2.2717, -2.6998, 2.4617, -1.7049, 0.5632};
+            static const double coefFWeighted_48k[5]  = {2.6400, -3.4271, 2.8227, -1.4553, 0.3660};
+            static const double coefModE_48k[5]       = {1.8955, -1.8154, 1.3262, -0.6290, 0.1456};
+            static const double coefShibata_48k[5]    = {2.3455, -2.6736, 2.1072, -1.0597, 0.2408};
+            static const double coefLowShibata_48k[5] = {1.6126, -1.2392, 0.6847, -0.2338, 0.0400};
+            static const double coefHighShibata_48k[5]= {2.7388, -3.6307, 2.9930, -1.5410, 0.3800};
 
-            // 88.2 / 96 kHz calibrated curves (zeros dynamically mapped to preserve audio band attenuation):
-            static const float coefLipshitz_96k[5]   = {3.5554f, -5.3740f, 4.3271f, -1.8280f, 0.3210f};
-            static const float coefFWeighted_96k[5]  = {3.6919f, -5.7382f, 4.6976f, -2.0231f, 0.3660f};
-            static const float coefModE_96k[5]       = {3.1662f, -4.1933f, 2.9620f, -1.1072f, 0.1740f};
-            static const float coefShibata_96k[5]    = {3.5189f, -5.1838f, 4.0324f, -1.6474f, 0.2800f};
-            static const float coefLowShibata_96k[5] = {2.3872f, -2.3768f, 1.2518f, -0.3460f, 0.0400f};
-            static const float coefHighShibata_96k[5]= {3.3578f, -4.7762f, 3.5783f, -1.4018f, 0.2284f};
+            // 88.2 / 96 kHz calibrated 3-tap minimum-phase curves (low ultrasonic power):
+            static const double coefLipshitz_96k[5]   = {2.1000, -1.5000, 0.3600, 0.0000, 0.0000};
+            static const double coefFWeighted_96k[5]  = {2.2800, -1.7600, 0.4550, 0.0000, 0.0000};
+            static const double coefModE_96k[5]       = {1.9500, -1.2700, 0.2750, 0.0000, 0.0000};
+            static const double coefShibata_96k[5]    = {2.2000, -1.6400, 0.4100, 0.0000, 0.0000};
+            static const double coefLowShibata_96k[5] = {1.7500, -1.0200, 0.1950, 0.0000, 0.0000};
+            static const double coefHighShibata_96k[5]= {2.3500, -1.8800, 0.5050, 0.0000, 0.0000};
 
-            // 176.4 / 192 kHz+ calibrated curves:
-            static const float coefLipshitz_192k[5]   = {3.9261f, -6.2211f, 4.9682f, -1.9939f, 0.3210f};
-            static const float coefFWeighted_192k[5]  = {3.9885f, -6.4442f, 5.2717f, -2.1831f, 0.3660f};
-            static const float coefModE_192k[5]       = {3.4944f, -4.8941f, 3.4479f, -1.2216f, 0.1740f};
-            static const float coefShibata_192k[5]    = {3.8201f, -5.8782f, 4.5593f, -1.7812f, 0.2800f};
-            static const float coefLowShibata_192k[5] = {2.6118f, -2.7318f, 1.4347f, -0.3782f, 0.0400f};
-            static const float coefHighShibata_192k[5]= {3.6363f, -5.3589f, 3.9943f, -1.5034f, 0.2283f};
+            // 176.4 / 192 kHz+ calibrated 2-tap minimum-phase curves:
+            static const double coefLipshitz_192k[5]   = {1.6800, -0.7056, 0.0000, 0.0000, 0.0000};
+            static const double coefFWeighted_192k[5]  = {1.7600, -0.7744, 0.0000, 0.0000, 0.0000};
+            static const double coefModE_192k[5]       = {1.6000, -0.6400, 0.0000, 0.0000, 0.0000};
+            static const double coefShibata_192k[5]    = {1.7200, -0.7396, 0.0000, 0.0000, 0.0000};
+            static const double coefLowShibata_192k[5] = {1.5000, -0.5625, 0.0000, 0.0000, 0.0000};
+            static const double coefHighShibata_192k[5]= {1.8000, -0.8100, 0.0000, 0.0000, 0.0000};
 
             const bool is192k = (sampleRate > 128000);
             const bool is96k  = (!is192k && sampleRate > 64000);
             const bool is48k  = (!is192k && !is96k && sampleRate >= 46000 && sampleRate <= 50000);
 
-            const float *a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : (is48k ? coefShibata_48k : coefShibata_44k));
+            const double *a = is192k ? coefShibata_192k : (is96k ? coefShibata_96k : (is48k ? coefShibata_48k : coefShibata_44k));
             switch (ditherMode)
             {
             case 3: a = is192k ? coefLipshitz_192k : (is96k ? coefLipshitz_96k : (is48k ? coefLipshitz_48k : coefLipshitz_44k)); break;
@@ -3342,26 +3325,33 @@ namespace
                     size_t idx = base + (size_t)c;
                     SampleT x = inOutSamples[idx];
 
-                    double feedback = static_cast<double>(a[0]) * static_cast<double>(history[c][0]) +
-                                     static_cast<double>(a[1]) * static_cast<double>(history[c][1]) +
-                                     static_cast<double>(a[2]) * static_cast<double>(history[c][2]) +
-                                     static_cast<double>(a[3]) * static_cast<double>(history[c][3]) +
-                                     static_cast<double>(a[4]) * static_cast<double>(history[c][4]);
+                    double feedback = a[0] * history[c][0] +
+                                      a[1] * history[c][1] +
+                                      a[2] * history[c][2] +
+                                      a[3] * history[c][3] +
+                                      a[4] * history[c][4];
 
+                    // Lipshitz-Vanderkooy-Wannamaker error feedback:
+                    // feed back (preDither - quantized) so BOTH rounding error AND
+                    // the TPDF dither itself are shaped by H(z) = 1 - sum(a_k z^-k).
+                    double preDither = static_cast<double>(x) + feedback;
                     double dither = getTpdfDither(ditherAmp, c);
-                    double xShaped = static_cast<double>(x) + feedback + dither;
+                    double xShaped = preDither + dither;
 
                     double quantized = std::round(xShaped / lsbScale) * lsbScale;
-                    if (quantized > 1.0) quantized = 1.0;
-                    else if (quantized < -1.0) quantized = -1.0;
-                    float err = static_cast<float>(xShaped - quantized);
-
-                    // Anti-windup: when the clamp engages, the raw error is
-                    // huge and feeding it back makes the shaper overshoot to
-                    // the opposite rail (audible low-frequency buzzing on
-                    // full-scale material). Drop the error instead.
-                    if (quantized >= 1.0 || quantized <= -1.0)
-                        err = 0.0f;
+                    bool clipped = false;
+                    if (quantized > maxPos)
+                    {
+                        quantized = maxPos;
+                        clipped = true;
+                    }
+                    else if (quantized < maxNeg)
+                    {
+                        quantized = maxNeg;
+                        clipped = true;
+                    }
+                    // Anti-windup when the rail clamp engages
+                    double err = clipped ? 0.0 : (preDither - quantized);
 
                     history[c][4] = history[c][3];
                     history[c][3] = history[c][2];
@@ -3704,6 +3694,10 @@ struct AudioEngineHandle
     ma_device device{};
     ma_context customContext{};
     bool customContextInit = false;
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+    bool macOsHogActive = false;
+    uint32_t macOsHogDeviceId = 0;
+#endif
 #else
     void *pOboeSink = nullptr;
     std::atomic<bool> oboeDisconnectRestartRequested{false};
@@ -3873,6 +3867,8 @@ struct AudioEngineHandle
     size_t automixEchoPos = 0;
     sauti::dsp::CytomicSVF automixEchoLpf;
     bool automixDspInit = false;
+    std::atomic<bool> automixResetPending{false};
+    ma_uint64 automixProducerFramesDone = 0;
     std::atomic<bool> loudnessCrossfadeEnabled{true};
     std::atomic<float> currentTrackReplayGain{1.0f};
     std::atomic<float> fadingOutReplayGain{1.0f};
@@ -3900,6 +3896,7 @@ struct AudioEngineHandle
     int crossfadeResamplerInRate = 0;
     int crossfadeResamplerOutRate = 0;
     int crossfadeResamplerCh = 0;
+    int crossfadeResamplerAlgorithm = -1;
     std::vector<float> crossfadeInputBuffer;
     size_t crossfadeInputUnconsumed = 0;
     // Graceful abort: when a user skip interrupts an ACTIVE crossfade, the
@@ -4687,7 +4684,11 @@ static inline void sync_active_out_from_ma_device(AudioEngineHandle *e)
     e->activeOut.internalSampleRate = e->device.playback.internalSampleRate;
     e->activeOut.periodSizeFrames = e->device.playback.internalPeriodSizeInFrames;
     e->activeOut.periodCount = e->device.playback.internalPeriods;
-    e->activeOut.isExclusive = (e->device.playback.shareMode == ma_share_mode_exclusive);
+    e->activeOut.isExclusive = (e->device.playback.shareMode == ma_share_mode_exclusive)
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+        || e->macOsHogActive
+#endif
+        ;
     e->activeOut.isMMap = false;
 }
 #endif
@@ -4848,7 +4849,7 @@ static ma_result read_current_decoder_at_engine_rate(
     ma_uint64 totalOut = 0;
     bool reachedEof = false;
 
-    for (int pass = 0; pass < 8 && totalOut < wantOutFrames; ++pass)
+    for (int pass = 0; pass < 32 && totalOut < wantOutFrames; ++pass)
     {
         const ma_uint64 remOut = wantOutFrames - totalOut;
         ma_uint64 inNeeded = 0;
@@ -5036,8 +5037,11 @@ static int resolve_hardware_target_rate(AudioEngineHandle *e, int sourceRate)
 
     const int userRate = e->userOutputSampleRate;
     const bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed);
+    const bool autoMatch = e->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
     const int cfgBackend = e->configuredBackend.load(std::memory_order_relaxed);
-    const int desired = (userRate > 0) ? userRate : sourceRate;
+    const int desired = (autoMatch && sourceRate > 0)
+                            ? sourceRate
+                            : ((userRate > 0) ? userRate : sourceRate);
 
 #if defined(__ANDROID__)
     const bool canMultiRate = (cfgBackend == AE_BACKEND_USB_DIRECT) ||
@@ -5661,14 +5665,10 @@ static void arm_transition_fade_in(AudioEngineHandle *e)
     }
 
     int durationMs = 0;
-    if (cfEnabled)
-    {
-        durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 32000);
-    }
-    else if (amEnabled)
+    if (cfEnabled || amEnabled)
     {
         // Solo fade-in (when starting playback or jumping tracks with no active dual-deck crossfade):
-        // use a brief 15 ms click-free micro-ramp instead of a 16-bar (32-second) silence ramp.
+        // use a brief 15 ms click-free micro-ramp instead of a multi-second silence ramp.
         durationMs = 15;
     }
 
@@ -5769,6 +5769,15 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
 
     const int sr = e->engineSampleRate;
     const int ch = (e->channels > 0) ? e->channels : 2;
+
+    if (!e->isCrossfading.load(std::memory_order_acquire))
+    {
+        const size_t minEchoSamples = std::max<size_t>(384000, (size_t)std::max(sr, 48000) * (size_t)std::max(ch, 2) * 2);
+        if (e->automixEchoBuffer.size() < minEchoSamples)
+        {
+            e->automixEchoBuffer.assign(minEchoSamples, 0.0f);
+        }
+    }
 
     // Synchronize device resampler lifecycle on control thread (Requirements 8 & 9)
     {
@@ -5977,6 +5986,7 @@ static void uninit_fading_out_slot_locked(AudioEngineHandle *e)
         e->crossfadeResamplerInRate = 0;
         e->crossfadeResamplerOutRate = 0;
         e->crossfadeResamplerCh = 0;
+        e->crossfadeResamplerAlgorithm = -1;
     }
     if (e != nullptr)
     {
@@ -7267,11 +7277,13 @@ static ma_result read_and_resample_crossfade(
         return read_decoder_frames_f32(fadeOut, outBuffer, (ma_uint64)fillFrames, outFramesRead, e->decoderRawScratch);
     }
 
-    // Reinitialize resampler if sample rates or channel count changed
+    // Reinitialize resampler if sample rates, channel count, or algorithm changed
+    const int cfAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
     if (!e->crossfadeResamplerInit ||
         e->crossfadeResamplerInRate != fadeOutRate ||
         e->crossfadeResamplerOutRate != targetRate ||
-        e->crossfadeResamplerCh != (int)ch)
+        e->crossfadeResamplerCh != (int)ch ||
+        e->crossfadeResamplerAlgorithm != cfAlgo)
     {
         if (e->crossfadeResamplerInit)
         {
@@ -7287,7 +7299,6 @@ static ma_result read_and_resample_crossfade(
             ma_resample_algorithm_linear
         );
         rcfg.linear.lpfOrder = 4;
-        const int cfAlgo = e->resampleAlgorithm.load(std::memory_order_relaxed);
         e->currentResampleAlgorithm = cfAlgo;
         if (cfAlgo > 0)
         {
@@ -7309,6 +7320,7 @@ static ma_result read_and_resample_crossfade(
             e->crossfadeResamplerInRate = fadeOutRate;
             e->crossfadeResamplerOutRate = targetRate;
             e->crossfadeResamplerCh = (int)ch;
+            e->crossfadeResamplerAlgorithm = cfAlgo;
         }
         else
         {
@@ -7968,10 +7980,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             // reader can never observe stale audio or counters
                             // from a previous fade.
                             e->crossfadeSourceEof.store(false, std::memory_order_relaxed);
+                            e->automixProducerFramesDone = 0;
+                            e->automixResetPending.store(true, std::memory_order_release);
                             const ma_uint64 fadeLen = (remain > 0 && remain < fadeFrames) ? remain : fadeFrames;
-                            e->isCrossfading.store(true, std::memory_order_release);
                             e->crossfadeFramesTotal.store(fadeLen, std::memory_order_relaxed);
                             e->crossfadeFramesRemaining.store(fadeLen, std::memory_order_relaxed);
+                            e->isCrossfading.store(true, std::memory_order_release);
 
                             e->fadingOutTrackBpm.store(e->currentTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -8106,11 +8120,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     if (baseRatio >= 0.80f && baseRatio <= 1.25f)
                     {
                         const ma_uint64 cfTotal = e->crossfadeFramesTotal.load(std::memory_order_relaxed);
-                        const ma_uint64 cfRem = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
                         float p = 0.0f;
-                        if (cfTotal > 0 && cfRem <= cfTotal)
+                        if (cfTotal > 0)
                         {
-                            p = (float)((double)(cfTotal - cfRem) / (double)cfTotal);
+                            p = (float)std::clamp((double)e->automixProducerFramesDone / (double)cfTotal, 0.0, 1.0);
                         }
                         const float u = std::clamp((p - 0.35f) / 0.60f, 0.0f, 1.0f);
                         const float glide = 0.5f * (1.0f - std::cos(u * 3.14159265358979323846f));
@@ -8560,6 +8573,14 @@ static void decode_producer_loop(AudioEngineHandle *e)
         if (produced > 0)
         {
             e->pcmRingBuffer.write(tempChunk.data(), (size_t)produced * ch);
+            if (e->isCrossfading.load(std::memory_order_relaxed))
+            {
+                e->automixProducerFramesDone += produced;
+            }
+            else
+            {
+                e->automixProducerFramesDone = 0;
+            }
         }
         }
         catch (...)
@@ -8713,7 +8734,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         return e->use64BitProcessing.load(std::memory_order_relaxed) ? AE_P64_USER : 0;
     }
 
-    static void render_output_frames(AudioEngineHandle *e, void *pOutput, ma_uint32 frameCount)
+    static void render_output_frames_chunk(AudioEngineHandle *e, void *pOutput, ma_uint32 frameCount)
     {
     if (e == nullptr || pOutput == nullptr || frameCount == 0)
         return;
@@ -8907,9 +8928,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
             !e->decoderEofReached.load(std::memory_order_acquire))
         {
             e->underrunCount.fetch_add(expectedFrames - (ma_uint64)produced, std::memory_order_relaxed);
-            std::printf(">>> UNDERRUN INC: produced=%u expected=%llu prevPlayed=%llu preRoll=%llu\n",
-                        produced, (unsigned long long)expectedFrames,
-                        (unsigned long long)prevPlayed, (unsigned long long)preRollThreshold);
         }
 
         // =====================================================================
@@ -9013,6 +9031,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 constexpr float halfPi = 1.57079632679f;
                 ma_uint32 fadeFramesDone = 0;
 
+                if (e->automixResetPending.exchange(false, std::memory_order_acq_rel))
+                {
+                    reset_automix_dsp(e);
+                }
                 const bool isAutomixActive = e->automixEnabled.load(std::memory_order_relaxed);
                 const int automixMode = isAutomixActive ? e->automixStyle.load(std::memory_order_relaxed) : -1;
                 const int srForAutomix = (e->sampleRate > 0) ? e->sampleRate : 48000;
@@ -9045,12 +9067,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                     e->automixEchoLpf.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, 3500.0, 0.0, butterworthQ);
 
-                    const size_t minEchoSamples = std::max<size_t>(384000, (size_t)srForAutomix * 2);
-                    if (e->automixEchoBuffer.size() < minEchoSamples)
-                    {
-                        e->automixEchoBuffer.assign(minEchoSamples, 0.0f);
-                    }
-                    else
+                    if (!e->automixEchoBuffer.empty())
                     {
                         std::fill(e->automixEchoBuffer.begin(), e->automixEchoBuffer.end(), 0.0f);
                     }
@@ -9123,16 +9140,18 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         }
                         else if (automixMode == 5)
                         {
-                            blockHpfFreq = 20.0 * std::pow(3000.0 / 20.0, (double)t);
-                            blockLpfFreq = 200.0 * std::pow(20000.0 / 200.0, (double)t);
+                            // Sweep above the 250 Hz LR4 crossover so the swept mid/high band never cuts bass energy
+                            blockHpfFreq = 250.0 * std::pow(3000.0 / 250.0, (double)t);
+                            blockLpfFreq = 300.0 * std::pow(20000.0 / 300.0, (double)t);
                             const double sweepQ = 0.7071 + 0.15 * std::sin(t * 3.14159265358979323846);
                             e->automixSweepHpfOut.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, srForAutomix, blockHpfFreq, 0.0, sweepQ);
                             e->automixSweepLpfIn.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, srForAutomix, blockLpfFreq, 0.0, sweepQ);
                         }
                     }
 
-                    const float deckABassGain = outEnv * bassOut;
-                    const float deckBBassGain = tIn * bassIn;
+                    // Constant-power bass swap: keep low end at unity before/after swap without outEnv/tIn double attenuation
+                    const float deckABassGain = aborting ? (abortScale * bassOut) : bassOut;
+                    const float deckBBassGain = bassIn;
 
                     if (isAutomixActive && automixMode == 0 /* AE_AUTOMIX_STYLE_BASS_SWAP */)
                     {
@@ -9255,23 +9274,29 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             const float rawIn  = processBuffer[base + (size_t)c] * inGain;
-
-                            size_t readFrame = (e->automixEchoPos >= delayFrames) ? (e->automixEchoPos - delayFrames) : (echoBufFrames + e->automixEchoPos - delayFrames);
-                            size_t readIdx = (readFrame % echoBufFrames) * chCount + (size_t)c;
-                            float delayedSample = (readIdx < e->automixEchoBuffer.size()) ? e->automixEchoBuffer[readIdx] : 0.0f;
-
-                            float dampedFeedback = (float)e->automixEchoLpf.processSample((double)delayedSample, c);
-                            float writeVal = (rawOut * echoSend) + (dampedFeedback * echoFeedback);
-
-                            size_t writeIdx = (e->automixEchoPos % echoBufFrames) * chCount + (size_t)c;
-                            if (writeIdx < e->automixEchoBuffer.size())
+                            float delayedSample = 0.0f;
+                            if (echoBufFrames > 0)
                             {
-                                e->automixEchoBuffer[writeIdx] = writeVal;
+                                size_t readFrame = (e->automixEchoPos >= delayFrames) ? (e->automixEchoPos - delayFrames) : (echoBufFrames + e->automixEchoPos - delayFrames);
+                                size_t readIdx = (readFrame % echoBufFrames) * chCount + (size_t)c;
+                                delayedSample = (readIdx < e->automixEchoBuffer.size()) ? e->automixEchoBuffer[readIdx] : 0.0f;
+
+                                float dampedFeedback = (float)e->automixEchoLpf.processSample((double)delayedSample, c);
+                                float writeVal = (rawOut * echoSend) + (dampedFeedback * echoFeedback);
+
+                                size_t writeIdx = (e->automixEchoPos % echoBufFrames) * chCount + (size_t)c;
+                                if (writeIdx < e->automixEchoBuffer.size())
+                                {
+                                    e->automixEchoBuffer[writeIdx] = writeVal;
+                                }
                             }
 
                             processBuffer[base + (size_t)c] = (rawIn * echoInEnv) + (rawOut * echoOutEnv) + delayedSample * 0.75f;
                         }
-                        e->automixEchoPos = (e->automixEchoPos + 1) % echoBufFrames;
+                        if (echoBufFrames > 0)
+                        {
+                            e->automixEchoPos = (e->automixEchoPos + 1) % echoBufFrames;
+                        }
 
                         if (i == 0 || i == produced - 1)
                         {
@@ -9335,23 +9360,23 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         const float sweepWetOut = std::min(1.0f, t / 0.02f);
                         const float sweepWetIn = std::min(1.0f, (1.0f - t) / 0.02f);
 
-                        // Multi-stage hybrid: Resonant Filter Sweep on wideband + LR4 Bass-Swap + Equal Power Mid/High Blend
+                        // Multi-stage hybrid: LR4 250 Hz split FIRST, then resonant sweep on mid/high only + constant-power bass-swap
                         for (int c = 0; c < e->channels; ++c)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             const float rawIn  = processBuffer[base + (size_t)c] * inGain;
 
-                            const float sweepOut = rawOut + sweepWetOut * ((float)e->automixSweepHpfOut.processSample((double)rawOut, c) - rawOut);
-                            const float sweepIn  = rawIn + sweepWetIn * ((float)e->automixSweepLpfIn.processSample((double)rawIn, c) - rawIn);
+                            const float outBass = (float)e->automixLpfOut2.processSample(e->automixLpfOut1.processSample((double)rawOut, c), c);
+                            const float outMidHigh = (float)e->automixHpfOut2.processSample(e->automixHpfOut1.processSample((double)rawOut, c), c);
 
-                            const float outBass = (float)e->automixLpfOut2.processSample(e->automixLpfOut1.processSample((double)sweepOut, c), c);
-                            const float outMidHigh = (float)e->automixHpfOut2.processSample(e->automixHpfOut1.processSample((double)sweepOut, c), c);
+                            const float inBass = (float)e->automixLpfIn2.processSample(e->automixLpfIn1.processSample((double)rawIn, c), c);
+                            const float inMidHigh = (float)e->automixHpfIn2.processSample(e->automixHpfIn1.processSample((double)rawIn, c), c);
 
-                            const float inBass = (float)e->automixLpfIn2.processSample(e->automixLpfIn1.processSample((double)sweepIn, c), c);
-                            const float inMidHigh = (float)e->automixHpfIn2.processSample(e->automixHpfIn1.processSample((double)sweepIn, c), c);
+                            const float sweptOutMidHigh = outMidHigh + sweepWetOut * ((float)e->automixSweepHpfOut.processSample((double)outMidHigh, c) - outMidHigh);
+                            const float sweptInMidHigh  = inMidHigh + sweepWetIn * ((float)e->automixSweepLpfIn.processSample((double)inMidHigh, c) - inMidHigh);
 
-                            const float finalOut = (outMidHigh * outEnv) + (outBass * deckABassGain);
-                            const float finalIn  = (inMidHigh * tIn) + (inBass * deckBBassGain);
+                            const float finalOut = (sweptOutMidHigh * outEnv) + (outBass * deckABassGain);
+                            const float finalIn  = (sweptInMidHigh * tIn) + (inBass * deckBBassGain);
                             processBuffer[base + (size_t)c] = finalOut + finalIn;
                         }
 
@@ -10251,6 +10276,20 @@ static void decode_producer_loop(AudioEngineHandle *e)
         else if (outFmt == ma_format_u8)
             activeIntFormat = AE_FORMAT_U8;
     }
+    else
+    {
+        // Clamp dither grid when negotiated integer wire format is narrower than requested format.
+        const AEAudioFormat wireIntFmt = ma_format_to_ae_format(outFmt);
+        if (wireIntFmt != AE_FORMAT_F32)
+        {
+            const int activeBits = get_ma_format_bit_depth(ae_format_to_ma_format(activeIntFormat));
+            const int wireBits = get_ma_format_bit_depth(outFmt);
+            if (wireBits > 0 && activeBits > wireBits)
+            {
+                activeIntFormat = wireIntFmt;
+            }
+        }
+    }
 
     const int ditherVal = e->ditherMode.load(std::memory_order_relaxed);
     int effectiveDither = ditherVal;
@@ -10410,6 +10449,32 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // Assuming F32 here overruns the buffer by 2-4x when the device runs
         // S16/U8/S24 formats (heap corruption).
         std::memset(pOutput, 0, (size_t)frameCount * ma_get_bytes_per_frame(outFmt, outCh));
+    }
+}
+
+static void render_output_frames(AudioEngineHandle *e, void *pOutput, ma_uint32 frameCount)
+{
+    if (e == nullptr || pOutput == nullptr || frameCount == 0)
+        return;
+
+    ma_format outFmt = e->activeOut.format;
+    if (outFmt == ma_format_unknown)
+    {
+        outFmt = ae_format_to_ma_format(e->outputFormat);
+        if (outFmt == ma_format_unknown) outFmt = ma_format_f32;
+    }
+    const ma_uint32 outCh = (e->activeOut.channels > 0) ? e->activeOut.channels : ((e->channels > 0) ? (ma_uint32)e->channels : 2u);
+    const size_t bpf = ma_get_bytes_per_frame(outFmt, outCh);
+    constexpr ma_uint32 kMaxRenderChunk = 2048u;
+
+    uint8_t *outBytes = static_cast<uint8_t *>(pOutput);
+    ma_uint32 remaining = frameCount;
+    while (remaining > 0)
+    {
+        const ma_uint32 chunk = (remaining > kMaxRenderChunk) ? kMaxRenderChunk : remaining;
+        render_output_frames_chunk(e, outBytes, chunk);
+        outBytes += (size_t)chunk * bpf;
+        remaining -= chunk;
     }
 }
 
@@ -12681,6 +12746,20 @@ static void release_output_locked(AudioEngineHandle *e, bool destroySinks = fals
     }
     ma_device_uninit(&e->device);
     e->activeOut.initialized = false;
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+    if (e->macOsHogActive && e->macOsHogDeviceId != 0)
+    {
+        AudioObjectPropertyAddress hogAddr = {
+            kAudioDevicePropertyHogMode,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
+        pid_t releasePid = -1;
+        AudioObjectSetPropertyData(static_cast<AudioDeviceID>(e->macOsHogDeviceId), &hogAddr, 0, nullptr, sizeof(releasePid), &releasePid);
+        e->macOsHogActive = false;
+        e->macOsHogDeviceId = 0;
+    }
+#endif
     if (e->customContextInit)
     {
         ma_context_uninit(&e->customContext);
@@ -13473,6 +13552,174 @@ extern "C"
         return ok;
     }
 
+    // Initiates a seamless dual-deck manual crossfade on user Next/Prev/Jump
+    // when crossfade or AutoMix is enabled. Caller MUST hold e->decoderMutex.
+    static bool try_start_manual_crossfade_locked(
+        AudioEngineHandle *e,
+        ma_decoder *nextDec,
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        NetworkStreamState *nextSt,
+#endif
+        ma_uint64 nextLen,
+        int nextIdx,
+        bool fromPreloadedNext,
+        const std::string &pathForLoudness)
+    {
+        if (e == nullptr || nextDec == nullptr || !e->hasCurrent || e->currentDecoder == nullptr)
+            return false;
+        if (!e->isPlaying.load(std::memory_order_acquire))
+            return false;
+        if (e->exclusiveModeEnabled.load(std::memory_order_relaxed))
+            return false;
+        if (e->activeDsdMode.load(std::memory_order_acquire) != 0)
+            return false;
+
+        const bool cfEnabled = e->crossfadeEnabled.load(std::memory_order_relaxed);
+        const bool amEnabled = e->automixEnabled.load(std::memory_order_relaxed);
+        if (!cfEnabled && !amEnabled)
+            return false;
+
+        int durationMs = 0;
+        if (cfEnabled)
+        {
+            durationMs = clampi(e->crossfadeDurationMs.load(std::memory_order_relaxed), 0, 12000);
+        }
+        else if (amEnabled)
+        {
+            float bpm = e->currentTrackBpm.load(std::memory_order_relaxed);
+            if (bpm < 40.0f || bpm > 300.0f) bpm = 120.0f;
+            const double msPerBar = (60000.0 / (double)bpm) * 4.0;
+            const int bars = std::min(clampi(e->automixTransitionBars.load(std::memory_order_relaxed), 4, 64), 4);
+            durationMs = clampi((int)std::round((double)bars * msPerBar), 1500, 6000);
+        }
+        if (durationMs <= 0)
+            return false;
+
+        // If a prior crossfade was active (e.g. rapid double-skip), retire it cleanly first
+        if (e->fadingOutDecoder != nullptr || e->isCrossfading.load(std::memory_order_acquire))
+        {
+            uninit_fading_out_slot_locked(e);
+            e->crossfadeRingBuffer.reset();
+        }
+
+        const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
+        const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+        const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)durationMs / 1000.0));
+        if (fadeFrames == 0)
+            return false;
+
+        // Drain unplayed tail of the outgoing track from pcmRingBuffer into crossfadeRingBuffer 1:1
+        float drainBuf[2048];
+        const size_t maxDrainSamples = (sizeof(drainBuf) / sizeof(drainBuf[0]));
+        const size_t maxDrainFrames = (ch > 0) ? (maxDrainSamples / ch) : 1024;
+        e->crossfadeRingBuffer.reset();
+        e->ringBufferFlushing.store(true, std::memory_order_release);
+        {
+            size_t guard = 0;
+            while (guard++ < 512 && maxDrainFrames > 0)
+            {
+                const size_t roomFrames = e->crossfadeRingBuffer.available_write() / ch;
+                if (roomFrames == 0)
+                    break;
+                const size_t wantFrames = std::min(maxDrainFrames, roomFrames);
+                const size_t gotSamples = e->pcmRingBuffer.read(drainBuf, wantFrames * ch);
+                if (gotSamples == 0)
+                    break;
+                e->crossfadeRingBuffer.write(drainBuf, gotSamples);
+            }
+            reset_track_resampler_locked(e);
+            if (e->pitchResamplerInit)
+            {
+                ma_resampler_reset(&e->pitchResampler);
+                e->pitchInputUnconsumed = 0;
+            }
+            e->tempoProcessor.reset();
+            e->pcmRingBuffer.reset();
+            e->pcmDirectRingBuffer.reset();
+            e->flushCastRing();
+        }
+        e->ringBufferFlushing.store(false, std::memory_order_release);
+
+        // Move outgoing deck -> fadingOutDecoder
+        e->fadingOutDecoder = e->currentDecoder;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        e->fadingOutStream = e->currentStream;
+#endif
+        e->fadingOutTrackBpm.store(e->currentTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        e->fadingOutReplayGain.store(e->currentTrackReplayGain.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        e->fadingOutNormalizerGain.store(e->paramNormalizerGain.current, std::memory_order_relaxed);
+
+        // Install incoming deck -> currentDecoder
+        e->currentDecoder = nextDec;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+        e->currentStream = nextSt;
+#endif
+        e->currentLengthFrames = nextLen;
+        e->currentIndex = nextIdx;
+        e->hasCurrent = true;
+
+        ma_format nativeFmt = ma_format_unknown;
+        ma_uint32 nativeCh = 0;
+        ma_uint32 nativeRate = 0;
+        (void)get_decoder_native_format(e->currentDecoder, &nativeFmt, &nativeCh, &nativeRate);
+        if (nativeRate > 0)
+        {
+            e->sourceSampleRate = (int)nativeRate;
+            e->sourceFormat = nativeFmt;
+            e->sourceChannels = (int)nativeCh;
+        }
+        sync_active_dsd_from_decoder(e, e->currentDecoder);
+        reset_playback_position(e, 0);
+
+        if (fromPreloadedNext)
+        {
+            e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
+            e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
+
+            const float promotedGain = e->nextTrackReplayGain.load(std::memory_order_relaxed);
+            e->currentTrackReplayGain.store(promotedGain, std::memory_order_relaxed);
+            e->replayGainLinear.store(promotedGain, std::memory_order_relaxed);
+            e->nextTrackGainExplicitlySet.store(false, std::memory_order_relaxed);
+
+            float promotedNorm = e->nextTrackNormalizerGain.load(std::memory_order_relaxed);
+            if (e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) &&
+                promotedNorm >= 0.999f && promotedNorm <= 1.001f)
+            {
+                float fadeOutNorm = e->fadingOutNormalizerGain.load(std::memory_order_relaxed);
+                if (fadeOutNorm < 0.99f && fadeOutNorm > 0.01f)
+                {
+                    promotedNorm = fadeOutNorm;
+                }
+                else
+                {
+                    const float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
+                    const float safeGainDb = std::clamp(targetLufs - (-10.0f), -12.0f, 0.0f);
+                    promotedNorm = std::pow(10.0f, safeGainDb / 20.0f);
+                }
+                e->nextTrackNormalizerGain.store(promotedNorm, std::memory_order_relaxed);
+            }
+            e->currentTrackNormalizerGain.store(promotedNorm, std::memory_order_relaxed);
+        }
+        else
+        {
+            apply_initial_track_loudness(e, e->currentDecoder, pathForLoudness);
+        }
+
+        e->crossfadeAbortActive.store(false, std::memory_order_release);
+        e->crossfadeAbortFramesTotal.store(0, std::memory_order_relaxed);
+        e->crossfadeAbortFramesDone.store(0, std::memory_order_relaxed);
+        e->crossfadeSourceDead.store(false, std::memory_order_release);
+        e->crossfadeStarveFrames.store(0, std::memory_order_relaxed);
+        e->crossfadeSourceEof.store(false, std::memory_order_relaxed);
+        e->automixProducerFramesDone = 0;
+        e->automixResetPending.store(true, std::memory_order_release);
+        e->crossfadeFramesTotal.store(fadeFrames, std::memory_order_relaxed);
+        e->crossfadeFramesRemaining.store(fadeFrames, std::memory_order_relaxed);
+        e->isCrossfading.store(true, std::memory_order_release);
+        return true;
+    }
+
     static bool execute_jump_direct(AudioEngineHandle *e, int jumpIndex)
     {
         if (e == nullptr || jumpIndex < 0) return false;
@@ -13611,19 +13858,12 @@ extern "C"
             applyRatePlan(e, plan);
         }
 
+        bool startedManualCrossfade = false;
         {
             std::lock_guard<std::mutex> d(e->decoderMutex);
-            if (e->hasCurrent)
-            {
-                uninit_decoder_slot(
-                    e,
-                    e->currentDecoder
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                    , e->currentStream
-#endif
-                );
-                e->hasCurrent = false;
-            }
+            const bool hasPendingSeek = e->pendingSeekValid.load(std::memory_order_acquire) &&
+                                        e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex;
+
             if (e->hasNext)
             {
                 uninit_decoder_slot(
@@ -13635,51 +13875,79 @@ extern "C"
                 );
                 e->hasNext = false;
             }
-            // Skip during an active crossfade: ramp the outgoing track out
-            // gracefully instead of hard-cutting it. The producer thread
-            // retires the outgoing decoder once the ramp completes.
-            request_crossfade_abort(e);
 
-            e->currentDecoder = newCurrent;
+            if (!hasPendingSeek &&
+                try_start_manual_crossfade_locked(
+                    e,
+                    newCurrent,
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-            e->currentStream = newCurrentStream;
+                    newCurrentStream,
 #endif
-            e->currentLengthFrames = newCurrentLen;
-            e->currentIndex = jumpIndex;
-            e->hasCurrent = (newCurrent != nullptr);
-            arm_transition_fade_in(e);
-            apply_initial_track_loudness(e, newCurrent, path);
-
-            ma_uint64 startFrameEngine = 0;
-            if (e->pendingSeekValid.load(std::memory_order_acquire) &&
-                e->pendingSeekIndex.load(std::memory_order_acquire) == jumpIndex)
+                    newCurrentLen,
+                    jumpIndex,
+                    /*fromPreloadedNext=*/false,
+                    path))
             {
-                const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
-                const int decSr = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
-                                      ? (int)e->currentDecoder->outputSampleRate
-                                      : engineSr;
-                const double seekSec = e->pendingSeekSeconds.load(std::memory_order_acquire);
-                ma_uint64 startFrameDec = 0;
-                if (seekSec >= 0.0)
-                {
-                    startFrameDec = (ma_uint64)(seekSec * (double)decSr);
-                    startFrameEngine = (ma_uint64)(seekSec * (double)engineSr);
-                }
-                else
-                {
-                    startFrameEngine = e->pendingSeekFrame.load(std::memory_order_acquire);
-                    startFrameDec = convert_frame_rate(startFrameEngine, engineSr, decSr);
-                }
-                if (e->currentDecoder != nullptr)
-                {
-                    (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrameDec);
-                }
-                e->pendingSeekValid.store(false, std::memory_order_release);
-                e->pendingSeekSeconds.store(-1.0, std::memory_order_release);
-                e->pendingSeekIndex.store(-1, std::memory_order_release);
+                startedManualCrossfade = true;
             }
-            reset_playback_position(e, startFrameEngine);
-            reset_track_resampler_locked(e);
+            else
+            {
+                if (e->hasCurrent)
+                {
+                    uninit_decoder_slot(
+                        e,
+                        e->currentDecoder
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                        , e->currentStream
+#endif
+                    );
+                    e->hasCurrent = false;
+                }
+                // Skip during an active crossfade: ramp the outgoing track out
+                // gracefully instead of hard-cutting it. The producer thread
+                // retires the outgoing decoder once the ramp completes.
+                request_crossfade_abort(e);
+
+                e->currentDecoder = newCurrent;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                e->currentStream = newCurrentStream;
+#endif
+                e->currentLengthFrames = newCurrentLen;
+                e->currentIndex = jumpIndex;
+                e->hasCurrent = (newCurrent != nullptr);
+                arm_transition_fade_in(e);
+                apply_initial_track_loudness(e, newCurrent, path);
+
+                ma_uint64 startFrameEngine = 0;
+                if (hasPendingSeek)
+                {
+                    const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                    const int decSr = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                                          ? (int)e->currentDecoder->outputSampleRate
+                                          : engineSr;
+                    const double seekSec = e->pendingSeekSeconds.load(std::memory_order_acquire);
+                    ma_uint64 startFrameDec = 0;
+                    if (seekSec >= 0.0)
+                    {
+                        startFrameDec = (ma_uint64)(seekSec * (double)decSr);
+                        startFrameEngine = (ma_uint64)(seekSec * (double)engineSr);
+                    }
+                    else
+                    {
+                        startFrameEngine = e->pendingSeekFrame.load(std::memory_order_acquire);
+                        startFrameDec = convert_frame_rate(startFrameEngine, engineSr, decSr);
+                    }
+                    if (e->currentDecoder != nullptr)
+                    {
+                        (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, startFrameDec);
+                    }
+                    e->pendingSeekValid.store(false, std::memory_order_release);
+                    e->pendingSeekSeconds.store(-1.0, std::memory_order_release);
+                    e->pendingSeekIndex.store(-1, std::memory_order_release);
+                }
+                reset_playback_position(e, startFrameEngine);
+                reset_track_resampler_locked(e);
+            }
 
             e->nextDecoder = nullptr;
             e->nextIndex = -1;
@@ -13693,9 +13961,12 @@ extern "C"
             e->isPlaying.load(std::memory_order_relaxed))
         {
             set_playing_state(e, true);
-            e->pcmRingBuffer.reset();
-            e->pcmDirectRingBuffer.reset();
-            e->flushCastRing();
+            if (!startedManualCrossfade)
+            {
+                e->pcmRingBuffer.reset();
+                e->pcmDirectRingBuffer.reset();
+                e->flushCastRing();
+            }
             e->decodeProducerCv.notify_one();
 
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
@@ -13745,46 +14016,69 @@ extern "C"
                     }
                 }
             }
-            if (e->hasCurrent && e->currentDecoder != nullptr)
-            {
-                uninit_decoder_slot(
+            if (try_start_manual_crossfade_locked(
                     e,
-                    e->currentDecoder
+                    e->nextDecoder,
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-                    , e->currentStream
+                    e->nextStream,
 #endif
-                );
-            }
-            request_crossfade_abort(e);
-            e->currentDecoder = e->nextDecoder;
-#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
-            e->currentStream = e->nextStream;
-            e->nextStream = nullptr;
-#endif
-            e->currentLengthFrames = e->nextLengthFrames;
-            e->currentIndex = idx;
-            e->hasCurrent = true;
-            if (!nextIsDsd && nNativeRate > 0)
+                    e->nextLengthFrames,
+                    idx,
+                    /*fromPreloadedNext=*/true,
+                    std::string()))
             {
-                e->sourceSampleRate = (int)nNativeRate;
-                e->sourceFormat = nNativeFmt;
-                e->sourceChannels = (int)nNativeCh;
+                promotedSrcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : nNativeRate;
+                e->hasNext = false;
+                e->nextDecoder = nullptr;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                e->nextStream = nullptr;
+#endif
+                e->nextIndex = -1;
+                e->nextLengthFrames = 0;
             }
-            sync_active_dsd_from_decoder(e, e->currentDecoder);
-            promotedSrcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : nNativeRate;
-            e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
-            reset_playback_position(e, 0);
-            reset_track_resampler_locked(e);
-            e->hasNext = false;
-            e->nextDecoder = nullptr;
-            e->nextIndex = -1;
-            e->nextLengthFrames = 0;
-            e->pcmRingBuffer.reset();
-            e->pcmDirectRingBuffer.reset();
-            e->flushCastRing();
-            arm_transition_fade_in(e);
+            else
+            {
+                if (e->hasCurrent && e->currentDecoder != nullptr)
+                {
+                    uninit_decoder_slot(
+                        e,
+                        e->currentDecoder
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                        , e->currentStream
+#endif
+                    );
+                }
+                request_crossfade_abort(e);
+                e->currentDecoder = e->nextDecoder;
+#if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
+                e->currentStream = e->nextStream;
+                e->nextStream = nullptr;
+#endif
+                e->currentLengthFrames = e->nextLengthFrames;
+                e->currentIndex = idx;
+                e->hasCurrent = true;
+                if (!nextIsDsd && nNativeRate > 0)
+                {
+                    e->sourceSampleRate = (int)nNativeRate;
+                    e->sourceFormat = nNativeFmt;
+                    e->sourceChannels = (int)nNativeCh;
+                }
+                sync_active_dsd_from_decoder(e, e->currentDecoder);
+                promotedSrcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : nNativeRate;
+                e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
+                e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
+                reset_playback_position(e, 0);
+                reset_track_resampler_locked(e);
+                e->hasNext = false;
+                e->nextDecoder = nullptr;
+                e->nextIndex = -1;
+                e->nextLengthFrames = 0;
+                e->pcmRingBuffer.reset();
+                e->pcmDirectRingBuffer.reset();
+                e->flushCastRing();
+                arm_transition_fade_in(e);
+            }
         }
         if (promotedSrcRate > 0)
         {
@@ -14269,7 +14563,7 @@ extern "C"
 
         if (config->enabled == 0)
         {
-            reset_automix_dsp(e);
+            e->automixResetPending.store(true, std::memory_order_release);
             if (!e->crossfadeEnabled.load(std::memory_order_relaxed))
             {
                 e->crossfadeFramesTotal.store(0, std::memory_order_relaxed);
@@ -16309,6 +16603,99 @@ extern "C"
 
 
 
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+    static bool macos_configure_exclusive_hog(AudioEngineHandle *e, bool enable, uint32_t targetSampleRate)
+    {
+        if (!e) return false;
+        AudioObjectPropertyAddress defaultOutAddr = {
+            kAudioHardwarePropertyDefaultOutputDevice,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
+        AudioDeviceID devId = 0;
+        UInt32 devIdSize = sizeof(devId);
+        if (!enable)
+        {
+            if (e->macOsHogActive && e->macOsHogDeviceId != 0)
+            {
+                AudioObjectPropertyAddress hogAddr = {
+                    kAudioDevicePropertyHogMode,
+                    kAudioObjectPropertyScopeGlobal,
+                    kAudioObjectPropertyElementMain
+                };
+                pid_t releasePid = -1;
+                AudioObjectSetPropertyData(static_cast<AudioDeviceID>(e->macOsHogDeviceId), &hogAddr, 0, nullptr, sizeof(releasePid), &releasePid);
+                e->macOsHogActive = false;
+                e->macOsHogDeviceId = 0;
+            }
+            return true;
+        }
+
+        if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &defaultOutAddr, 0, nullptr, &devIdSize, &devId) != noErr || devId == 0)
+        {
+            return false;
+        }
+
+        AudioObjectPropertyAddress hogAddr = {
+            kAudioDevicePropertyHogMode,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
+        pid_t myPid = getpid();
+        OSStatus hogSt = AudioObjectSetPropertyData(devId, &hogAddr, 0, nullptr, sizeof(myPid), &myPid);
+        if (hogSt != noErr)
+        {
+            engine_log("macOS CoreAudio Hog Mode declined (OSStatus=%d).", (int)hogSt);
+            e->macOsHogActive = false;
+            e->macOsHogDeviceId = 0;
+            return false;
+        }
+
+        if (targetSampleRate > 0)
+        {
+            AudioObjectPropertyAddress availRatesAddr = {
+                kAudioDevicePropertyAvailableNominalSampleRates,
+                kAudioObjectPropertyScopeGlobal,
+                kAudioObjectPropertyElementMain
+            };
+            UInt32 dataSize = 0;
+            bool rateSupported = false;
+            if (AudioObjectGetPropertyDataSize(devId, &availRatesAddr, 0, nullptr, &dataSize) == noErr && dataSize >= sizeof(AudioValueRange))
+            {
+                const size_t nRanges = dataSize / sizeof(AudioValueRange);
+                std::vector<AudioValueRange> ranges(nRanges);
+                if (AudioObjectGetPropertyData(devId, &availRatesAddr, 0, nullptr, &dataSize, ranges.data()) == noErr)
+                {
+                    const Float64 targetF = static_cast<Float64>(targetSampleRate);
+                    for (const auto &rng : ranges)
+                    {
+                        if (targetF >= rng.mMinimum - 1.0 && targetF <= rng.mMaximum + 1.0)
+                        {
+                            rateSupported = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (rateSupported)
+            {
+                Float64 nomRate = static_cast<Float64>(targetSampleRate);
+                AudioObjectPropertyAddress nomRateAddr = {
+                    kAudioDevicePropertyNominalSampleRate,
+                    kAudioObjectPropertyScopeGlobal,
+                    kAudioObjectPropertyElementMain
+                };
+                OSStatus rateSt = AudioObjectSetPropertyData(devId, &nomRateAddr, 0, nullptr, sizeof(nomRate), &nomRate);
+                engine_log("macOS CoreAudio Hog nominal sample rate %.0f Hz -> status=%d.", nomRate, (int)rateSt);
+            }
+        }
+
+        e->macOsHogActive = true;
+        e->macOsHogDeviceId = static_cast<uint32_t>(devId);
+        return true;
+    }
+#endif
+
     // Helper to restart device with new config
     static void restart_and_apply_config(AudioEngineHandle *e)
     {
@@ -16406,7 +16793,7 @@ extern "C"
                 : baseUserCh;
 
             bool wantExclusive = e->exclusiveModeEnabled.load(std::memory_order_relaxed);
-#if defined(_WIN32)
+#if !defined(__ANDROID__)
             if (is_direct_hires_family_backend(e->configuredBackend.load(std::memory_order_relaxed)))
             {
                 wantExclusive = true;
@@ -16825,6 +17212,23 @@ extern "C"
             if (!initOk)
             {
                 ma_context *pContextToUse = nullptr;
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+                if (wantExclusive)
+                {
+                    (void)macos_configure_exclusive_hog(e, true, cfg.sampleRate);
+                }
+#elif defined(__linux__) && !defined(__ANDROID__)
+                if (wantExclusive)
+                {
+                    ma_backend alsaBackend = ma_backend_alsa;
+                    if (ma_context_init(&alsaBackend, 1, nullptr, &e->customContext) == MA_SUCCESS)
+                    {
+                        e->customContextInit = true;
+                        pContextToUse = &e->customContext;
+                        engine_log("Linux ALSA exclusive context initialized.");
+                    }
+                }
+#endif
                 if (isDsdTrackRestart && (desiredDsdMode == AE_DSD_MODE_NATIVE || desiredDsdMode == AE_DSD_MODE_DOP))
                 {
                     if (desiredDsdMode == AE_DSD_MODE_NATIVE)
@@ -16834,7 +17238,9 @@ extern "C"
                         cfg.playback.format = (e->outputFormat == AE_FORMAT_S24) ? ma_format_s24 : ma_format_s32;
                     }
                     bool allowMiniaudioDop = false;
-#if !defined(__APPLE__)
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+                    allowMiniaudioDop = wantExclusive && e->macOsHogActive && e->exclusiveModeEnabled.load(std::memory_order_relaxed);
+#elif !defined(__APPLE__)
                     allowMiniaudioDop = wantExclusive && e->exclusiveModeEnabled.load(std::memory_order_relaxed);
 #endif
                     if (desiredDsdMode == AE_DSD_MODE_DOP && !allowMiniaudioDop)
@@ -16856,8 +17262,7 @@ extern "C"
                 if (wantExclusive)
                 {
 #if defined(__APPLE__)
-                    // CoreAudio does not support exclusive mode via miniaudio (returns MA_SHARE_MODE_NOT_SUPPORTED).
-                    // Use ultra-low-latency shared mode with tight frame periods (128/256 frames).
+                    // CoreAudio HAL uses hog mode + shared low-latency stream (miniaudio's ma_share_mode_exclusive is unsupported on CoreAudio).
                     cfg.playback.shareMode = ma_share_mode_shared;
 #else
                     cfg.playback.shareMode = ma_share_mode_exclusive;
@@ -16873,48 +17278,84 @@ extern "C"
 
                     apply_buffer_policy(e, cfg);
 
-                    if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
-                    {
+                    auto tryExclusiveInit = [&](ma_device_config &tryCfg) -> bool {
+                        if (ma_device_init(pContextToUse, &tryCfg, &e->device) != MA_SUCCESS)
+                            return false;
                         if (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP &&
-                            (e->device.sampleRate != cfg.sampleRate ||
-                             e->device.playback.channels != cfg.playback.channels ||
+                            (e->device.sampleRate != tryCfg.sampleRate ||
+                             e->device.playback.channels != tryCfg.playback.channels ||
                              (e->device.playback.format != ma_format_s24 && e->device.playback.format != ma_format_s32)))
                         {
                             engine_log("Exclusive DoP opened with mismatched rate/ch/fmt (%u Hz, %u ch, fmt=%d) -> tearing down!",
                                        e->device.sampleRate, e->device.playback.channels, (int)e->device.playback.format);
                             ma_device_uninit(&e->device);
-                            initOk = false;
+                            return false;
                         }
-                        else
-                        {
-                            initOk = true;
-                            engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz.", cfg.sampleRate);
-                        }
+                        return true;
+                    };
+
+                    if (tryExclusiveInit(cfg))
+                    {
+                        initOk = true;
+                        engine_log("Exclusive/Low-Latency Mode initialized successfully at %u Hz (fmt=%d).", cfg.sampleRate, (int)e->device.playback.format);
                     }
                     else if (isDsdTrackRestart && desiredDsdMode == AE_DSD_MODE_DOP)
                     {
                         // Retry alternate DoP bit container (S32 <-> S24) before falling back to D2P
                         cfg.playback.format = (cfg.playback.format == ma_format_s32) ? ma_format_s24 : ma_format_s32;
-                        if (ma_device_init(pContextToUse, &cfg, &e->device) == MA_SUCCESS)
+                        if (tryExclusiveInit(cfg))
                         {
-                            if (e->device.sampleRate == cfg.sampleRate &&
-                                e->device.playback.channels == cfg.playback.channels &&
-                                (e->device.playback.format == ma_format_s24 || e->device.playback.format == ma_format_s32))
-                            {
-                                initOk = true;
-                                engine_log("Exclusive DoP initialized on alternate container fmt=%d @ %u Hz (%u ch).",
-                                           (int)e->device.playback.format, e->device.sampleRate, e->device.playback.channels);
-                            }
-                            else
-                            {
-                                ma_device_uninit(&e->device);
-                                initOk = false;
-                            }
+                            initOk = true;
+                            engine_log("Exclusive DoP initialized on alternate container fmt=%d @ %u Hz (%u ch).",
+                                       (int)e->device.playback.format, e->device.sampleRate, e->device.playback.channels);
                         }
                     }
+                    else
+                    {
+                        // PCM Exclusive fallback ladder: driver default period -> S24->S32 -> S16
+                        ma_device_config ladderCfg = cfg;
+                        ladderCfg.periodSizeInFrames = 0;
+                        ladderCfg.periods = 0;
+                        apply_buffer_policy(e, ladderCfg);
+                        if (tryExclusiveInit(ladderCfg))
+                        {
+                            initOk = true;
+                        }
+                        if (!initOk && ladderCfg.playback.format == ma_format_s24)
+                        {
+                            ladderCfg.playback.format = ma_format_s32;
+                            if (tryExclusiveInit(ladderCfg))
+                            {
+                                initOk = true;
+                            }
+                        }
+                        if (!initOk && ladderCfg.playback.format != ma_format_s16)
+                        {
+                            ladderCfg.playback.format = ma_format_s16;
+                            if (tryExclusiveInit(ladderCfg))
+                            {
+                                initOk = true;
+                            }
+                        }
+                        if (initOk)
+                        {
+                            engine_log("Exclusive Mode initialized via format/period ladder at %u Hz (fmt=%d).",
+                                       e->device.sampleRate, (int)e->device.playback.format);
+                        }
+                    }
+
                     if (!initOk)
                     {
                         engine_log("Hardware declined Exclusive Mode config at %u Hz. Falling back to Shared Mode...", cfg.sampleRate);
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+                        (void)macos_configure_exclusive_hog(e, false, 0);
+#endif
+                        if (e->customContextInit)
+                        {
+                            ma_context_uninit(&e->customContext);
+                            e->customContextInit = false;
+                            pContextToUse = nullptr;
+                        }
                     }
                 }
 
@@ -16933,6 +17374,7 @@ extern "C"
 
                 if (!initOk)
                 {
+                    cfg.playback.format = (isDsdTrackRestart ? origCfgFmt : requestedOutFmt);
                     cfg.playback.shareMode = ma_share_mode_shared;
                     // Maintain low-latency performance profile if exclusive or auto sample rate was requested!
                     cfg.performanceProfile = wantExclusive ? ma_performance_profile_low_latency : ma_performance_profile_conservative;
@@ -17442,9 +17884,182 @@ extern "C"
         return engine ? (engine->exclusiveModeEnabled.load(std::memory_order_relaxed) ? 1 : 0) : 0;
     }
 
+    AE_API int ae_is_exclusive_mode_active(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+#if defined(__ANDROID__)
+        const int activeBk = engine->activeBackend.load(std::memory_order_acquire);
+        if (activeBk == AE_BACKEND_USB_DIRECT || is_direct_hires_family_backend(activeBk))
+        {
+            return 1;
+        }
+#endif
+        return engine->activeOut.isExclusive ? 1 : 0;
+    }
+
     AE_API int ae_is_direct_pcm_active(AudioEngineHandle *engine)
     {
         return engine ? (engine->isDirectPcmActive.load(std::memory_order_relaxed) ? 1 : 0) : 0;
+    }
+
+    AE_API void ae_apply_output_config(
+        AudioEngineHandle *engine,
+        int format,
+        int sample_rate,
+        int channels,
+        int exclusive_mode,
+        int auto_sample_rate,
+        int backend,
+        int resample_algorithm,
+        int dither_mode,
+        int dac_valid_bit_depth)
+    {
+        if (!engine)
+            return;
+
+        bool needRestart = false;
+
+        if (dither_mode >= 0)
+        {
+            const int prevMode = engine->ditherMode.exchange(dither_mode, std::memory_order_relaxed);
+            if (prevMode != dither_mode)
+            {
+                engine->ditherProcessor.reset();
+            }
+        }
+
+        if (format >= (int)AE_FORMAT_F32 && format <= (int)AE_FORMAT_S32)
+        {
+            engine->userOutputFormatExplicit.store(true, std::memory_order_relaxed);
+            if (engine->outputFormat != (AEAudioFormat)format)
+            {
+                engine->outputFormat = (AEAudioFormat)format;
+                needRestart = true;
+            }
+        }
+
+        if (dac_valid_bit_depth == 0)
+        {
+            engine->dacValidBitDepthExplicit.store(false, std::memory_order_relaxed);
+            sync_dac_valid_bit_depth(engine);
+        }
+        else if (dac_valid_bit_depth > 0)
+        {
+            const int clampedDepth = (dac_valid_bit_depth > 32) ? 32 : dac_valid_bit_depth;
+            engine->dacValidBitDepthExplicit.store(true, std::memory_order_relaxed);
+            engine->dacValidBitDepth.store(clampedDepth, std::memory_order_relaxed);
+        }
+        else if (format >= (int)AE_FORMAT_F32 && format <= (int)AE_FORMAT_S32)
+        {
+            sync_dac_valid_bit_depth(engine);
+        }
+
+        if (channels > 0)
+        {
+            engine->userOutputChannels = channels;
+            if (engine->outputChannels != channels)
+            {
+                engine->outputChannels = channels;
+                needRestart = true;
+            }
+        }
+
+        if (backend >= 0 && backend <= AE_BACKEND_DAP_HIRES && ae_is_backend_supported(engine, backend))
+        {
+            if (engine->configuredBackend.load(std::memory_order_relaxed) != backend)
+            {
+                engine->configuredBackend.store(backend, std::memory_order_relaxed);
+                needRestart = true;
+            }
+        }
+
+        if (exclusive_mode >= 0)
+        {
+            const bool wantExcl = (exclusive_mode != 0);
+            if (engine->exclusiveModeEnabled.load(std::memory_order_relaxed) != wantExcl)
+            {
+                engine->exclusiveModeEnabled.store(wantExcl, std::memory_order_relaxed);
+                needRestart = true;
+            }
+        }
+
+        if (auto_sample_rate >= 0)
+        {
+            const bool nextAuto = (auto_sample_rate != 0);
+            const bool prevAuto = engine->autoSampleRateMatchEnabled.exchange(nextAuto, std::memory_order_relaxed);
+            if (nextAuto)
+            {
+                engine->userOutputSampleRate = 0;
+                if (engine->sourceSampleRate > 0)
+                {
+                    const int resolved = resolve_hardware_target_rate(engine, engine->sourceSampleRate);
+                    if (resolved > 0 && engine->outputSampleRate != resolved)
+                    {
+                        engine->outputSampleRate = resolved;
+                        needRestart = true;
+                    }
+                }
+            }
+            if (prevAuto != nextAuto)
+            {
+                needRestart = true;
+            }
+        }
+
+        if (sample_rate >= 0)
+        {
+            const bool autoActive = engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed);
+            if (!autoActive)
+            {
+                engine->userOutputSampleRate = sample_rate;
+            }
+            int effectiveTarget = sample_rate;
+            if (!engine->castPcmTapEnabled.load(std::memory_order_relaxed))
+            {
+                if (sample_rate > 0)
+                {
+                    const int clamped = resolve_hardware_target_rate(engine, sample_rate);
+                    if (clamped > 0) effectiveTarget = clamped;
+                }
+                else
+                {
+                    const int curSrc = (engine->sourceSampleRate > 0) ? engine->sourceSampleRate : 0;
+                    const int autoTarget = resolve_hardware_target_rate(engine, curSrc);
+                    if (autoTarget > 0) effectiveTarget = autoTarget;
+                }
+            }
+            if (engine->outputSampleRate != effectiveTarget ||
+                (effectiveTarget > 0 && engine->deviceSampleRate != effectiveTarget))
+            {
+                engine->outputSampleRate = effectiveTarget;
+                needRestart = true;
+            }
+        }
+        else if (auto_sample_rate == 0 && engine->userOutputSampleRate != engine->outputSampleRate)
+        {
+            engine->outputSampleRate = engine->userOutputSampleRate;
+            needRestart = true;
+        }
+
+        if (resample_algorithm >= 0)
+        {
+            engine->resampleAlgorithm.store(resample_algorithm, std::memory_order_relaxed);
+            engine->currentResampleAlgorithm = resample_algorithm;
+            std::lock_guard<std::mutex> rLock(engine->deviceResamplerMutex);
+            if (engine->deviceResamplerInit)
+            {
+                needRestart = true;
+            }
+        }
+
+        if (needRestart)
+        {
+            restart_and_apply_config(engine);
+        }
+        else
+        {
+            engine->decodeProducerCv.notify_one();
+        }
     }
 
     AE_API int ae_is_backend_supported(AudioEngineHandle *engine, int backend)
@@ -17629,7 +18244,7 @@ extern "C"
         if (!engine || sample_rate < 0)
             return;
         const bool fromAutoConsume = engine->pendingAutoRateConsumeInFlight.exchange(false, std::memory_order_acq_rel);
-        if (!fromAutoConsume)
+        if (!fromAutoConsume && !engine->autoSampleRateMatchEnabled.load(std::memory_order_relaxed))
         {
             engine->userOutputSampleRate = sample_rate;
         }
@@ -17895,7 +18510,19 @@ extern "C"
             return;
         engine->resampleAlgorithm.store(algorithm, std::memory_order_relaxed);
         engine->currentResampleAlgorithm = algorithm;
-        restart_and_apply_config(engine);
+        bool hasDeviceResampler = false;
+        {
+            std::lock_guard<std::mutex> rLock(engine->deviceResamplerMutex);
+            hasDeviceResampler = engine->deviceResamplerInit;
+        }
+        if (hasDeviceResampler)
+        {
+            restart_and_apply_config(engine);
+        }
+        else
+        {
+            engine->decodeProducerCv.notify_one();
+        }
     }
 
     AE_API int ae_get_engine_resample_algorithm(AudioEngineHandle *engine)
@@ -17988,6 +18615,15 @@ extern "C"
             }
             else
             {
+                engine->userOutputSampleRate = 0;
+                if (engine->sourceSampleRate > 0)
+                {
+                    const int target = resolve_hardware_target_rate(engine, engine->sourceSampleRate);
+                    if (target > 0)
+                    {
+                        engine->outputSampleRate = target;
+                    }
+                }
                 restart_and_apply_config(engine);
             }
         }
@@ -18030,7 +18666,7 @@ extern "C"
         const int hwCh = (engine->activeOut.channels > 0) ? static_cast<int>(engine->activeOut.channels) : engine->channels;
         const int baseUserCh = (engine->userOutputChannels > 0) ? engine->userOutputChannels : ((engine->outputChannels > 0) ? engine->outputChannels : 2);
         const int targetCh = (targetBitMode != 0 && engine->sourceChannels > 0) ? engine->sourceChannels : baseUserCh;
-        if (pending > 0 && (pending != engine->outputSampleRate || targetBitMode != hwDsd || targetCh != hwCh))
+        if (pending > 0 && (pending != engine->deviceSampleRate || pending != engine->outputSampleRate || targetBitMode != hwDsd || targetCh != hwCh))
         {
             if (targetBitMode != hwDsd || targetCh != hwCh)
             {
@@ -21119,7 +21755,8 @@ extern "C"
                     }
                 }
 
-                info.is_exclusive_mode = engine->exclusiveModeEnabled ? 1 : 0;
+                info.is_exclusive_mode = engine->activeOut.isExclusive ? 1 : 0;
+                info.is_direct_pcm = engine->isDirectPcmActive.load(std::memory_order_relaxed) ? 1 : 0;
 
                 switch (hwFormat)
                 {

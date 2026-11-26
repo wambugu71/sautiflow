@@ -2477,6 +2477,34 @@ typedef _SetExclusiveModeDart = void Function(ffi.Pointer<ffi.Void>, int);
 typedef _GetExclusiveModeNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetExclusiveModeDart = int Function(ffi.Pointer<ffi.Void>);
 
+typedef _IsExclusiveModeActiveNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
+typedef _IsExclusiveModeActiveDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _ApplyOutputConfigNative = ffi.Void Function(
+  ffi.Pointer<ffi.Void>,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+  ffi.Int32,
+);
+typedef _ApplyOutputConfigDart = void Function(
+  ffi.Pointer<ffi.Void>,
+  int,
+  int,
+  int,
+  int,
+  int,
+  int,
+  int,
+  int,
+  int,
+);
+
 typedef _SetOutputBackendNative = ffi.Int32 Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetOutputBackendDart = int Function(ffi.Pointer<ffi.Void>, int);
@@ -3910,6 +3938,18 @@ class AudioEngineFFI {
         _lib.lookupFunction<_GetExclusiveModeNative, _GetExclusiveModeDart>(
       'ae_get_exclusive_mode',
     );
+    try {
+      _isExclusiveModeActive = _lib.lookupFunction<_IsExclusiveModeActiveNative,
+          _IsExclusiveModeActiveDart>('ae_is_exclusive_mode_active');
+    } catch (_) {
+      _isExclusiveModeActive = null;
+    }
+    try {
+      _applyOutputConfig = _lib.lookupFunction<_ApplyOutputConfigNative,
+          _ApplyOutputConfigDart>('ae_apply_output_config');
+    } catch (_) {
+      _applyOutputConfig = null;
+    }
     _setOutputBackend =
         _lib.lookupFunction<_SetOutputBackendNative, _SetOutputBackendDart>(
       'ae_set_output_backend',
@@ -4645,6 +4685,8 @@ class AudioEngineFFI {
   // Advanced Audio Features
   late final _SetExclusiveModeDart _setExclusiveMode;
   late final _GetExclusiveModeDart _getExclusiveMode;
+  _IsExclusiveModeActiveDart? _isExclusiveModeActive;
+  _ApplyOutputConfigDart? _applyOutputConfig;
   late final _SetOutputBackendDart _setOutputBackend;
   late final _GetOutputBackendDart _getOutputBackend;
   late final _IsBackendSupportedDart _isBackendSupported;
@@ -7061,6 +7103,52 @@ class AudioEngineFFI {
   bool getExclusiveMode() {
     if (_engine == ffi.nullptr) return false;
     return _getExclusiveMode(_engine) != 0;
+  }
+
+  bool isExclusiveModeActive() {
+    if (_engine == ffi.nullptr) return false;
+    if (_isExclusiveModeActive != null) {
+      return _isExclusiveModeActive!(_engine) != 0;
+    }
+    return _getExclusiveMode(_engine) != 0;
+  }
+
+  void applyOutputConfig({
+    AudioFormat? format,
+    int? sampleRate,
+    int? channels,
+    bool? exclusiveMode,
+    bool? autoSampleRate,
+    AudioOutputBackend? backend,
+    int? resampleAlgorithm,
+    int? ditherMode,
+    int? dacValidBitDepth,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    if (_applyOutputConfig != null) {
+      _applyOutputConfig!(
+        _engine,
+        format != null ? format.index : -1,
+        sampleRate ?? -1,
+        channels ?? -1,
+        exclusiveMode != null ? (exclusiveMode ? 1 : 0) : -1,
+        autoSampleRate != null ? (autoSampleRate ? 1 : 0) : -1,
+        backend != null ? backend.value : -1,
+        resampleAlgorithm ?? -1,
+        ditherMode ?? -1,
+        dacValidBitDepth ?? -1,
+      );
+      return;
+    }
+    if (ditherMode != null) setEngineDitherMode(ditherMode);
+    if (format != null) setOutputFormat(format);
+    if (dacValidBitDepth != null) setDacValidBitDepth(dacValidBitDepth);
+    if (channels != null) setOutputChannels(channels);
+    if (backend != null) setOutputBackend(backend);
+    if (exclusiveMode != null) setExclusiveMode(exclusiveMode);
+    if (autoSampleRate != null) setAutoSampleRateMatchEnabled(autoSampleRate);
+    if (sampleRate != null) setOutputSampleRate(sampleRate);
+    if (resampleAlgorithm != null) setEngineResampleAlgorithm(resampleAlgorithm);
   }
 
   /// Sets the preferred audio output backend. Returns true if accepted.

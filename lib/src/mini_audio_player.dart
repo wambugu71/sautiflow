@@ -641,6 +641,33 @@ class MiniAudioPlayer {
   /// Check if the engine is actually running in Exclusive Mode successfully.
   bool getExclusiveMode() => _engine.getExclusiveMode();
 
+  /// Whether the active output stream actually negotiated hardware Exclusive Mode.
+  bool isExclusiveModeActive() => _engine.isExclusiveModeActive();
+
+  /// Applies output configuration in one batched call to avoid redundant device restarts.
+  void applyOutputConfig({
+    AudioFormat? format,
+    int? sampleRate,
+    int? channels,
+    bool? exclusiveMode,
+    bool? autoSampleRate,
+    AudioOutputBackend? backend,
+    int? resampleAlgorithm,
+    int? ditherMode,
+    int? dacValidBitDepth,
+  }) =>
+      _engine.applyOutputConfig(
+        format: format,
+        sampleRate: sampleRate,
+        channels: channels,
+        exclusiveMode: exclusiveMode,
+        autoSampleRate: autoSampleRate,
+        backend: backend,
+        resampleAlgorithm: resampleAlgorithm,
+        ditherMode: ditherMode,
+        dacValidBitDepth: dacValidBitDepth,
+      );
+
   /// Enable or disable 64-bit floating point DSP processing mode (-320dB headroom).
   void set64BitProcessingEnabled(bool enabled) =>
       _engine.set64BitProcessingEnabled(enabled);

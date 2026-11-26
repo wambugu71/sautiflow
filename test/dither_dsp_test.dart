@@ -137,21 +137,49 @@ void main() {
   }
 
   // ---------------------------------------------------------------
-  // 4. Noise shaping (Shibata): error feedback keeps the output
-  //    locked to the input long-term but permits a few LSBs of
-  //    high-pass shaped noise. Must stay bounded and active.
+  // 4. Noise shaping (Shibata): error feedback shapes BOTH quantization error
+  //    and TPDF dither away from the mid-band (1-5 kHz), permitting slightly
+  //    larger total excursion while keeping the audible band quiet.
   // ---------------------------------------------------------------
-  print('[4] DitherMode.shibata -> bounded shaped noise @ DC 0');
+  print('[4] DitherMode.shibata -> bounded & psychoacoustically shaped @ DC 0');
   {
-    final rs = makeResampler(filters, DitherMode.shibata);
-    final out = runChunk(filters, rs, 0);
-    final maxAbs = out.map((s) => s.abs()).reduce(math.max);
-    check(maxAbs <= 4, '|error| bounded <= 4 LSB (got $maxAbs)');
-    check(out.any((s) => s != 0), 'shaper is active (non-constant output)');
-    final mean = out.fold<int>(0, (a, b) => a + b) / out.length;
+    final rsShibata = makeResampler(filters, DitherMode.shibata);
+    final outShibata = runChunk(filters, rsShibata, 0);
+    filters.destroyResampler(rsShibata);
+
+    final maxAbs = outShibata.map((s) => s.abs()).reduce(math.max);
+    check(maxAbs <= 12, '|error| bounded <= 12 LSB (got $maxAbs)');
+    check(outShibata.any((s) => s != 0), 'shaper is active (non-constant output)');
+    final mean = outShibata.fold<int>(0, (a, b) => a + b) / outShibata.length;
     check(mean.abs() < 0.05,
         'long-term mean tracks DC input (got ${mean.toStringAsFixed(4)})');
-    filters.destroyResampler(rs);
+
+    final rsTpdf = makeResampler(filters, DitherMode.triangle);
+    final outTpdf = runChunk(filters, rsTpdf, 0);
+    filters.destroyResampler(rsTpdf);
+
+    double bandPowerHz(List<int> xs, double fLow, double fHigh) {
+      final n = xs.length;
+      double total = 0.0;
+      // Goertzel/DFT energy across sample bins in [fLow, fHigh]
+      for (double f = fLow; f <= fHigh; f += 250.0) {
+        final w = 2.0 * math.pi * f / sampleRate;
+        double re = 0.0, im = 0.0;
+        for (int i = 0; i < n; i++) {
+          final v = xs[i].toDouble();
+          re += v * math.cos(w * i);
+          im -= v * math.sin(w * i);
+        }
+        total += (re * re + im * im) / (n * n);
+      }
+      return total;
+    }
+
+    final shibataMidPwr = bandPowerHz(outShibata, 1000.0, 5000.0);
+    final tpdfMidPwr = bandPowerHz(outTpdf, 1000.0, 5000.0);
+    final dropDb = 10.0 * math.log(tpdfMidPwr / math.max(shibataMidPwr, 1e-18)) / math.ln10;
+    check(dropDb > 6.0,
+        'Shibata reduces 1-5 kHz noise floor vs TPDF (${dropDb.toStringAsFixed(1)} dB reduction)');
   }
 
   // ---------------------------------------------------------------

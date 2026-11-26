@@ -355,6 +355,15 @@ class AppDatabase extends _$AppDatabase {
     return rows.map(toLocalSongItem).toList();
   }
 
+  Future<double?> getLocalTrackBpmByPath(String filePath) async {
+    final row = await (select(localTrackEntries)
+          ..where((t) =>
+              t.path.equals(filePath) | t.realFilePath.equals(filePath))
+          ..limit(1))
+        .getSingleOrNull();
+    return row?.bpm;
+  }
+
   SimpleSelectStatement<$LocalTrackEntriesTable, LocalTrackEntry>
       _buildLocalTracksQuery({
     String query = '',

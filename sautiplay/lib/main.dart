@@ -1185,13 +1185,23 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       _spectrumStyle = engine.spectrumStyle;
     });
 
-    // Apply basic engine settings
-    _player.setOutputFormat(_outputFormat);
-    _player.setOutputSampleRate(_outputSampleRate);
-    if (engine.dacValidBitDepth > 0) {
-      _player.setDacValidBitDepth(engine.dacValidBitDepth);
-    }
+    // Load startup DSP / output config preferences upfront so desktop applies one batched restart
+    final phaseSaved = await AppStateService.instance.loadPhaseInversion();
+    final is64Bit = await AppStateService.instance.load64BitProcessingEnabled();
+    final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
+    final spSaved = await AppStateService.instance.loadSpeakerProtection();
+    final loudnessSaved =
+        await AppStateService.instance.loadLoudnessNormalizer();
+    final lookaheadSaved =
+        await AppStateService.instance.loadLookaheadLimiter();
+    final ui = await AppStateService.instance.loadUiSettings();
+
     if (Platform.isAndroid) {
+      _player.setOutputFormat(_outputFormat);
+      _player.setOutputSampleRate(_outputSampleRate);
+      if (engine.dacValidBitDepth > 0) {
+        _player.setDacValidBitDepth(engine.dacValidBitDepth);
+      }
       final savedDapFamily =
           await AppStateService.instance.loadDapDriverProfile();
       if (savedDapFamily != -1) {
@@ -1204,8 +1214,22 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         }
         _player.setOutputBackend(savedBackend);
       }
+      _player.setExclusiveMode(_exclusiveMode);
+      _player.setAutoSampleRateMatchEnabled(autoBp);
+      _player.setEngineResampleAlgorithm(ui.resampleAlgorithm);
+      _player.setEngineDitherMode(ui.ditherMode);
+    } else {
+      _player.applyOutputConfig(
+        format: _outputFormat,
+        sampleRate: _outputSampleRate,
+        exclusiveMode: _exclusiveMode,
+        autoSampleRate: autoBp,
+        resampleAlgorithm: ui.resampleAlgorithm,
+        ditherMode: ui.ditherMode,
+        dacValidBitDepth: engine.dacValidBitDepth > 0 ? engine.dacValidBitDepth : null,
+      );
     }
-    _player.setExclusiveMode(_exclusiveMode);
+
     _player.setCrossfadeEnabled(_crossfadeEnabled);
     _player.setCrossfadeDurationMs(_crossfadeDurationMs);
     _player.setAnalyzerEnabled(_analyzerEnabled);
@@ -1214,18 +1238,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       windowType: _analyzerWindowType,
     );
 
-    // Apply Phase Inversion, Speaker Protection, 64-bit float & Auto Bit-Perfect
-    final phaseSaved = await AppStateService.instance.loadPhaseInversion();
-    final is64Bit = await AppStateService.instance.load64BitProcessingEnabled();
-    final autoBp = await AppStateService.instance.loadAutoBitPerfectEnabled();
-    final spSaved = await AppStateService.instance.loadSpeakerProtection();
-    final loudnessSaved =
-        await AppStateService.instance.loadLoudnessNormalizer();
-    final lookaheadSaved =
-        await AppStateService.instance.loadLookaheadLimiter();
-
     _player.set64BitProcessingEnabled(is64Bit);
-    _player.setAutoSampleRateMatchEnabled(autoBp);
     _player.setDsdOutputMode(DsdOutputMode.fromValue(engine.dsdOutputMode));
     _player.setDsdD2pSampleRate(engine.dsdD2pSampleRate);
     _player.setDsdGainBoostDb(engine.dsdGainBoostDb);
@@ -1250,11 +1263,6 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       limiterThreshold: spSaved.limiterThreshold,
       safetyAttenuationDb: spSaved.safetyAttenuationDb,
     );
-
-    // Apply saved resampler algorithm & dither mode
-    final ui = await AppStateService.instance.loadUiSettings();
-    _player.setEngineResampleAlgorithm(ui.resampleAlgorithm);
-    _player.setEngineDitherMode(ui.ditherMode);
 
     // Apply saved playback speed
     final savedPitch = await AppStateService.instance.loadPlaybackSpeed();
@@ -1851,6 +1859,12 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     }
     if (filePath != null) {
       filePath = CueVirtualPath.strip(filePath);
+      try {
+        final nextBpm = await AppDatabase.instance.getLocalTrackBpmByPath(filePath);
+        if (nextBpm != null && nextBpm >= 40.0 && nextBpm <= 300.0) {
+          _player.setNextTrackBpm(nextBpm);
+        }
+      } catch (_) {}
     }
 
     double rgDb = 0.0;
@@ -2041,6 +2055,15 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
         if (filePath != null) {
           filePath = CueVirtualPath.strip(filePath);
+          try {
+            final curBpm = await AppDatabase.instance.getLocalTrackBpmByPath(filePath);
+            if (!mounted || reqId != _metadataRequestId || _lastMetadataSource != source) {
+              return;
+            }
+            if (curBpm != null && curBpm >= 40.0 && curBpm <= 300.0) {
+              _player.setTrackBpm(curBpm);
+            }
+          } catch (_) {}
           final hasSourceArtist =
               source.artist != null && source.artist!.isNotEmpty;
           try {

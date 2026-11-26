@@ -422,7 +422,19 @@ extern "C"
     // Advanced Audio Controls
     AE_API void ae_set_exclusive_mode(AudioEngineHandle *engine, int enabled);
     AE_API int ae_get_exclusive_mode(AudioEngineHandle *engine);
+    AE_API int ae_is_exclusive_mode_active(AudioEngineHandle *engine);
     AE_API int ae_is_direct_pcm_active(AudioEngineHandle *engine);
+    AE_API void ae_apply_output_config(
+        AudioEngineHandle *engine,
+        int format,
+        int sample_rate,
+        int channels,
+        int exclusive_mode,
+        int auto_sample_rate,
+        int backend,
+        int resample_algorithm,
+        int dither_mode,
+        int dac_valid_bit_depth);
 
     AE_API void ae_set_output_format(AudioEngineHandle *engine, int format);
     AE_API int ae_get_output_format(AudioEngineHandle *engine);

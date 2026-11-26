@@ -2012,113 +2012,104 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const M3EDivider(),
-                IgnorePointer(
-                  ignoring: _autoBitPerfectEnabled,
-                  child: AnimatedOpacity(
-                    opacity: _autoBitPerfectEnabled ? 0.38 : 1.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: _buildM3ESwitchTile(
-                      title: 'Bit-Perfect Playback',
-                      subtitle: _autoBitPerfectEnabled
-                          ? 'Managed automatically (Auto-Match enabled)'
-                          : 'Bypasses system sound mixer for direct stream',
-                      secondary: _buildLeadingIcon(
-                        SautiIcons.bitPerfectCheck,
-                        widget.exclusiveMode
-                            ? Theme.of(context).colorScheme.primary
-                            : _textDark,
-                      ),
-
-                      value: widget.exclusiveMode,
-                      onChanged: (val) async {
-                        widget.player.setExclusiveMode(val);
-                        await Future.delayed(const Duration(milliseconds: 150));
-                        final actual = await widget.player.getExclusiveMode();
-                        widget.onExclusiveModeChanged(actual);
-                        setSubState(() {});
-                        if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                        if (val && actual) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              backgroundColor: _cardDark,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(
-                                    color: Colors.greenAccent.withAlpha(120)),
-                              ),
-                              content: Row(
-                                children: [
-                                  const Icon(Icons.verified_rounded,
-                                      color: Colors.greenAccent, size: 20),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      'Bit-Perfect Mode Accepted',
-                                      style: TextStyle(
-                                          color: _textPrimary, fontSize: 13),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        } else if (val && !actual) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              backgroundColor: _cardDark,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(
-                                    color: Colors.amberAccent.withAlpha(120)),
-                              ),
-                              content: Row(
-                                children: [
-                                  const Icon(Icons.warning_amber_rounded,
-                                      color: Colors.amberAccent, size: 20),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      'Hardware declined Exclusive Mode. Falling back to Shared Mixer!',
-                                      style: TextStyle(
-                                          color: _textPrimary, fontSize: 13),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              backgroundColor: _cardDark,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(color: context.outlineColor),
-                              ),
-                              content: Row(
-                                children: [
-                                  Icon(Icons.info_outline,
-                                      color: _textDark, size: 20),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      'Bit-Perfect Exclusive Mode Disabled (Shared Mixer)',
-                                      style: TextStyle(
-                                          color: _textPrimary, fontSize: 13),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                    ),
+                _buildM3ESwitchTile(
+                  title: 'Bit-Perfect Playback',
+                  subtitle: 'Bypasses system sound mixer for direct stream',
+                  secondary: _buildLeadingIcon(
+                    SautiIcons.bitPerfectCheck,
+                    widget.exclusiveMode
+                        ? Theme.of(context).colorScheme.primary
+                        : _textDark,
                   ),
+                  value: widget.exclusiveMode,
+                  onChanged: (val) async {
+                    widget.player.setExclusiveMode(val);
+                    await Future.delayed(const Duration(milliseconds: 180));
+                    final actual = await widget.player.isExclusiveModeActive();
+                    widget.onExclusiveModeChanged(actual);
+                    await AudioHardwareInspector.inspectAsync(widget.player);
+                    setSubState(() {});
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    if (val && actual) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: _cardDark,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                                color: Colors.greenAccent.withAlpha(120)),
+                          ),
+                          content: Row(
+                            children: [
+                              const Icon(Icons.verified_rounded,
+                                  color: Colors.greenAccent, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Bit-Perfect Exclusive Mode Active',
+                                  style: TextStyle(
+                                      color: _textPrimary, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    } else if (val && !actual) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: _cardDark,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                                color: Colors.amberAccent.withAlpha(120)),
+                          ),
+                          content: Row(
+                            children: [
+                              const Icon(Icons.warning_amber_rounded,
+                                  color: Colors.amberAccent, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Hardware declined Exclusive Mode. Falling back to Shared Mixer!',
+                                  style: TextStyle(
+                                      color: _textPrimary, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: _cardDark,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: context.outlineColor),
+                          ),
+                          content: Row(
+                            children: [
+                              Icon(Icons.info_outline,
+                                  color: _textDark, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Bit-Perfect Exclusive Mode Disabled (Shared Mixer)',
+                                  style: TextStyle(
+                                      color: _textPrimary, fontSize: 13),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                  },
                 ),
                 const M3EDivider(),
                 _buildM3ESwitchTile(
@@ -2141,6 +2132,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: _autoBitPerfectEnabled,
                   onChanged: (val) {
                     setState(() => _autoBitPerfectEnabled = val);
+                    if (val) {
+                      widget.onOutputSampleRateChanged(0);
+                    }
                     widget.player.setAutoSampleRateMatchEnabled(val);
                     AppStateService.instance.saveAutoBitPerfectEnabled(val);
                     setSubState(() {});
@@ -2523,6 +2517,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         },
                       ),
                     ],
+                    const M3EDivider(),
+                    AppSettingsTile(
+                      title: 'Bit-Perfect Auto-Match Preset',
+                      subtitle:
+                          'Sets Auto Sample-Rate Match, 32-bit PCM, zero dither & Exclusive Mode',
+                      leading: _buildLeadingIcon(
+                        SautiIcons.bitPerfectCheck,
+                        (_autoBitPerfectEnabled &&
+                                widget.outputFormat == AudioFormat.s32 &&
+                                widget.outputSampleRate == 0 &&
+                                (Platform.isAndroid || widget.exclusiveMode))
+                            ? Colors.greenAccent
+                            : _primary,
+                      ),
+                      trailing: AppStatusBadge(
+                        text: (_autoBitPerfectEnabled &&
+                                widget.outputFormat == AudioFormat.s32 &&
+                                widget.outputSampleRate == 0 &&
+                                (Platform.isAndroid || widget.exclusiveMode))
+                            ? 'ACTIVE'
+                            : 'APPLY',
+                        color: (_autoBitPerfectEnabled &&
+                                widget.outputFormat == AudioFormat.s32 &&
+                                widget.outputSampleRate == 0 &&
+                                (Platform.isAndroid || widget.exclusiveMode))
+                            ? Colors.greenAccent
+                            : _primary,
+                      ),
+                      onTap: () async {
+                        setState(() {
+                          _autoBitPerfectEnabled = true;
+                          _dacValidBitDepth = 0;
+                        });
+                        widget.onOutputFormatChanged(AudioFormat.s32);
+                        widget.onOutputSampleRateChanged(0);
+                        await AppStateService.instance
+                            .saveAutoBitPerfectEnabled(true);
+                        await AppStateService.instance.saveDacValidBitDepth(0);
+                        if (Platform.isAndroid) {
+                          widget.player.applyOutputConfig(
+                            format: AudioFormat.s32,
+                            sampleRate: 0,
+                            autoSampleRate: true,
+                            ditherMode: 0,
+                            dacValidBitDepth: 0,
+                          );
+                        } else {
+                          widget.player.applyOutputConfig(
+                            format: AudioFormat.s32,
+                            sampleRate: 0,
+                            exclusiveMode: true,
+                            autoSampleRate: true,
+                            ditherMode: 0,
+                            dacValidBitDepth: 0,
+                          );
+                          await Future.delayed(const Duration(milliseconds: 180));
+                          final actual =
+                              await widget.player.isExclusiveModeActive();
+                          widget.onExclusiveModeChanged(actual);
+                        }
+                        await AudioHardwareInspector.inspectAsync(widget.player);
+                        setSubState(() {});
+                        if (!context.mounted) return;
+                        _showUsbSnackBar(
+                          context,
+                          icon: SautiIcons.bitPerfectCheck,
+                          accentColor: Colors.greenAccent,
+                          message:
+                              'Applied Bit-Perfect Auto-Match profile',
+                        );
+                      },
+                    ),
                     const M3EDivider(),
                     AppSettingsTile(
                       title: '32-bit / 384 kHz Ultra Hi-Res Preset',
@@ -4078,7 +4144,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   secondary: _buildLeadingIcon(SautiIcons.gapless),
                   value: _gaplessPlayback,
                   onChanged: (v) {
-                    setState(() => _gaplessPlayback = v);
+                    setState(() {
+                      _gaplessPlayback = v;
+                      if (v) {
+                        _automixEnabled = false;
+                      }
+                    });
+                    if (v) {
+                      if (widget.crossfadeEnabled) {
+                        widget.onCrossfadeEnabledChanged(false);
+                        widget.player.setCrossfadeEnabled(false);
+                      }
+                      _applyAutomixConfig();
+                    }
                     setSubState(() {});
                     _persistUiSettings();
                   },
@@ -4095,6 +4173,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         trailing: M3ESwitch(
                           value: widget.crossfadeEnabled,
                           onChanged: (v) {
+                            if (v && _gaplessPlayback) {
+                              setState(() => _gaplessPlayback = false);
+                              _persistUiSettings();
+                            }
                             widget.onCrossfadeEnabledChanged(v);
                             widget.player.setCrossfadeEnabled(v);
                             setSubState(() {});
@@ -4203,7 +4285,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   value: _automixEnabled,
                   onChanged: (val) {
-                    setState(() => _automixEnabled = val);
+                    setState(() {
+                      _automixEnabled = val;
+                      if (val) _gaplessPlayback = false;
+                    });
+                    if (val) _persistUiSettings();
                     setSubState(() {});
                     _applyAutomixConfig();
                   },
@@ -4317,10 +4403,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const M3EDivider(),
                   _buildM3ESwitchTile(
-                    title: 'Camelot Harmonic Key Lock',
+                    title: 'Master Tempo Key Lock',
                     subtitle: _automixHarmonicKeyLock
-                        ? 'Pitch-shifts near-miss keys (±1 semitone) to prevent harmonic clash'
-                        : 'Plays at native song pitch',
+                        ? 'Preserves original song pitch via WSOLA during tempo sync'
+                        : 'Vinyl-style pitch shift coupled with tempo sync',
                     secondary: _buildLeadingIcon(
                       Icons.music_note_rounded,
                       _automixHarmonicKeyLock ? _primary : _textDark,
@@ -6492,6 +6578,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ],
       onSelected: (val) {
         setState(() => _dspOversampling = val);
+        widget.player.setDspOversampling(val);
         AppStateService.instance.saveDspOversampling(val);
         onDone?.call();
       },
