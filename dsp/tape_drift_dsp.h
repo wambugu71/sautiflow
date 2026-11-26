@@ -63,50 +63,56 @@ public:
             enabled_ = enabled;
             if (!enabled) {
                 reset();
+            } else {
+                anti_pop_ = 0.0;
             }
         }
     }
 
     bool isEnabled() const { return enabled_; }
 
+    double getLatencySamples() const {
+        return 0.015 * static_cast<double>(sample_rate_);
+    }
+
     void setPreset(TapeDriftPreset preset) {
         preset_ = preset;
         switch (preset) {
         case TapeDriftPreset::SubtleHiFi:
-            wow_rate_hz_ = 0.8f;
-            wow_depth_ms_ = 0.35f;
-            flutter_rate_hz_ = 12.0f;
-            flutter_depth_ms_ = 0.08f;
-            drift_depth_ms_ = 0.10f;
-            stereo_phase_deg_ = 45.0f;
+            wow_rate_hz_ = 0.55f;
+            wow_depth_ms_ = 0.18f;
+            flutter_rate_hz_ = 11.0f;
+            flutter_depth_ms_ = 0.015f;
+            drift_depth_ms_ = 0.08f;
+            stereo_phase_deg_ = 12.0f;
             hf_damping_hz_ = 18000.0f;
             break;
         case TapeDriftPreset::VintageReelToReel:
-            wow_rate_hz_ = 1.0f;
-            wow_depth_ms_ = 0.90f;
-            flutter_rate_hz_ = 16.0f;
-            flutter_depth_ms_ = 0.22f;
-            drift_depth_ms_ = 0.30f;
-            stereo_phase_deg_ = 60.0f;
+            wow_rate_hz_ = 0.80f;
+            wow_depth_ms_ = 0.40f;
+            flutter_rate_hz_ = 14.0f;
+            flutter_depth_ms_ = 0.035f;
+            drift_depth_ms_ = 0.18f;
+            stereo_phase_deg_ = 20.0f;
             hf_damping_hz_ = 15000.0f;
             break;
         case TapeDriftPreset::WarpedVinyl:
             wow_rate_hz_ = 0.555f; // 33.33 RPM / 60 = 0.555 Hz
-            wow_depth_ms_ = 2.2f;
+            wow_depth_ms_ = 1.15f;
             flutter_rate_hz_ = 7.5f;
-            flutter_depth_ms_ = 0.12f;
-            drift_depth_ms_ = 0.20f;
-            stereo_phase_deg_ = 90.0f;
+            flutter_depth_ms_ = 0.020f;
+            drift_depth_ms_ = 0.15f;
+            stereo_phase_deg_ = 8.0f;
             hf_damping_hz_ = 16000.0f;
             break;
         case TapeDriftPreset::CassetteLoFi:
-            wow_rate_hz_ = 1.6f;
-            wow_depth_ms_ = 2.0f;
-            flutter_rate_hz_ = 22.0f;
-            flutter_depth_ms_ = 0.55f;
-            drift_depth_ms_ = 0.70f;
-            stereo_phase_deg_ = 90.0f;
-            hf_damping_hz_ = 10000.0f;
+            wow_rate_hz_ = 1.40f;
+            wow_depth_ms_ = 0.95f;
+            flutter_rate_hz_ = 18.0f;
+            flutter_depth_ms_ = 0.075f;
+            drift_depth_ms_ = 0.40f;
+            stereo_phase_deg_ = 28.0f;
+            hf_damping_hz_ = 9500.0f;
             break;
         case TapeDriftPreset::Custom:
             break;
@@ -123,11 +129,11 @@ public:
                    float drift_depth_ms,
                    float stereo_phase_deg,
                    float hf_damping_hz) {
-        wow_rate_hz_ = std::clamp(wow_rate_hz, 0.1f, 5.0f);
-        wow_depth_ms_ = std::clamp(wow_depth_ms, 0.0f, 10.0f);
-        flutter_rate_hz_ = std::clamp(flutter_rate_hz, 2.0f, 40.0f);
-        flutter_depth_ms_ = std::clamp(flutter_depth_ms, 0.0f, 3.0f);
-        drift_depth_ms_ = std::clamp(drift_depth_ms, 0.0f, 5.0f);
+        wow_rate_hz_ = std::clamp(wow_rate_hz, 0.0f, 5.0f);
+        wow_depth_ms_ = std::clamp(wow_depth_ms, 0.0f, 8.0f);
+        flutter_rate_hz_ = std::clamp(flutter_rate_hz, 0.0f, 40.0f);
+        flutter_depth_ms_ = std::clamp(flutter_depth_ms, 0.0f, 1.5f);
+        drift_depth_ms_ = std::clamp(drift_depth_ms, 0.0f, 4.0f);
         stereo_phase_deg_ = std::clamp(stereo_phase_deg, 0.0f, 180.0f);
         hf_damping_hz_ = std::clamp(hf_damping_hz, 2000.0f, 22000.0f);
         preset_ = TapeDriftPreset::Custom;
@@ -164,6 +170,11 @@ public:
         drift_val_ = 0.0;
         drift_target_ = 0.0;
         drift_counter_ = 0;
+        cur_wow_depth_ms_ = static_cast<double>(wow_depth_ms_);
+        cur_flutter_depth_ms_ = static_cast<double>(flutter_depth_ms_);
+        cur_drift_depth_ms_ = static_cast<double>(drift_depth_ms_);
+        cur_stereo_phase_deg_ = static_cast<double>(stereo_phase_deg_);
+        anti_pop_ = 1.0;
     }
 
     // Process 32-bit float interleaved samples in-place
@@ -186,28 +197,38 @@ private:
         const size_t ch = std::min(static_cast<size_t>(channels), kMaxChannels);
         ScopedDenormalsDisable denormalGuard;
 
-        const double nominal_delay_samples = 0.015 * static_cast<double>(sample_rate_); // 15 ms center delay
-        const double wow_amp = (static_cast<double>(wow_depth_ms_) * 0.001) * static_cast<double>(sample_rate_);
-        const double flutter_amp = (static_cast<double>(flutter_depth_ms_) * 0.001) * static_cast<double>(sample_rate_);
-        const double drift_amp = (static_cast<double>(drift_depth_ms_) * 0.001) * static_cast<double>(sample_rate_);
-        const double phase_offset = static_cast<double>(stereo_phase_deg_) * (3.14159265358979323846 / 180.0);
-
-        // Per-channel offset rotation terms (constant for the whole block).
-        std::array<double, kMaxChannels> off_cos{}, off_sin{}, off15_cos{}, off15_sin{};
-        for (size_t c = 0; c < kMaxChannels; ++c) {
-            double o = 0.0;
-            if (c == 1 || c == 5 || c == 7) {
-                o = phase_offset;
-            } else if (c == 2 || c == 3) {
-                o = phase_offset * 0.5;
-            }
-            off_cos[c] = std::cos(o);
-            off_sin[c] = std::sin(o);
-            off15_cos[c] = std::cos(o * 1.5);
-            off15_sin[c] = std::sin(o * 1.5);
-        }
+        const double sr = static_cast<double>(sample_rate_);
+        const double nominal_delay_samples = 0.015 * sr; // 15 ms center delay
+        constexpr double DEG_TO_RAD = 3.14159265358979323846 / 180.0;
 
         for (size_t i = 0; i < frame_count; ++i) {
+            // 0. Parameter de-zippering (25 ms smooth ramp)
+            cur_wow_depth_ms_     += param_smooth_coeff_ * (static_cast<double>(wow_depth_ms_) - cur_wow_depth_ms_);
+            cur_flutter_depth_ms_ += param_smooth_coeff_ * (static_cast<double>(flutter_depth_ms_) - cur_flutter_depth_ms_);
+            cur_drift_depth_ms_   += param_smooth_coeff_ * (static_cast<double>(drift_depth_ms_) - cur_drift_depth_ms_);
+            cur_stereo_phase_deg_ += param_smooth_coeff_ * (static_cast<double>(stereo_phase_deg_) - cur_stereo_phase_deg_);
+
+            const double wow_amp     = (cur_wow_depth_ms_ * 0.001) * sr;
+            const double flutter_amp = (cur_flutter_depth_ms_ * 0.001) * sr;
+            const double drift_amp   = (cur_drift_depth_ms_ * 0.001) * sr;
+            const double phase_offset = cur_stereo_phase_deg_ * DEG_TO_RAD;
+
+            if (std::fabs(phase_offset - cached_phase_rad_) > 1.0e-6) {
+                cached_phase_rad_ = phase_offset;
+                for (size_t c = 0; c < kMaxChannels; ++c) {
+                    double o = 0.0;
+                    if (c == 1 || c == 5 || c == 7) {
+                        o = phase_offset;
+                    } else if (c == 2 || c == 3) {
+                        o = phase_offset * 0.5;
+                    }
+                    off_cos_[c]   = std::cos(o);
+                    off_sin_[c]   = std::sin(o);
+                    off15_cos_[c] = std::cos(o * 1.5);
+                    off15_sin_[c] = std::sin(o * 1.5);
+                }
+            }
+
             // 1. Advance LFOs
             wow_phase_ += wow_phase_inc_;
             if (wow_phase_ >= 6.283185307179586) wow_phase_ -= 6.283185307179586;
@@ -215,32 +236,32 @@ private:
             flutter_phase_ += flutter_phase_inc_;
             if (flutter_phase_ >= 6.283185307179586) flutter_phase_ -= 6.283185307179586;
 
-            // Random drift slow walk
+            // Sample-rate-invariant random drift slow walk (~0.15-0.4 Hz wander)
             if (++drift_counter_ >= drift_update_interval_) {
                 drift_counter_ = 0;
-                // Simple pseudo-random step [-1.0, 1.0]
                 drift_seed_ = (drift_seed_ * 1103515245u + 12345u) & 0x7fffffffu;
                 drift_target_ = (static_cast<double>(drift_seed_) / 1073741824.0) - 1.0;
             }
-            drift_val_ += 0.0005 * (drift_target_ - drift_val_);
+            drift_val_ += drift_smooth_coeff_ * (drift_target_ - drift_val_);
 
-            // 2. Write input samples to circular buffer
-            for (size_t c = 0; c < ch; ++c) {
-                buffer_[c * kBufferSize + write_pos_] = static_cast<double>(buffer[i * (size_t)channels + c]);
-            }
-
-            // 3. Read interpolated delayed samples per channel
-            // sin(p + o) = sin(p)cos(o) + cos(p)sin(o): one sincos per LFO per
-            // sample instead of one std::sin per LFO per channel.
+            // 2. Read dry samples, write to circular buffer, compute interpolated delay
             const double wow_s = std::sin(wow_phase_);
             const double wow_c = std::cos(wow_phase_);
             const double flt_s = std::sin(flutter_phase_);
             const double flt_c = std::cos(flutter_phase_);
 
+            const double ap = anti_pop_;
+            if (anti_pop_ < 1.0) {
+                anti_pop_ = std::min(1.0, anti_pop_ + anti_pop_inc_);
+            }
+
             for (size_t c = 0; c < ch; ++c) {
-                const double wow_mod = (wow_s * off_cos[c] + wow_c * off_sin[c]) * wow_amp;
-                const double flutter_mod = (flt_s * off15_cos[c] + flt_c * off15_sin[c]) * flutter_amp;
-                const double drift_mod = drift_val_ * drift_amp;
+                const double dry = static_cast<double>(buffer[i * static_cast<size_t>(channels) + c]);
+                buffer_[c * kBufferSize + write_pos_] = dry;
+
+                const double wow_mod     = (wow_s * off_cos_[c] + wow_c * off_sin_[c]) * wow_amp;
+                const double flutter_mod = (flt_s * off15_cos_[c] + flt_c * off15_sin_[c]) * flutter_amp;
+                const double drift_mod   = drift_val_ * drift_amp;
 
                 const double total_delay = std::clamp(nominal_delay_samples + wow_mod + flutter_mod + drift_mod,
                                                       2.0, static_cast<double>(kBufferSize - 8));
@@ -262,13 +283,20 @@ private:
 
                 double delayed = hermite4(ym1, y0, y1, y2, frac);
 
-                // 4. High-frequency tape damping filter
-                if (hf_damping_hz_ < 20000.0f) {
-                    hf_state_[c] += hf_alpha_ * (delayed - hf_state_[c]);
-                    delayed = hf_state_[c];
+                // 3. 1st-order TPT bilinear HF tape damping filter with smooth bypass
+                if (hf_wet_ > 1.0e-5) {
+                    const double v = (delayed - hf_state_[c]) * hf_alpha_;
+                    const double lp = v + hf_state_[c];
+                    hf_state_[c] = lp + v;
+                    if (std::fabs(hf_state_[c]) < 1.0e-25) hf_state_[c] = 0.0;
+                    delayed = delayed + hf_wet_ * (lp - delayed);
                 }
 
-                buffer[i * (size_t)channels + c] = static_cast<T>(delayed);
+                if (ap < 1.0) {
+                    delayed = dry + ap * (delayed - dry);
+                }
+
+                buffer[i * static_cast<size_t>(channels) + c] = static_cast<T>(delayed);
             }
 
             write_pos_ = (write_pos_ + 1) & kBufferMask;
@@ -284,30 +312,57 @@ private:
     }
 
     void updateRates() {
+        constexpr double PI = 3.14159265358979323846;
         constexpr double TWO_PI = 6.28318530717958647692;
-        wow_phase_inc_ = (TWO_PI * static_cast<double>(wow_rate_hz_)) / static_cast<double>(sample_rate_);
-        flutter_phase_inc_ = (TWO_PI * static_cast<double>(flutter_rate_hz_)) / static_cast<double>(sample_rate_);
+        const double sr = static_cast<double>(sample_rate_);
+        wow_phase_inc_ = (TWO_PI * static_cast<double>(wow_rate_hz_)) / sr;
+        flutter_phase_inc_ = (TWO_PI * static_cast<double>(flutter_rate_hz_)) / sr;
 
-        // Damping 1-pole filter alpha
-        const double fc = std::clamp(static_cast<double>(hf_damping_hz_), 1000.0, static_cast<double>(sample_rate_ * 0.45));
-        const double w0 = TWO_PI * fc / static_cast<double>(sample_rate_);
-        hf_alpha_ = w0 / (w0 + 1.0);
+        // 1st-order TPT bilinear LPF: exact -3.01 dB at hf_damping_hz_
+        const double fc = std::clamp(static_cast<double>(hf_damping_hz_), 1000.0, sr * 0.45);
+        const double g = std::tan(PI * fc / sr);
+        hf_alpha_ = g / (1.0 + g);
+        // Smooth bypass crossfade from 19.5 kHz -> 21.5 kHz (no step click at 20 kHz)
+        hf_wet_ = 1.0 - std::clamp((static_cast<double>(hf_damping_hz_) - 19500.0) / 2000.0, 0.0, 1.0);
 
-        drift_update_interval_ = static_cast<uint32_t>(sample_rate_ * 0.1); // 100 ms
-        if (drift_update_interval_ == 0) drift_update_interval_ = 1;
+        drift_update_interval_ = std::max<uint32_t>(1u, static_cast<uint32_t>(sr * 1.2));
+        drift_smooth_coeff_    = 1.0 - std::exp(-1.0 / (0.60 * sr));
+        param_smooth_coeff_    = 1.0 - std::exp(-1.0 / (0.025 * sr));
+        anti_pop_inc_          = 1.0 / std::max(1.0, 0.010 * sr);
+
+        if (!enabled_ || write_pos_ == 0) {
+            cur_wow_depth_ms_     = static_cast<double>(wow_depth_ms_);
+            cur_flutter_depth_ms_ = static_cast<double>(flutter_depth_ms_);
+            cur_drift_depth_ms_   = static_cast<double>(drift_depth_ms_);
+            cur_stereo_phase_deg_ = static_cast<double>(stereo_phase_deg_);
+        }
     }
 
     bool enabled_ = false;
     float sample_rate_ = 48000.0f;
     TapeDriftPreset preset_ = TapeDriftPreset::SubtleHiFi;
 
-    float wow_rate_hz_ = 0.8f;
-    float wow_depth_ms_ = 0.35f;
-    float flutter_rate_hz_ = 12.0f;
-    float flutter_depth_ms_ = 0.08f;
-    float drift_depth_ms_ = 0.10f;
-    float stereo_phase_deg_ = 45.0f;
+    float wow_rate_hz_ = 0.55f;
+    float wow_depth_ms_ = 0.18f;
+    float flutter_rate_hz_ = 11.0f;
+    float flutter_depth_ms_ = 0.015f;
+    float drift_depth_ms_ = 0.08f;
+    float stereo_phase_deg_ = 12.0f;
     float hf_damping_hz_ = 18000.0f;
+
+    double cur_wow_depth_ms_ = 0.18;
+    double cur_flutter_depth_ms_ = 0.015;
+    double cur_drift_depth_ms_ = 0.08;
+    double cur_stereo_phase_deg_ = 12.0;
+    double param_smooth_coeff_ = 0.00083;
+    double anti_pop_ = 1.0;
+    double anti_pop_inc_ = 0.00208;
+
+    double cached_phase_rad_ = -1.0;
+    std::array<double, kMaxChannels> off_cos_{};
+    std::array<double, kMaxChannels> off_sin_{};
+    std::array<double, kMaxChannels> off15_cos_{};
+    std::array<double, kMaxChannels> off15_sin_{};
 
     // Modulator phase & state
     double wow_phase_ = 0.0;
@@ -319,9 +374,11 @@ private:
     double drift_val_ = 0.0;
     double drift_target_ = 0.0;
     uint32_t drift_counter_ = 0;
-    uint32_t drift_update_interval_ = 4800;
+    uint32_t drift_update_interval_ = 57600;
+    double drift_smooth_coeff_ = 0.0000347;
 
     double hf_alpha_ = 1.0;
+    double hf_wet_ = 1.0;
     std::array<double, kMaxChannels> hf_state_{};
 
     // Circular delay buffer (stored linearly in heap to maintain small stack footprint)

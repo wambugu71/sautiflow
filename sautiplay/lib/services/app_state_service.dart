@@ -272,8 +272,8 @@ class AppStateService {
     required double width,
     required double delayMs,
     int mode = 0,
-    double monoBelowHz = 150.0,
-    double airBoostDb = 1.5,
+    double monoBelowHz = 120.0,
+    double airBoostDb = 0.0,
   }) async {
     final prefs = PreferencesStore.instance;
     await prefs.setBool(_kStereoWidenEnabled, enabled);
@@ -294,13 +294,17 @@ class AppStateService {
         double airBoostDb
       })> loadStereoWiden() async {
     final prefs = PreferencesStore.instance;
+    final rawDelay = prefs.getDouble(_kStereoWidenDelayMs) ?? 15.0;
+    final delayMs = (rawDelay >= 0.0 && rawDelay <= 1.0)
+        ? (rawDelay * 100.0).clamp(5.0, 30.0)
+        : rawDelay.clamp(5.0, 30.0);
     return (
       enabled: prefs.getBool(_kStereoWidenEnabled) ?? false,
       width: prefs.getDouble(_kStereoWidenWidth) ?? 1.2,
-      delayMs: prefs.getDouble(_kStereoWidenDelayMs) ?? 15.0,
+      delayMs: delayMs,
       mode: prefs.getInt(_kStereoWidenMode) ?? 0,
-      monoBelowHz: prefs.getDouble(_kStereoWidenMonoBelowHz) ?? 150.0,
-      airBoostDb: prefs.getDouble(_kStereoWidenAirBoostDb) ?? 1.5,
+      monoBelowHz: prefs.getDouble(_kStereoWidenMonoBelowHz) ?? 120.0,
+      airBoostDb: prefs.getDouble(_kStereoWidenAirBoostDb) ?? 0.0,
     );
   }
 

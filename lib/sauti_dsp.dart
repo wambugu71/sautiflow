@@ -149,9 +149,9 @@ enum DownwardExpanderPreset {
 /// Spatial Surround suite modes.
 enum SurroundMode {
   off(0),
-  matrixSurround(1), // Cinema Matrix 5.1 (Pro Logic II cleanroom)
-  binauralVirtualizer(2), // Reconstructed from Dolby analysis_dlby2
-  acousticStage(3); // Reconstructed from AM3D Zirene re_workspace
+  matrixSurround(1), // Cinema Matrix 5.1 (Active dematrix -> spherical HRTF)
+  binauralVirtualizer(2), // Binaural HRTF (Headphone room & Speaker XTC)
+  acousticStage(3); // 3D Acoustic Stage (Profile-aware XTC, depth & bass anchor)
 
   final int value;
   const SurroundMode(this.value);
@@ -1384,9 +1384,9 @@ class SautiDsp {
   /// Spatial Surround Suite.
   ///
   /// [mode] selects the algorithm:
-  ///  - [SurroundMode.matrixSurround]: Cinema Matrix 5.1 (Pro Logic II cleanroom)
-  ///  - [SurroundMode.binauralVirtualizer]: Dolby Headphone HRTF & Speaker Virtualizer
-  ///  - [SurroundMode.acousticStage]: AM3D Zirene 3D Virtual Surround & M/S Expander
+  ///  - [SurroundMode.matrixSurround]: Cinema Matrix 5.1 (active dematrix & spherical HRTF)
+  ///  - [SurroundMode.binauralVirtualizer]: Binaural HRTF (headphone room & speaker XTC)
+  ///  - [SurroundMode.acousticStage]: 3D Acoustic Stage (profile-aware XTC, depth & LR4 bass anchor)
   void setSurround({
     required bool enabled,
     SurroundMode mode = SurroundMode.off,
@@ -1402,7 +1402,7 @@ class SautiDsp {
         _enginePtr, fieldWidth, roomLevel.toDouble(), delayMs, centerFocus);
   }
 
-  /// Cinema Matrix 5.1 (Cleanroom Pro Logic II Dematrix -> Spherical HRTF).
+  /// Cinema Matrix 5.1 (Active Dematrix -> Folded Spherical HRTF).
   void setSurroundMatrix({
     required bool enabled,
     double centerFocus = 0.6,
@@ -1422,7 +1422,7 @@ class SautiDsp {
     );
   }
 
-  /// Binaural HRTF Virtualizer (Reconstructed from Dolby analysis_dlby2).
+  /// Binaural HRTF Virtualizer (Headphone Room HRTF & Speaker Field XTC).
   ///
   /// [mode]: 0 for Headphone HRTF, 1 for Speaker Field.
   /// [roomPreset]: 1 for Studio, 2 for Cinema, 3 for Concert Hall.
@@ -1450,10 +1450,10 @@ class SautiDsp {
     );
   }
 
-  /// 3D Acoustic Stage (Reconstructed from AM3D Zirene re_workspace).
+  /// 3D Acoustic Stage (Transducer-aware spatial stage, depth & LR4 bass anchor).
   ///
   /// [profile]: 0 for Headset, 1 for Speaker.
-  /// [mode]: 0 for Studio (Normal), 1 for Panoramic (Wide).
+  /// [mode]: 0 for Studio, 1 for Panoramic.
   void setSurroundStage({
     required bool enabled,
     int profile = 0,

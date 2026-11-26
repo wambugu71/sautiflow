@@ -93,7 +93,10 @@ class AudioProfileSelector extends StatefulWidget {
         'stereoWiden': {
           'enabled': stereoWiden.enabled,
           'width': stereoWiden.width,
-          'delayMs': stereoWiden.delayMs
+          'delayMs': stereoWiden.delayMs,
+          'mode': stereoWiden.mode,
+          'monoBelowHz': stereoWiden.monoBelowHz,
+          'airBoostDb': stereoWiden.airBoostDb,
         },
         'stereoEnhancement': {
           'enabled': stereoEnhancement.enabled,

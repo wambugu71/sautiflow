@@ -291,8 +291,8 @@ static void test_tape_drift()
 
     float wowRate, wowDepth, flutterRate, flutterDepth, driftDepth, stereoPhase, hfDamping;
     tape.getParams(&wowRate, &wowDepth, &flutterRate, &flutterDepth, &driftDepth, &stereoPhase, &hfDamping);
-    CHECK(std::abs(wowRate - 1.0f) < 0.01f, "VintageReelToReel wow rate is 1.0 Hz");
-    CHECK(std::abs(stereoPhase - 60.0f) < 0.01f, "VintageReelToReel stereo phase is 60 deg");
+    CHECK(std::abs(wowRate - 0.80f) < 0.01f, "VintageReelToReel wow rate is 0.80 Hz");
+    CHECK(std::abs(stereoPhase - 20.0f) < 0.01f, "VintageReelToReel stereo phase is 20 deg");
 
     // 3. Audio processing produces valid delayed & modulated output
     {
@@ -416,6 +416,50 @@ static void test_tape_drift()
             if (peakIdx != 730) all8Synced = false;
         }
         CHECK(all8Synced, "All 8 surround channels (7.1) delayed in lockstep at 64-bit precision");
+    }
+
+    // 8. TPT HF LPF accuracy (-3.01 dB at 18 kHz), smooth 20 kHz bypass & SR-invariant drift
+    {
+        auto evalGainAt18k = [](float cutoffHz) {
+            sauti::dsp::TapeDriftDSP t;
+            t.setSampleRate(48000.0f);
+            t.setEnabled(true);
+            t.reset();
+            t.setParams(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, cutoffHz);
+            auto buf = generateSine(18000.0f, 48000.0f, 2048, 0.5f);
+            t.process(buf.data(), 2048, 2);
+            double outSq = 0.0, inSq = 0.0;
+            for (size_t i = 1500; i < 2048; ++i) {
+                double s = 0.5 * std::sin(2.0 * 3.14159265358979323846 * 18000.0 * i / 48000.0);
+                inSq += s * s;
+                outSq += static_cast<double>(buf[i * 2]) * buf[i * 2];
+            }
+            return std::sqrt(outSq / inSq);
+        };
+        const double g18k = evalGainAt18k(18000.0f);
+        const double db18k = 20.0 * std::log10(g18k);
+        CHECK(std::abs(db18k + 3.01) < 0.35, "TPT HF damping at 18 kHz gives accurate -3.01 dB (+/-0.35 dB)");
+
+        const double g199 = evalGainAt18k(19900.0f);
+        const double g201 = evalGainAt18k(20100.0f);
+        CHECK(std::abs(g201 - g199) < 0.05, "No hard-bypass discontinuity across 20 kHz HF damping boundary");
+
+        // SR-invariant slow drift smoothness @ 48 kHz and 192 kHz
+        for (float testSr : { 48000.0f, 192000.0f }) {
+            sauti::dsp::TapeDriftDSP t;
+            t.setSampleRate(testSr);
+            t.setEnabled(true);
+            t.reset();
+            t.setParams(0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 22000.0f);
+            const size_t frames = static_cast<size_t>(testSr * 1.5f);
+            auto buf = generateSine(1000.0f, testSr, frames, 0.5f);
+            t.process(buf.data(), frames, 2);
+            bool finite = true;
+            for (float v : buf) {
+                if (!std::isfinite(v)) { finite = false; break; }
+            }
+            CHECK(finite, "TapeDriftDSP drift walk remains finite and stable across 48k/192k");
+        }
     }
 }
 

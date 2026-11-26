@@ -31,8 +31,6 @@ public:
         if (initialized_ && std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
-        // 30ms parameter smoothing coefficient at 2x oversampled rate
-        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_ * 2.0f));
         dc_r_ = 1.0f - (2.0f * 3.14159265358979323846f * 10.0f / sample_rate_);
         updateTapeFilter();
         oversampler_.init(static_cast<int>(sample_rate_), 4096);
@@ -92,6 +90,11 @@ public:
 
     int getOversampling() const { return oversampling_factor_; }
     float getTapeDamping() const { return tape_damping_; }
+    double getLatencySamples() const {
+        if (oversampling_factor_ >= 4) return 40.0;
+        if (oversampling_factor_ == 2) return 26.5;
+        return 0.0;
+    }
 
     // Public entry: records the dry history, then processes in chunks that fit
     // the oversampler's pre-allocated capacity. The history is also kept warm
@@ -193,14 +196,12 @@ private:
             double out_l = static_cast<double>(interleaved_samples[2 * i]);
             double out_r = static_cast<double>(interleaved_samples[2 * i + 1]);
 
-            if (profile_ == AnalogWarmthProfile::Triode12AX7) {
-                // The asymmetric triode transfer injects a DC bias. Block it per
-                // channel with a gentle 10 Hz one-pole highpass.
-                out_l = dc_block(out_l, dc_x_l_, dc_y_l_, static_cast<double>(dc_r_));
-                out_r = dc_block(out_r, dc_x_r_, dc_y_r_, static_cast<double>(dc_r_));
-            }
+            // All nonlinear warmth curves can inject even-order DC asymmetry;
+            // block per channel with a 10 Hz one-pole highpass across all profiles.
+            out_l = dc_block(out_l, dc_x_l_, dc_y_l_, static_cast<double>(dc_r_));
+            out_r = dc_block(out_r, dc_x_r_, dc_y_r_, static_cast<double>(dc_r_));
 
-            // Anti-pop smooth crossfade on activation / preset change. The dry
+            // Anti-pop smooth crossfade on activation / preset change (~25 ms). The dry
             // reference is delayed by the oversampler latency so both paths are
             // time-aligned (no comb filtering while mixing).
             if (anti_pop_ < 1.0f) {
@@ -211,7 +212,7 @@ private:
                 const double ap = static_cast<double>(anti_pop_);
                 out_l = dry_l + ap * (out_l - dry_l);
                 out_r = dry_r + ap * (out_r - dry_r);
-                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 40.0f);
             }
 
             interleaved_samples[2 * i]     = static_cast<T>(out_l);
@@ -281,37 +282,23 @@ private:
         return y;
     }
 
-    // Fast rational Padé approximation for hyperbolic tangent (~5x faster than std::tanh)
-    static inline double fast_tanh(double x) {
-        if (x < -3.0) return -1.0;
-        if (x > 3.0) return 1.0;
-        const double x2 = x * x;
-        return x * (27.0 + x2) / (27.0 + 9.0 * x2);
+    // Monotonic, loudness-matched DC-biased saturator with unity gain at -6 dBFS
+    static inline double shapeBiasedTanh(double x, double d, double g_base, double g_span, double b_span, double wet_scale) {
+        if (d <= 1.0e-5) return x;
+        const double g = g_base + g_span * d;
+        const double b = b_span * d;
+        const double tb = std::tanh(g * b);
+        const double norm = std::tanh(g * (0.5 + b)) - std::tanh(g * (-0.5 + b));
+        const double inv_norm = (norm > 1.0e-9) ? (1.0 / norm) : 1.0;
+        const double y_sat = (std::tanh(g * (x + b)) - tb) * inv_norm;
+        const double w = d * wet_scale;
+        return (1.0 - w) * x + w * y_sat;
     }
 
-    // 1. 12AX7 Triode Vacuum Tube (Asymmetric Even-Order Harmonics)
+    // 1. 12AX7 Triode Vacuum Tube (Monotonic Asymmetric Even-Order Harmonics)
     inline double processTriode(double x) {
         const double drive = static_cast<double>(current_drive_);
-        const double gain = 1.0 + drive * 2.5;
-        const double driven = x * gain;
-
-        // Asymmetric transfer function: positive swings compress differently than negative swings
-        // Generates musical 2nd (octave) & 3rd harmonics
-        double out;
-        if (driven > 0.0) {
-            out = fast_tanh(driven);
-        } else {
-            // Negative swing has a softer, extended knee (classic triode grid characteristic)
-            const double neg = driven * 0.85;
-            out = fast_tanh(neg) / 0.85;
-        }
-
-        // Add subtle quadratic even-harmonic warmth
-        out += (driven * driven * 0.08 * drive);
-
-        // Level compensation so volume stays consistent
-        const double comp = 1.0 / (1.0 + drive * 0.5);
-        return out * comp;
+        return shapeBiasedTanh(x, drive, 1.0, 1.5, 0.36, 1.0);
     }
 
     inline void processTriodeStereo(double in_l, double in_r, double& out_l, double& out_r) {
@@ -319,38 +306,43 @@ private:
         out_r = processTriode(in_r);
     }
 
+    // 2. Magnetic Tape (Soft Magnetic Saturation + Sample-Rate-Invariant TPT HF Damping)
     inline void processTapeStereo(double in_l, double in_r, double& out_l, double& out_r) {
         const double drive = static_cast<double>(current_drive_);
-        const double gain = 1.0 + drive * 2.0;
-        const double sat_l = fast_tanh(in_l * gain);
-        const double sat_r = fast_tanh(in_r * gain);
+        const double sat_l = shapeBiasedTanh(in_l, drive, 1.0, 2.0, 0.05, 1.0);
+        const double sat_r = shapeBiasedTanh(in_r, drive, 1.0, 2.0, 0.05, 1.0);
 
-        const double damp = static_cast<double>(tape_damping_);
-        const double smoothed_l = sat_l * (1.0 - damp) + tape_prev_l_ * damp;
-        const double smoothed_r = sat_r * (1.0 - damp) + tape_prev_r_ * damp;
-        tape_prev_l_ = sat_l;
-        tape_prev_r_ = sat_r;
+        const double a = static_cast<double>(tape_damping_);
+        const double vl = (sat_l - tape_prev_l_) * a;
+        const double lp_l = vl + tape_prev_l_;
+        tape_prev_l_ = lp_l + vl;
+        if (std::fabs(tape_prev_l_) < 1.0e-25) tape_prev_l_ = 0.0;
 
-        const double comp = 1.0 / (1.0 + drive * 0.4);
-        out_l = smoothed_l * comp;
-        out_r = smoothed_r * comp;
+        const double vr = (sat_r - tape_prev_r_) * a;
+        const double lp_r = vr + tape_prev_r_;
+        tape_prev_r_ = lp_r + vr;
+        if (std::fabs(tape_prev_r_) < 1.0e-25) tape_prev_r_ = 0.0;
+
+        out_l = sat_l + drive * (lp_l - sat_l);
+        out_r = sat_r + drive * (lp_r - sat_r);
     }
 
+    // 3. Vintage Console Preamp (Balanced Harmonic Presence, No Hard Clipping)
     inline void processPreampStereo(double in_l, double in_r, double& out_l, double& out_r) {
-        const double drive_scale = static_cast<double>(current_drive_) * 0.5;
-        const double c15 = 0.15 * drive_scale;
-        const double c10 = 0.10 * drive_scale;
-        const double x2_l = in_l * in_l;
-        const double x2_r = in_r * in_r;
-        out_l = std::clamp(in_l - (x2_l * c15) - (x2_l * in_l * c10), -1.0, 1.0);
-        out_r = std::clamp(in_r - (x2_r * c15) - (x2_r * in_r * c10), -1.0, 1.0);
+        const double drive = static_cast<double>(current_drive_);
+        out_l = shapeBiasedTanh(in_l, drive, 0.8, 1.1, 0.24, 0.85);
+        out_r = shapeBiasedTanh(in_r, drive, 0.8, 1.1, 0.24, 0.85);
     }
 
     void updateTapeFilter() {
-        // High-frequency damping calibrated for active effective oversampling rate (1x, 2x, or 4x)
-        const float os_mul = static_cast<float>(oversampling_factor_ > 0 ? oversampling_factor_ : 1);
-        const float effective_sr = sample_rate_ * os_mul;
-        tape_damping_ = std::clamp(6000.0f / effective_sr, 0.01f, 0.35f);
+        // Calibrate parameter smoothing and 1st-order TPT bilinear LPF for active effective rate (1x, 2x, 4x)
+        const int os_mul = (oversampling_factor_ > 0) ? oversampling_factor_ : 1;
+        const double effective_sr = static_cast<double>(sample_rate_) * static_cast<double>(os_mul);
+        smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * static_cast<float>(effective_sr)));
+
+        const double fc = std::min(14000.0, effective_sr * 0.42);
+        const double g = std::tan(3.14159265358979323846 * fc / effective_sr);
+        tape_damping_ = static_cast<float>(g / (1.0 + g));
     }
 };
 

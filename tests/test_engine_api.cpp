@@ -1861,6 +1861,154 @@ static void test_hires_384khz_and_fidelity_alignment()
     }
 }
 
+static void test_stereo_enhancement_and_pdc_latency()
+{
+    std::printf("\n== Stereo Enhancer (3-Band LR4) & PDC Latency ==\n");
+
+    // 1. PDC latency reports AnalogWarmth (2x OS = 26.5 samples) & TapeDrift (15 ms = 720 samples @ 48 kHz)
+    {
+        AudioEngineHandle *e = ae_create_engine(48000, 2);
+        CHECK(e != nullptr, "engine created for PDC & stereo enhancement");
+        if (e)
+        {
+            const double baseLat = ae_get_engine_latency_samples(e);
+            ae_set_dsp_oversampling(e, 2);
+            ae_dsp_set_analog_warmth_enabled(e, 1);
+            const double warmLat = ae_get_engine_latency_samples(e);
+            CHECK(std::fabs((warmLat - baseLat) - 26.5) < 0.1,
+                  "AnalogWarmth 2x OS contributes exact 26.5 samples to PDC latency");
+
+            ae_dsp_set_tape_drift_enabled(e, 1);
+            const double driftLat = ae_get_engine_latency_samples(e);
+            CHECK(std::fabs((driftLat - warmLat) - 720.0) < 1.0,
+                  "TapeDrift contributes exact 720 samples (15 ms @ 48 kHz) to PDC latency");
+
+            ae_dsp_set_tape_drift_enabled(e, 0);
+            ae_dsp_set_analog_warmth_enabled(e, 0);
+            ae_destroy_engine(e);
+        }
+    }
+
+    // 2. Stereo Enhancer end-to-end: stereo widening, low THD, and mono preservation
+    auto runEnhancerCapture = [](bool isMono, float mixVal, double &outMidRms, double &outSideRms, double &outThdPct) {
+        outMidRms = 0.0;
+        outSideRms = 0.0;
+        outThdPct = 100.0;
+
+        const char *wavPath = isMono ? "enhancer_mono_test.wav" : "enhancer_stereo_test.wav";
+        const int sr = 48000;
+        const int frames = sr * 2;
+        std::vector<int16_t> pcm((size_t)frames * 2);
+        for (int i = 0; i < frames; ++i)
+        {
+            const double t = (double)i / sr;
+            const double m = 0.35 * std::sin(2.0 * M_PI * 1000.0 * t);
+            const double s = isMono ? 0.0 : (0.12 * std::sin(2.0 * M_PI * 1370.0 * t));
+            const double l = std::clamp(m + s, -0.98, 0.98);
+            const double r = std::clamp(m - s, -0.98, 0.98);
+            pcm[(size_t)2 * i] = (int16_t)std::lround(l * 32767.0);
+            pcm[(size_t)2 * i + 1] = (int16_t)std::lround(r * 32767.0);
+        }
+        {
+#pragma pack(push, 1)
+            struct WH { char r[4]; uint32_t rs; char w[4]; char f[4]; uint32_t fs; uint16_t af, ch; uint32_t sr, br; uint16_t ba, bps; char d[4]; uint32_t db; };
+#pragma pack(pop)
+            WH h{{'R','I','F','F'}, 36 + (uint32_t)(pcm.size() * 2), {'W','A','V','E'}, {'f','m','t',' '}, 16, 1, 2, (uint32_t)sr, (uint32_t)sr * 4, 4, 16, {'d','a','t','a'}, (uint32_t)(pcm.size() * 2)};
+            FILE *fp = std::fopen(wavPath, "wb");
+            if (fp) { std::fwrite(&h, sizeof(h), 1, fp); std::fwrite(pcm.data(), 1, pcm.size() * 2, fp); std::fclose(fp); }
+        }
+
+        AudioEngineHandle *e = ae_create_engine(sr, 2);
+        if (!e) { std::remove(wavPath); return; }
+        ae_set_analyzer_enabled(e, 1);
+        ae_set_stereo_enhancement_mix(e, mixVal);
+        ae_set_stereo_enhancement_enabled(e, 1);
+        const char *paths[1] = { wavPath };
+        ae_set_playlist(e, paths, 1);
+        ae_set_loop_mode(e, 2);
+        ae_play(e);
+
+        std::vector<float> frameBuf(1024, 0.0f);
+        int copiedFrames = 0;
+        const auto deadline = Clock::now() + std::chrono::seconds(5);
+        while (Clock::now() < deadline)
+        {
+            const PlayerStatus st = ae_get_status(e);
+            if (st.is_playing && st.position_seconds > 0.25)
+            {
+                copiedFrames = ae_poll_analyzer_frame_stereo(e, frameBuf.data(), 512);
+                if (copiedFrames >= 512) break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        }
+
+        if (copiedFrames >= 256)
+        {
+            double m2 = 0.0, s2 = 0.0;
+            std::vector<double> midSamples(copiedFrames);
+            for (int i = 0; i < copiedFrames; ++i)
+            {
+                const double m = 0.5 * ((double)frameBuf[2 * i] + (double)frameBuf[2 * i + 1]);
+                const double s = 0.5 * ((double)frameBuf[2 * i] - (double)frameBuf[2 * i + 1]);
+                midSamples[i] = m;
+                m2 += m * m;
+                s2 += s * s;
+            }
+            outMidRms = std::sqrt(m2 / copiedFrames);
+            outSideRms = std::sqrt(s2 / copiedFrames);
+
+            // Hann-windowed DFT around 1 kHz vs total energy for THD+IMD
+            double winSum = 0.0, totPow = 0.0, fundPow = 0.0;
+            std::vector<double> wMid(copiedFrames);
+            for (int i = 0; i < copiedFrames; ++i)
+            {
+                const double w = 0.5 * (1.0 - std::cos(2.0 * M_PI * i / (copiedFrames - 1)));
+                wMid[i] = midSamples[i] * w;
+                winSum += w * w;
+                totPow += wMid[i] * wMid[i];
+            }
+            const int maxK = copiedFrames / 2;
+            const int targetBin = (int)std::lround(1000.0 * copiedFrames / sr);
+            for (int k = 1; k < maxK; ++k)
+            {
+                double re = 0.0, im = 0.0;
+                for (int n = 0; n < copiedFrames; ++n)
+                {
+                    const double ang = 2.0 * M_PI * k * n / copiedFrames;
+                    re += wMid[n] * std::cos(ang);
+                    im -= wMid[n] * std::sin(ang);
+                }
+                const double p = (2.0 * (re * re + im * im)) / (copiedFrames * winSum);
+                if (std::abs(k - targetBin) <= 3) fundPow += p;
+            }
+            totPow /= winSum;
+            const double distPow = std::max(0.0, totPow - fundPow);
+            outThdPct = (fundPow > 1e-12) ? (std::sqrt(distPow / fundPow) * 100.0) : 100.0;
+        }
+
+        ae_stop(e);
+        ae_destroy_engine(e);
+        std::remove(wavPath);
+    };
+
+    double m50 = 0.0, s50 = 0.0, thd50 = 0.0;
+    double m90 = 0.0, s90 = 0.0, thd90 = 0.0;
+    double mMono100 = 0.0, sMono100 = 0.0, thdMono100 = 0.0;
+    runEnhancerCapture(false, 0.50f, m50, s50, thd50);
+    runEnhancerCapture(false, 0.90f, m90, s90, thd90);
+    runEnhancerCapture(true,  1.00f, mMono100, sMono100, thdMono100);
+
+    const double sm50 = s50 / std::max(m50, 1e-9);
+    const double sm90 = s90 / std::max(m90, 1e-9);
+    std::printf("  Stereo Enhancer mix=0.50: M=%.4f S=%.4f S/M=%.3f THD=%.2f%%\n", m50, s50, sm50, thd50);
+    std::printf("  Stereo Enhancer mix=0.90: M=%.4f S=%.4f S/M=%.3f THD=%.2f%%\n", m90, s90, sm90, thd90);
+    std::printf("  Stereo Enhancer mono mix=1.00: M=%.4f S=%.4f THD=%.2f%%\n", mMono100, sMono100, thdMono100);
+
+    CHECK(sm90 > sm50 * 1.25, "Stereo Enhancer mix=0.90 widens Side/Mid ratio cleanly (>1.25x unity)");
+    CHECK(thd90 < 1.5, "Stereo Enhancer mix=0.90 keeps Mid THD+IMD low (<1.5%, was ~15%)");
+    CHECK(mMono100 > m50 * 0.85, "Stereo Enhancer pure mono @ mix=1.00 does NOT mute center vocals/mono");
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -1888,6 +2036,7 @@ int main()
     test_ffmpeg_swr_options_and_midstream_p05_p06();
     test_dither_24in32_and_noise_shaping_fixes();
     test_hires_384khz_and_fidelity_alignment();
+    test_stereo_enhancement_and_pdc_latency();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

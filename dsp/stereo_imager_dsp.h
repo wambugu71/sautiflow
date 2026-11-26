@@ -15,117 +15,83 @@ namespace sauti::dsp {
 // StereoImagerMode: High-Fidelity Audiophile Stereo Processing Topologies
 // =============================================================================
 enum class StereoImagerMode {
-    CleanMastering   = 0, // Pure symmetric Mid/Side expansion + sub-bass mono anchor
-    Spatial3D        = 1, // Transient-gated Velvet Noise sparse decorrelation
-    BlumleinShuffler = 2  // Low-frequency Gerzon/Blumlein acoustic shuffling matrix
+    CleanMastering   = 0, // Pure symmetric Mid/Side expansion + LR4 mono-bass anchor
+    Spatial3D        = 1, // Zero-ripple Hilbert quadrature + delay-scaled Velvet + transient gate
+    BlumleinShuffler = 2  // Band-limited Gerzon (1986) complementary acoustic shuffler
 };
 
-// 64-Bit Direct Form I Biquad for sub-bass mono anchor filtering
-struct StereoImagerBiquadDouble {
-    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
-    double a1 = 0.0, a2 = 0.0;
-    double x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
+// 4-stage Olli Niemitalo Hilbert Quadrature Pair (64-bit double precision)
+// Provides +/- 0.7 deg 90-degree phase shift across 40 Hz..18 kHz with 0.00 dB magnitude ripple
+struct ImagerHilbert4 {
+    struct Section2 {
+        double k = 0.0;
+        double x1 = 0.0, x2 = 0.0;
+        double y1 = 0.0, y2 = 0.0;
 
-    void reset() {
-        x1 = x2 = y1 = y2 = 0.0;
-    }
+        void reset() { x1 = x2 = y1 = y2 = 0.0; }
 
-    inline double process(double x) {
-        const double y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-        x2 = x1; x1 = x;
-        y2 = y1; y1 = (std::fabs(y) < 1.0e-25) ? 0.0 : y;
-        return y1;
-    }
-
-    // 2nd-Order Butterworth Highpass (Q = 0.7071)
-    void setHighpass(double fs, double fc) {
-        if (fc <= 20.0 || fs <= 0.0) {
-            b0 = 1.0; b1 = 0.0; b2 = 0.0;
-            a1 = 0.0; a2 = 0.0;
-            return;
+        inline double process(double x)
+        {
+            double y = k * (x + y2) - x2;
+            if (std::fabs(y) < 1.0e-25) y = 0.0;
+            x2 = x1;
+            x1 = x;
+            y2 = y1;
+            y1 = y;
+            return y;
         }
-        constexpr double PI = 3.14159265358979323846;
-        double w0 = 2.0 * PI * fc / fs;
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        if (w0 < 1.0e-4) w0 = 1.0e-4;
+    };
 
-        const double cos_w = std::cos(w0);
-        const double sin_w = std::sin(w0);
-        const double alpha = sin_w / (2.0 * 0.7071067811865475); // Q = 1/sqrt(2)
+    Section2 branch_a[4];
+    Section2 branch_b[4];
+    double delay_a = 0.0;
 
-        const double a0 = 1.0 + alpha;
-        b0 = (1.0 + cos_w) / (2.0 * a0);
-        b1 = -(1.0 + cos_w) / a0;
-        b2 = (1.0 + cos_w) / (2.0 * a0);
-        a1 = (-2.0 * cos_w) / a0;
-        a2 = (1.0 - alpha) / a0;
-    }
-
-    // 2nd-Order Butterworth Allpass (Q = 0.7071): exact phase match for LR4 LP + HP sum
-    void setAllpass2ndOrder(double fs, double fc) {
-        if (fc <= 20.0 || fs <= 0.0) {
-            b0 = 1.0; b1 = 0.0; b2 = 0.0;
-            a1 = 0.0; a2 = 0.0;
-            return;
+    ImagerHilbert4()
+    {
+        constexpr double a_c[4] = {
+            0.6923878, 0.9360654322959, 0.9882295226860, 0.9987488452737
+        };
+        constexpr double b_c[4] = {
+            0.4021921162426, 0.8561710882420, 0.9722909545651, 0.9952884791278
+        };
+        for (int i = 0; i < 4; ++i) {
+            branch_a[i].k = a_c[i] * a_c[i];
+            branch_b[i].k = b_c[i] * b_c[i];
         }
-        constexpr double PI = 3.14159265358979323846;
-        double w0 = 2.0 * PI * fc / fs;
-        if (w0 > PI * 0.95) w0 = PI * 0.95;
-        if (w0 < 1.0e-4) w0 = 1.0e-4;
-
-        const double cos_w = std::cos(w0);
-        const double sin_w = std::sin(w0);
-        const double alpha = sin_w / (2.0 * 0.7071067811865475);
-
-        const double a0 = 1.0 + alpha;
-        b0 = (1.0 - alpha) / a0;
-        b1 = (-2.0 * cos_w) / a0;
-        b2 = 1.0;
-        a1 = (-2.0 * cos_w) / a0;
-        a2 = (1.0 - alpha) / a0;
-    }
-};
-
-// 64-bit Cytomic Trapezoidal SVF wrapper for filtering Side channel (air shelf, shuffler, HPF)
-struct StereoImagerBiquad {
-    CytomicSVF svf_;
-
-    void reset() {
-        svf_.reset();
+        reset();
     }
 
-    inline float process(float x) {
-        return static_cast<float>(svf_.processSample(static_cast<double>(x), 0));
-    }
-
-    inline double process(double x) {
-        return svf_.processSample(x, 0);
-    }
-
-    // 2nd-Order Butterworth Highpass (Q = 0.7071)
-    void setHighpass(double fs, double fc) {
-        if (fc <= 20.0 || fs <= 0.0) {
-            // Bypass
-            svf_.setParameters(CytomicSVF::FilterType::Bell,
-                               (fs > 0.0) ? fs : 48000.0, 1000.0, 0.0, 0.7071067811865475);
-            return;
+    void reset()
+    {
+        for (int i = 0; i < 4; ++i) {
+            branch_a[i].reset();
+            branch_b[i].reset();
         }
-        const double clampedFc = std::clamp(fc, 10.0, fs * 0.45);
-        svf_.setParameters(CytomicSVF::FilterType::HighPass, fs, clampedFc, 0.0, 0.7071067811865475);
+        delay_a = 0.0;
     }
 
-    // 2nd-Order High-Shelf Filter with Nyquist de-cramping (64-bit Cytomic SVF)
-    void setHighShelf(double fs, double fc, double gainDb) {
-        if (fs <= 0.0) return;
-        const double clampedFc = std::clamp(fc, 20.0, fs * 0.45);
-        svf_.setParameters(CytomicSVF::FilterType::HighShelf, fs, clampedFc, gainDb, 0.7071067811865475);
+    inline void processPair(double x, double &out_a, double &out_b)
+    {
+        double a = delay_a;
+        delay_a = x;
+        double b = x;
+        for (int i = 0; i < 4; ++i) {
+            a = branch_a[i].process(a);
+            b = branch_b[i].process(b);
+        }
+        // out_a and out_b have identical allpass magnitude and maintain +90 deg phase separation
+        out_a = a;
+        out_b = b;
     }
 
-    // 2nd-Order Low-Shelf Filter (for Blumlein/Gerzon shuffler, 64-bit Cytomic SVF)
-    void setLowShelf(double fs, double fc, double gainDb) {
-        if (fs <= 0.0) return;
-        const double clampedFc = std::clamp(fc, 20.0, fs * 0.45);
-        svf_.setParameters(CytomicSVF::FilterType::LowShelf, fs, clampedFc, gainDb, 0.7071067811865475);
+    inline double processInPhase(double x)
+    {
+        double a = delay_a;
+        delay_a = x;
+        for (int i = 0; i < 4; ++i) {
+            a = branch_a[i].process(a);
+        }
+        return a;
     }
 };
 
@@ -134,6 +100,8 @@ struct StereoImagerBiquad {
 // =============================================================================
 class StereoImagerDSP {
 public:
+    static constexpr int kVelvetTaps = 24;
+
     StereoImagerDSP() {
         setSampleRate(48000.0f);
         reset();
@@ -146,15 +114,15 @@ public:
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
 
-        // 35ms parameter de-zippering coefficient
-        smooth_coeff_ = 1.0f - std::exp(-1.0f / (0.035f * sample_rate_));
+        // Sample-rate-invariant smoothing and envelope constants
+        smooth_coeff_  = 1.0f - std::exp(-1.0f / (0.035f * sample_rate_));
+        fast_coeff_    = 1.0 - std::exp(-1.0 / (0.0015 * static_cast<double>(sample_rate_)));
+        slow_coeff_    = 1.0 - std::exp(-1.0 / (0.0350 * static_cast<double>(sample_rate_)));
+        gate_coeff_    = 1.0 - std::exp(-1.0 / (0.0080 * static_cast<double>(sample_rate_)));
+        power_coeff_   = 1.0 - std::exp(-1.0 / (0.0800 * static_cast<double>(sample_rate_)));
 
-        // Transient envelope follower (1ms attack, 25ms release)
-        attack_coeff_  = 1.0f - std::exp(-1.0f / (0.001f * sample_rate_));
-        release_coeff_ = 1.0f - std::exp(-1.0f / (0.025f * sample_rate_));
-
-        // Reallocate delay buffer for Velvet Noise decorrelator (~20 ms max tap)
-        const size_t maxDelaySamples = static_cast<size_t>(0.020f * sample_rate_) + 16u;
+        // Reallocate delay buffer for Velvet Noise decorrelator (40 ms covers 30 ms max span)
+        const size_t maxDelaySamples = static_cast<size_t>(0.040f * sample_rate_) + 16u;
         velvet_buffer_.assign(maxDelaySamples, 0.0);
         velvet_write_ = 0;
 
@@ -189,9 +157,8 @@ public:
     float getWidth() const { return target_width_; }
 
     void setMonoBelowHz(float hz) {
-        mono_below_user_set_ = true;
-        float clamped = (hz <= 20.0f) ? 0.0f : std::clamp(hz, 40.0f, 400.0f);
-        if (std::abs(mono_below_hz_ - clamped) > 1.0f) {
+        float clamped = (hz <= 20.0f) ? 0.0f : std::clamp(hz, 21.0f, 400.0f);
+        if (std::abs(mono_below_hz_ - clamped) > 0.5f) {
             mono_below_hz_ = clamped;
             updateFilters();
         }
@@ -201,7 +168,7 @@ public:
 
     void setAirBoostDb(float db) {
         float clamped = std::clamp(db, 0.0f, 6.0f);
-        if (std::abs(air_boost_db_ - clamped) > 0.1f) {
+        if (std::abs(air_boost_db_ - clamped) > 0.05f) {
             air_boost_db_ = clamped;
             updateFilters();
         }
@@ -209,17 +176,43 @@ public:
 
     float getAirBoostDb() const { return air_boost_db_; }
 
+    void setDelayMs(float ms) {
+        float clamped = std::clamp(ms, 5.0f, 30.0f);
+        if (std::abs(delay_ms_ - clamped) > 0.05f) {
+            delay_ms_ = clamped;
+            initVelvetTaps();
+        }
+    }
+
+    float getDelayMs() const { return delay_ms_; }
+
     void reset() {
         current_width_ = target_width_;
-        transient_env_ = 0.0f;
-        transient_gate_ = 1.0f;
+        last_shuf_width_ = -1.0;
+        fast_env_ = 0.0;
+        slow_env_ = 0.0;
+        transient_gate_ = 1.0;
+        env_base_e_ = 0.0;
+        env_proc_e_ = 0.0;
         velvet_write_ = 0;
-        std::fill(velvet_buffer_.begin(), velvet_buffer_.end(), 0.0f);
-        elliptical_filter_.reset();
-        elliptical_filter2_.reset();
-        mid_allpass_filter_.reset();
+        std::fill(velvet_buffer_.begin(), velvet_buffer_.end(), 0.0);
+
+        elliptical_hp1_.reset();
+        elliptical_hp2_.reset();
+        mid_allpass_.reset();
+        decorr_hp1_.reset();
+        decorr_hp2_.reset();
+        decorr_lp_.reset();
+        decorr_lp2_.reset();
+        spatial_ap_hp_.reset();
+        spatial_ap_lp_.reset();
+        hilbert_.reset();
+        hilbert_side_.reset();
         air_shelf_filter_.reset();
-        shuffler_shelf_filter_.reset();
+        shuffler_side_shelf_.reset();
+        shuffler_mid_shelf_.reset();
+        shuffler_sub_hp_.reset();
+        updateShufflerShelves(static_cast<double>(current_width_));
     }
 
     // Telemetry getters for live visualizer graph (lock-free)
@@ -253,21 +246,9 @@ private:
         const size_t bufSize = velvet_buffer_.size();
         const bool hasVelvet = (mode_ == StereoImagerMode::Spatial3D) && (bufSize > 0);
         const bool hasShuffler = (mode_ == StereoImagerMode::BlumleinShuffler);
-        const bool hasMonoAnchor = (effective_mono_hz_ > 25.0f);
-        const bool hasAirShelf = (air_boost_db_ > 0.1f);
-
-        // Check if block has any stereo difference so pure mono (L == R) remains bit-exact
-        bool blockHasSide = false;
-        for (uint32_t i = 0; i < frameCount; ++i) {
-            const size_t idx = (size_t)i * (size_t)channels;
-            if (std::fabs(static_cast<double>(samples[idx]) - static_cast<double>(samples[idx + 1])) > 1.0e-9) {
-                blockHasSide = true;
-                break;
-            }
-        }
-        if (std::fabs(elliptical_filter_.y1) > 1.0e-9 || std::fabs(elliptical_filter2_.y1) > 1.0e-9) {
-            blockHasSide = true;
-        }
+        const bool hasMonoAnchor = (mono_below_hz_ > 20.0f);
+        const bool hasAirShelf = (air_boost_db_ > 0.05f);
+        const double velvet_norm_scale = 1.0 / std::sqrt(static_cast<double>(kVelvetTaps));
 
         // Telemetry energy accumulators for this processing block
         double sum_lr = 0.0;
@@ -277,7 +258,7 @@ private:
         double sum_s2 = 0.0;
 
         for (uint32_t i = 0; i < frameCount; ++i) {
-            const size_t idx = (size_t)i * (size_t)channels;
+            const size_t idx = static_cast<size_t>(i) * static_cast<size_t>(channels);
             const double in_l = static_cast<double>(samples[idx]);
             const double in_r = static_cast<double>(samples[idx + 1]);
 
@@ -289,79 +270,116 @@ private:
             double mid  = 0.5 * (in_l + in_r);
             double side = 0.5 * (in_l - in_r);
 
-            // 3. Sub-Bass Mono Anchor (64-Bit Linkwitz-Riley 4th-Order Crossover on Side + Phase-Matched Allpass on Mid)
+            // 3. Sub-Bass Mono Anchor (64-bit Cytomic LR4 HPF on Side + Phase-Matched Allpass on Mid)
+            // Applied unconditionally across ALL modes to eliminate phase-jump clicks and L/R inversions
             if (hasMonoAnchor) {
-                const double s_hp1 = elliptical_filter_.process(side);
-                const double s_hp2 = elliptical_filter2_.process(s_hp1);
-                side = s_hp2;
-                const double m_ap = mid_allpass_filter_.process(mid);
-                if (blockHasSide && !hasVelvet) {
-                    mid = m_ap;
-                }
+                side = elliptical_hp2_.processSample(elliptical_hp1_.processSample(side, 0), 0);
+                mid  = mid_allpass_.processSample(mid, 0);
             }
+
+            const double mid_base  = mid;
+            const double side_base = side;
 
             // 4. Mode-Specific Spatialization
             if (hasVelvet) {
-                // Mode 1: Transient-Gated Velvet Noise Decorrelator
-                const float abs_mid = static_cast<float>(std::fabs(mid));
-                if (abs_mid > transient_env_) {
-                    transient_env_ += (abs_mid - transient_env_) * attack_coeff_;
-                } else {
-                    transient_env_ += (abs_mid - transient_env_) * release_coeff_;
+                // Mode 1: Spatial 3D
+                // Match Mid & Side phase to Hilbert branch_a and LR4 250..9000 Hz band-limits
+                double mid_i = 0.0, mid_q = 0.0;
+                hilbert_.processPair(mid, mid_i, mid_q);
+                const double side_i = hilbert_side_.processInPhase(side);
+
+                mid  = spatial_ap_lp_.processSample(spatial_ap_hp_.processSample(mid_i, 0), 0);
+                side = spatial_ap_lp_.processSample(spatial_ap_hp_.processSample(side_i, 1), 1);
+
+                // Band-limit quadrature branch (LR4 HPF >=250 Hz, LR4 LPF 9 kHz)
+                double q_bp = decorr_hp2_.processSample(decorr_hp1_.processSample(mid_q, 0), 0);
+                q_bp = decorr_lp2_.processSample(decorr_lp_.processSample(q_bp, 0), 0);
+
+                // Level-independent & SR-invariant transient gate (fast/slow envelope ratio)
+                const double abs_bp = std::fabs(q_bp);
+                fast_env_ += (abs_bp - fast_env_) * fast_coeff_;
+                slow_env_ += (abs_bp - slow_env_) * slow_coeff_;
+                if (fast_env_ < 1.0e-25) fast_env_ = 0.0;
+                if (slow_env_ < 1.0e-25) slow_env_ = 0.0;
+
+                const double ratio = fast_env_ / (slow_env_ + 1.0e-5);
+                double target_gate = 1.0;
+                if (ratio > 1.8) {
+                    target_gate = std::clamp(1.0 - 0.55 * (ratio - 1.8), 0.15, 1.0);
                 }
+                transient_gate_ += (target_gate - transient_gate_) * gate_coeff_;
 
-                // Detect sudden percussive delta
-                const float delta = abs_mid - transient_env_;
-                float target_gate = 1.0f;
-                if (delta > 0.08f) {
-                    target_gate = std::clamp(1.0f - (delta * 4.0f), 0.05f, 1.0f);
-                }
-                transient_gate_ += (target_gate - transient_gate_) * 0.05f;
-
-                // Write mid to velvet delay buffer
-                velvet_buffer_[velvet_write_] = mid;
-
-                // 12-tap Velvet Noise convolution in 64-bit precision
-                double decorr = 0.0;
-                for (int t = 0; t < 12; ++t) {
+                // Subtle delay_ms-scaled 24-tap RMS-normalized Velvet ambience
+                velvet_buffer_[velvet_write_] = q_bp;
+                double velvet_sum = 0.0;
+                for (int t = 0; t < kVelvetTaps; ++t) {
                     int r = static_cast<int>(velvet_write_) - velvet_taps_[t];
                     if (r < 0) r += static_cast<int>(bufSize);
-                    decorr += velvet_buffer_[r] * static_cast<double>(velvet_signs_[t]);
+                    velvet_sum += velvet_buffer_[r] * static_cast<double>(velvet_signs_[t]);
                 }
-
-                // Normalize and scale by transient gate (low comb-ripple level, only active when widening > 1.0)
-                decorr *= (0.045 * static_cast<double>(transient_gate_));
-
-                // Inject decorrelation symmetrically into the side channel when widening > 1.0
-                side = (side * cur_w) + (decorr * std::clamp(cur_w - 1.0, 0.0, 1.5));
-
+                const double velvet_norm = velvet_sum * velvet_norm_scale;
                 velvet_write_++;
                 if (velvet_write_ >= bufSize) velvet_write_ = 0;
+
+                const double decorr_amt = (cur_w <= 0.5) ? 0.0 : std::clamp((cur_w - 0.5) * 0.45, 0.0, 0.70);
+                const double decorr_sig = (0.28 * q_bp + 0.05 * velvet_norm) * transient_gate_ * decorr_amt;
+
+                // Pure Side injection -> 100% mono-sum cancellation (0.5*(L+R) == mid)
+                side = (side * cur_w) + decorr_sig;
             } else if (hasShuffler) {
-                // Mode 2: Blumlein / Gerzon low-frequency shuffler
-                side = shuffler_shelf_filter_.process(side) * cur_w;
+                // Mode 2: True Gerzon (1986) Band-Limited Complementary Blumlein Shuffler
+                if (std::fabs(cur_w - last_shuf_width_) > 0.002) {
+                    updateShufflerShelves(cur_w);
+                }
+                const double shuf_delta = shuffler_side_shelf_.processSample(side, 0) - side;
+                // Sub-bass protection on boosted delta (<75 Hz) even if user sets Mono Bass = Off
+                const double side_shuf = side + shuffler_sub_hp_.processSample(shuf_delta, 0);
+                mid  = shuffler_mid_shelf_.processSample(mid, 0);
+                side = side_shuf * cur_w;
             } else {
                 // Mode 0: Clean Mastering (Pure symmetric Mid/Side expansion)
                 side = side * cur_w;
             }
 
-            // 5. High-Frequency Air Presence Contour (>8.5 kHz on Side)
-            if (hasAirShelf) {
-                side = air_shelf_filter_.process(side);
+            // 5. Smooth Adaptive RMS Power Compensation (all modes when widening > 1.0)
+            {
+                const double e_base = mid_base * mid_base + side_base * side_base;
+                const double e_proc = mid * mid + side * side;
+                env_base_e_ += (e_base - env_base_e_) * power_coeff_;
+                env_proc_e_ += (e_proc - env_proc_e_) * power_coeff_;
+                if (env_base_e_ < 1.0e-25) env_base_e_ = 0.0;
+                if (env_proc_e_ < 1.0e-25) env_proc_e_ = 0.0;
+
+                if (cur_w > 1.0) {
+                    const double power_norm = std::clamp(
+                        std::sqrt((env_base_e_ + 1.0e-12) / (env_proc_e_ + 1.0e-12)),
+                        0.55,
+                        1.0
+                    );
+                    const double comp_blend = std::clamp((cur_w - 1.0) / 0.05, 0.0, 1.0);
+                    const double eff_norm = 1.0 + comp_blend * (power_norm - 1.0);
+                    mid  *= eff_norm;
+                    side *= eff_norm;
+                }
             }
 
-            // 6. Recombine to Stereo L / R
+            // 6. High-Frequency Air Presence Contour (>8.5 kHz on Side)
+            if (hasAirShelf) {
+                side = air_shelf_filter_.processSample(side, 0);
+            }
+
+            // 7. Recombine to Stereo L / R
             double out_l = mid + side;
             double out_r = mid - side;
 
-            // 7. Knee-limited Soft Saturation Guard (Prevents digital overs >0.98)
+            // 8. High-Headroom Soft Safety Guard (bit-exact passthrough up to 0.99 / -0.087 dBFS)
             out_l = softClip(out_l);
             out_r = softClip(out_r);
 
             samples[idx]     = static_cast<T>(out_l);
             samples[idx + 1] = static_cast<T>(out_r);
 
-            // Accumulate metrics
+            // Accumulate telemetry metrics
             sum_lr += out_l * out_r;
             sum_l2 += out_l * out_l;
             sum_r2 += out_r * out_r;
@@ -375,7 +393,6 @@ private:
             const float blockCorr = static_cast<float>(std::clamp(sum_lr / denom, -1.0, 1.0));
             const float blockRatio = static_cast<float>(std::clamp(sum_s2 / (sum_m2 + 1.0e-12), 0.0, 4.0));
 
-            // Smoothly update atomics for UI thread
             float prevCorr = telemetry_correlation_.load(std::memory_order_relaxed);
             telemetry_correlation_.store(prevCorr + (blockCorr - prevCorr) * 0.15f, std::memory_order_relaxed);
 
@@ -392,75 +409,122 @@ private:
     StereoImagerMode mode_ = StereoImagerMode::CleanMastering;
     float target_width_ = 1.2f;
     float current_width_ = 1.2f;
-    float mono_below_hz_ = 150.0f;
-    float effective_mono_hz_ = 150.0f;
-    bool mono_below_user_set_ = false;
-    float air_boost_db_ = 1.5f;
+    float mono_below_hz_ = 120.0f;
+    float air_boost_db_ = 0.0f;
+    float delay_ms_ = 15.0f;
 
     float smooth_coeff_ = 0.001f;
-    float attack_coeff_ = 0.02f;
-    float release_coeff_ = 0.001f;
-    float transient_env_ = 0.0f;
-    float transient_gate_ = 1.0f;
+    double fast_coeff_ = 0.014;
+    double slow_coeff_ = 0.0006;
+    double gate_coeff_ = 0.0026;
+    double power_coeff_ = 0.00026;
 
-    // Side-channel and Mid phase-compensation filters
-    StereoImagerBiquadDouble elliptical_filter_;
-    StereoImagerBiquadDouble elliptical_filter2_;
-    StereoImagerBiquadDouble mid_allpass_filter_;
-    StereoImagerBiquad air_shelf_filter_;
-    StereoImagerBiquad shuffler_shelf_filter_;
+    double fast_env_ = 0.0;
+    double slow_env_ = 0.0;
+    double transient_gate_ = 1.0;
+    double env_base_e_ = 0.0;
+    double env_proc_e_ = 0.0;
+    double last_shuf_width_ = -1.0;
 
-    // Velvet Noise Decorrelator states (64-bit precision)
+    // 64-bit Cytomic SVF crossovers, phase compensation, air shelf & Gerzon shuffler
+    CytomicSVF elliptical_hp1_;
+    CytomicSVF elliptical_hp2_;
+    CytomicSVF mid_allpass_;
+    CytomicSVF decorr_hp1_;
+    CytomicSVF decorr_hp2_;
+    CytomicSVF decorr_lp_;
+    CytomicSVF decorr_lp2_;
+    CytomicSVF spatial_ap_hp_;
+    CytomicSVF spatial_ap_lp_;
+    CytomicSVF air_shelf_filter_;
+    CytomicSVF shuffler_side_shelf_;
+    CytomicSVF shuffler_mid_shelf_;
+    CytomicSVF shuffler_sub_hp_;
+
+    ImagerHilbert4 hilbert_;
+    ImagerHilbert4 hilbert_side_;
+
+    // Velvet Noise Decorrelator states (24 stratified taps spanning 1.2 ms .. delay_ms_)
     std::vector<double> velvet_buffer_;
     size_t velvet_write_ = 0;
-    int velvet_taps_[12] = {0};
-    float velvet_signs_[12] = {0.0f};
+    int velvet_taps_[kVelvetTaps] = {0};
+    float velvet_signs_[kVelvetTaps] = {0.0f};
 
     // Lock-free telemetry metrics
     std::atomic<float> telemetry_correlation_{1.0f};
     std::atomic<float> telemetry_side_mid_ratio_{0.2f};
 
     void initVelvetTaps() {
-        // 12 pseudo-random non-uniform prime/irrational delay taps between 1.2ms and 13.5ms
-        const float ms[12] = {
-            1.31f, 2.17f, 3.49f, 4.23f, 5.87f, 6.71f,
-            7.93f, 9.11f, 10.49f, 11.63f, 12.89f, 13.73f
+        constexpr double kJitter[kVelvetTaps] = {
+            0.31, 0.72, 0.19, 0.58, 0.83, 0.27, 0.64, 0.42,
+            0.79, 0.21, 0.53, 0.68, 0.16, 0.74, 0.39, 0.84,
+            0.29, 0.61, 0.47, 0.77, 0.23, 0.56, 0.81, 0.35
         };
-        // Alternating signs with zero DC bias: 6 positive, 6 negative
-        const float signs[12] = {
-            1.0f, -1.0f, -1.0f, 1.0f, -1.0f, 1.0f,
-            1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f
+        constexpr float kSigns[kVelvetTaps] = {
+             1.0f, -1.0f, -1.0f,  1.0f, -1.0f,  1.0f,  1.0f, -1.0f,
+             1.0f, -1.0f, -1.0f,  1.0f, -1.0f,  1.0f,  1.0f, -1.0f,
+            -1.0f,  1.0f,  1.0f, -1.0f,  1.0f, -1.0f, -1.0f,  1.0f
         };
 
-        for (int i = 0; i < 12; ++i) {
-            velvet_taps_[i] = std::max(1, static_cast<int>(ms[i] * 0.001f * sample_rate_));
-            velvet_signs_[i] = signs[i];
+        const double min_ms = 1.2;
+        const double span_ms = std::max(3.8, static_cast<double>(delay_ms_) - min_ms);
+        const double step_ms = span_ms / static_cast<double>(kVelvetTaps);
+        const int max_tap = std::max(1, static_cast<int>(velvet_buffer_.size()) - 2);
+
+        for (int i = 0; i < kVelvetTaps; ++i) {
+            const double tap_ms = min_ms + (static_cast<double>(i) + kJitter[i]) * step_ms;
+            const int tap_smp = std::clamp(static_cast<int>(tap_ms * 0.001 * static_cast<double>(sample_rate_)), 1, max_tap);
+            velvet_taps_[i] = tap_smp;
+            velvet_signs_[i] = kSigns[i];
         }
     }
 
+    void updateShufflerShelves(double cur_w) {
+        const double fs = static_cast<double>(sample_rate_);
+        const double shuf_db = (cur_w <= 1.0)
+                                   ? (1.5 * std::max(0.0, cur_w))
+                                   : (1.5 + 3.0 * std::clamp(cur_w - 1.0, 0.0, 1.0));
+        shuffler_side_shelf_.setParameters(CytomicSVF::FilterType::LowShelf, fs, 600.0, shuf_db, 0.55);
+        shuffler_mid_shelf_.setParameters(CytomicSVF::FilterType::LowShelf, fs, 600.0, -0.35 * shuf_db, 0.55);
+        last_shuf_width_ = cur_w;
+    }
+
     void updateFilters() {
-        // 1. Mono Bass Anchor (4th-order Linkwitz-Riley HPF on Side + Phase-Matched Allpass on Mid)
-        // In BlumleinShuffler mode, bypass the default 150 Hz anchor unless explicitly requested by user,
-        // so the +4 dB low-frequency shuffler boost (<650 Hz) is not canceled by the 150 Hz cut.
-        effective_mono_hz_ = (mode_ == StereoImagerMode::BlumleinShuffler && !mono_below_user_set_)
-                                 ? 0.0f
-                                 : mono_below_hz_;
-        elliptical_filter_.setHighpass(sample_rate_, effective_mono_hz_);
-        elliptical_filter2_.setHighpass(sample_rate_, effective_mono_hz_);
-        mid_allpass_filter_.setAllpass2ndOrder(sample_rate_, effective_mono_hz_);
+        const double fs = static_cast<double>(sample_rate_);
+        constexpr double Q_BW = 0.7071067811865475;
 
-        // 2. High-Frequency Air Shelf (>8.5 kHz on Side)
-        air_shelf_filter_.setHighShelf(sample_rate_, 8500.0, air_boost_db_);
+        // 1. Mono Bass Anchor (64-bit Cytomic LR4 HPF on Side + Phase-Matched 2nd-order Allpass on Mid)
+        if (mono_below_hz_ > 20.0f) {
+            const double fc = static_cast<double>(mono_below_hz_);
+            elliptical_hp1_.setParameters(CytomicSVF::FilterType::HighPass, fs, fc, 0.0, Q_BW);
+            elliptical_hp2_.setParameters(CytomicSVF::FilterType::HighPass, fs, fc, 0.0, Q_BW);
+            mid_allpass_.setParameters(CytomicSVF::FilterType::AllPass, fs, fc, 0.0, Q_BW);
+        }
 
-        // 3. Blumlein Shuffler (+4 dB low-shelf below 650 Hz on Side)
-        shuffler_shelf_filter_.setLowShelf(sample_rate_, 650.0, 4.0);
+        // 2. Spatial 3D Decorrelator Band-Limiting (LR4 HPF >=250 Hz, LR4 LPF 9 kHz) + Phase-Matched Allpasses
+        const double decorr_hp_hz = std::min(std::max(250.0, static_cast<double>(mono_below_hz_)), fs * 0.42);
+        const double decorr_lp_hz = std::min(9000.0, fs * 0.42);
+        decorr_hp1_.setParameters(CytomicSVF::FilterType::HighPass, fs, decorr_hp_hz, 0.0, Q_BW);
+        decorr_hp2_.setParameters(CytomicSVF::FilterType::HighPass, fs, decorr_hp_hz, 0.0, Q_BW);
+        decorr_lp_.setParameters(CytomicSVF::FilterType::LowPass, fs, decorr_lp_hz, 0.0, Q_BW);
+        decorr_lp2_.setParameters(CytomicSVF::FilterType::LowPass, fs, decorr_lp_hz, 0.0, Q_BW);
+        spatial_ap_hp_.setParameters(CytomicSVF::FilterType::AllPass, fs, decorr_hp_hz, 0.0, Q_BW);
+        spatial_ap_lp_.setParameters(CytomicSVF::FilterType::AllPass, fs, decorr_lp_hz, 0.0, Q_BW);
+
+        // 3. High-Frequency Air Shelf (>8.5 kHz on Side)
+        air_shelf_filter_.setParameters(CytomicSVF::FilterType::HighShelf, fs, 8500.0, static_cast<double>(air_boost_db_), Q_BW);
+
+        // 4. Blumlein Sub-bass Delta Guard (<75 Hz) & Complementary Shelves
+        shuffler_sub_hp_.setParameters(CytomicSVF::FilterType::HighPass, fs, 75.0, 0.0, Q_BW);
+        updateShufflerShelves(static_cast<double>(current_width_));
     }
 
     inline double softClip(double x) {
-        if (x > 0.935) {
-            return 0.935 + 0.050 * std::tanh((x - 0.935) / 0.050);
-        } else if (x < -0.935) {
-            return -0.935 + 0.050 * std::tanh((x + 0.935) / 0.050);
+        // Bit-exact linear passthrough up to 0.99 (-0.087 dBFS); smooth C1 guard only near 0 dBFS
+        if (x > 0.99) {
+            return 0.99 + 0.009 * std::tanh((x - 0.99) / 0.009);
+        } else if (x < -0.99) {
+            return -0.99 + 0.009 * std::tanh((x + 0.99) / 0.009);
         }
         return x;
     }

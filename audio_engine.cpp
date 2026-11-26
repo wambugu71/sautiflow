@@ -2522,8 +2522,8 @@ namespace
         float width = 1.2f;
         float delayMs = 15.0f;
         int mode = 0;
-        float monoBelowHz = 150.0f;
-        float airBoostDb = 1.5f;
+        float monoBelowHz = 120.0f;
+        float airBoostDb = 0.0f;
         int cachedSampleRate = 44100;
 
         double getLatencySamples(int sampleRate) const
@@ -2541,6 +2541,7 @@ namespace
             imager.setMode(static_cast<sauti::dsp::StereoImagerMode>(mode));
             imager.setMonoBelowHz(monoBelowHz);
             imager.setAirBoostDb(airBoostDb);
+            imager.setDelayMs(delayMs);
             imager.reset();
         }
 
@@ -2554,6 +2555,7 @@ namespace
                 imager.setSampleRate(static_cast<float>(sampleRate));
             }
             imager.setWidth(w);
+            imager.setDelayMs(dMs);
         }
 
         void updateParamsEx(int sampleRate, float w, int m, float monoHz, float airDb, float dMs)
@@ -2572,6 +2574,7 @@ namespace
             imager.setMode(static_cast<sauti::dsp::StereoImagerMode>(m));
             imager.setMonoBelowHz(monoHz);
             imager.setAirBoostDb(airDb);
+            imager.setDelayMs(dMs);
         }
 
         void process(float *interleaved, ma_uint32 frames, int channels)
@@ -2596,172 +2599,86 @@ namespace
     };
 
     // -------------------------------------------------------------
-    // JamesDSP Warped Polyphase Filter Bank (5 Subband Decomposition)
-    // -------------------------------------------------------------
-    struct WarpedPFB
-    {
-        unsigned int decimationCounter[5] = {1, 1, 1, 1, 1};
-        unsigned int Sk[5] = {1, 1, 1, 1, 1};
-        double subbandData[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
-
-        // Allpass warp delay chain states for 5 subbands (64-bit precision)
-        double dL[5][2] = {{0}};
-        double dR[5][2] = {{0}};
-        double warpingFactor = 0.65;
-    };
-
-    static inline void initWarpedPFB(WarpedPFB *pfb, float sampleRate, int bands, int channels)
-    {
-        (void)bands;
-        (void)channels;
-        for (int i = 0; i < 5; i++)
-        {
-            pfb->decimationCounter[i] = 1;
-            pfb->Sk[i] = 1;
-            pfb->subbandData[i] = 0.0;
-            for (int j = 0; j < 2; j++)
-            {
-                pfb->dL[i][j] = 0.0;
-                pfb->dR[i][j] = 0.0;
-            }
-        }
-        if (sampleRate >= 88200.0f)
-            pfb->warpingFactor = 0.82;
-        else if (sampleRate >= 44100.0f)
-            pfb->warpingFactor = 0.65;
-        else
-            pfb->warpingFactor = 0.50;
-    }
-
-    static inline void assignPtrWarpedPFB(WarpedPFB *pfb, int bands, int channels)
-    {
-        (void)bands;
-        (void)channels;
-        for (int i = 0; i < 5; i++)
-        {
-            pfb->decimationCounter[i] = 1;
-            pfb->Sk[i] = 1;
-            pfb->subbandData[i] = 0.0;
-        }
-    }
-
-    static inline void analysisWarpedPFBStereo(WarpedPFB *subband0, WarpedPFB *subband1, const double *inL, const double *inR)
-    {
-        const double xL = *inL;
-        const double xR = *inR;
-        const double lambda = subband0->warpingFactor;
-
-        // Channel 0 (Left)
-        double wL0 = lambda * (xL - subband0->dL[0][0]) + subband0->dL[0][1];
-        subband0->dL[0][1] = xL; subband0->dL[0][0] = wL0;
-        double b0L = (xL + wL0) * 0.5;
-        double h0L = (xL - wL0) * 0.5;
-
-        double wL1 = lambda * (h0L - subband0->dL[1][0]) + subband0->dL[1][1];
-        subband0->dL[1][1] = h0L; subband0->dL[1][0] = wL1;
-        double b1L = (h0L + wL1) * 0.5;
-        double h1L = (h0L - wL1) * 0.5;
-
-        double wL2 = lambda * (h1L - subband0->dL[2][0]) + subband0->dL[2][1];
-        subband0->dL[2][1] = h1L; subband0->dL[2][0] = wL2;
-        double b2L = (h1L + wL2) * 0.5;
-
-        double wL3 = lambda * (b0L - subband0->dL[3][0]) + subband0->dL[3][1];
-        subband0->dL[3][1] = b0L; subband0->dL[3][0] = wL3;
-        double b3L = (b0L + wL3) * 0.5;
-        double h3L = (b0L - wL3) * 0.5;
-
-        subband0->subbandData[0] = h3L;
-        subband0->subbandData[1] = b3L;
-        subband0->subbandData[2] = b2L;
-        subband0->subbandData[3] = b1L;
-        subband0->subbandData[4] = (h1L - wL2) * 0.5;
-
-        // Channel 1 (Right)
-        double wR0 = lambda * (xR - subband1->dL[0][0]) + subband1->dL[0][1];
-        subband1->dL[0][1] = xR; subband1->dL[0][0] = wR0;
-        double b0R = (xR + wR0) * 0.5;
-        double h0R = (xR - wR0) * 0.5;
-
-        double wR1 = lambda * (h0R - subband1->dL[1][0]) + subband1->dL[1][1];
-        subband1->dL[1][1] = h0R; subband1->dL[1][0] = wR1;
-        double b1R = (h0R + wR1) * 0.5;
-        double h1R = (h0R - wR1) * 0.5;
-
-        double wR2 = lambda * (h1R - subband1->dL[2][0]) + subband1->dL[2][1];
-        subband1->dL[2][1] = h1R; subband1->dL[2][0] = wR2;
-        double b2R = (h1R + wR2) * 0.5;
-
-        double wR3 = lambda * (b0R - subband1->dL[3][0]) + subband1->dL[3][1];
-        subband1->dL[3][1] = b0R; subband1->dL[3][0] = wR3;
-        double b3R = (b0R + wR3) * 0.5;
-        double h3R = (b0R - wR3) * 0.5;
-
-        subband1->subbandData[0] = h3R;
-        subband1->subbandData[1] = b3R;
-        subband1->subbandData[2] = b2R;
-        subband1->subbandData[3] = b1R;
-        subband1->subbandData[4] = (h1R - wR2) * 0.5;
-    }
-
-    static inline void synthesisWarpedPFBStereo(WarpedPFB *subband0, WarpedPFB *subband1, double *outL, double *outR)
-    {
-        *outL = subband0->subbandData[0] + subband0->subbandData[1] + subband0->subbandData[2] + subband0->subbandData[3] + subband0->subbandData[4];
-        *outR = subband1->subbandData[0] + subband1->subbandData[1] + subband1->subbandData[2] + subband1->subbandData[3] + subband1->subbandData[4];
-    }
-
-    // -------------------------------------------------------------
-    // JamesDSP Stereo Enhancement Structure
+    // 3-Band LR4 Phase-Coherent Adaptive M/S Stereo Enhancement
     // -------------------------------------------------------------
     struct StereoEnhancementState
     {
-        float mix = 0.5f;
-        float minusMix = 0.5f;
-        float gain = 1.0f;
-        float emaAlpha[5] = {0};
-        float sumStates[5] = {0};
-        float diffStates[5] = {0};
+        static constexpr int kBands = 3;
 
-        WarpedPFB subband0;
-        WarpedPFB subband1;
-        int cachedSampleRate = 44100;
+        float mix = 0.5f;
+        float gain = 1.0f;
+        double currentMix = 0.5;
+        double smoothCoeff = 0.0007;
+        double envCoeff = 0.00042;
+        double m2[kBands] = {0.0, 0.0, 0.0};
+        double s2[kBands] = {0.0, 0.0, 0.0};
+
+        // Channel 0 = Mid, Channel 1 = Side
+        sauti::dsp::CytomicSVF lp160_1;
+        sauti::dsp::CytomicSVF lp160_2;
+        sauti::dsp::CytomicSVF hp160_1;
+        sauti::dsp::CytomicSVF hp160_2;
+        sauti::dsp::CytomicSVF lp2400_1;
+        sauti::dsp::CytomicSVF lp2400_2;
+        sauti::dsp::CytomicSVF hp2400_1;
+        sauti::dsp::CytomicSVF hp2400_2;
+        sauti::dsp::CytomicSVF ap2400;
+
+        int cachedSampleRate = 48000;
         bool initialized = false;
 
         double getLatencySamples(int /*sampleRate*/) const
         {
-            // The non-decimated warped filterbank sums subbands directly with 0 samples of delay
             return 0.0;
         }
 
         void refresh(int sampleRate)
         {
-            if (sampleRate <= 0) sampleRate = 44100;
+            if (sampleRate <= 0) sampleRate = 48000;
             cachedSampleRate = sampleRate;
-            initWarpedPFB(&subband0, (float)sampleRate, 5, 2);
-            assignPtrWarpedPFB(&subband1, 5, 2);
-            // The right-channel bank must analyze with the SAME warping factor;
-            // leaving it stale made L/R bands diverge at >= 88.2 kHz.
-            subband1.warpingFactor = subband0.warpingFactor;
+            const double sr = static_cast<double>(sampleRate);
+            constexpr double qBw = 0.7071067811865475;
 
-            float ms = 1.2f; // 1.2 ms attack/release constant
-            for (unsigned int i = 0; i < 5; i++)
+            const double fcLow = std::clamp(160.0, 20.0, sr * 0.45);
+            const double fcHigh = std::clamp(2400.0, fcLow + 40.0, sr * 0.45);
+
+            lp160_1.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, fcLow, 0.0, qBw);
+            lp160_2.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, fcLow, 0.0, qBw);
+            hp160_1.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, fcLow, 0.0, qBw);
+            hp160_2.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, fcLow, 0.0, qBw);
+            lp2400_1.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, fcHigh, 0.0, qBw);
+            lp2400_2.setParameters(sauti::dsp::CytomicSVF::FilterType::LowPass, sr, fcHigh, 0.0, qBw);
+            hp2400_1.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, fcHigh, 0.0, qBw);
+            hp2400_2.setParameters(sauti::dsp::CytomicSVF::FilterType::HighPass, sr, fcHigh, 0.0, qBw);
+            ap2400.setParameters(sauti::dsp::CytomicSVF::FilterType::AllPass, sr, fcHigh, 0.0, qBw);
+
+            lp160_1.reset();
+            lp160_2.reset();
+            hp160_1.reset();
+            hp160_2.reset();
+            lp2400_1.reset();
+            lp2400_2.reset();
+            hp2400_1.reset();
+            hp2400_2.reset();
+            ap2400.reset();
+
+            for (int b = 0; b < kBands; ++b)
             {
-                emaAlpha[i] = 1.0f - std::pow(10.0f, (std::log10(0.5f) / (ms / 1000.0f) / ((float)sampleRate / (float)subband0.Sk[i])));
-                sumStates[i] = 0.0f;
-                diffStates[i] = 0.0f;
+                m2[b] = 0.0;
+                s2[b] = 0.0;
             }
+
+            smoothCoeff = 1.0 - std::exp(-1.0 / (0.030 * sr));
+            envCoeff = 1.0 - std::exp(-1.0 / (0.050 * sr));
             setParam(mix);
+            currentMix = static_cast<double>(mix);
             initialized = true;
         }
 
         void setParam(float m)
         {
             mix = clampf(m, 0.0f, 1.0f);
-            minusMix = 1.0f - mix;
-            if (mix > 0.5f)
-                gain = 3.0f - mix * 2.0f;
-            else
-                gain = mix * 2.0f + 1.0f;
+            gain = (mix <= 0.5f) ? (mix * 2.0f) : (1.0f + (mix - 0.5f) * 3.0f);
         }
 
         void process(float *interleaved, ma_uint32 frames, int channels)
@@ -2777,53 +2694,92 @@ namespace
         template <typename T>
         void processImpl(T *interleaved, ma_uint32 frames, int channels)
         {
-            if (channels < 2 || !initialized) return;
+            if (channels < 2 || !initialized || interleaved == nullptr || frames == 0) return;
 
-            unsigned int *samplingPeriod = subband0.decimationCounter;
-            unsigned int *Sk = subband0.Sk;
-            double *bandLeft = subband0.subbandData;
-            double *bandRight = subband1.subbandData;
-            const double mixD = static_cast<double>(mix);
-            const double minusMixD = static_cast<double>(minusMix);
-            const double gainD = static_cast<double>(gain);
+            sauti::dsp::ScopedDenormalsDisable denormals;
+            constexpr double kBandBoost[kBands] = {0.0, 1.25, 1.80};
+            const double targetMix = static_cast<double>(mix);
 
             for (ma_uint32 i = 0; i < frames; i++)
             {
-                size_t base = (size_t)i * (size_t)channels;
-                double inL = static_cast<double>(interleaved[base]);
-                double inR = static_cast<double>(interleaved[base + 1]);
-                double y1 = 0.0, y2 = 0.0;
+                currentMix += smoothCoeff * (targetMix - currentMix);
+                const size_t base = static_cast<size_t>(i) * static_cast<size_t>(channels);
+                const double inL = static_cast<double>(interleaved[base]);
+                const double inR = static_cast<double>(interleaved[base + 1]);
 
-                analysisWarpedPFBStereo(&subband0, &subband1, &inL, &inR);
+                const double mid = 0.5 * (inL + inR);
+                const double side = 0.5 * (inL - inR);
 
-                for (int j = 0; j < 5; j++)
+                const double mLowRaw = lp160_2.processSample(lp160_1.processSample(mid, 0), 0);
+                const double sLowRaw = lp160_2.processSample(lp160_1.processSample(side, 1), 1);
+                const double mHighRaw = hp160_2.processSample(hp160_1.processSample(mid, 0), 0);
+                const double sHighRaw = hp160_2.processSample(hp160_1.processSample(side, 1), 1);
+
+                const double mB[kBands] = {
+                    ap2400.processSample(mLowRaw, 0),
+                    lp2400_2.processSample(lp2400_1.processSample(mHighRaw, 0), 0),
+                    hp2400_2.processSample(hp2400_1.processSample(mHighRaw, 0), 0)
+                };
+                const double sB[kBands] = {
+                    ap2400.processSample(sLowRaw, 1),
+                    lp2400_2.processSample(lp2400_1.processSample(sHighRaw, 1), 1),
+                    hp2400_2.processSample(hp2400_1.processSample(sHighRaw, 1), 1)
+                };
+
+                double outM = 0.0;
+                double outS = 0.0;
+
+                for (int b = 0; b < kBands; ++b)
                 {
-                    if (samplingPeriod[j] == Sk[j])
+                    m2[b] += envCoeff * (mB[b] * mB[b] - m2[b]);
+                    s2[b] += envCoeff * (sB[b] * sB[b] - s2[b]);
+                    if (m2[b] < 1.0e-25) m2[b] = 0.0;
+                    if (s2[b] < 1.0e-25) s2[b] = 0.0;
+
+                    double gM = 1.0;
+                    double gS = 1.0;
+
+                    if (std::abs(currentMix - 0.5) >= 1.0e-6)
                     {
-                        const double sum = bandLeft[j] + bandRight[j];
-                        const double diff = bandLeft[j] - bandRight[j];
-                        const double sumSq = sum * sum;
-                        const double diffSq = diff * diff;
-                        const double alpha = static_cast<double>(emaAlpha[j]);
-
-                        sumStates[j] = static_cast<float>(static_cast<double>(sumStates[j]) * (1.0 - alpha) + sumSq * alpha);
-                        diffStates[j] = static_cast<float>(static_cast<double>(diffStates[j]) * (1.0 - alpha) + diffSq * alpha);
-
-                        double centre = 0.0;
-                        if (sumSq > 1e-12 && sumStates[j] > 1e-12f)
+                        if (currentMix > 0.5)
                         {
-                            const double ratio = std::sqrt(clampd(static_cast<double>(diffStates[j]) / static_cast<double>(sumStates[j]), 0.0, 1.0));
-                            centre = (0.5 - ratio * 0.5) * sum;
+                            if (b >= 1)
+                            {
+                                const double u = 2.0 * (currentMix - 0.5);
+                                const double corr = (m2[b] - s2[b]) / (m2[b] + s2[b] + 1.0e-12);
+                                const double guard = std::clamp((corr + 0.2) / 0.55, 0.0, 1.0);
+                                const double rawSide = 1.0 + u * kBandBoost[b] * guard;
+                                const double eBefore = m2[b] + s2[b] + 1.0e-12;
+                                const double eAfter = m2[b] + (rawSide * rawSide) * s2[b] + 1.0e-12;
+                                const double norm = std::clamp(std::sqrt(eBefore / eAfter), 0.65, 1.0);
+                                gM = norm;
+                                gS = rawSide * norm;
+                            }
                         }
-
-                        bandLeft[j] = (bandLeft[j] - centre) * mixD + centre * minusMixD;
-                        bandRight[j] = (bandRight[j] - centre) * mixD + centre * minusMixD;
+                        else
+                        {
+                            const double d = 2.0 * currentMix;
+                            const double eBefore = m2[b] + s2[b] + 1.0e-12;
+                            const double eAfter = m2[b] + (d * d) * s2[b] + 1.0e-12;
+                            const double norm = std::clamp(std::sqrt(eBefore / eAfter), 1.0, 1.4142135623730951);
+                            gM = norm;
+                            gS = d * norm;
+                        }
                     }
+
+                    outM += mB[b] * gM;
+                    outS += sB[b] * gS;
                 }
 
-                synthesisWarpedPFBStereo(&subband0, &subband1, &y1, &y2);
-                interleaved[base] = static_cast<T>(y1 * gainD);
-                interleaved[base + 1] = static_cast<T>(y2 * gainD);
+                double outL = outM + outS;
+                double outR = outM - outS;
+                if (outL > 0.99) outL = 0.99 + 0.009 * std::tanh((outL - 0.99) / 0.009);
+                else if (outL < -0.99) outL = -0.99 + 0.009 * std::tanh((outL + 0.99) / 0.009);
+                if (outR > 0.99) outR = 0.99 + 0.009 * std::tanh((outR - 0.99) / 0.009);
+                else if (outR < -0.99) outR = -0.99 + 0.009 * std::tanh((outR + 0.99) / 0.009);
+
+                interleaved[base] = static_cast<T>(outL);
+                interleaved[base + 1] = static_cast<T>(outR);
             }
         }
     };
@@ -5751,7 +5707,6 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         e->downwardExpanderDsp.setSampleRate(srF);
         e->fftConvolverDsp.setSampleRate(srF);
         e->masterLimiterDsp.setSampleRate(srF);
-        e->surroundDsp.setSampleRate(srF);
         e->subsonicFilter.setSampleRate(srF);
         e->ultrasonicFilter.setSampleRate(srF);
     e->ultrasonicFilter.setSampleRate(srF);
@@ -9524,77 +9479,81 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 if (hasStereoOnlyPre || hasMultiChPre)
                 {
-                    auto runZone1To3 = [&](auto *buf, auto *stScratch) {
-                        using SampleT = std::remove_pointer_t<decltype(buf)>;
-                        const size_t ch = (size_t)e->channels;
+                    std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
+                    if (dspLock.owns_lock())
+                    {
+                        auto runZone1To3 = [&](auto *buf, auto *stScratch) {
+                            using SampleT = std::remove_pointer_t<decltype(buf)>;
+                            const size_t ch = (size_t)e->channels;
 
-                        auto runStereoOp = [&](auto &&fn) {
-                            if (isStereo)
-                            {
-                                fn(buf);
-                            }
-                            else
-                            {
-                                for (ma_uint32 i = 0; i < produced; ++i)
+                            auto runStereoOp = [&](auto &&fn) {
+                                if (isStereo)
                                 {
-                                    stScratch[i * 2 + 0] = buf[i * ch + 0];
-                                    stScratch[i * 2 + 1] = buf[i * ch + 1];
+                                    fn(buf);
                                 }
-                                fn(stScratch);
-                                for (ma_uint32 i = 0; i < produced; ++i)
+                                else
                                 {
-                                    buf[i * ch + 0] = stScratch[i * 2 + 0];
-                                    buf[i * ch + 1] = stScratch[i * 2 + 1];
+                                    for (ma_uint32 i = 0; i < produced; ++i)
+                                    {
+                                        stScratch[i * 2 + 0] = buf[i * ch + 0];
+                                        stScratch[i * 2 + 1] = buf[i * ch + 1];
+                                    }
+                                    fn(stScratch);
+                                    for (ma_uint32 i = 0; i < produced; ++i)
+                                    {
+                                        buf[i * ch + 0] = stScratch[i * 2 + 0];
+                                        buf[i * ch + 1] = stScratch[i * 2 + 1];
+                                    }
                                 }
-                            }
+                            };
+                            (void)sizeof(SampleT);
+
+                            // Zone 1.2: Studio Noise Gate (Dual-Threshold Hysteresis)
+                            if (e->noiseGateDsp.isEnabled())
+                                e->noiseGateDsp.process(buf, produced, e->channels);
+
+                            // Zone 1.3: Downward Expander (Vinyl Clean / Tape De-Hiss)
+                            if (e->downwardExpanderDsp.isEnabled())
+                                runStereoOp([&](auto *s) { e->downwardExpanderDsp.process(s, produced); });
+
+                            // Zone 2.1: Dynamic EQ (Frequency-Specific Resonance Taming)
+                            if (e->dynamicEqDsp.isEnabled())
+                                e->dynamicEqDsp.process(buf, produced, e->channels);
+
+                            // Zone 2.2: Split-Band De-Esser (4-9 kHz Sibilance Clamping)
+                            if (e->deEsserDsp.isEnabled())
+                                runStereoOp([&](auto *s) { e->deEsserDsp.process(s, produced); });
+
+                            // Zone 3.1: Harmonic Bass Synthesizer (Sub-120 Hz Fundamental Injection)
+                            if (e->harmonicBassDsp.isEnabled())
+                                runStereoOp([&](auto *s) { e->harmonicBassDsp.process(s, produced); });
+
+                            // Zone 3.2: Dynamic System (Multiband Ladder Dynamics)
+                            if (e->dynamicSystemDsp.isEnabled())
+                                runStereoOp([&](auto *s) { e->dynamicSystemDsp.process(s, produced); });
+
+                            // Zone 3.3: Analog Warmth (Oversampled Triode/Tape Saturation)
+                            if (e->analogWarmthDsp.isEnabled())
+                                runStereoOp([&](auto *s) { e->analogWarmthDsp.process(s, produced); });
+
+                            // Zone 3.4: Vintage Tape Drift (Wow/Flutter Modulation)
+                            if (e->tapeDriftDsp.isEnabled())
+                                e->tapeDriftDsp.process(buf, produced, e->channels);
+
+                            // Zone 3.5: Dialog Enhancer (Vocal Formant Clarity)
+                            if (e->dialogEnhancerDsp.isEnabled())
+                                runStereoOp([&](auto *s) { e->dialogEnhancerDsp.process(s, produced); });
+
+                            // Zone 3.6: Audio Clarity (Air Shelf & Harmonic Brilliance)
+                            if (e->clarityDsp.isEnabled())
+                                runStereoOp([&](auto *s) { e->clarityDsp.process(s, produced); });
                         };
-                        (void)sizeof(SampleT);
 
-                        // Zone 1.2: Studio Noise Gate (Dual-Threshold Hysteresis)
-                        if (e->noiseGateDsp.isEnabled())
-                            e->noiseGateDsp.process(buf, produced, e->channels);
-
-                        // Zone 1.3: Downward Expander (Vinyl Clean / Tape De-Hiss)
-                        if (e->downwardExpanderDsp.isEnabled())
-                            runStereoOp([&](auto *s) { e->downwardExpanderDsp.process(s, produced); });
-
-                        // Zone 2.1: Dynamic EQ (Frequency-Specific Resonance Taming)
-                        if (e->dynamicEqDsp.isEnabled())
-                            e->dynamicEqDsp.process(buf, produced, e->channels);
-
-                        // Zone 2.2: Split-Band De-Esser (4-9 kHz Sibilance Clamping)
-                        if (e->deEsserDsp.isEnabled())
-                            runStereoOp([&](auto *s) { e->deEsserDsp.process(s, produced); });
-
-                        // Zone 3.1: Harmonic Bass Synthesizer (Sub-120 Hz Fundamental Injection)
-                        if (e->harmonicBassDsp.isEnabled())
-                            runStereoOp([&](auto *s) { e->harmonicBassDsp.process(s, produced); });
-
-                        // Zone 3.2: Dynamic System (Multiband Ladder Dynamics)
-                        if (e->dynamicSystemDsp.isEnabled())
-                            runStereoOp([&](auto *s) { e->dynamicSystemDsp.process(s, produced); });
-
-                        // Zone 3.3: Analog Warmth (Oversampled Triode/Tape Saturation)
-                        if (e->analogWarmthDsp.isEnabled())
-                            runStereoOp([&](auto *s) { e->analogWarmthDsp.process(s, produced); });
-
-                        // Zone 3.4: Vintage Tape Drift (Wow/Flutter Modulation)
-                        if (e->tapeDriftDsp.isEnabled())
-                            e->tapeDriftDsp.process(buf, produced, e->channels);
-
-                        // Zone 3.5: Dialog Enhancer (Vocal Formant Clarity)
-                        if (e->dialogEnhancerDsp.isEnabled())
-                            runStereoOp([&](auto *s) { e->dialogEnhancerDsp.process(s, produced); });
-
-                        // Zone 3.6: Audio Clarity (Air Shelf & Harmonic Brilliance)
-                        if (e->clarityDsp.isEnabled())
-                            runStereoOp([&](auto *s) { e->clarityDsp.process(s, produced); });
-                    };
-
-                    if (use64)
-                        runZone1To3(buf64, e->dspStereoBuffer64.data());
-                    else
-                        runZone1To3(processBuffer, e->dspStereoBuffer.data());
+                        if (use64)
+                            runZone1To3(buf64, e->dspStereoBuffer64.data());
+                        else
+                            runZone1To3(processBuffer, e->dspStereoBuffer.data());
+                    }
                 }
             }
 
@@ -14317,32 +14276,39 @@ extern "C"
         double totalLatency = 0.0;
         const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
 
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        {
+            std::lock_guard<std::mutex> fx(e->fxMutex);
 
-        if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
-        {
-            totalLatency += (double)e->lookaheadLimiter.getLatencySamples(sr);
-        }
-        // The simple limiter has no delay line - it contributes no latency.
-        if (e->stereoWidenEnabled)
-        {
-            totalLatency += e->stereoWiden.getLatencySamples(sr);
-        }
-        if (e->stereoEnhancementEnabled)
-        {
-            totalLatency += e->stereoEnhancement.getLatencySamples(sr);
-        }
-        if (e->crossfeedEnabled)
-        {
-            totalLatency += e->crossfeedNode.getLatencySamples();
-        }
-        if (e->reverbEnabled)
-        {
-            totalLatency += e->reverbNode.getLatencySamples();
+            if (e->lookaheadLimiterEnabled.load(std::memory_order_relaxed))
+            {
+                totalLatency += (double)e->lookaheadLimiter.getLatencySamples(sr);
+            }
+            // The simple limiter has no delay line - it contributes no latency.
+            if (e->stereoWidenEnabled)
+            {
+                totalLatency += e->stereoWiden.getLatencySamples(sr);
+            }
+            if (e->stereoEnhancementEnabled)
+            {
+                totalLatency += e->stereoEnhancement.getLatencySamples(sr);
+            }
+            if (e->crossfeedEnabled)
+            {
+                totalLatency += e->crossfeedNode.getLatencySamples();
+            }
+            if (e->reverbEnabled)
+            {
+                totalLatency += e->reverbNode.getLatencySamples();
+            }
+            if (e->deviceResamplerInit)
+            {
+                totalLatency += (double)ma_resampler_get_input_latency(&e->deviceResampler);
+            }
         }
         // Clean-room DSP suite: report real pipeline latencies so position
         // reporting / PDC stays aligned when these nodes are active.
         {
+            std::lock_guard<std::mutex> dspLock(e->dspMutex);
             if (e->fftConvolverDsp.isEnabled() && e->fftConvolverDsp.hasImpulseResponse())
             {
                 // Partitioned overlap-add convolver delays output by BLOCK_SIZE.
@@ -14358,10 +14324,14 @@ extern "C"
                 // 3-band lookahead AGC + limiter delays the signal by its lookahead window.
                 totalLatency += (double)e->lookaheadAgcDsp.getLatencySamples();
             }
-        }
-        if (e->deviceResamplerInit)
-        {
-            totalLatency += (double)ma_resampler_get_input_latency(&e->deviceResampler);
+            if (e->analogWarmthDsp.isEnabled())
+            {
+                totalLatency += e->analogWarmthDsp.getLatencySamples();
+            }
+            if (e->tapeDriftDsp.isEnabled())
+            {
+                totalLatency += e->tapeDriftDsp.getLatencySamples();
+            }
         }
         totalLatency += (double)e->trackResamplerOutputLatencyFrames.load(std::memory_order_relaxed);
 
@@ -14838,8 +14808,9 @@ extern "C"
                     const float drive = e->analogWarmthDsp.getDrive();
                     const int os = e->analogWarmthDsp.getOversampling();
                     const float damp = e->analogWarmthDsp.getTapeDamping();
+                    const double warmLatMs = (sr > 0.0) ? (e->analogWarmthDsp.getLatencySamples() * 1000.0 / sr) : 0.0;
                     appendNode("analog_warmth", "Analog Warmth", nativePrec,
-                               "Drive " + fmtFloat(drive * 100.0, 0) + "% · " + std::to_string(os) + "x OS", 0.0,
+                               "Drive " + fmtFloat(drive * 100.0, 0) + "% · " + std::to_string(os) + "x OS", warmLatMs,
                                {{"Drive", fmtFloat(drive * 100.0, 0) + "%"},
                                 {"Oversampling", std::to_string(os) + "x"},
                                 {"Tape Damping", fmtFloat(damp * 100.0, 0) + "%"}});
@@ -14850,10 +14821,11 @@ extern "C"
                 {
                     float wowRate = 0.0f, wowDepth = 0.0f, flutRate = 0.0f, flutDepth = 0.0f, driftDepth = 0.0f, phaseDeg = 0.0f, hfDamp = 0.0f;
                     e->tapeDriftDsp.getParams(&wowRate, &wowDepth, &flutRate, &flutDepth, &driftDepth, &phaseDeg, &hfDamp);
+                    const double driftLatMs = (sr > 0.0) ? (e->tapeDriftDsp.getLatencySamples() * 1000.0 / sr) : 0.0;
                     appendNode("tape_drift", "Vintage Tape Drift", nativePrec,
-                               "Wow " + fmtFloat(wowDepth, 2) + " ms · Flutter " + fmtFloat(flutDepth, 2) + " ms", 0.0,
+                               "Wow " + fmtFloat(wowDepth, 2) + " ms · Flutter " + fmtFloat(flutDepth, 3) + " ms", driftLatMs,
                                {{"Wow Rate / Depth", fmtFloat(wowRate, 2) + " Hz / " + fmtFloat(wowDepth, 2) + " ms"},
-                                {"Flutter Rate / Depth", fmtFloat(flutRate, 1) + " Hz / " + fmtFloat(flutDepth, 2) + " ms"},
+                                {"Flutter Rate / Depth", fmtFloat(flutRate, 1) + " Hz / " + fmtFloat(flutDepth, 3) + " ms"},
                                 {"Drift Depth", fmtFloat(driftDepth, 2) + " ms"},
                                 {"HF Damping", fmtFloat(hfDamp / 1000.0, 1) + " kHz"}});
                 }
@@ -14989,25 +14961,86 @@ extern "C"
                             {"Compensation", e->crossfeedNode.getOutputCompensation() ? "ON" : "OFF"}});
             }
 
-            if (isStereoSpatial && e->surroundDsp.isEnabled())
+            if (isStereoSpatial && e->surroundDsp.isEnabled() &&
+                e->surroundDsp.getMode() != sauti::dsp::SurroundMode::Off)
             {
-                appendNode("surround_3d", "3D Surround", nativePrec,
-                           "Width " + fmtFloat(e->surroundDsp.getStageWidth() * 100.0, 0) + "% · Depth " + fmtFloat(e->surroundDsp.getStageDepth() * 100.0, 0) + "%", 0.0,
-                           {{"Stage Width", fmtFloat(e->surroundDsp.getStageWidth() * 100.0, 0) + "%"},
-                            {"Stage Depth", fmtFloat(e->surroundDsp.getStageDepth() * 100.0, 0) + "%"},
-                            {"Center Focus", fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "%"},
-                            {"Surround Boost", fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%"},
-                            {"Delay", fmtFloat(e->surroundDsp.getSurroundDelayMs(), 1) + " ms"}});
+                const auto sMode = e->surroundDsp.getMode();
+                switch (sMode)
+                {
+                    case sauti::dsp::SurroundMode::MatrixSurround:
+                        appendNode("surround_3d", "Spatial Surround", nativePrec,
+                                   "Matrix 5.1 · Focus " + fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "% · Boost " + fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%", 0.0,
+                                   {{"Mode", "Matrix 5.1"},
+                                    {"Center Focus", fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "%"},
+                                    {"Surround Boost", fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%"},
+                                    {"Rear Delay", fmtFloat(e->surroundDsp.getSurroundDelayMs(), 1) + " ms"},
+                                    {"Head Radius", fmtFloat(e->surroundDsp.getHeadRadiusCm(), 2) + " cm"}});
+                        break;
+                    case sauti::dsp::SurroundMode::BinauralVirtualizer:
+                    {
+                        const bool isSpeaker = (e->surroundDsp.getBinauralMode() == 1);
+                        const char *targetName = isSpeaker ? "Speaker Field" : "Headphone HRTF";
+                        const int roomP = e->surroundDsp.getBinauralRoomPreset();
+                        const char *roomName = (roomP == 1) ? "Studio" : (roomP == 3 ? "Concert Hall" : "Cinema");
+                        const int ang = e->surroundDsp.getBinauralSpeakerAngle();
+                        const char *angName = (ang == 0) ? "Narrow (10°)" : (ang == 2 ? "Wide (45°)" : "Standard (30°)");
+                        std::vector<std::pair<std::string, std::string>> bParams = {
+                            {"Mode", targetName},
+                            {"Intensity", fmtFloat(e->surroundDsp.getBinauralBoost() * 100.0, 0) + "%"},
+                            {"Shadow Cutoff", fmtFloat(e->surroundDsp.getBinauralShadowCutoff(), 0) + " Hz"},
+                        };
+                        if (isSpeaker)
+                        {
+                            bParams.push_back({"Speaker Angle", angName});
+                        }
+                        else
+                        {
+                            bParams.push_back({"Room Preset", roomName});
+                            bParams.push_back({"Room Mix", fmtFloat(e->surroundDsp.getBinauralRoomMix() * 100.0, 0) + "%"});
+                        }
+                        appendNode("surround_3d", "Spatial Surround", nativePrec,
+                                   std::string("Binaural · ") + targetName + " · " + fmtFloat(e->surroundDsp.getBinauralBoost() * 100.0, 0) + "%", 0.0,
+                                   std::move(bParams));
+                        break;
+                    }
+                    case sauti::dsp::SurroundMode::AcousticStage:
+                    {
+                        const char *profName = (e->surroundDsp.getStageProfile() == 1) ? "Speaker" : "Headset";
+                        const char *spreadName = (e->surroundDsp.getStageMode() == 1) ? "Panoramic" : "Studio";
+                        appendNode("surround_3d", "Spatial Surround", nativePrec,
+                                   std::string("Acoustic Stage · ") + profName + " · " + spreadName + " · Width " + fmtFloat(e->surroundDsp.getStageWidth(), 1) + "x", 0.0,
+                                   {{"Profile", profName},
+                                    {"Spread", spreadName},
+                                    {"Stage Width", fmtFloat(e->surroundDsp.getStageWidth() * 100.0, 0) + "%"},
+                                    {"Stage Depth", fmtFloat(e->surroundDsp.getStageDepth() * 100.0, 0) + "%"},
+                                    {"Crosstalk Cancel", fmtFloat(e->surroundDsp.getStageCancellation() * 100.0, 0) + "%"},
+                                    {"Air Contour", fmtFloat(e->surroundDsp.getStageAirPresence() * 100.0, 0) + "%"},
+                                    {"Bass Anchor", fmtFloat(e->surroundDsp.getStageBassAnchorHz(), 0) + " Hz"}});
+                        break;
+                    }
+                    default:
+                        break;
+                }
             }
 
             if (e->stereoWidenEnabled)
             {
+                const int imMode = e->stereoWiden.mode;
+                const char *modeName = (imMode == 1) ? "Spatial 3D" : (imMode == 2 ? "Blumlein" : "Clean M/S");
+                std::vector<std::pair<std::string, std::string>> imParams = {
+                    {"Mode", modeName},
+                    {"Width", fmtFloat(e->stereoWiden.width * 100.0, 0) + "%"},
+                    {"Mono Below", e->stereoWiden.monoBelowHz <= 20.0f ? "Off" : (fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz")},
+                    {"Air Boost", fmtSignedDb(e->stereoWiden.airBoostDb, 1)},
+                    {"Phase Corr", fmtFloat(e->stereoWiden.imager.getTelemetryPhaseCorrelation(), 2)},
+                };
+                if (imMode == 1)
+                {
+                    imParams.push_back({"Decorr Delay", fmtFloat(e->stereoWiden.delayMs, 1) + " ms"});
+                }
                 appendNode("stereo_widen", "Stereo Imager", nativePrec,
-                           "Width " + fmtFloat(e->stereoWiden.width * 100.0, 0) + "% · Mono <" + fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz", 0.0,
-                           {{"Width", fmtFloat(e->stereoWiden.width * 100.0, 0) + "%"},
-                            {"Mono Below", fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz"},
-                            {"Air Boost", fmtSignedDb(e->stereoWiden.airBoostDb, 1)},
-                            {"Phase Corr", fmtFloat(e->stereoWiden.imager.getTelemetryPhaseCorrelation(), 2)}});
+                           std::string(modeName) + " · Width " + fmtFloat(e->stereoWiden.width, 1) + "x · Mono <" + (e->stereoWiden.monoBelowHz <= 20.0f ? "Off" : (fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz")), 0.0,
+                           std::move(imParams));
             }
 
             if (e->stereoEnhancementEnabled)
@@ -15858,7 +15891,16 @@ extern "C"
         if (e == nullptr)
             return;
         std::lock_guard<std::mutex> fx(e->fxMutex);
-        e->stereoEnhancementEnabled = (enabled != 0);
+        const bool nextEnabled = (enabled != 0);
+        if (nextEnabled && !e->stereoEnhancementEnabled)
+        {
+            if (!e->stereoEnhancement.initialized)
+            {
+                e->stereoEnhancement.refresh((e->sampleRate > 0) ? e->sampleRate : 48000);
+            }
+            e->stereoEnhancement.currentMix = 0.5;
+        }
+        e->stereoEnhancementEnabled = nextEnabled;
     }
 
     AE_API int ae_get_stereo_enhancement_enabled(AudioEngineHandle *e)
@@ -19420,25 +19462,30 @@ extern "C"
     AE_API void ae_dsp_reset(AudioEngineHandle *engine)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
-        engine->clarityDsp.reset();
-        engine->harmonicBassDsp.reset();
-        engine->dynamicSystemDsp.reset();
-        engine->analogWarmthDsp.reset();
-        engine->dialogEnhancerDsp.reset();
-        engine->deEsserDsp.reset();
-        engine->downwardExpanderDsp.reset();
-        engine->fftConvolverDsp.reset();
-        engine->masterLimiterDsp.reset();
-        engine->surroundDsp.reset();
-        engine->subsonicFilter.reset();
-        engine->ultrasonicFilter.reset();
-        engine->dynamicLoudnessDsp.reset();
-        engine->noiseGateDsp.reset();
-        engine->levellerDsp.reset();
-        engine->lookaheadAgcDsp.reset();
-        engine->dynamicEqDsp.reset();
-        engine->tapeDriftDsp.reset();
+        {
+            std::lock_guard<std::mutex> lock(engine->dspMutex);
+            engine->clarityDsp.reset();
+            engine->harmonicBassDsp.reset();
+            engine->dynamicSystemDsp.reset();
+            engine->analogWarmthDsp.reset();
+            engine->dialogEnhancerDsp.reset();
+            engine->deEsserDsp.reset();
+            engine->downwardExpanderDsp.reset();
+            engine->fftConvolverDsp.reset();
+            engine->masterLimiterDsp.reset();
+            engine->subsonicFilter.reset();
+            engine->ultrasonicFilter.reset();
+            engine->dynamicLoudnessDsp.reset();
+            engine->noiseGateDsp.reset();
+            engine->levellerDsp.reset();
+            engine->lookaheadAgcDsp.reset();
+            engine->dynamicEqDsp.reset();
+            engine->tapeDriftDsp.reset();
+        }
+        {
+            std::lock_guard<std::mutex> fx(engine->fxMutex);
+            engine->surroundDsp.reset();
+        }
     }
 
     AE_API void ae_dsp_set_subsonic_filter_enabled(AudioEngineHandle *engine, int enabled)
@@ -19803,18 +19850,18 @@ extern "C"
         return static_cast<int>(engine->tapeDriftDsp.getPreset());
     }
 
-    // Spatial Surround Suite
+    // Spatial Surround Suite (synchronized under fxMutex with Zone 5 audio callback)
     AE_API void ae_dsp_set_surround_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
         engine->surroundDsp.setEnabled(enabled != 0);
     }
 
     AE_API void ae_dsp_set_surround_mode(AudioEngineHandle *engine, int mode)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
         if (mode == 4) mode = 1; // Map legacy AE_SURROUND_MATRIX_5_1_HRTF (4) to Matrix (1)
         if (mode < 0 || mode > 3) mode = 0;
         engine->surroundDsp.setMode(static_cast<sauti::dsp::SurroundMode>(mode));
@@ -19827,7 +19874,7 @@ extern "C"
                                            float p4)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
         auto &dsp = engine->surroundDsp;
         switch (dsp.getMode()) {
             case sauti::dsp::SurroundMode::MatrixSurround:
@@ -19864,7 +19911,7 @@ extern "C"
                                            float *out_p4)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
         const auto &dsp = engine->surroundDsp;
         if (out_enabled) *out_enabled = dsp.isEnabled() ? 1 : 0;
         if (out_mode)    *out_mode = static_cast<int>(dsp.getMode());
@@ -19899,7 +19946,7 @@ extern "C"
                                                   float head_radius_cm)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
         auto &dsp = engine->surroundDsp;
         dsp.setCenterFocus(center_focus);
         dsp.setSurroundBoost(surround_boost);
@@ -19916,7 +19963,7 @@ extern "C"
                                                     float shadow_cutoff_hz)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
         auto &dsp = engine->surroundDsp;
         dsp.setBinauralMode(mode);
         dsp.setBinauralBoost(boost);
@@ -19936,7 +19983,7 @@ extern "C"
                                                  float bass_anchor_hz)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
         auto &dsp = engine->surroundDsp;
         dsp.setStageProfile(profile);
         dsp.setStageMode(mode);
@@ -19964,7 +20011,7 @@ extern "C"
                                               float head_radius_cm)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
         auto &dsp = engine->surroundDsp;
         dsp.setCenterFocus(center_focus);
         dsp.setSurroundBoost(surround_boost);

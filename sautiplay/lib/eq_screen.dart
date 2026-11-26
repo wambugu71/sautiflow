@@ -490,7 +490,14 @@ class EqScreen extends StatefulWidget {
       mode: stereoWiden.mode,
       monoBelowHz: stereoWiden.monoBelowHz,
       airBoostDb: stereoWiden.airBoostDb,
-      delayMs: stereoWiden.delayMs * 100.0,
+      delayMs: stereoWiden.delayMs,
+    );
+
+    final stereoEnhancement =
+        await AppStateService.instance.loadStereoEnhancement();
+    player.setStereoEnhancement(
+      enabled: masterEnabled && stereoEnhancement.enabled,
+      mix: stereoEnhancement.mix,
     );
 
     // Dynamic Loudness (ISO 226 Equal-Loudness Contour)
@@ -611,16 +618,16 @@ class EqScreen extends StatefulWidget {
     player.setTapeDriftPreset(tapePreset);
     if (tapePreset == TapeDriftPreset.custom) {
       player.setTapeDriftParams(
-        wowRateHz: (state['tapeDriftWowRate'] as num?)?.toDouble() ?? 0.8,
-        wowDepthMs: (state['tapeDriftWowDepth'] as num?)?.toDouble() ?? 0.35,
+        wowRateHz: (state['tapeDriftWowRate'] as num?)?.toDouble() ?? 0.55,
+        wowDepthMs: (state['tapeDriftWowDepth'] as num?)?.toDouble() ?? 0.18,
         flutterRateHz:
-            (state['tapeDriftFlutterRate'] as num?)?.toDouble() ?? 12.0,
+            (state['tapeDriftFlutterRate'] as num?)?.toDouble() ?? 11.0,
         flutterDepthMs:
-            (state['tapeDriftFlutterDepth'] as num?)?.toDouble() ?? 0.08,
+            (state['tapeDriftFlutterDepth'] as num?)?.toDouble() ?? 0.015,
         driftDepthMs:
-            (state['tapeDriftDriftDepth'] as num?)?.toDouble() ?? 0.10,
+            (state['tapeDriftDriftDepth'] as num?)?.toDouble() ?? 0.08,
         stereoPhaseDeg:
-            (state['tapeDriftStereoPhase'] as num?)?.toDouble() ?? 45.0,
+            (state['tapeDriftStereoPhase'] as num?)?.toDouble() ?? 12.0,
         hfDampingHz:
             (state['tapeDriftHfDamping'] as num?)?.toDouble() ?? 18000.0,
       );
@@ -1010,13 +1017,13 @@ class _EqScreenState extends State<EqScreen>
 
   // Stereo Widen / Audiophile Imager
   bool _stereoWidenEnabled = false;
-  double _stereoWidenWidth = 1.5;
+  double _stereoWidenWidth = 1.2;
   // Stereo Vectorscope display mode: real engine analyzer vs. simulated.
   bool _vectorscopeLive = true;
-  double _stereoWidenDelayMs = 0.15; // Maps to 15ms
+  double _stereoWidenDelayMs = 15.0; // Milliseconds (5.0..30.0 ms)
   int _stereoWidenMode = 0; // 0 = Clean M/S, 1 = Spatial 3D, 2 = Blumlein
-  double _stereoWidenMonoBelowHz = 150.0;
-  double _stereoWidenAirBoostDb = 1.5;
+  double _stereoWidenMonoBelowHz = 120.0;
+  double _stereoWidenAirBoostDb = 0.0;
 
   // DSP Stereo Enhancer
   bool _stereoEnhancementEnabled = false;
@@ -1822,13 +1829,13 @@ class _EqScreenState extends State<EqScreen>
   bool _surroundEnabled = false;
   SurroundMode _surroundMode = SurroundMode.off;
 
-  // Mode 1: Cinema Matrix 5.1 (Cleanroom Pro Logic II)
+  // Mode 1: Cinema Matrix 5.1 (Active Dematrix -> Folded Spherical HRTF)
   double _surroundCenterFocus = 0.6;
   double _surroundSurroundBoost = 1.2;
   double _surroundRearDelayMs = 15.0;
   double _surroundHeadRadiusCm = 8.75;
 
-  // Mode 2: Binaural HRTF Virtualizer (Reconstructed from Dolby analysis_dlby2)
+  // Mode 2: Binaural HRTF Virtualizer (Headphone Room HRTF & Speaker XTC)
   int _surroundBinauralMode = 0; // 0=Headphone HRTF, 1=Speaker Field
   double _surroundBinauralBoost = 0.65;
   int _surroundBinauralRoomPreset = 2; // 1=Studio, 2=Cinema, 3=Concert Hall
@@ -1837,9 +1844,9 @@ class _EqScreenState extends State<EqScreen>
       1; // 0=Narrow (10°), 1=Standard (30°), 2=Wide (45°)
   double _surroundBinauralShadowCutoff = 3500.0;
 
-  // Mode 3: 3D Acoustic Stage (Reconstructed from AM3D Zirene re_workspace)
+  // Mode 3: 3D Acoustic Stage (Profile-Aware XTC, Depth & LR4 Bass Anchor)
   int _surroundStageProfile = 0; // 0=Headset, 1=Speaker
-  int _surroundStageMode = 0; // 0=Studio (Normal), 1=Panoramic (Wide)
+  int _surroundStageMode = 0; // 0=Studio, 1=Panoramic
   double _surroundStageWidth = 1.2;
   double _surroundStageDepth = 0.5;
   double _surroundStageCancellation = 0.60;
@@ -2481,12 +2488,12 @@ class _EqScreenState extends State<EqScreen>
   // 11. Vintage Tape Wow, Flutter & Drift (TapeDriftDSP)
   bool _tapeDriftEnabled = false;
   TapeDriftPreset _tapeDriftPreset = TapeDriftPreset.subtleHiFi;
-  double _tapeDriftWowRate = 0.8;
-  double _tapeDriftWowDepth = 0.35;
-  double _tapeDriftFlutterRate = 12.0;
-  double _tapeDriftFlutterDepth = 0.08;
-  double _tapeDriftDriftDepth = 0.10;
-  double _tapeDriftStereoPhase = 45.0;
+  double _tapeDriftWowRate = 0.55;
+  double _tapeDriftWowDepth = 0.18;
+  double _tapeDriftFlutterRate = 11.0;
+  double _tapeDriftFlutterDepth = 0.015;
+  double _tapeDriftDriftDepth = 0.08;
+  double _tapeDriftStereoPhase = 12.0;
   double _tapeDriftHfDamping = 18000.0;
 
   // Playback Speed, Pitch & Status
@@ -3167,20 +3174,54 @@ class _EqScreenState extends State<EqScreen>
                 tapePresetVal < TapeDriftPreset.values.length)
             ? TapeDriftPreset.values[tapePresetVal]
             : TapeDriftPreset.subtleHiFi;
-        _tapeDriftWowRate =
-            (dspMap['tapeDriftWowRate'] as num?)?.toDouble() ?? 0.8;
-        _tapeDriftWowDepth =
-            (dspMap['tapeDriftWowDepth'] as num?)?.toDouble() ?? 0.35;
-        _tapeDriftFlutterRate =
-            (dspMap['tapeDriftFlutterRate'] as num?)?.toDouble() ?? 12.0;
-        _tapeDriftFlutterDepth =
-            (dspMap['tapeDriftFlutterDepth'] as num?)?.toDouble() ?? 0.08;
-        _tapeDriftDriftDepth =
-            (dspMap['tapeDriftDriftDepth'] as num?)?.toDouble() ?? 0.10;
-        _tapeDriftStereoPhase =
-            (dspMap['tapeDriftStereoPhase'] as num?)?.toDouble() ?? 45.0;
-        _tapeDriftHfDamping =
-            (dspMap['tapeDriftHfDamping'] as num?)?.toDouble() ?? 18000.0;
+        if (_tapeDriftPreset == TapeDriftPreset.subtleHiFi) {
+          _tapeDriftWowRate = 0.55;
+          _tapeDriftWowDepth = 0.18;
+          _tapeDriftFlutterRate = 11.0;
+          _tapeDriftFlutterDepth = 0.015;
+          _tapeDriftDriftDepth = 0.08;
+          _tapeDriftStereoPhase = 12.0;
+          _tapeDriftHfDamping = 18000.0;
+        } else if (_tapeDriftPreset == TapeDriftPreset.vintageReelToReel) {
+          _tapeDriftWowRate = 0.80;
+          _tapeDriftWowDepth = 0.40;
+          _tapeDriftFlutterRate = 14.0;
+          _tapeDriftFlutterDepth = 0.035;
+          _tapeDriftDriftDepth = 0.18;
+          _tapeDriftStereoPhase = 20.0;
+          _tapeDriftHfDamping = 15000.0;
+        } else if (_tapeDriftPreset == TapeDriftPreset.warpedVinyl) {
+          _tapeDriftWowRate = 0.555;
+          _tapeDriftWowDepth = 1.15;
+          _tapeDriftFlutterRate = 7.5;
+          _tapeDriftFlutterDepth = 0.020;
+          _tapeDriftDriftDepth = 0.15;
+          _tapeDriftStereoPhase = 8.0;
+          _tapeDriftHfDamping = 16000.0;
+        } else if (_tapeDriftPreset == TapeDriftPreset.cassetteLoFi) {
+          _tapeDriftWowRate = 1.40;
+          _tapeDriftWowDepth = 0.95;
+          _tapeDriftFlutterRate = 18.0;
+          _tapeDriftFlutterDepth = 0.075;
+          _tapeDriftDriftDepth = 0.40;
+          _tapeDriftStereoPhase = 28.0;
+          _tapeDriftHfDamping = 9500.0;
+        } else {
+          _tapeDriftWowRate =
+              (dspMap['tapeDriftWowRate'] as num?)?.toDouble() ?? 0.55;
+          _tapeDriftWowDepth =
+              (dspMap['tapeDriftWowDepth'] as num?)?.toDouble() ?? 0.18;
+          _tapeDriftFlutterRate =
+              (dspMap['tapeDriftFlutterRate'] as num?)?.toDouble() ?? 11.0;
+          _tapeDriftFlutterDepth =
+              (dspMap['tapeDriftFlutterDepth'] as num?)?.toDouble() ?? 0.015;
+          _tapeDriftDriftDepth =
+              (dspMap['tapeDriftDriftDepth'] as num?)?.toDouble() ?? 0.08;
+          _tapeDriftStereoPhase =
+              (dspMap['tapeDriftStereoPhase'] as num?)?.toDouble() ?? 12.0;
+          _tapeDriftHfDamping =
+              (dspMap['tapeDriftHfDamping'] as num?)?.toDouble() ?? 18000.0;
+        }
       });
     }
 
@@ -4309,17 +4350,17 @@ class _EqScreenState extends State<EqScreen>
       widget.player.setCrossfeedAlgorithm(CrossfeedAlgorithm.off);
 
       _stereoWidenEnabled = false;
-      _stereoWidenWidth = 1.5;
-      _stereoWidenDelayMs = 0.15;
+      _stereoWidenWidth = 1.2;
+      _stereoWidenDelayMs = 15.0;
       _stereoWidenMode = 0;
-      _stereoWidenMonoBelowHz = 150.0;
-      _stereoWidenAirBoostDb = 1.5;
+      _stereoWidenMonoBelowHz = 120.0;
+      _stereoWidenAirBoostDb = 0.0;
       widget.player.setStereoImager(
         enabled: false,
-        width: 1.5,
+        width: 1.2,
         mode: 0,
-        monoBelowHz: 150.0,
-        airBoostDb: 1.5,
+        monoBelowHz: 120.0,
+        airBoostDb: 0.0,
         delayMs: 15.0,
       );
 
@@ -4633,12 +4674,12 @@ class _EqScreenState extends State<EqScreen>
 
       _tapeDriftEnabled = false;
       _tapeDriftPreset = TapeDriftPreset.subtleHiFi;
-      _tapeDriftWowRate = 0.8;
-      _tapeDriftWowDepth = 0.35;
-      _tapeDriftFlutterRate = 12.0;
-      _tapeDriftFlutterDepth = 0.08;
-      _tapeDriftDriftDepth = 0.10;
-      _tapeDriftStereoPhase = 45.0;
+      _tapeDriftWowRate = 0.55;
+      _tapeDriftWowDepth = 0.18;
+      _tapeDriftFlutterRate = 11.0;
+      _tapeDriftFlutterDepth = 0.015;
+      _tapeDriftDriftDepth = 0.08;
+      _tapeDriftStereoPhase = 12.0;
       _tapeDriftHfDamping = 18000.0;
       widget.player.setTapeDriftEnabled(false);
 
@@ -6075,7 +6116,7 @@ class _EqScreenState extends State<EqScreen>
                                 mode: _stereoWidenMode,
                                 monoBelowHz: _stereoWidenMonoBelowHz,
                                 airBoostDb: _stereoWidenAirBoostDb,
-                                delayMs: _stereoWidenDelayMs * 100.0,
+                                delayMs: _stereoWidenDelayMs,
                               );
                             }
                             _saveEqState();
@@ -7168,21 +7209,50 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
+  Widget _buildSpatialConflictHint() {
+    final active = <String>[
+      if (_crossfeedEnabled) 'Crossfeed',
+      if (_surroundEnabled) 'Spatial Surround',
+      if (_stereoWidenEnabled) 'Stereo Imager',
+      if (_stereoEnhancementEnabled) 'Stereo Enhancer',
+    ];
+    if (active.length < 2) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.amberAccent.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.amberAccent.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded,
+                color: Colors.amberAccent, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Multiple spatializers active (${active.join(" + ")}). Stacking spatial/HRTF stages can smear phase and stereo imaging.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.78),
+                  fontSize: 11,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildStereoWidenSection() {
     return _CollapsibleSection(
-      icon: /* M3EContainer(
-        Shapes.slanted,
-        width: 40,
-        height: 40,
-        color: primaryColor.withValues(alpha: 0.18),
-        border: BorderSide(
-          color: primaryColor.withValues(alpha: 0.4),
-          width: 1.0,
-        ),
-        child: */
-          Center(
+      icon: Center(
         child: Icon(SautiIcons.stereoImager, color: primaryColor, size: 20),
-        // ),
       ),
       title: 'Stereo Imager',
       subtitle: '3D Velvet and Blumlein Imager',
@@ -7199,7 +7269,7 @@ class _EqScreenState extends State<EqScreen>
             mode: _stereoWidenMode,
             monoBelowHz: _stereoWidenMonoBelowHz,
             airBoostDb: _stereoWidenAirBoostDb,
-            delayMs: _stereoWidenDelayMs * 100.0,
+            delayMs: _stereoWidenDelayMs,
           );
         }
         _saveEqState();
@@ -7323,15 +7393,14 @@ class _EqScreenState extends State<EqScreen>
           children: [
             ModernAudioKnob(
               label: 'WIDTH',
-              value: (_stereoWidenWidth / 3.0).clamp(0.0, 1.0),
+              value: _stereoWidenWidth.clamp(0.0, 2.5),
               min: 0.0,
-              max: 1.0,
-              flatValue: 0.333, // Maps to 1.0x
+              max: 2.5,
+              flatValue: 1.0,
               activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
-              displayMultiplier: 3.0,
-              valueFormatter: (v) => '${(v * 3.0).toStringAsFixed(1)}x',
+              valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
               onChanged: (v) {
-                setState(() => _stereoWidenWidth = v * 3.0);
+                setState(() => _stereoWidenWidth = v);
                 _subScreenSetState?.call(() {});
                 if (_stereoWidenEnabled) _updateStereoWiden();
                 _saveEqState();
@@ -7339,18 +7408,17 @@ class _EqScreenState extends State<EqScreen>
             ),
             ModernAudioKnob(
               label: 'MONO BASS',
-              value: (_stereoWidenMonoBelowHz / 300.0).clamp(0.0, 1.0),
+              value: _stereoWidenMonoBelowHz.clamp(0.0, 300.0),
               min: 0.0,
-              max: 1.0,
-              flatValue: 0.5, // 150 Hz
+              max: 300.0,
+              flatValue: 120.0,
               activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
-              displayMultiplier: 300.0,
               valueFormatter: (v) {
-                final hz = (v * 300.0).toInt();
+                final hz = v.toInt();
                 return hz <= 20 ? 'Off' : '${hz}Hz';
               },
               onChanged: (v) {
-                setState(() => _stereoWidenMonoBelowHz = v * 300.0);
+                setState(() => _stereoWidenMonoBelowHz = v);
                 _subScreenSetState?.call(() {});
                 if (_stereoWidenEnabled) _updateStereoWiden();
                 _saveEqState();
@@ -7358,38 +7426,38 @@ class _EqScreenState extends State<EqScreen>
             ),
             ModernAudioKnob(
               label: 'AIR BOOST',
-              value: (_stereoWidenAirBoostDb / 6.0).clamp(0.0, 1.0),
+              value: _stereoWidenAirBoostDb.clamp(0.0, 6.0),
               min: 0.0,
-              max: 1.0,
-              flatValue: 0.25, // 1.5 dB
+              max: 6.0,
+              flatValue: 0.0,
               activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
-              displayMultiplier: 6.0,
-              valueFormatter: (v) => '+${(v * 6.0).toStringAsFixed(1)}dB',
+              valueFormatter: (v) => '+${v.toStringAsFixed(1)}dB',
               onChanged: (v) {
-                setState(() => _stereoWidenAirBoostDb = v * 6.0);
+                setState(() => _stereoWidenAirBoostDb = v);
                 _subScreenSetState?.call(() {});
                 if (_stereoWidenEnabled) _updateStereoWiden();
                 _saveEqState();
               },
             ),
-            ModernAudioKnob(
-              label: 'DECORR DLY',
-              value: _stereoWidenDelayMs,
-              min: 0.0,
-              max: 1.0,
-              flatValue: 0.15,
-              activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
-              isPercentage: true,
-              valueFormatter: (v) => '${(v * 100).toInt()}ms',
-              onChanged: (v) {
-                setState(() => _stereoWidenDelayMs = v);
-                _subScreenSetState?.call(() {});
-                if (_stereoWidenEnabled) _updateStereoWiden();
-                _saveEqState();
-              },
-            ),
+            if (_stereoWidenMode == 1)
+              ModernAudioKnob(
+                label: 'DECORR DLY',
+                value: _stereoWidenDelayMs.clamp(5.0, 30.0),
+                min: 5.0,
+                max: 30.0,
+                flatValue: 15.0,
+                activeColor: _stereoWidenEnabled ? primaryColor : Colors.white,
+                valueFormatter: (v) => '${v.toStringAsFixed(1)}ms',
+                onChanged: (v) {
+                  setState(() => _stereoWidenDelayMs = v);
+                  _subScreenSetState?.call(() {});
+                  if (_stereoWidenEnabled) _updateStereoWiden();
+                  _saveEqState();
+                },
+              ),
           ],
         ),
+        _buildSpatialConflictHint(),
       ],
     );
   }
@@ -7400,7 +7468,7 @@ class _EqScreenState extends State<EqScreen>
         child: Icon(SautiIcons.stereoWidth, color: primaryColor, size: 20),
       ),
       title: 'Stereo Enhancer',
-      subtitle: 'Warped PFB M/S Widening',
+      subtitle: '3-Band Adaptive M/S Widening',
       isEnabled: _stereoEnhancementEnabled,
       onToggle: (v) {
         setState(() => _stereoEnhancementEnabled = v);
@@ -7442,8 +7510,8 @@ class _EqScreenState extends State<EqScreen>
               _stereoEnhancementMix == 0.5
                   ? 'Pass-through (Original Stereo)'
                   : (_stereoEnhancementMix > 0.5
-                      ? 'Stereo Widening (Center Subtraction)'
-                      : 'Mono Center Extraction'),
+                      ? 'Adaptive Multiband Stereo Widening'
+                      : 'Mono Center Focus'),
               style: TextStyle(
                 color: context.textPrimary.withValues(alpha: 0.72),
                 fontSize: 11.5,
@@ -7516,14 +7584,13 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _updateStereoWiden() {
-    double delayMsMapping = _stereoWidenDelayMs * 100.0;
     widget.player.setStereoImager(
       enabled: _stereoWidenEnabled,
       width: _stereoWidenWidth,
       mode: _stereoWidenMode,
       monoBelowHz: _stereoWidenMonoBelowHz,
       airBoostDb: _stereoWidenAirBoostDb,
-      delayMs: delayMsMapping,
+      delayMs: _stereoWidenDelayMs,
     );
   }
 
@@ -9199,37 +9266,37 @@ class _EqScreenState extends State<EqScreen>
     setState(() {
       _tapeDriftPreset = preset;
       if (preset == TapeDriftPreset.subtleHiFi) {
-        _tapeDriftWowRate = 0.8;
-        _tapeDriftWowDepth = 0.35;
-        _tapeDriftFlutterRate = 12.0;
-        _tapeDriftFlutterDepth = 0.08;
-        _tapeDriftDriftDepth = 0.10;
-        _tapeDriftStereoPhase = 45.0;
+        _tapeDriftWowRate = 0.55;
+        _tapeDriftWowDepth = 0.18;
+        _tapeDriftFlutterRate = 11.0;
+        _tapeDriftFlutterDepth = 0.015;
+        _tapeDriftDriftDepth = 0.08;
+        _tapeDriftStereoPhase = 12.0;
         _tapeDriftHfDamping = 18000.0;
       } else if (preset == TapeDriftPreset.vintageReelToReel) {
-        _tapeDriftWowRate = 1.2;
-        _tapeDriftWowDepth = 0.65;
-        _tapeDriftFlutterRate = 16.0;
-        _tapeDriftFlutterDepth = 0.18;
-        _tapeDriftDriftDepth = 0.25;
-        _tapeDriftStereoPhase = 60.0;
-        _tapeDriftHfDamping = 14000.0;
+        _tapeDriftWowRate = 0.80;
+        _tapeDriftWowDepth = 0.40;
+        _tapeDriftFlutterRate = 14.0;
+        _tapeDriftFlutterDepth = 0.035;
+        _tapeDriftDriftDepth = 0.18;
+        _tapeDriftStereoPhase = 20.0;
+        _tapeDriftHfDamping = 15000.0;
       } else if (preset == TapeDriftPreset.warpedVinyl) {
-        _tapeDriftWowRate = 0.55;
-        _tapeDriftWowDepth = 1.10;
-        _tapeDriftFlutterRate = 8.0;
-        _tapeDriftFlutterDepth = 0.12;
-        _tapeDriftDriftDepth = 0.35;
-        _tapeDriftStereoPhase = 90.0;
-        _tapeDriftHfDamping = 12000.0;
+        _tapeDriftWowRate = 0.555;
+        _tapeDriftWowDepth = 1.15;
+        _tapeDriftFlutterRate = 7.5;
+        _tapeDriftFlutterDepth = 0.020;
+        _tapeDriftDriftDepth = 0.15;
+        _tapeDriftStereoPhase = 8.0;
+        _tapeDriftHfDamping = 16000.0;
       } else if (preset == TapeDriftPreset.cassetteLoFi) {
-        _tapeDriftWowRate = 1.8;
-        _tapeDriftWowDepth = 1.40;
-        _tapeDriftFlutterRate = 22.0;
-        _tapeDriftFlutterDepth = 0.35;
-        _tapeDriftDriftDepth = 0.50;
-        _tapeDriftStereoPhase = 120.0;
-        _tapeDriftHfDamping = 8500.0;
+        _tapeDriftWowRate = 1.40;
+        _tapeDriftWowDepth = 0.95;
+        _tapeDriftFlutterRate = 18.0;
+        _tapeDriftFlutterDepth = 0.075;
+        _tapeDriftDriftDepth = 0.40;
+        _tapeDriftStereoPhase = 28.0;
+        _tapeDriftHfDamping = 9500.0;
       }
     });
     if (_tapeDriftEnabled) _updateTapeDrift();
@@ -10605,7 +10672,7 @@ class _EqScreenState extends State<EqScreen>
                   ),
                   M3EDropdownItem(
                     value: AnalogWarmthProfile.magneticTape,
-                    label: 'Vintage Tape',
+                    label: 'Magnetic Tape',
                   ),
                   M3EDropdownItem(
                     value: AnalogWarmthProfile.vintagePreamp,
@@ -10880,11 +10947,11 @@ class _EqScreenState extends State<EqScreen>
       case SurroundMode.off:
         return 'Select a spatial surround engine';
       case SurroundMode.matrixSurround:
-        return 'cleanroom 5.1 quadrature dematrixer';
+        return 'Active 5.1 matrix dematrixer with spherical HRTF';
       case SurroundMode.binauralVirtualizer:
-        return 'Reconstructed binaural HRTF';
+        return 'Headphone HRTF room & speaker crosstalk cancellation';
       case SurroundMode.acousticStage:
-        return '3D soundstage with cross-talk cancellation';
+        return '3D soundstage with acoustic depth & cancellation';
     }
   }
 
@@ -10906,6 +10973,7 @@ class _EqScreenState extends State<EqScreen>
             _surroundMode = SurroundMode.matrixSurround;
           }
         });
+        _subScreenSetState?.call(() {});
         _updateSurround();
         _saveEqState();
       },
@@ -10931,6 +10999,7 @@ class _EqScreenState extends State<EqScreen>
               _surroundMode = mode;
               _surroundEnabled = true;
             });
+            _subScreenSetState?.call(() {});
             _updateSurround();
             _saveEqState();
           },
@@ -10956,7 +11025,7 @@ class _EqScreenState extends State<EqScreen>
             children: [
               ModernAudioKnob(
                 label: 'CENTER FOCUS',
-                value: _surroundCenterFocus,
+                value: _surroundCenterFocus.clamp(0.0, 1.0),
                 min: 0.0,
                 max: 1.0,
                 flatValue: 0.6,
@@ -10965,35 +11034,37 @@ class _EqScreenState extends State<EqScreen>
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
                 onChanged: (v) {
                   setState(() => _surroundCenterFocus = v);
+                  _subScreenSetState?.call(() {});
                   if (_surroundEnabled) _updateSurround();
                   _saveEqState();
                 },
               ),
               ModernAudioKnob(
                 label: 'SURROUND BOOST',
-                value: (_surroundSurroundBoost - 0.5) / 1.5,
-                min: 0.0,
-                max: 1.0,
-                flatValue: (1.2 - 0.5) / 1.5,
+                value: _surroundSurroundBoost.clamp(0.5, 2.0),
+                min: 0.5,
+                max: 2.0,
+                flatValue: 1.2,
                 activeColor: _surroundEnabled ? primaryColor : Colors.white,
-                valueFormatter: (v) => '${(0.5 + v * 1.5).toStringAsFixed(1)}x',
+                valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
                 onChanged: (v) {
-                  setState(() => _surroundSurroundBoost = 0.5 + v * 1.5);
+                  setState(() => _surroundSurroundBoost = v);
+                  _subScreenSetState?.call(() {});
                   if (_surroundEnabled) _updateSurround();
                   _saveEqState();
                 },
               ),
               ModernAudioKnob(
                 label: 'REAR DELAY',
-                value: (_surroundRearDelayMs - 5.0) / 25.0,
-                min: 0.0,
-                max: 1.0,
-                flatValue: (15.0 - 5.0) / 25.0,
+                value: _surroundRearDelayMs.clamp(5.0, 30.0),
+                min: 5.0,
+                max: 30.0,
+                flatValue: 15.0,
                 activeColor: _surroundEnabled ? primaryColor : Colors.white,
-                valueFormatter: (v) =>
-                    '${(5.0 + v * 25.0).toStringAsFixed(1)}ms',
+                valueFormatter: (v) => '${v.toStringAsFixed(1)}ms',
                 onChanged: (v) {
-                  setState(() => _surroundRearDelayMs = 5.0 + v * 25.0);
+                  setState(() => _surroundRearDelayMs = v);
+                  _subScreenSetState?.call(() {});
                   if (_surroundEnabled) _updateSurround();
                   _saveEqState();
                 },
@@ -11017,6 +11088,7 @@ class _EqScreenState extends State<EqScreen>
                     onSelected: (selected) {
                       if (selected) {
                         setState(() => _surroundBinauralMode = 0);
+                        _subScreenSetState?.call(() {});
                         if (_surroundEnabled) _updateSurround();
                         _saveEqState();
                       }
@@ -11031,6 +11103,7 @@ class _EqScreenState extends State<EqScreen>
                     onSelected: (selected) {
                       if (selected) {
                         setState(() => _surroundBinauralMode = 1);
+                        _subScreenSetState?.call(() {});
                         if (_surroundEnabled) _updateSurround();
                         _saveEqState();
                       }
@@ -11041,7 +11114,7 @@ class _EqScreenState extends State<EqScreen>
               const SizedBox(height: 12),
 
               if (_surroundBinauralMode == 0) ...[
-                // Headphone Mode: DH1/DH2/DH3 Room Presets
+                // Headphone Mode: Studio / Cinema / Concert Hall Room Presets
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
@@ -11055,6 +11128,7 @@ class _EqScreenState extends State<EqScreen>
                         onSelected: (s) {
                           if (s) {
                             setState(() => _surroundBinauralRoomPreset = 1);
+                            _subScreenSetState?.call(() {});
                             if (_surroundEnabled) _updateSurround();
                             _saveEqState();
                           }
@@ -11069,6 +11143,7 @@ class _EqScreenState extends State<EqScreen>
                         onSelected: (s) {
                           if (s) {
                             setState(() => _surroundBinauralRoomPreset = 2);
+                            _subScreenSetState?.call(() {});
                             if (_surroundEnabled) _updateSurround();
                             _saveEqState();
                           }
@@ -11083,6 +11158,7 @@ class _EqScreenState extends State<EqScreen>
                         onSelected: (s) {
                           if (s) {
                             setState(() => _surroundBinauralRoomPreset = 3);
+                            _subScreenSetState?.call(() {});
                             if (_surroundEnabled) _updateSurround();
                             _saveEqState();
                           }
@@ -11097,7 +11173,7 @@ class _EqScreenState extends State<EqScreen>
                   children: [
                     ModernAudioKnob(
                       label: 'INTENSITY',
-                      value: _surroundBinauralBoost,
+                      value: _surroundBinauralBoost.clamp(0.0, 1.0),
                       min: 0.0,
                       max: 1.0,
                       flatValue: 0.65,
@@ -11107,13 +11183,14 @@ class _EqScreenState extends State<EqScreen>
                       valueFormatter: (v) => '${(v * 100).toInt()}%',
                       onChanged: (v) {
                         setState(() => _surroundBinauralBoost = v);
+                        _subScreenSetState?.call(() {});
                         if (_surroundEnabled) _updateSurround();
                         _saveEqState();
                       },
                     ),
                     ModernAudioKnob(
                       label: 'ROOM REVERB',
-                      value: _surroundBinauralRoomMix,
+                      value: _surroundBinauralRoomMix.clamp(0.0, 1.0),
                       min: 0.0,
                       max: 1.0,
                       flatValue: 0.35,
@@ -11123,23 +11200,23 @@ class _EqScreenState extends State<EqScreen>
                       valueFormatter: (v) => '${(v * 100).toInt()}%',
                       onChanged: (v) {
                         setState(() => _surroundBinauralRoomMix = v);
+                        _subScreenSetState?.call(() {});
                         if (_surroundEnabled) _updateSurround();
                         _saveEqState();
                       },
                     ),
                     ModernAudioKnob(
                       label: 'HEAD SHADOW',
-                      value: (_surroundBinauralShadowCutoff - 2000.0) / 3000.0,
-                      min: 0.0,
-                      max: 1.0,
-                      flatValue: (3500.0 - 2000.0) / 3000.0,
+                      value: _surroundBinauralShadowCutoff.clamp(2000.0, 6000.0),
+                      min: 2000.0,
+                      max: 6000.0,
+                      flatValue: 3500.0,
                       activeColor:
                           _surroundEnabled ? primaryColor : Colors.white,
-                      valueFormatter: (v) =>
-                          '${(2000.0 + v * 3000.0).toInt()}Hz',
+                      valueFormatter: (v) => '${v.toInt()}Hz',
                       onChanged: (v) {
-                        setState(() => _surroundBinauralShadowCutoff =
-                            2000.0 + v * 3000.0);
+                        setState(() => _surroundBinauralShadowCutoff = v);
+                        _subScreenSetState?.call(() {});
                         if (_surroundEnabled) _updateSurround();
                         _saveEqState();
                       },
@@ -11159,6 +11236,7 @@ class _EqScreenState extends State<EqScreen>
                       onSelected: (s) {
                         if (s) {
                           setState(() => _surroundBinauralSpeakerAngle = 0);
+                          _subScreenSetState?.call(() {});
                           if (_surroundEnabled) _updateSurround();
                           _saveEqState();
                         }
@@ -11173,6 +11251,7 @@ class _EqScreenState extends State<EqScreen>
                       onSelected: (s) {
                         if (s) {
                           setState(() => _surroundBinauralSpeakerAngle = 1);
+                          _subScreenSetState?.call(() {});
                           if (_surroundEnabled) _updateSurround();
                           _saveEqState();
                         }
@@ -11187,6 +11266,7 @@ class _EqScreenState extends State<EqScreen>
                       onSelected: (s) {
                         if (s) {
                           setState(() => _surroundBinauralSpeakerAngle = 2);
+                          _subScreenSetState?.call(() {});
                           if (_surroundEnabled) _updateSurround();
                           _saveEqState();
                         }
@@ -11200,7 +11280,7 @@ class _EqScreenState extends State<EqScreen>
                   children: [
                     ModernAudioKnob(
                       label: 'INTENSITY',
-                      value: _surroundBinauralBoost,
+                      value: _surroundBinauralBoost.clamp(0.0, 1.0),
                       min: 0.0,
                       max: 1.0,
                       flatValue: 0.65,
@@ -11210,23 +11290,23 @@ class _EqScreenState extends State<EqScreen>
                       valueFormatter: (v) => '${(v * 100).toInt()}%',
                       onChanged: (v) {
                         setState(() => _surroundBinauralBoost = v);
+                        _subScreenSetState?.call(() {});
                         if (_surroundEnabled) _updateSurround();
                         _saveEqState();
                       },
                     ),
                     ModernAudioKnob(
                       label: 'SHADOW CUTOFF',
-                      value: (_surroundBinauralShadowCutoff - 2000.0) / 3000.0,
-                      min: 0.0,
-                      max: 1.0,
-                      flatValue: (3500.0 - 2000.0) / 3000.0,
+                      value: _surroundBinauralShadowCutoff.clamp(2000.0, 6000.0),
+                      min: 2000.0,
+                      max: 6000.0,
+                      flatValue: 3500.0,
                       activeColor:
                           _surroundEnabled ? primaryColor : Colors.white,
-                      valueFormatter: (v) =>
-                          '${(2000.0 + v * 3000.0).toInt()}Hz',
+                      valueFormatter: (v) => '${v.toInt()}Hz',
                       onChanged: (v) {
-                        setState(() => _surroundBinauralShadowCutoff =
-                            2000.0 + v * 3000.0);
+                        setState(() => _surroundBinauralShadowCutoff = v);
+                        _subScreenSetState?.call(() {});
                         if (_surroundEnabled) _updateSurround();
                         _saveEqState();
                       },
@@ -11255,6 +11335,7 @@ class _EqScreenState extends State<EqScreen>
                       onSelected: (s) {
                         if (s) {
                           setState(() => _surroundStageProfile = 0);
+                          _subScreenSetState?.call(() {});
                           if (_surroundEnabled) _updateSurround();
                           _saveEqState();
                         }
@@ -11269,6 +11350,7 @@ class _EqScreenState extends State<EqScreen>
                       onSelected: (s) {
                         if (s) {
                           setState(() => _surroundStageProfile = 1);
+                          _subScreenSetState?.call(() {});
                           if (_surroundEnabled) _updateSurround();
                           _saveEqState();
                         }
@@ -11276,13 +11358,14 @@ class _EqScreenState extends State<EqScreen>
                     ),
                     const SizedBox(width: 12),
                     ChoiceChip(
-                      label: const Text('Studio (D=25k)',
-                          style: TextStyle(fontSize: 11)),
+                      label:
+                          const Text('Studio', style: TextStyle(fontSize: 11)),
                       selected: _surroundStageMode == 0,
                       selectedColor: primaryColor.withValues(alpha: 0.25),
                       onSelected: (s) {
                         if (s) {
                           setState(() => _surroundStageMode = 0);
+                          _subScreenSetState?.call(() {});
                           if (_surroundEnabled) _updateSurround();
                           _saveEqState();
                         }
@@ -11290,13 +11373,14 @@ class _EqScreenState extends State<EqScreen>
                     ),
                     const SizedBox(width: 6),
                     ChoiceChip(
-                      label: const Text('Panoramic (D=10k)',
+                      label: const Text('Panoramic',
                           style: TextStyle(fontSize: 11)),
                       selected: _surroundStageMode == 1,
                       selectedColor: primaryColor.withValues(alpha: 0.25),
                       onSelected: (s) {
                         if (s) {
                           setState(() => _surroundStageMode = 1);
+                          _subScreenSetState?.call(() {});
                           if (_surroundEnabled) _updateSurround();
                           _saveEqState();
                         }
@@ -11312,22 +11396,22 @@ class _EqScreenState extends State<EqScreen>
                 children: [
                   ModernAudioKnob(
                     label: 'STAGE WIDTH',
-                    value: (_surroundStageWidth - 0.5) / 1.5,
-                    min: 0.0,
-                    max: 1.0,
-                    flatValue: (1.2 - 0.5) / 1.5,
+                    value: _surroundStageWidth.clamp(0.5, 2.0),
+                    min: 0.5,
+                    max: 2.0,
+                    flatValue: 1.2,
                     activeColor: _surroundEnabled ? primaryColor : Colors.white,
-                    valueFormatter: (v) =>
-                        '${(0.5 + v * 1.5).toStringAsFixed(1)}x',
+                    valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
                     onChanged: (v) {
-                      setState(() => _surroundStageWidth = 0.5 + v * 1.5);
+                      setState(() => _surroundStageWidth = v);
+                      _subScreenSetState?.call(() {});
                       if (_surroundEnabled) _updateSurround();
                       _saveEqState();
                     },
                   ),
                   ModernAudioKnob(
                     label: 'STAGE DEPTH',
-                    value: _surroundStageDepth,
+                    value: _surroundStageDepth.clamp(0.0, 1.0),
                     min: 0.0,
                     max: 1.0,
                     flatValue: 0.5,
@@ -11336,13 +11420,14 @@ class _EqScreenState extends State<EqScreen>
                     valueFormatter: (v) => '${(v * 100).toInt()}%',
                     onChanged: (v) {
                       setState(() => _surroundStageDepth = v);
+                      _subScreenSetState?.call(() {});
                       if (_surroundEnabled) _updateSurround();
                       _saveEqState();
                     },
                   ),
                   ModernAudioKnob(
                     label: 'CROSSTALK CANCEL',
-                    value: _surroundStageCancellation,
+                    value: _surroundStageCancellation.clamp(0.0, 1.0),
                     min: 0.0,
                     max: 1.0,
                     flatValue: 0.60,
@@ -11351,6 +11436,7 @@ class _EqScreenState extends State<EqScreen>
                     valueFormatter: (v) => '${(v * 100).toInt()}%',
                     onChanged: (v) {
                       setState(() => _surroundStageCancellation = v);
+                      _subScreenSetState?.call(() {});
                       if (_surroundEnabled) _updateSurround();
                       _saveEqState();
                     },
@@ -11364,7 +11450,7 @@ class _EqScreenState extends State<EqScreen>
                 children: [
                   ModernAudioKnob(
                     label: 'AIR CONTOUR',
-                    value: _surroundStageAirPresence,
+                    value: _surroundStageAirPresence.clamp(0.0, 1.0),
                     min: 0.0,
                     max: 1.0,
                     flatValue: 0.40,
@@ -11373,21 +11459,22 @@ class _EqScreenState extends State<EqScreen>
                     valueFormatter: (v) => '${(v * 100).toInt()}%',
                     onChanged: (v) {
                       setState(() => _surroundStageAirPresence = v);
+                      _subScreenSetState?.call(() {});
                       if (_surroundEnabled) _updateSurround();
                       _saveEqState();
                     },
                   ),
                   ModernAudioKnob(
                     label: 'BASS ANCHOR',
-                    value: (_surroundStageBassAnchorHz - 20.0) / 100.0,
-                    min: 0.0,
-                    max: 1.0,
-                    flatValue: (60.0 - 20.0) / 100.0,
+                    value: _surroundStageBassAnchorHz.clamp(20.0, 120.0),
+                    min: 20.0,
+                    max: 120.0,
+                    flatValue: 60.0,
                     activeColor: _surroundEnabled ? primaryColor : Colors.white,
-                    valueFormatter: (v) => '${(20.0 + v * 100.0).toInt()}Hz',
+                    valueFormatter: (v) => '${v.toInt()}Hz',
                     onChanged: (v) {
-                      setState(
-                          () => _surroundStageBassAnchorHz = 20.0 + v * 100.0);
+                      setState(() => _surroundStageBassAnchorHz = v);
+                      _subScreenSetState?.call(() {});
                       if (_surroundEnabled) _updateSurround();
                       _saveEqState();
                     },
@@ -11397,25 +11484,8 @@ class _EqScreenState extends State<EqScreen>
             ],
           ),
 
+        _buildSpatialConflictHint(),
         const SizedBox(height: 14),
-        /* Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              color: primaryColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: primaryColor.withValues(alpha: 0.25)),
-            ),
-            child: Text(
-              'Zero-latency binaural/surround processing | Stereo (headphone & speaker) output',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
-                fontSize: 11,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),*/
       ],
     );
   }
@@ -15325,7 +15395,7 @@ class _EqScreenState extends State<EqScreen>
               value: _tapeDriftWowRate,
               min: 0.1,
               max: 4.0,
-              flatValue: 0.8,
+              flatValue: 0.55,
               activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
               valueFormatter: (v) => '${v.toStringAsFixed(2)} Hz',
               onChanged: (v) {
@@ -15342,7 +15412,7 @@ class _EqScreenState extends State<EqScreen>
               value: _tapeDriftWowDepth,
               min: 0.0,
               max: 2.0,
-              flatValue: 0.35,
+              flatValue: 0.18,
               activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
               valueFormatter: (v) => '${v.toStringAsFixed(2)} ms',
               onChanged: (v) {
@@ -15359,7 +15429,7 @@ class _EqScreenState extends State<EqScreen>
               value: _tapeDriftFlutterRate,
               min: 4.0,
               max: 30.0,
-              flatValue: 12.0,
+              flatValue: 11.0,
               activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
               valueFormatter: (v) => '${v.toStringAsFixed(1)} Hz',
               onChanged: (v) {
@@ -15384,9 +15454,9 @@ class _EqScreenState extends State<EqScreen>
               value: _tapeDriftFlutterDepth,
               min: 0.0,
               max: 0.5,
-              flatValue: 0.08,
+              flatValue: 0.015,
               activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
-              valueFormatter: (v) => '${v.toStringAsFixed(2)} ms',
+              valueFormatter: (v) => '${v.toStringAsFixed(3)} ms',
               onChanged: (v) {
                 setState(() {
                   _tapeDriftFlutterDepth = v;
@@ -15401,7 +15471,7 @@ class _EqScreenState extends State<EqScreen>
               value: _tapeDriftDriftDepth,
               min: 0.0,
               max: 1.0,
-              flatValue: 0.10,
+              flatValue: 0.08,
               activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
               valueFormatter: (v) => '${v.toStringAsFixed(2)} ms',
               onChanged: (v) {
@@ -15418,7 +15488,7 @@ class _EqScreenState extends State<EqScreen>
               value: _tapeDriftStereoPhase,
               min: 0.0,
               max: 180.0,
-              flatValue: 45.0,
+              flatValue: 12.0,
               activeColor: _tapeDriftEnabled ? primaryColor : Colors.white38,
               valueFormatter: (v) => '${v.toInt()}°',
               onChanged: (v) {

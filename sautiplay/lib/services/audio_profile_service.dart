@@ -35,7 +35,14 @@ class AudioProfileService {
     player.setDynamicBass(enabled: false, preset: 18, gain: 0.0);
     player.setCrystalizer(enabled: false);
     player.setCrossfeed(enabled: false, preset: 0);
-    player.setStereoWiden(enabled: false, width: 1.5, delayMs: 15.0);
+    player.setStereoImager(
+      enabled: false,
+      width: 1.2,
+      mode: 0,
+      monoBelowHz: 120.0,
+      airBoostDb: 0.0,
+      delayMs: 15.0,
+    );
     player.setStereoEnhancement(enabled: false, mix: 0.5);
     player.setEqEnabled(false);
     player.setEq(low: 0.0, mid: 0.0, high: 0.0);
@@ -52,6 +59,7 @@ class AudioProfileService {
     player.setHarmonicBass(enabled: false);
     player.setDynamicSystem(enabled: false);
     player.setAnalogWarmth(enabled: false);
+    player.setTapeDriftEnabled(false);
     player.setDeEsser(enabled: false);
     player.setDownwardExpander(enabled: false);
     player.setConvolverEnabled(false);
@@ -74,8 +82,14 @@ class AudioProfileService {
           highShelfEnabled: true,
           highShelfGainDb: 2.0),
       AppStateService.instance.saveCrossfeed(enabled: false, preset: 1),
-      AppStateService.instance
-          .saveStereoWiden(enabled: false, width: 1.5, delayMs: 15.0),
+      AppStateService.instance.saveStereoWiden(
+        enabled: false,
+        width: 1.2,
+        delayMs: 15.0,
+        mode: 0,
+        monoBelowHz: 120.0,
+        airBoostDb: 0.0,
+      ),
       AppStateService.instance.saveStereoEnhancement(enabled: false, mix: 0.5),
       AppStateService.instance
           .saveAudioTuning(enabled: false, low: 0.0, mid: 0.0, high: 0.0),
@@ -311,18 +325,46 @@ class AudioProfileService {
     if (dsp.containsKey('stereoWiden')) {
       final sw = dsp['stereoWiden'] as Map;
       final enabled = sw['enabled'] ?? false;
-      final width = (sw['width'] as num?)?.toDouble() ?? 1.5;
-      final delayMs = (sw['delayMs'] as num?)?.toDouble() ?? 15.0;
+      final width = (sw['width'] as num?)?.toDouble() ?? 1.2;
+      final rawDelay = (sw['delayMs'] as num?)?.toDouble() ?? 15.0;
+      final delayMs = (rawDelay >= 0.0 && rawDelay <= 1.0)
+          ? (rawDelay * 100.0).clamp(5.0, 30.0)
+          : rawDelay.clamp(5.0, 30.0);
+      final mode = (sw['mode'] as num?)?.toInt() ?? 0;
+      final monoBelowHz = (sw['monoBelowHz'] as num?)?.toDouble() ?? 120.0;
+      final airBoostDb = (sw['airBoostDb'] as num?)?.toDouble() ?? 0.0;
+      player.setStereoImager(
+        enabled: enabled,
+        width: width,
+        mode: mode,
+        monoBelowHz: monoBelowHz,
+        airBoostDb: airBoostDb,
+        delayMs: delayMs,
+      );
       await AppStateService.instance.saveStereoWiden(
         enabled: enabled,
         width: width,
         delayMs: delayMs,
+        mode: mode,
+        monoBelowHz: monoBelowHz,
+        airBoostDb: airBoostDb,
       );
     } else {
+      player.setStereoImager(
+        enabled: false,
+        width: 1.2,
+        mode: 0,
+        monoBelowHz: 120.0,
+        airBoostDb: 0.0,
+        delayMs: 15.0,
+      );
       await AppStateService.instance.saveStereoWiden(
         enabled: false,
-        width: 1.5,
+        width: 1.2,
         delayMs: 15.0,
+        mode: 0,
+        monoBelowHz: 120.0,
+        airBoostDb: 0.0,
       );
     }
 
@@ -485,6 +527,7 @@ class AudioProfileService {
       'bassEnabled': false,
       'dynamicSystemEnabled': false,
       'analogWarmthEnabled': false,
+      'tapeDriftEnabled': false,
       'deEsserEnabled': false,
       'expanderEnabled': false,
       'convolverEnabled': false,
@@ -496,6 +539,30 @@ class AudioProfileService {
     };
     await AppStateService.instance.saveSautiDspState(cleanDspState);
     await EqScreen.applySavedStateToEngine(player);
+
+    // Ensure profile-level spatial effects stay applied even if dspMasterEnabled is false
+    if (dsp.containsKey('stereoWiden')) {
+      final sw = dsp['stereoWiden'] as Map;
+      final rawDelay = (sw['delayMs'] as num?)?.toDouble() ?? 15.0;
+      final delayMs = (rawDelay >= 0.0 && rawDelay <= 1.0)
+          ? (rawDelay * 100.0).clamp(5.0, 30.0)
+          : rawDelay.clamp(5.0, 30.0);
+      player.setStereoImager(
+        enabled: sw['enabled'] ?? false,
+        width: (sw['width'] as num?)?.toDouble() ?? 1.2,
+        mode: (sw['mode'] as num?)?.toInt() ?? 0,
+        monoBelowHz: (sw['monoBelowHz'] as num?)?.toDouble() ?? 120.0,
+        airBoostDb: (sw['airBoostDb'] as num?)?.toDouble() ?? 0.0,
+        delayMs: delayMs,
+      );
+    }
+    if (dsp.containsKey('stereoEnhancement')) {
+      final se = dsp['stereoEnhancement'] as Map;
+      player.setStereoEnhancement(
+        enabled: se['enabled'] ?? false,
+        mix: (se['mix'] as num?)?.toDouble() ?? 0.5,
+      );
+    }
 
     // 4. Save active profile ID & notify listeners
     final prefs = PreferencesStore.instance;

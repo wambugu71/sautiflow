@@ -966,9 +966,10 @@ static void test_stereo_imager_simd()
     imager.setSampleRate(static_cast<float>(kSampleRate));
     imager.setEnabled(true);
 
-    // 1. Clean Mastering on Pure Mono (L = R) must be bit-exact (M/S identity)
+    // 1. Clean Mastering on Pure Mono (L = R) must be bit-exact (monoBelowHz = 0) and symmetric flat RMS (monoBelowHz = 150)
     imager.setMode(sauti::dsp::StereoImagerMode::CleanMastering);
     imager.setWidth(2.0f);
+    imager.setMonoBelowHz(0.0f);
     imager.setAirBoostDb(0.0f);
 
     std::vector<float> mono_buf(kFrames * 2, 0.0f);
@@ -992,9 +993,33 @@ static void test_stereo_imager_simd()
     }
     CHECK(max_diff < 1e-4f, "StereoImagerDSP Clean Mastering preserves pure mono (M/S identity)");
 
-    // 2. Spatial 3D Velvet Noise 12-tap SIMD decorrelation
+    // With 150 Hz Mono Bass active, L == R and RMS stays flat
+    // Measure over 1200 samples (exact 11.000 cycles of 440 Hz @ 48 kHz) so phase shift causes zero window leakage
+    imager.setMonoBelowHz(150.0f);
+    imager.reset();
+    constexpr int kMonoAnchoredFrames = 2400;
+    std::vector<float> mono_anchored_ref(kMonoAnchoredFrames * 2, 0.0f);
+    for (int i = 0; i < kMonoAnchoredFrames; ++i) {
+        float val = 0.4f * std::sin(2.0f * 3.14159265f * 440.0f * i / kSampleRate);
+        mono_anchored_ref[2 * i + 0] = val;
+        mono_anchored_ref[2 * i + 1] = val;
+    }
+    auto mono_anchored = mono_anchored_ref;
+    imager.process(mono_anchored.data(), kMonoAnchoredFrames, 2);
+    float max_lr_delta = 0.0f;
+    double in_e = 0.0, out_e = 0.0;
+    for (int i = 1200; i < kMonoAnchoredFrames; ++i) {
+        max_lr_delta = std::max(max_lr_delta, std::fabs(mono_anchored[2 * i + 0] - mono_anchored[2 * i + 1]));
+        in_e += static_cast<double>(mono_anchored_ref[2 * i + 0]) * mono_anchored_ref[2 * i + 0];
+        out_e += static_cast<double>(mono_anchored[2 * i + 0]) * mono_anchored[2 * i + 0];
+    }
+    CHECK(max_lr_delta < 1e-6f && std::fabs(std::sqrt(out_e / in_e) - 1.0) < 0.01,
+          "StereoImagerDSP Clean Mastering + 150 Hz Mono Bass keeps exact L==R and flat RMS");
+
+    // 2. Spatial 3D Decorrelation cancels 100% in mono sum
     imager.setMode(sauti::dsp::StereoImagerMode::Spatial3D);
     imager.setWidth(1.5f);
+    imager.setMonoBelowHz(0.0f);
     imager.reset();
 
     std::vector<float> spatial_buf(kFrames * 2, 0.0f);
@@ -1006,14 +1031,46 @@ static void test_stereo_imager_simd()
 
     imager.process(spatial_buf.data(), kFrames, 2);
 
-    // Check mono-sum cancellation (L + R = 2 * M, decorrelation cancels)
-    float max_mono_sum_err = 0.0f;
-    for (int i = 100; i < kFrames; ++i) {
-        float mono_sum = (spatial_buf[2 * i + 0] + spatial_buf[2 * i + 1]) * 0.5f;
-        float original_mid = 0.5f * std::sin(2.0f * 3.14159f * 1000.0f * i / kSampleRate);
-        max_mono_sum_err = std::max(max_mono_sum_err, std::fabs(mono_sum - original_mid));
+    // Check mono-sum cancellation & flat total stereo RMS
+    double m_in_un = 0.0, m_sum_un = 0.0, st_un = 0.0;
+    for (int i = kFrames / 2; i < kFrames; ++i) {
+        double orig_m = 0.5 * std::sin(2.0 * 3.14159 * 1000.0 * i / kSampleRate);
+        double l = spatial_buf[2 * i + 0];
+        double r = spatial_buf[2 * i + 1];
+        double mono_sum = (l + r) * 0.5;
+        m_in_un += orig_m * orig_m;
+        m_sum_un += mono_sum * mono_sum;
+        st_un += 0.5 * (l * l + r * r);
     }
-    CHECK(max_mono_sum_err < 1e-3f, "StereoImagerDSP Velvet Noise SIMD dot product cancels 100% in mono sum");
+    const double un_st_ratio = std::sqrt(st_un / m_in_un);
+    const double un_mono_ratio = std::sqrt(m_sum_un / m_in_un);
+    CHECK(std::fabs(un_st_ratio - 1.0) < 0.015 && un_mono_ratio > 0.975 && un_mono_ratio < 1.01,
+          "StereoImagerDSP Spatial 3D preserves flat stereo RMS and clean mono sum");
+
+    // With 150 Hz Mono Bass active, Spatial 3D preserves flat stereo RMS and clean mono sum
+    imager.setMonoBelowHz(150.0f);
+    imager.reset();
+    std::vector<float> spatial_anchored(kFrames * 2, 0.0f);
+    for (int i = 0; i < kFrames; ++i) {
+        float val = 0.5f * std::sin(2.0f * 3.14159f * 1000.0f * i / kSampleRate);
+        spatial_anchored[2 * i + 0] = val;
+        spatial_anchored[2 * i + 1] = val;
+    }
+    imager.process(spatial_anchored.data(), kFrames, 2);
+    double m_in_e = 0.0, m_sum_e = 0.0, st_e = 0.0;
+    for (int i = kFrames / 2; i < kFrames; ++i) {
+        double orig_m = 0.5 * std::sin(2.0 * 3.14159 * 1000.0 * i / kSampleRate);
+        double l = spatial_anchored[2 * i + 0];
+        double r = spatial_anchored[2 * i + 1];
+        double m_sum = 0.5 * (l + r);
+        m_in_e += orig_m * orig_m;
+        m_sum_e += m_sum * m_sum;
+        st_e += 0.5 * (l * l + r * r);
+    }
+    const double anc_st_ratio = std::sqrt(st_e / m_in_e);
+    const double anc_mono_ratio = std::sqrt(m_sum_e / m_in_e);
+    CHECK(std::fabs(anc_st_ratio - 1.0) < 0.015 && anc_mono_ratio > 0.975 && anc_mono_ratio < 1.01,
+          "StereoImagerDSP Spatial 3D + 150 Hz Mono Bass preserves flat stereo RMS and clean mono sum");
 }
 
 int main()

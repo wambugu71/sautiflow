@@ -1893,29 +1893,194 @@ static void test_analog_warmth_tape_damping_rate_scaling_p26()
     dsp.setSampleRate(48000.0f);
     dsp.setEnabled(true);
     dsp.setProfile(sauti::dsp::AnalogWarmthProfile::MagneticTape);
+    dsp.setDrive(1.0f);
 
-    // 1x oversampling: effective rate = 48000 * 1 = 48000. damping = 6000 / 48000 = 0.125
+    // 1x oversampling: TPT alpha at fc=14kHz, fs=48kHz -> g/(1+g) ≈ 0.5658
     dsp.setOversampling(1);
     float damp1x = dsp.getTapeDamping();
     char msg1[128];
-    std::snprintf(msg1, sizeof(msg1), "1x oversampling tape damping = %.4f (want ~0.1250)", damp1x);
-    CHECK(nearlyEqual(damp1x, 0.1250f, 0.005f), msg1);
+    std::snprintf(msg1, sizeof(msg1), "1x oversampling tape TPT coeff = %.4f (want ~0.5658)", damp1x);
+    CHECK(nearlyEqual(damp1x, 0.5658f, 0.005f), msg1);
 
-    // 2x oversampling: effective rate = 48000 * 2 = 96000. damping = 6000 / 96000 = 0.0625
+    // 2x oversampling: TPT alpha at fc=14kHz, fs=96kHz -> g/(1+g) ≈ 0.3303
     dsp.setOversampling(2);
     float damp2x = dsp.getTapeDamping();
     char msg2[128];
-    std::snprintf(msg2, sizeof(msg2), "2x oversampling tape damping = %.4f (want ~0.0625)", damp2x);
-    CHECK(nearlyEqual(damp2x, 0.0625f, 0.005f), msg2);
+    std::snprintf(msg2, sizeof(msg2), "2x oversampling tape TPT coeff = %.4f (want ~0.3303)", damp2x);
+    CHECK(nearlyEqual(damp2x, 0.3303f, 0.005f), msg2);
 
-    // 4x oversampling: effective rate = 48000 * 4 = 192000. damping = 6000 / 192000 = 0.03125
+    // 4x oversampling: TPT alpha at fc=14kHz, fs=192kHz -> g/(1+g) ≈ 0.1891
     dsp.setOversampling(4);
     float damp4x = dsp.getTapeDamping();
     char msg4[128];
-    std::snprintf(msg4, sizeof(msg4), "4x oversampling tape damping = %.4f (want ~0.03125)", damp4x);
-    CHECK(nearlyEqual(damp4x, 0.03125f, 0.005f), msg4);
+    std::snprintf(msg4, sizeof(msg4), "4x oversampling tape TPT coeff = %.4f (want ~0.1891)", damp4x);
+    CHECK(nearlyEqual(damp4x, 0.1891f, 0.005f), msg4);
 
-    CHECK(damp1x > damp2x && damp2x > damp4x, "Tape damping scales inversely with oversampling rate as physically required");
+    CHECK(damp1x > damp2x && damp2x > damp4x, "Tape TPT damping scales cleanly with oversampling rate");
+
+    // Verify consistent -3 dB HF roll-off at 14 kHz across 1x, 2x, and 4x oversampling
+    auto measure14kRatio = [&](int os) {
+        sauti::dsp::AnalogWarmthDSP w;
+        w.setSampleRate(48000.0f);
+        w.setEnabled(true);
+        w.setProfile(sauti::dsp::AnalogWarmthProfile::MagneticTape);
+        w.setDrive(1.0f);
+        w.setOversampling(os);
+        w.reset();
+        const uint32_t frames = 4096;
+        std::vector<float> buf(2 * frames);
+        for (uint32_t i = 0; i < frames; ++i) {
+            float v = 0.25f * std::sin(2.0f * 3.14159265f * 14000.0f * i / 48000.0f);
+            buf[2 * i] = v;
+            buf[2 * i + 1] = v;
+        }
+        w.process(buf.data(), frames);
+        double out_e = 0.0, in_e = 0.0;
+        for (uint32_t i = 2048; i < frames; ++i) {
+            double v = 0.25 * std::sin(2.0 * 3.14159265 * 14000.0 * i / 48000.0);
+            in_e += v * v;
+            out_e += static_cast<double>(buf[2 * i]) * buf[2 * i];
+        }
+        return 20.0 * std::log10(std::sqrt(out_e / in_e));
+    };
+    const double db1x = measure14kRatio(1);
+    const double db2x = measure14kRatio(2);
+    const double db4x = measure14kRatio(4);
+    std::printf("  MagneticTape 14 kHz gain: 1x=%.2f dB, 2x=%.2f dB, 4x=%.2f dB\n", db1x, db2x, db4x);
+    CHECK(std::fabs(db1x - db2x) < 0.75 && std::fabs(db2x - db4x) < 0.75,
+          "MagneticTape 14 kHz rolloff is consistent across 1x, 2x, 4x oversampling");
+}
+
+static void test_analog_warmth_curves_and_dc_fixes()
+{
+    std::printf("\n== AnalogWarmthDSP Clean Zero-Drive, Monotonicity, DC Block & Harmonic Balance ==\n");
+
+    const float sr = 48000.0f;
+    // 1. Transparency at drive=0.0 across all 3 profiles
+    for (int p = 0; p <= 2; ++p) {
+        sauti::dsp::AnalogWarmthDSP dsp;
+        dsp.setSampleRate(sr);
+        dsp.setEnabled(true);
+        dsp.setProfile(static_cast<sauti::dsp::AnalogWarmthProfile>(p));
+        dsp.setDrive(0.0f);
+        dsp.setOversampling(1);
+        dsp.reset();
+
+        const uint32_t N = 96000;
+        std::vector<float> buf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float v = 0.5f * std::sin(2.0f * 3.14159265f * 1000.0f * i / sr);
+            buf[2 * i] = v;
+            buf[2 * i + 1] = v;
+        }
+        dsp.process(buf.data(), N);
+
+        const uint32_t M = 4800;
+        const uint32_t start = N - M;
+        double inSq = 0.0, outSq = 0.0;
+        for (uint32_t i = start; i < N; ++i) {
+            const double v = 0.5 * std::sin(2.0 * 3.14159265358979323846 * 1000.0 * i / sr);
+            const double y = static_cast<double>(buf[2 * i]);
+            inSq += v * v;
+            outSq += y * y;
+        }
+        const double rmsRatio = std::sqrt(outSq / std::max(inSq, 1e-18));
+        auto binMag = [&](int freqHz) {
+            double re = 0.0, im = 0.0;
+            for (uint32_t n = 0; n < M; ++n) {
+                const double ang = 2.0 * 3.14159265358979323846 * freqHz * n / sr;
+                const double x = static_cast<double>(buf[2 * (start + n)]);
+                re += x * std::cos(ang);
+                im -= x * std::sin(ang);
+            }
+            return std::sqrt(re * re + im * im) / (M * 0.5);
+        };
+        const double h1 = binMag(1000);
+        const double h2 = binMag(2000);
+        const double h3 = binMag(3000);
+        const double h2Db = 20.0 * std::log10(std::max(h2, 1e-12) / std::max(h1, 1e-12));
+        const double h3Db = 20.0 * std::log10(std::max(h3, 1e-12) / std::max(h1, 1e-12));
+        char msg[160];
+        std::snprintf(msg, sizeof(msg), "Profile %d @ drive=0.0 is clean/transparent (rmsRatio=%.6f, H2=%.1f dB, H3=%.1f dB)",
+                      p, rmsRatio, h2Db, h3Db);
+        CHECK(std::fabs(rmsRatio - 1.0) < 1.0e-3 && h2Db < -80.0 && h3Db < -80.0, msg);
+    }
+
+    // 2. DC blocker active on ALL 3 profiles (especially VintagePreamp) & no wavefolding at drive=1.0
+    for (int p = 0; p <= 2; ++p) {
+        sauti::dsp::AnalogWarmthDSP dsp;
+        dsp.setSampleRate(sr);
+        dsp.setEnabled(true);
+        dsp.setProfile(static_cast<sauti::dsp::AnalogWarmthProfile>(p));
+        dsp.setDrive(1.0f);
+        dsp.setOversampling(2);
+        dsp.reset();
+
+        const uint32_t N = 96000;
+        std::vector<float> buf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float v = 0.95f * std::sin(2.0f * 3.14159265f * 1000.0f * i / sr);
+            buf[2 * i] = v;
+            buf[2 * i + 1] = v;
+        }
+        dsp.process(buf.data(), N);
+
+        double mean = 0.0;
+        float minVal = 10.0f, maxVal = -10.0f;
+        for (uint32_t i = N - 24000; i < N; ++i) {
+            mean += buf[2 * i];
+            minVal = std::min(minVal, buf[2 * i]);
+            maxVal = std::max(maxVal, buf[2 * i]);
+        }
+        mean /= 24000.0;
+        char msg[160];
+        std::snprintf(msg, sizeof(msg), "Profile %d @ drive=1.0 DC=%.5f (<0.005), min=%.3f, max=%.3f (no foldback)",
+                      p, mean, minVal, maxVal);
+        CHECK(std::fabs(mean) < 0.005 && minVal < -0.45f && maxVal <= 1.15f, msg);
+    }
+
+    // 3. Triode12AX7 @ drive=0.5 (-6 dBFS 1 kHz): even harmonic H2 > H3 and loudness within +/-1.5 dB
+    {
+        sauti::dsp::AnalogWarmthDSP dsp;
+        dsp.setSampleRate(sr);
+        dsp.setEnabled(true);
+        dsp.setProfile(sauti::dsp::AnalogWarmthProfile::Triode12AX7);
+        dsp.setDrive(0.5f);
+        dsp.setOversampling(2);
+        dsp.reset();
+
+        const uint32_t N = 96000;
+        std::vector<float> buf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float v = 0.5f * std::sin(2.0f * 3.14159265f * 1000.0f * i / sr);
+            buf[2 * i] = v;
+            buf[2 * i + 1] = v;
+        }
+        dsp.process(buf.data(), N);
+
+        // Exact coherent DFT over 48000 samples (1 Hz bins) at end of buffer
+        const uint32_t M = 48000;
+        const uint32_t start = N - M;
+        auto binMag = [&](int freqHz) {
+            double re = 0.0, im = 0.0;
+            for (uint32_t n = 0; n < M; ++n) {
+                double ang = 2.0 * 3.14159265358979323846 * freqHz * n / sr;
+                double x = buf[2 * (start + n)];
+                re += x * std::cos(ang);
+                im -= x * std::sin(ang);
+            }
+            return std::sqrt(re * re + im * im) / (M * 0.5);
+        };
+        const double h1 = binMag(1000);
+        const double h2 = binMag(2000);
+        const double h3 = binMag(3000);
+        const double h1Db = 20.0 * std::log10(h1 / 0.5);
+        const double h2Db = 20.0 * std::log10(std::max(h2, 1e-12) / h1);
+        const double h3Db = 20.0 * std::log10(std::max(h3, 1e-12) / h1);
+        std::printf("  Triode12AX7 @ drive=0.5 (-6 dBFS): H1=%.2f dB, H2=%.1f dB, H3=%.1f dB\n", h1Db, h2Db, h3Db);
+        CHECK(std::fabs(h1Db) < 1.5, "Triode12AX7 small-signal loudness stays within +/-1.5 dB");
+        CHECK(h2Db > h3Db + 3.0, "Triode12AX7 produces dominant 2nd-order even harmonics (H2 > H3 + 3 dB)");
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -2107,6 +2272,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "p02") test_f32_memcpy_overlapping_pointers_p02();
     if (only.empty() || only == "p25") test_spatial_surround_anti_pop_balance_p25();
     if (only.empty() || only == "p26") test_analog_warmth_tape_damping_rate_scaling_p26();
+    if (only.empty() || only == "warmth_curves") test_analog_warmth_curves_and_dc_fixes();
     if (only.empty() || only == "p21") test_clarity_dsp_zero_heap_allocation_p21();
     if (only.empty() || only == "f64") test_uniform_f64_dsp_pipeline();
 

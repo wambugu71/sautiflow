@@ -101,7 +101,10 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2800),
-    )..repeat();
+    );
+    if (widget.isEnabled) {
+      _animController.repeat();
+    }
 
     _initParticles();
     _subscribeAnalyzer();
@@ -233,6 +236,15 @@ class _StereoVectorscopeGraphState extends State<StereoVectorscopeGraph>
   @override
   void didUpdateWidget(covariant StereoVectorscopeGraph oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.isEnabled != widget.isEnabled) {
+      if (widget.isEnabled) {
+        if (!_animController.isAnimating) {
+          _animController.repeat();
+        }
+      } else {
+        _animController.stop();
+      }
+    }
     if (oldWidget.analyzerStream != widget.analyzerStream) {
       _subscribeAnalyzer();
     }
@@ -633,6 +645,10 @@ class _VectorscopePainter extends CustomPainter {
       double modeFlutterX = 0.0;
       if (mode == 1 && isEnabled) {
         modeFlutterX = math.sin(driftAngle * 3.2) * 0.04 * effectiveWidth;
+      } else if (mode == 2 && isEnabled) {
+        // Blumlein Shuffler emphasizes horizontal low-mid width expansion
+        final lowMidFactor = (1.0 - p.baseMid.abs()).clamp(0.2, 1.0);
+        modeFlutterX = p.baseSide * 0.25 * effectiveWidth * lowMidFactor;
       }
 
       final sideComponent =
