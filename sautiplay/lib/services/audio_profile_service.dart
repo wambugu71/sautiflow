@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:sautiflow/sautiflow.dart';
@@ -27,6 +26,78 @@ class AudioProfileService {
   Stream<AudioProfile?> get activeProfileStream =>
       _activeProfileController.stream;
 
+  /// Standard center frequencies for 10, 16, and 32-band Graphic EQ layouts.
+  static List<double> standardEqFrequencies(int bands) {
+    if (bands == 16) {
+      return const [
+        25.0,
+        40.0,
+        63.0,
+        100.0,
+        160.0,
+        250.0,
+        400.0,
+        630.0,
+        1000.0,
+        1600.0,
+        2500.0,
+        4000.0,
+        6300.0,
+        10000.0,
+        16000.0,
+        20000.0,
+      ];
+    }
+    if (bands == 32) {
+      return const [
+        16.0,
+        20.0,
+        25.0,
+        31.5,
+        40.0,
+        50.0,
+        63.0,
+        80.0,
+        100.0,
+        125.0,
+        160.0,
+        200.0,
+        250.0,
+        315.0,
+        400.0,
+        500.0,
+        630.0,
+        800.0,
+        1000.0,
+        1250.0,
+        1600.0,
+        2000.0,
+        2500.0,
+        3150.0,
+        4000.0,
+        5000.0,
+        6300.0,
+        8000.0,
+        10000.0,
+        12500.0,
+        16000.0,
+        20000.0,
+      ];
+    }
+    return const [
+      32.0,
+      60.0,
+      125.0,
+      250.0,
+      500.0,
+      1000.0,
+      2000.0,
+      4000.0,
+      8000.0,
+      16000.0,
+    ];
+  }
+
   /// Resets all DSP effects on the audio engine and storage to a clean baseline.
   Future<void> resetAllEffects(IsolateAudioPlayer player) async {
     // 1. Reset all built-in effects directly in the engine isolate
@@ -45,7 +116,18 @@ class AudioProfileService {
     );
     player.setStereoEnhancement(enabled: false, mix: 0.5);
     player.setEqEnabled(false);
-    player.setEq(low: 0.0, mid: 0.0, high: 0.0);
+    player.setEq(low: 1.0, mid: 1.0, high: 1.0);
+    player.setEqPreampDb(0.0);
+    player.setGain(1.0);
+    player.setToneCrossoverEnabled(false);
+    player.setToneMode(ToneMode.crossoverLR4);
+    player.setToneSpectralTilt(0.0);
+    player.setToneCrossoverGains(
+        bassGainDb: 0.0, midGainDb: 0.0, trebleGainDb: 0.0);
+    player.setToneCrossoverFrequencies(
+        lowCrossoverHz: 250.0, highCrossoverHz: 3200.0);
+    player.setMultibandEqMode(0);
+    player.setMultibandEqChannelMode(0);
     player.setSpatializationEnabled(false);
     player.setCustomLpf1(enabled: false, cutoffHz: 500.0);
     player.setCustomHpf1(enabled: false, cutoffHz: 120.0);
@@ -65,8 +147,12 @@ class AudioProfileService {
     player.setNoiseGateEnabled(false);
     player.setConvolverEnabled(false);
     player.setMasterLimiter(enabled: false);
-    await AppStateService.instance.saveSautiDspState(
-        {'dspMasterEnabled': false, 'surroundEnabled': false});
+    player.setDynamicEqEnabled(false);
+    await AppStateService.instance.saveSautiDspState({
+      'dspMasterEnabled': false,
+      'surroundEnabled': false,
+      'dynamicEqEnabled': false,
+    });
 
     // 2. Persist baseline disabled state to storage in parallel
     await Future.wait([
@@ -95,7 +181,24 @@ class AudioProfileService {
       ),
       AppStateService.instance.saveStereoEnhancement(enabled: false, mix: 0.5),
       AppStateService.instance
-          .saveAudioTuning(enabled: false, low: 0.0, mid: 0.0, high: 0.0),
+          .saveAudioTuning(enabled: false, low: 1.0, mid: 1.0, high: 1.0),
+      AppStateService.instance.saveToneCrossover(
+        enabled: false,
+        preset: 'Audiophile Flat',
+        bassGainDb: 0.0,
+        midGainDb: 0.0,
+        trebleGainDb: 0.0,
+        lowCrossoverHz: 250.0,
+        highCrossoverHz: 3200.0,
+        toneMode: 0,
+        spectralTiltDb: 0.0,
+      ),
+      AppStateService.instance.saveEqExtendedSettings(
+        channelMode: 0,
+        gainsRight: List<double>.filled(10, 0.0),
+        sliderLinkMode: 0,
+        topology: 0,
+      ),
       AppStateService.instance
           .saveTrue3d(enabled: false, x: 0.0, y: 0.0, z: 0.0),
       AppStateService.instance.saveCustomLpf(enabled: false, cutoff: 500.0),
@@ -133,28 +236,48 @@ class AudioProfileService {
       final List<double> gains =
           (eq['gains'] as List?)?.map((e) => (e as num).toDouble()).toList() ??
               [];
-      final List<double> freqs =
+      final List<double> rawFreqs =
           (eq['freqs'] as List?)?.map((e) => (e as num).toDouble()).toList() ??
               [];
+      final int eqTopology = (eq['eqTopology'] as num?)?.toInt() ?? 0;
+      final int eqChannelMode = (eq['eqChannelMode'] as num?)?.toInt() ?? 0;
+      final int sliderLinkMode = (eq['sliderLinkMode'] as num?)?.toInt() ?? 0;
+      final List<double> gainsRight = (eq['gainsRight'] as List?)
+              ?.map((e) => (e as num).toDouble())
+              .toList() ??
+          List<double>.from(gains);
+      final List<double> resolvedFreqs = rawFreqs.isNotEmpty
+          ? rawFreqs
+          : standardEqFrequencies(gains.isNotEmpty ? gains.length : 10);
       final double preampDb = (eq['preampDb'] as num?)?.toDouble() ?? 0.0;
 
       player.setMultibandEqEnabled(enabled);
-      if (freqs.isNotEmpty) {
-        player.initMultibandEq(freqs);
-        for (int i = 0; i < gains.length; i++) {
-          player.setMultibandEqBandGain(i, gains[i]);
+      player.setMultibandEqMode(eqTopology);
+      player.setMultibandEqChannelMode(eqChannelMode);
+      player.initMultibandEq(resolvedFreqs);
+      if (gains.isNotEmpty) {
+        if (eqChannelMode == 1) {
+          player.setMultibandEqChannelGains(0, gains);
+          player.setMultibandEqChannelGains(1, gainsRight);
+        } else {
+          player.setMultibandEqGains(gains);
         }
       }
 
-      final gainLinear = math.pow(10, preampDb / 20.0).toDouble();
-      player.setGain(gainLinear);
+      player.setEqPreampDb(preampDb);
 
       await AppStateService.instance.saveEqBands(
         enabled: enabled,
         preset: presetName,
         gains: gains,
         preampDb: preampDb,
-        bandCount: freqs.isNotEmpty ? freqs.length : 10,
+        bandCount: resolvedFreqs.length,
+      );
+      await AppStateService.instance.saveEqExtendedSettings(
+        channelMode: eqChannelMode,
+        gainsRight: gainsRight,
+        sliderLinkMode: sliderLinkMode,
+        topology: eqTopology,
       );
 
       // Apply and save Parametric EQ if present in profile
@@ -480,9 +603,9 @@ class AudioProfileService {
     if (dsp.containsKey('audioTuning')) {
       final at = dsp['audioTuning'] as Map;
       final enabled = at['enabled'] ?? false;
-      final low = (at['low'] as num?)?.toDouble() ?? 0.0;
-      final mid = (at['mid'] as num?)?.toDouble() ?? 0.0;
-      final high = (at['high'] as num?)?.toDouble() ?? 0.0;
+      final low = (at['low'] as num?)?.toDouble() ?? 1.0;
+      final mid = (at['mid'] as num?)?.toDouble() ?? 1.0;
+      final high = (at['high'] as num?)?.toDouble() ?? 1.0;
       player.setEqEnabled(enabled);
       player.setEq(low: low, mid: mid, high: high);
       await AppStateService.instance.saveAudioTuning(
@@ -493,11 +616,73 @@ class AudioProfileService {
       );
     } else {
       player.setEqEnabled(false);
+      player.setEq(low: 1.0, mid: 1.0, high: 1.0);
       await AppStateService.instance.saveAudioTuning(
         enabled: false,
-        low: 0.0,
-        mid: 0.0,
-        high: 0.0,
+        low: 1.0,
+        mid: 1.0,
+        high: 1.0,
+      );
+    }
+
+    if (dsp.containsKey('toneCrossover')) {
+      final tc = dsp['toneCrossover'] as Map;
+      final enabled = tc['enabled'] as bool? ?? false;
+      final preset = tc['preset'] as String? ?? 'Custom';
+      final toneModeInt = (tc['toneMode'] as num?)?.toInt() ?? 0;
+      final toneMode =
+          (toneModeInt >= 0 && toneModeInt < ToneMode.values.length)
+              ? ToneMode.values[toneModeInt]
+              : ToneMode.crossoverLR4;
+      final spectralTiltDb =
+          (tc['spectralTiltDb'] as num?)?.toDouble() ?? 0.0;
+      final bassGainDb = (tc['bassGainDb'] as num?)?.toDouble() ?? 0.0;
+      final midGainDb = (tc['midGainDb'] as num?)?.toDouble() ?? 0.0;
+      final trebleGainDb = (tc['trebleGainDb'] as num?)?.toDouble() ?? 0.0;
+      final lowHz = (tc['lowCrossoverHz'] as num?)?.toDouble() ?? 250.0;
+      final highHz = (tc['highCrossoverHz'] as num?)?.toDouble() ?? 3200.0;
+
+      player.setToneCrossoverEnabled(enabled);
+      player.setToneMode(toneMode);
+      player.setToneSpectralTilt(spectralTiltDb);
+      player.setToneCrossoverGains(
+        bassGainDb: bassGainDb,
+        midGainDb: midGainDb,
+        trebleGainDb: trebleGainDb,
+      );
+      player.setToneCrossoverFrequencies(
+        lowCrossoverHz: lowHz,
+        highCrossoverHz: highHz,
+      );
+      await AppStateService.instance.saveToneCrossover(
+        enabled: enabled,
+        preset: preset,
+        bassGainDb: bassGainDb,
+        midGainDb: midGainDb,
+        trebleGainDb: trebleGainDb,
+        lowCrossoverHz: lowHz,
+        highCrossoverHz: highHz,
+        toneMode: toneModeInt,
+        spectralTiltDb: spectralTiltDb,
+      );
+    } else {
+      player.setToneCrossoverEnabled(false);
+      player.setToneMode(ToneMode.crossoverLR4);
+      player.setToneSpectralTilt(0.0);
+      player.setToneCrossoverGains(
+          bassGainDb: 0.0, midGainDb: 0.0, trebleGainDb: 0.0);
+      player.setToneCrossoverFrequencies(
+          lowCrossoverHz: 250.0, highCrossoverHz: 3200.0);
+      await AppStateService.instance.saveToneCrossover(
+        enabled: false,
+        preset: 'Audiophile Flat',
+        bassGainDb: 0.0,
+        midGainDb: 0.0,
+        trebleGainDb: 0.0,
+        lowCrossoverHz: 250.0,
+        highCrossoverHz: 3200.0,
+        toneMode: 0,
+        spectralTiltDb: 0.0,
       );
     }
 
@@ -630,6 +815,7 @@ class AudioProfileService {
       'surroundEnabled': false,
       'levellerEnabled': false,
       'lookaheadAgcEnabled': false,
+      'dynamicEqEnabled': false,
       ...profile.sautiDspState,
     };
     await AppStateService.instance.saveSautiDspState(cleanDspState);
@@ -865,7 +1051,7 @@ class AudioProfileService {
               'frequency': 60.0,
               'gainDb': 5.0,
               'q': 1.0,
-              'slope': 1.2,
+              'slope': 0.9,
               'enabled': true,
             },
             {
@@ -943,7 +1129,7 @@ class AudioProfileService {
         updatedAt: DateTime(2026, 1, 1),
         eqState: {
           'enabled': true,
-          'preampDb': -1.0,
+          'preampDb': -3.5,
           'freqs': defaultFrequencies,
           'gains': [-2.0, -1.5, -0.5, -1.0, 0.5, 1.5, 2.5, 2.0, 1.0, 0.0],
           'parametricEnabled': true,
@@ -1015,7 +1201,7 @@ class AudioProfileService {
         updatedAt: DateTime(2026, 1, 1),
         eqState: {
           'enabled': true,
-          'preampDb': -2.0,
+          'preampDb': -4.5,
           'freqs': defaultFrequencies,
           'gains': [2.0, 3.0, 1.0, -1.5, -1.5, 0.0, 1.5, 2.5, 2.0, 1.5],
           'parametricEnabled': true,
@@ -1026,7 +1212,7 @@ class AudioProfileService {
               'frequency': 85.0,
               'gainDb': 3.5,
               'q': 1.0,
-              'slope': 1.2,
+              'slope': 0.9,
               'enabled': true,
             },
             {
@@ -1142,7 +1328,7 @@ class AudioProfileService {
         updatedAt: DateTime(2026, 1, 1),
         eqState: {
           'enabled': true,
-          'preampDb': -1.5,
+          'preampDb': -4.5,
           'freqs': defaultFrequencies,
           'gains': [3.0, 2.5, 0.0, -0.5, 0.0, 0.5, 1.5, 1.5, 2.0, 2.5],
           'parametricEnabled': true,
@@ -1161,7 +1347,7 @@ class AudioProfileService {
               'frequency': 70.0,
               'gainDb': 3.5,
               'q': 1.0,
-              'slope': 1.2,
+              'slope': 0.9,
               'enabled': true,
             },
             {

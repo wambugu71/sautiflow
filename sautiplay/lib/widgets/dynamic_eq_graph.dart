@@ -36,7 +36,7 @@ class DynamicEqBandModel {
 ///   and `dsp/cytomic_svf_dsp.h` (Orfanidis Peaking, Low-Shelf, and Nyquist-matched High-Shelf).
 /// - Shows baseline curve and dynamic excursion envelope (compression/expansion zones).
 /// - Displays composite master acoustic output curve with glowing neon gradient.
-/// - Interactive band badge markers (1-4) with tap selection support.
+/// - Interactive band badge markers (1-6) with tap selection support.
 class DynamicEqGraph extends StatelessWidget {
   final List<DynamicEqBandModel> bands;
   final bool isEnabled;
@@ -44,6 +44,7 @@ class DynamicEqGraph extends StatelessWidget {
   final Color? primaryColor;
   final double sampleRate;
   final int selectedBandIndex;
+  final List<double>? liveGainOffsetsDb;
   final ValueChanged<int>? onBandSelected;
 
   const DynamicEqGraph({
@@ -54,6 +55,7 @@ class DynamicEqGraph extends StatelessWidget {
     this.primaryColor,
     this.sampleRate = 48000.0,
     this.selectedBandIndex = 0,
+    this.liveGainOffsetsDb,
     this.onBandSelected,
   });
 
@@ -123,11 +125,14 @@ class DynamicEqGraph extends StatelessWidget {
                   CustomPaint(
                     size: Size(constraints.maxWidth, height),
                     painter: _DynamicEqPainter(
-                      bands: bands,
+                      bands: List<DynamicEqBandModel>.of(bands),
                       isEnabled: isEnabled,
                       primaryColor: effectivePrimary,
                       sampleRate: sampleRate > 0 ? sampleRate : 48000.0,
                       selectedBandIndex: selectedBandIndex,
+                      liveGainOffsetsDb: liveGainOffsetsDb != null
+                          ? List<double>.of(liveGainOffsetsDb!)
+                          : null,
                     ),
                   ),
                   // Top overlay badge
@@ -212,6 +217,7 @@ class _DynamicEqPainter extends CustomPainter {
   final Color primaryColor;
   final double sampleRate;
   final int selectedBandIndex;
+  final List<double>? liveGainOffsetsDb;
 
   _DynamicEqPainter({
     required this.bands,
@@ -219,6 +225,7 @@ class _DynamicEqPainter extends CustomPainter {
     required this.primaryColor,
     required this.sampleRate,
     required this.selectedBandIndex,
+    this.liveGainOffsetsDb,
   });
 
   static const double minFreq = 20.0;
@@ -276,10 +283,19 @@ class _DynamicEqPainter extends CustomPainter {
     final bandExcursionCurves =
         List.generate(bands.length, (_) => List<double>.filled(numPoints, 0.0));
     final totalDbCurve = List<double>.filled(numPoints, 0.0);
+    final liveTotalDbCurve = List<double>.filled(numPoints, 0.0);
+    bool hasLiveActivity = false;
 
     for (int b = 0; b < bands.length; b++) {
       final band = bands[b];
       if (!band.enabled) continue;
+
+      final liveOffset = (liveGainOffsetsDb != null && b < liveGainOffsetsDb!.length)
+          ? liveGainOffsetsDb![b]
+          : 0.0;
+      if (liveOffset.abs() > 0.02) {
+        hasLiveActivity = true;
+      }
 
       final baseCoeffs = _computeSvfCoeffs(
         band.filterType,
@@ -288,6 +304,16 @@ class _DynamicEqPainter extends CustomPainter {
         band.baseGainDb,
         sampleRate,
       );
+
+      final liveCoeffs = liveOffset.abs() > 0.02
+          ? _computeSvfCoeffs(
+              band.filterType,
+              band.freqHz,
+              band.q,
+              (band.baseGainDb + liveOffset).clamp(-36.0, 36.0),
+              sampleRate,
+            )
+          : baseCoeffs;
 
       // Excursion curve computation (Compress: baseGain - rangeDb; Expand: baseGain + rangeDb)
       final hasDynamics =
@@ -312,6 +338,9 @@ class _DynamicEqPainter extends CustomPainter {
         final baseDb = _evalSvfGainDb(baseCoeffs, freqs[i], sampleRate);
         bandBaselineCurves[b][i] = baseDb;
         totalDbCurve[i] += baseDb;
+        liveTotalDbCurve[i] += liveOffset.abs() > 0.02
+            ? _evalSvfGainDb(liveCoeffs, freqs[i], sampleRate)
+            : baseDb;
 
         if (hasDynamics) {
           bandExcursionCurves[b][i] =
@@ -439,6 +468,44 @@ class _DynamicEqPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
     canvas.drawPath(masterFillPath, masterFillPaint);
 
+    // 5b. Draw Real-Time Live Gain Excursion Composite Curve
+    if (hasLiveActivity) {
+      final livePath = Path();
+      livePath.moveTo(xCoords[0], dbToY(liveTotalDbCurve[0]));
+      for (int i = 1; i < numPoints; i++) {
+        livePath.lineTo(xCoords[i], dbToY(liveTotalDbCurve[i]));
+      }
+
+      final liveFillPath = Path.from(livePath)
+        ..lineTo(xCoords.last, zeroY)
+        ..lineTo(xCoords.first, zeroY)
+        ..close();
+
+      canvas.drawPath(
+        liveFillPath,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFF00E676).withValues(alpha: 0.16),
+              const Color(0xFF00E676).withValues(alpha: 0.0),
+            ],
+          ).createShader(
+              Rect.fromLTWH(paddingLeft, paddingTop, graphWidth, graphHeight))
+          ..style = PaintingStyle.fill,
+      );
+
+      canvas.drawPath(
+        livePath,
+        Paint()
+          ..color = const Color(0xFF00E676).withValues(alpha: 0.92)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
     // 6. Draw Band Center Handles & Badges (Clean Studio Aesthetic)
     for (int b = 0; b < bands.length; b++) {
       final band = bands[b];
@@ -462,6 +529,33 @@ class _DynamicEqPainter extends CustomPainter {
       );
       final bandNetDb = _evalSvfGainDb(coeffs, freq, sampleRate);
       final handleY = dbToY(bandNetDb);
+
+      final liveOffset =
+          (liveGainOffsetsDb != null && b < liveGainOffsetsDb!.length)
+              ? liveGainOffsetsDb![b]
+              : 0.0;
+      if (liveOffset.abs() > 0.02) {
+        final liveCoeffs = _computeSvfCoeffs(
+          band.filterType,
+          band.freqHz,
+          band.q,
+          (band.baseGainDb + liveOffset).clamp(-36.0, 36.0),
+          sampleRate,
+        );
+        final liveY = dbToY(_evalSvfGainDb(liveCoeffs, freq, sampleRate));
+        canvas.drawLine(
+          Offset(handleX, handleY),
+          Offset(handleX, liveY),
+          Paint()
+            ..color = color.withValues(alpha: 0.85)
+            ..strokeWidth = 1.6,
+        );
+        canvas.drawCircle(
+          Offset(handleX, liveY),
+          3.2,
+          Paint()..color = color,
+        );
+      }
 
       // Selected clean outer boundary ring (1px stroke, no blur)
       if (isSelected) {
@@ -812,9 +906,7 @@ class _DynamicEqPainter extends CustomPainter {
         double kEff = k0;
         if (denomK.abs() > 1.0e-12 && (numK / denomK) > 0.0) {
           final cand = math.sqrt(numK / denomK);
-          if (cand >= 0.25 * k0 && cand <= 4.0 * k0) {
-            kEff = cand;
-          }
+          kEff = cand.clamp(0.25 * k0, 4.0 * k0).toDouble();
         }
 
         if (clampedGain >= 0.0) {
@@ -866,6 +958,37 @@ class _DynamicEqPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DynamicEqPainter oldDelegate) {
-    return true;
+    if (oldDelegate.isEnabled != isEnabled ||
+        oldDelegate.primaryColor != primaryColor ||
+        oldDelegate.sampleRate != sampleRate ||
+        oldDelegate.selectedBandIndex != selectedBandIndex ||
+        oldDelegate.bands.length != bands.length) {
+      return true;
+    }
+    for (int i = 0; i < bands.length; i++) {
+      final a = oldDelegate.bands[i];
+      final b = bands[i];
+      if (a.filterType != b.filterType ||
+          a.mode != b.mode ||
+          a.freqHz != b.freqHz ||
+          a.q != b.q ||
+          a.baseGainDb != b.baseGainDb ||
+          a.thresholdDb != b.thresholdDb ||
+          a.rangeDb != b.rangeDb ||
+          a.ratio != b.ratio ||
+          a.enabled != b.enabled) {
+        return true;
+      }
+    }
+    final oldLive = oldDelegate.liveGainOffsetsDb;
+    final curLive = liveGainOffsetsDb;
+    if ((oldLive == null) != (curLive == null)) return true;
+    if (oldLive != null && curLive != null) {
+      if (oldLive.length != curLive.length) return true;
+      for (int i = 0; i < curLive.length; i++) {
+        if ((oldLive[i] - curLive[i]).abs() > 1e-4) return true;
+      }
+    }
+    return false;
   }
 }

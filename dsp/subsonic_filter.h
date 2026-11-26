@@ -113,27 +113,24 @@ public:
                 // out_s = in_s * b0 + s1
                 SimdDouble2 out_s = SimdDouble2::fma(in_s, vb0, vs1);
 
-                // Denormal flush threshold
-                alignas(16) double out_d[2];
-                out_s.store_u(out_d);
-                if (std::fabs(out_d[0]) < 1.0e-20) out_d[0] = 0.0;
-                if (std::fabs(out_d[1]) < 1.0e-20) out_d[1] = 0.0;
-                out_s = SimdDouble2::load_u(out_d);
-
                 // s1 = in_s * b1 - out_s * a1 + s2
                 vs1 = SimdDouble2::fma(in_s, vb1, vs2) - (out_s * va1);
 
                 // s2 = in_s * b2 - out_s * a2
                 vs2 = (in_s * vb2) - (out_s * va2);
 
-                interleaved_samples[base_idx]     = static_cast<float>(out_d[0]);
-                interleaved_samples[base_idx + 1] = static_cast<float>(out_d[1]);
+                interleaved_samples[base_idx]     = static_cast<float>(out_s.get_low());
+                interleaved_samples[base_idx + 1] = static_cast<float>(out_s.get_high());
             }
 
             alignas(16) double final_s1[2];
             alignas(16) double final_s2[2];
             vs1.store_u(final_s1);
             vs2.store_u(final_s2);
+            if (std::fabs(final_s1[0]) < 1.0e-20) final_s1[0] = 0.0;
+            if (std::fabs(final_s1[1]) < 1.0e-20) final_s1[1] = 0.0;
+            if (std::fabs(final_s2[0]) < 1.0e-20) final_s2[0] = 0.0;
+            if (std::fabs(final_s2[1]) < 1.0e-20) final_s2[1] = 0.0;
             s1_[0] = final_s1[0]; s1_[1] = final_s1[1];
             s2_[0] = final_s2[0]; s2_[1] = final_s2[1];
             return;
@@ -172,12 +169,6 @@ public:
 
                 SimdDouble2 out_s = SimdDouble2::fma(in_s, vb0, vs1);
 
-                alignas(16) double out_d[2];
-                out_s.store_u(out_d);
-                if (std::fabs(out_d[0]) < 1.0e-20) out_d[0] = 0.0;
-                if (std::fabs(out_d[1]) < 1.0e-20) out_d[1] = 0.0;
-                out_s = SimdDouble2::load_u(out_d);
-
                 vs1 = SimdDouble2::fma(in_s, vb1, vs2) - (out_s * va1);
                 vs2 = (in_s * vb2) - (out_s * va2);
 
@@ -188,6 +179,10 @@ public:
             alignas(16) double final_s2[2];
             vs1.store_u(final_s1);
             vs2.store_u(final_s2);
+            if (std::fabs(final_s1[0]) < 1.0e-20) final_s1[0] = 0.0;
+            if (std::fabs(final_s1[1]) < 1.0e-20) final_s1[1] = 0.0;
+            if (std::fabs(final_s2[0]) < 1.0e-20) final_s2[0] = 0.0;
+            if (std::fabs(final_s2[1]) < 1.0e-20) final_s2[1] = 0.0;
             s1_[0] = final_s1[0]; s1_[1] = final_s1[1];
             s2_[0] = final_s2[0]; s2_[1] = final_s2[1];
             return;

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:sautiflow/sautiflow.dart';
@@ -195,8 +194,8 @@ class AutoEqService {
     final prefs = PreferencesStore.instance;
     await prefs.remove(_kActiveProfileIdKey);
 
-    // 1. Reset Master Preamp Gain headroom back to 1.0 (0.0 dB)
-    player.setGain(1.0);
+    // 1. Reset dedicated EQ Preamp headroom back to 0.0 dB
+    player.setEqPreampDb(0.0);
 
     // 2. Reset Parametric EQ (multiband FX)
     player.setMultibandFxEnabled(false);
@@ -208,11 +207,16 @@ class AutoEqService {
     await prefs.remove('sp_active_parametric_preset');
 
     // 3. Reset Graphic EQ (multiband EQ) to Flat (0.0 dB) & disabled
-    final freqs = _getStandardFrequencies(32);
+    final savedEq = await AppStateService.instance.loadEqBands();
+    final bandCount = (savedEq.bandCount == 10 ||
+            savedEq.bandCount == 16 ||
+            savedEq.bandCount == 32)
+        ? savedEq.bandCount
+        : 10;
+    final freqs = _getStandardFrequencies(bandCount);
     final zeroGains = List<double>.filled(freqs.length, 0.0);
-    for (int i = 0; i < freqs.length; i++) {
-      player.setMultibandEqBandGain(i, 0.0);
-    }
+    player.initMultibandEq(freqs);
+    player.setMultibandEqGains(zeroGains);
     player.setMultibandEqEnabled(false);
     await AppStateService.instance.saveEqBands(
       enabled: false,
@@ -237,17 +241,14 @@ class AutoEqService {
     await prefs.setString(_kActiveProfileIdKey, profile.id);
 
     // 1. Preamp Adjustment (unconditionally applied to reset headroom properly if 0.0 dB)
-    final linearGain = math.pow(10, profile.preampDb / 20.0).toDouble();
-    player.setGain(linearGain);
+    player.setEqPreampDb(profile.preampDb);
 
     // 2. Differentiate and Route where it belongs
     if (profile.isParametric) {
       // ─── Reset / Disable Graphic EQ (GEQ) Engine so it is not active with PEQ ───
       final geqFreqs = customGraphicFrequencies ?? _getStandardFrequencies(targetGraphicBands);
       final zeroGains = List<double>.filled(geqFreqs.length, 0.0);
-      for (int i = 0; i < geqFreqs.length; i++) {
-        player.setMultibandEqBandGain(i, 0.0);
-      }
+      player.setMultibandEqGains(zeroGains);
       player.setMultibandEqEnabled(false);
       await AppStateService.instance.saveEqBands(
         enabled: false,
@@ -314,9 +315,7 @@ class AutoEqService {
       }
 
       player.initMultibandEq(freqs);
-      for (int i = 0; i < gains.length; i++) {
-        player.setMultibandEqBandGain(i, gains[i]);
-      }
+      player.setMultibandEqGains(gains);
       player.setMultibandEqEnabled(true);
 
       await AppStateService.instance.saveEqBands(

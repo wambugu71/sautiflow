@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdint>
 #include "denormals.h"
+#include "simd_math.h"
 
 namespace sauti::dsp {
 
@@ -143,6 +144,34 @@ public:
         if (!interleaved || frames == 0 || channels <= 0 || isFlat_) return;
         const int ch = std::min(channels, kMaxChannels);
 
+        if (ch == 2 && channels == 2) {
+            const SimdDouble2 va1(a1_), va2(a2_), va3(a3_);
+            const SimdDouble2 vm0(m0_), vm1(m1_), vm2(m2_);
+            const SimdDouble2 vTwo(2.0);
+            SimdDouble2 vic1(ic1eq_[0], ic1eq_[1]);
+            SimdDouble2 vic2(ic2eq_[0], ic2eq_[1]);
+
+            for (uint32_t i = 0; i < frames; ++i) {
+                double *frame = interleaved + static_cast<size_t>(i) * 2;
+                const SimdDouble2 vin = SimdDouble2::load_u(frame);
+                const SimdDouble2 vv3 = vin - vic2;
+                const SimdDouble2 vv1 = SimdDouble2::fma(va1, vic1, va2 * vv3);
+                const SimdDouble2 vv2 = SimdDouble2::fma(va2, vic1, vic2) + (va3 * vv3);
+                vic1 = (vTwo * vv1) - vic1;
+                vic2 = (vTwo * vv2) - vic2;
+                const SimdDouble2 vout = SimdDouble2::fma(vm0, vin, SimdDouble2::fma(vm1, vv1, vm2 * vv2));
+                vout.store_u(frame);
+            }
+            alignas(16) double s1Out[2], s2Out[2];
+            vic1.store_u(s1Out);
+            vic2.store_u(s2Out);
+            ic1eq_[0] = s1Out[0]; ic1eq_[1] = s1Out[1];
+            ic2eq_[0] = s2Out[0]; ic2eq_[1] = s2Out[1];
+            flushDenormal(ic1eq_[0]); flushDenormal(ic1eq_[1]);
+            flushDenormal(ic2eq_[0]); flushDenormal(ic2eq_[1]);
+            return;
+        }
+
         for (uint32_t i = 0; i < frames; ++i) {
             double *frame = interleaved + (size_t)i * (size_t)channels;
             for (int c = 0; c < ch; ++c) {
@@ -169,6 +198,35 @@ public:
     void process(float *interleaved, uint32_t frames, int channels) {
         if (!interleaved || frames == 0 || channels <= 0 || isFlat_) return;
         const int ch = std::min(channels, kMaxChannels);
+
+        if (ch == 2 && channels == 2) {
+            const SimdDouble2 va1(a1_), va2(a2_), va3(a3_);
+            const SimdDouble2 vm0(m0_), vm1(m1_), vm2(m2_);
+            const SimdDouble2 vTwo(2.0);
+            SimdDouble2 vic1(ic1eq_[0], ic1eq_[1]);
+            SimdDouble2 vic2(ic2eq_[0], ic2eq_[1]);
+
+            for (uint32_t i = 0; i < frames; ++i) {
+                float *frame = interleaved + static_cast<size_t>(i) * 2;
+                const SimdDouble2 vin(static_cast<double>(frame[0]), static_cast<double>(frame[1]));
+                const SimdDouble2 vv3 = vin - vic2;
+                const SimdDouble2 vv1 = SimdDouble2::fma(va1, vic1, va2 * vv3);
+                const SimdDouble2 vv2 = SimdDouble2::fma(va2, vic1, vic2) + (va3 * vv3);
+                vic1 = (vTwo * vv1) - vic1;
+                vic2 = (vTwo * vv2) - vic2;
+                const SimdDouble2 vout = SimdDouble2::fma(vm0, vin, SimdDouble2::fma(vm1, vv1, vm2 * vv2));
+                frame[0] = static_cast<float>(vout.get_low());
+                frame[1] = static_cast<float>(vout.get_high());
+            }
+            alignas(16) double s1Out[2], s2Out[2];
+            vic1.store_u(s1Out);
+            vic2.store_u(s2Out);
+            ic1eq_[0] = s1Out[0]; ic1eq_[1] = s1Out[1];
+            ic2eq_[0] = s2Out[0]; ic2eq_[1] = s2Out[1];
+            flushDenormal(ic1eq_[0]); flushDenormal(ic1eq_[1]);
+            flushDenormal(ic2eq_[0]); flushDenormal(ic2eq_[1]);
+            return;
+        }
 
         for (uint32_t i = 0; i < frames; ++i) {
             float *frame = interleaved + (size_t)i * (size_t)channels;
@@ -262,8 +320,7 @@ private:
 
         // Exact flat bypass check: 0.0 dB gain on gain-dependent filter types
         const bool isGainType = (type == FilterType::Bell || type == FilterType::LowShelf ||
-                                 type == FilterType::HighShelf || type == FilterType::Tilt ||
-                                 type == FilterType::BandReject);
+                                 type == FilterType::HighShelf || type == FilterType::Tilt);
         if (isGainType && std::abs(gainDb) < 0.005) {
             out.isFlat = true;
             return out;
@@ -273,7 +330,6 @@ private:
         constexpr double PI = 3.14159265358979323846;
         const double w0 = 2.0 * PI * frequencyHz / sampleRate;
         const double A = std::pow(10.0, gainDb / 40.0); // sqrt(Linear Gain)
-        const double G = A * A;                          // Linear Amplitude Gain
         const double k0 = 1.0 / q;
         const double t0 = std::tan(w0 * 0.5);
 
@@ -363,9 +419,7 @@ private:
             double kEff = k0;
             if (std::abs(denomK) > 1.0e-12 && (numK / denomK) > 0.0) {
                 const double cand = std::sqrt(numK / denomK);
-                if (cand >= 0.25 * k0 && cand <= 4.0 * k0) {
-                    kEff = cand;
-                }
+                kEff = std::clamp(cand, 0.25 * k0, 4.0 * k0);
             }
 
             if (gainDb >= 0.0) {
@@ -430,12 +484,18 @@ private:
             out.m2 = (1.0 / A) - A;
             break;
 
-        case FilterType::BandReject:
+        case FilterType::BandReject: {
             out.k = k0;
             out.m0 = 1.0;
-            out.m1 = (G - 1.0) * k0;
             out.m2 = 0.0;
+            if (std::abs(gainDb) < 0.005) {
+                out.m1 = -k0; // Full notch at f0
+            } else {
+                const double gCut = std::pow(10.0, -std::abs(gainDb) / 20.0);
+                out.m1 = (gCut - 1.0) * k0;
+            }
             break;
+        }
         }
 
         return out;

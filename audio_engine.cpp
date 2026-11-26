@@ -402,18 +402,48 @@ namespace
             }
         };
 
-        SVF lowCross[8];  // Splits Bass from (Mid+High)
-        SVF highCross[8]; // Splits Mid from High
+        // 1st-Order Trapezoidal All-Pass to phase-align Low branch with High crossover (2500 Hz)
+        struct AP1
+        {
+            double ic1eq = 0.0;
+            double a1 = 0.0;
+            void set(double cutoff, double sampleRate)
+            {
+                const double sr = (sampleRate > 0.0) ? sampleRate : 48000.0;
+                const double g = std::tan(3.14159265358979323846 * std::clamp(cutoff, 10.0, sr * 0.45) / sr);
+                a1 = g / (1.0 + g);
+            }
+            inline double process(double input)
+            {
+                const double v = (input - ic1eq) * a1;
+                const double lp1 = v + ic1eq;
+                if (std::fabs(lp1) < 1.0e-20)
+                    ic1eq = 0.0;
+                else
+                    ic1eq = lp1 + v;
+                return (2.0 * lp1) - input;
+            }
+            inline float process(float input)
+            {
+                return static_cast<float>(process(static_cast<double>(input)));
+            }
+        };
+
+        SVF lowCross[8];   // Splits Bass from (Mid+High)
+        SVF highCross[8];  // Splits Mid from High
+        AP1 apHigh[8];     // Phase-matches Low branch to High crossover
 
         void updateCoefficients(int sampleRate)
         {
+            const double sr = (sampleRate > 0) ? (double)sampleRate : 48000.0;
             const double lowCut = 250.0;   // Tighten bass crossover to focus on low punch
             const double highCut = 2500.0; // Separate harsh highs from warm mids
 
             for (int c = 0; c < 8; ++c)
             {
-                lowCross[c].set(lowCut, (double)sampleRate);
-                highCross[c].set(highCut, (double)sampleRate);
+                lowCross[c].set(lowCut, sr);
+                highCross[c].set(highCut, sr);
+                apHigh[c].set(highCut, sr);
             }
         }
 
@@ -434,11 +464,12 @@ namespace
                     // 1. Split x into Bass (low) and everything else (midHigh)
                     lowCross[c].process(x, low, midHigh);
 
-                    // 2. Split everything else into Mid and High
+                    // 2. Phase-align Bass branch with high crossover, and split Mid vs High
+                    const float lowAligned = apHigh[c].process(low);
                     highCross[c].process(midHigh, mid, high);
 
-                    // Reconstruct with individual gains
-                    interleaved[idx] = (low * lowGain) + (mid * midGain) + (high * highGain);
+                    // 3. LR2 phase-coherent reconstruction: (LP2 - HP2) * AP1 == AP1_low * AP1_high (0.000 dB flat at unity)
+                    interleaved[idx] = (lowAligned * lowGain) - (mid * midGain) + (high * highGain);
                 }
             }
         }
@@ -460,14 +491,11 @@ namespace
                     double low, midHigh;
                     double mid, high;
 
-                    // 1. Split x into Bass (low) and everything else (midHigh)
                     lowCross[c].process(x, low, midHigh);
-
-                    // 2. Split everything else into Mid and High
+                    const double lowAligned = apHigh[c].process(low);
                     highCross[c].process(midHigh, mid, high);
 
-                    // Reconstruct with individual gains
-                    interleaved[idx] = (low * lg) + (mid * mg) + (high * hg);
+                    interleaved[idx] = (lowAligned * lg) - (mid * mg) + (high * hg);
                 }
             }
         }
@@ -3714,6 +3742,9 @@ struct AudioEngineHandle
     AutomatedParamFloat paramNormalizerGain;
     // Smoothed user master gain (prevents zipper noise on volume changes)
     AutomatedParamFloat paramUserGain;
+    // Dedicated Pre-EQ input preamp (applied BEFORE Dynamic EQ / EQ / Tone stages)
+    std::atomic<float> eqPreampDb{0.0f};
+    AutomatedParamFloat paramEqPreamp;
     std::atomic<float> parameterSmoothingMs{15.0f};
 
     // Stereo Widen Effect
@@ -3965,16 +3996,30 @@ struct AudioEngineHandle
             const float frequencyHz = clampf(band.frequencyHz, 20.0f, (float)sampleRateU32 * 0.45f);
             const float q = clampf(band.q, 0.1f, 18.0f);
             const float gainDb = clampf(band.gainDb, -24.0f, 24.0f);
-            const float slope = clampf(band.slope, 0.1f, 2.0f);
+            const float slope = clampf(band.slope, 0.1f, 1.0f);
 
             band.frequencyHz = frequencyHz;
             band.q = q;
             band.gainDb = gainDb;
             band.slope = slope;
 
-            const double shelfQ = (std::abs(slope - 1.0f) > 1.0e-5f && slope > 0.0f)
-                                      ? (double)slope
-                                      : (double)q;
+            // Convert RBJ shelf slope S in [0.1, 1.0] to filter Q using:
+            //   1/Q = sqrt((A + 1/A) * (1/S - 1) + 2), where A = 10^(|gainDb| / 40)
+            // When slope is at default (1.0), honor an explicit custom Q (e.g., AutoEQ LSC/HSC Q=0.707),
+            // or default to Butterworth Q = 1/sqrt(2) when Q is also at default 1.0.
+            constexpr double kButterworthQ = 0.7071067811865475;
+            double shelfQ = kButterworthQ;
+            if (std::abs(slope - 1.0f) > 1.0e-5f)
+            {
+                const double s = std::clamp((double)slope, 0.1, 1.0);
+                const double a = std::pow(10.0, std::abs((double)gainDb) / 40.0);
+                const double invQ2 = (a + 1.0 / a) * (1.0 / s - 1.0) + 2.0;
+                shelfQ = 1.0 / std::sqrt(std::max(invQ2, 1.0e-6));
+            }
+            else if (std::abs(q - 1.0f) > 1.0e-5f && q > 0.0f)
+            {
+                shelfQ = (double)q;
+            }
 
             switch (band.type)
             {
@@ -4117,21 +4162,22 @@ struct AudioEngineHandle
         }
     }
 
-    void process_multiband_fx(float *frames, ma_uint32 frameCount)
+    void process_multiband_fx(float *frames, ma_uint32 frameCount, int activeChannels = 0)
     {
         for (auto &band : multibandFxBands)
         {
             if (!band.enabled)
                 continue;
 
-            // 0.0 dB flat band bypass: peaking, bell, shelves, tilt, and bandreject have unity response at 0 dB
+            // 0.0 dB flat band bypass: peaking, bell, shelves, and tilt have unity response at 0 dB
+            // Note: BandReject is NOT bypassed at 0 dB (acts as full notch at f0).
             const bool isGainType = (band.type == AE_EQ_BAND_PEAK || band.type == AE_EQ_BAND_BELL ||
                                      band.type == AE_EQ_BAND_LOWSHELF || band.type == AE_EQ_BAND_HIGHSHELF ||
-                                     band.type == AE_EQ_BAND_TILT || band.type == AE_EQ_BAND_BANDREJECT);
+                                     band.type == AE_EQ_BAND_TILT);
             if (isGainType && std::abs(band.gainDb) < 0.005f)
                 continue;
 
-            const int ch = (outputChannels > 0) ? outputChannels : ((channels > 0) ? channels : 2);
+            const int ch = (activeChannels > 0) ? activeChannels : ((channels > 0) ? channels : 2);
 
             switch (band.type)
             {
@@ -4165,7 +4211,7 @@ struct AudioEngineHandle
         }
     }
 
-    void process_multiband_fx(double *frames, ma_uint32 frameCount)
+    void process_multiband_fx(double *frames, ma_uint32 frameCount, int activeChannels = 0)
     {
         for (auto &band : multibandFxBands)
         {
@@ -4174,11 +4220,11 @@ struct AudioEngineHandle
 
             const bool isGainType = (band.type == AE_EQ_BAND_PEAK || band.type == AE_EQ_BAND_BELL ||
                                      band.type == AE_EQ_BAND_LOWSHELF || band.type == AE_EQ_BAND_HIGHSHELF ||
-                                     band.type == AE_EQ_BAND_TILT || band.type == AE_EQ_BAND_BANDREJECT);
+                                     band.type == AE_EQ_BAND_TILT);
             if (isGainType && std::abs(band.gainDb) < 0.005f)
                 continue;
 
-            const int ch = (outputChannels > 0) ? outputChannels : ((channels > 0) ? channels : 2);
+            const int ch = (activeChannels > 0) ? activeChannels : ((channels > 0) ? channels : 2);
 
             switch (band.type)
             {
@@ -4220,7 +4266,7 @@ struct AudioEngineHandle
                 continue;
             const bool isGainType = (band.type == AE_EQ_BAND_PEAK || band.type == AE_EQ_BAND_BELL ||
                                      band.type == AE_EQ_BAND_LOWSHELF || band.type == AE_EQ_BAND_HIGHSHELF ||
-                                     band.type == AE_EQ_BAND_TILT || band.type == AE_EQ_BAND_BANDREJECT);
+                                     band.type == AE_EQ_BAND_TILT);
             if (isGainType && std::abs(band.gainDb) < 0.005f)
                 continue;
             return true;
@@ -5528,13 +5574,13 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         std::lock_guard<std::mutex> eqLock(e->eqMutex);
         e->update_eq_filters();
         e->update_multiband_fx_filters();
+        e->eq.updateCoefficients(sr);
+        e->toneCrossoverDsp.setSampleRate((float)sr);
     }
 
     {
         std::lock_guard<std::mutex> fx(e->fxMutex);
         reinit_advanced_fx_filters(e);
-        e->eq.updateCoefficients(sr);
-        e->toneCrossoverDsp.setSampleRate((float)sr);
         e->stereoWiden.reset(sr);
         e->crossfeedNode.setSampleRate((double)sr);
         e->reverbNode.setSampleRate((double)sr);
@@ -7178,10 +7224,14 @@ static bool evaluate_direct_pcm_eligibility(AudioEngineHandle *e)
     if (std::abs(e->pitchMultiplier.load(std::memory_order_relaxed) - 1.0f) > 1e-4f)
         return false;
 
-    // Must be unity master gain and channel gains (no attenuation / arithmetic)
+    // Must be unity master gain, preamp, and channel gains (no attenuation / arithmetic)
     if (std::abs(e->gain.load(std::memory_order_relaxed) - 1.0f) > 1e-4f)
         return false;
     if (std::abs(e->paramUserGain.current - 1.0f) > 1e-4f)
+        return false;
+    if (std::abs(e->eqPreampDb.load(std::memory_order_relaxed)) > 1e-3f)
+        return false;
+    if (std::abs(e->paramEqPreamp.current - 1.0f) > 1e-4f)
         return false;
     if (std::abs(e->channelGainLeft.load(std::memory_order_relaxed) - 1.0f) > 1e-4f)
         return false;
@@ -9284,6 +9334,32 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->ultrasonicFilter.process(processBuffer, produced, e->channels);
             }
 
+            // Dedicated Pre-EQ Input Preamp (attenuates headroom BEFORE Dynamic EQ / EQ / Tone)
+            {
+                const float preampDb = e->eqPreampDb.load(std::memory_order_relaxed);
+                const float targetLin = (std::abs(preampDb) < 1.0e-4f) ? 1.0f : std::pow(10.0f, preampDb / 20.0f);
+                e->paramEqPreamp.setTarget(targetLin);
+                e->paramEqPreamp.prepareBlock((ma_uint32)producedSamples,
+                                              e->parameterSmoothingMs.load(std::memory_order_relaxed),
+                                              e->sampleRate,
+                                              e->channels);
+                const bool preampActive = std::fabs(e->paramEqPreamp.current - targetLin) > 1e-6f ||
+                                          std::fabs(targetLin - 1.0f) > 1e-6f;
+                if (preampActive)
+                {
+                    if (use64)
+                    {
+                        for (size_t i = 0; i < producedSamples; ++i)
+                            buf64[i] *= static_cast<double>(e->paramEqPreamp.next());
+                    }
+                    else
+                    {
+                        for (size_t i = 0; i < producedSamples; ++i)
+                            processBuffer[i] *= e->paramEqPreamp.next();
+                    }
+                }
+            }
+
             // =================================================================
             // ZONE 1: RESTORATIVE PRE-PROCESSING (SOURCE CLEAN-ROOM) &
             // ZONE 2: CORRECTIVE TONE & RESONANCE CONTROL &
@@ -9432,9 +9508,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     if (e->multibandFxEnabled && e->has_active_multiband_fx())
                     {
                         if (use64)
-                            e->process_multiband_fx(buf64, produced);
+                            e->process_multiband_fx(buf64, produced, e->channels);
                         else
-                            e->process_multiband_fx(processBuffer, produced);
+                            e->process_multiband_fx(processBuffer, produced, e->channels);
                     }
 
                     // 3-band EQ
@@ -12538,8 +12614,11 @@ extern "C"
 
             if (actualRate > 0 && actualRate != sample_rate)
             {
-                e->update_eq_filters();
-                e->update_multiband_fx_filters();
+                {
+                    std::lock_guard<std::mutex> eqLock(e->eqMutex);
+                    e->update_eq_filters();
+                    e->update_multiband_fx_filters();
+                }
                 {
                     std::lock_guard<std::mutex> fx(e->fxMutex);
                     reinit_advanced_fx_filters(e);
@@ -12617,8 +12696,11 @@ extern "C"
 
             if (actualRate > 0 && actualRate != sample_rate)
             {
-                e->update_eq_filters();
-                e->update_multiband_fx_filters();
+                {
+                    std::lock_guard<std::mutex> eqLock(e->eqMutex);
+                    e->update_eq_filters();
+                    e->update_multiband_fx_filters();
+                }
                 {
                     std::lock_guard<std::mutex> fx(e->fxMutex);
                     reinit_advanced_fx_filters(e);
@@ -15334,12 +15416,12 @@ extern "C"
         ae_get_diffusion_reverb_params(e, out_wet, out_dry, out_room_size, out_decay_time_ms, out_diffusion, out_damping, out_width);
     }
 
-    // Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4)
+    // Audiophile 3-Band Tone Tuning Crossover (Phase-Compensated LR4 / Baxandall / Tilt)
     AE_API void ae_set_tone_crossover_enabled(AudioEngineHandle *e, int enabled)
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         e->toneCrossoverDsp.setEnabled(enabled != 0);
     }
 
@@ -15347,6 +15429,7 @@ extern "C"
     {
         if (e == nullptr)
             return 0;
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         return e->toneCrossoverDsp.isEnabled() ? 1 : 0;
     }
 
@@ -15354,7 +15437,7 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         e->toneCrossoverDsp.setGainsDb(bass_gain_db, mid_gain_db, treble_gain_db);
     }
 
@@ -15362,7 +15445,7 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         if (out_bass_db) *out_bass_db = e->toneCrossoverDsp.getBassGainDb();
         if (out_mid_db) *out_mid_db = e->toneCrossoverDsp.getMidGainDb();
         if (out_treble_db) *out_treble_db = e->toneCrossoverDsp.getTrebleGainDb();
@@ -15372,7 +15455,7 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         e->toneCrossoverDsp.setCrossoverFrequencies(low_crossover_hz, high_crossover_hz);
     }
 
@@ -15380,7 +15463,7 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         if (out_low_hz) *out_low_hz = e->toneCrossoverDsp.getLowCrossoverHz();
         if (out_high_hz) *out_high_hz = e->toneCrossoverDsp.getHighCrossoverHz();
     }
@@ -15389,7 +15472,7 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         e->toneCrossoverDsp.setMode(static_cast<sauti::dsp::ToneCrossoverDSP::ToneMode>(mode));
     }
 
@@ -15397,7 +15480,7 @@ extern "C"
     {
         if (e == nullptr)
             return 0;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         return static_cast<int>(e->toneCrossoverDsp.getMode());
     }
 
@@ -15405,7 +15488,7 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         e->toneCrossoverDsp.setTiltDb(tilt_db);
     }
 
@@ -15413,7 +15496,7 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         if (out_tilt_db) *out_tilt_db = e->toneCrossoverDsp.getTiltDb();
     }
 
@@ -15480,7 +15563,7 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         e->eqEnabled = (enabled != 0);
     }
 
@@ -15488,10 +15571,32 @@ extern "C"
     {
         if (e == nullptr)
             return;
-        std::lock_guard<std::mutex> fx(e->fxMutex);
+        std::lock_guard<std::mutex> lk(e->eqMutex);
         e->eq.lowGain = clampf(low_gain, 0.0f, 4.0f);
         e->eq.midGain = clampf(mid_gain, 0.0f, 4.0f);
         e->eq.highGain = clampf(high_gain, 0.0f, 4.0f);
+    }
+
+    AE_API void ae_set_eq_preamp_db(AudioEngineHandle *e, float preamp_db)
+    {
+        if (e == nullptr)
+            return;
+        const float clampedDb = clampf(preamp_db, -24.0f, 24.0f);
+        e->eqPreampDb.store(clampedDb, std::memory_order_relaxed);
+        const float g = (std::abs(clampedDb) < 1.0e-4f) ? 1.0f : std::pow(10.0f, clampedDb / 20.0f);
+        if (!e->isPlaying.load(std::memory_order_acquire))
+        {
+            e->paramEqPreamp.setTarget(g);
+            e->paramEqPreamp.current = g;
+            e->paramEqPreamp.step = 0.0f;
+        }
+    }
+
+    AE_API float ae_get_eq_preamp_db(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0.0f;
+        return e->eqPreampDb.load(std::memory_order_relaxed);
     }
 
     AE_API void ae_set_gain(AudioEngineHandle *e, float gain)
@@ -16166,8 +16271,11 @@ extern "C"
             e->sampleRate = srForFilterInit;
             e->channels = newCh;
 
-            e->update_eq_filters();
-            e->update_multiband_fx_filters();
+            {
+                std::lock_guard<std::mutex> eqLock(e->eqMutex);
+                e->update_eq_filters();
+                e->update_multiband_fx_filters();
+            }
             {
                 std::lock_guard<std::mutex> fx(e->fxMutex);
                 reinit_advanced_fx_filters(e);
@@ -16688,8 +16796,11 @@ extern "C"
                 if (actualCh != e->channels)
                 {
                     e->channels = actualCh;
-                    e->update_eq_filters();
-                    e->update_multiband_fx_filters();
+                    {
+                        std::lock_guard<std::mutex> eqLock(e->eqMutex);
+                        e->update_eq_filters();
+                        e->update_multiband_fx_filters();
+                    }
                     {
                         std::lock_guard<std::mutex> fx(e->fxMutex);
                         reinit_advanced_fx_filters(e);
@@ -17925,7 +18036,32 @@ extern "C"
             {
                 if (band_index < (int)engine->eqGainsRight.size())
                     engine->eqGainsRight[band_index] = gain_db;
-                engine->graphicEqRight.setBandGain(band_index, (double)gain_db);
+            }
+        }
+    }
+
+    AE_API void ae_set_multiband_eq_gains(AudioEngineHandle *engine, const float *gains_db, int count)
+    {
+        if (!engine || !gains_db || count <= 0)
+            return;
+
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        const int n = std::min(count, engine->eqBandCount);
+        if (n <= 0)
+            return;
+
+        for (int i = 0; i < n; ++i)
+        {
+            engine->eqGains[i] = gains_db[i];
+        }
+        engine->graphicEq.setAllGains(gains_db, n);
+
+        if (engine->eqChannelMode.load(std::memory_order_relaxed) == 0)
+        {
+            const int nr = std::min(n, (int)engine->eqGainsRight.size());
+            for (int i = 0; i < nr; ++i)
+            {
+                engine->eqGainsRight[i] = gains_db[i];
             }
         }
     }
@@ -17968,7 +18104,12 @@ extern "C"
         if (!engine)
             return;
         std::lock_guard<std::mutex> lk(engine->eqMutex);
-        engine->eqChannelMode.store(mode, std::memory_order_relaxed);
+        const int prev = engine->eqChannelMode.exchange(mode, std::memory_order_relaxed);
+        if (mode == 1 && prev != 1 && engine->eqBandCount > 0 && !engine->eqGainsRight.empty())
+        {
+            const int n = std::min(engine->eqBandCount, (int)engine->eqGainsRight.size());
+            engine->graphicEqRight.setAllGains(engine->eqGainsRight.data(), n);
+        }
     }
 
     AE_API int ae_get_multiband_eq_channel_mode(AudioEngineHandle *engine)
@@ -18001,8 +18142,39 @@ extern "C"
                 {
                     if (band_index < (int)engine->eqGainsRight.size())
                         engine->eqGainsRight[band_index] = gain_db;
-                    engine->graphicEqRight.setBandGain(band_index, (double)gain_db);
                 }
+            }
+        }
+    }
+
+    AE_API void ae_set_multiband_eq_channel_gains(AudioEngineHandle *engine, int channel, const float *gains_db, int count)
+    {
+        if (!engine || !gains_db || count <= 0)
+            return;
+
+        std::lock_guard<std::mutex> lk(engine->eqMutex);
+        const int n = std::min(count, engine->eqBandCount);
+        if (n <= 0)
+            return;
+
+        if (channel == 1)
+        {
+            const int nr = std::min(n, (int)engine->eqGainsRight.size());
+            for (int i = 0; i < nr; ++i)
+                engine->eqGainsRight[i] = gains_db[i];
+            engine->graphicEqRight.setAllGains(gains_db, n);
+        }
+        else
+        {
+            for (int i = 0; i < n; ++i)
+                engine->eqGains[i] = gains_db[i];
+            engine->graphicEq.setAllGains(gains_db, n);
+
+            if (engine->eqChannelMode.load(std::memory_order_relaxed) == 0)
+            {
+                const int nr = std::min(n, (int)engine->eqGainsRight.size());
+                for (int i = 0; i < nr; ++i)
+                    engine->eqGainsRight[i] = gains_db[i];
             }
         }
     }
@@ -19684,7 +19856,6 @@ extern "C"
     AE_API float ae_dsp_get_dynamic_eq_band_gain_offset_db(AudioEngineHandle *engine, int band_index)
     {
         if (!engine || band_index < 0 || (size_t)band_index >= sauti::dsp::DynamicEqDSP::kMaxBands) return 0.0f;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         return engine->dynamicEqDsp.getBandGainOffsetDb((size_t)band_index);
     }
 

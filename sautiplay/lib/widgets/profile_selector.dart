@@ -39,6 +39,8 @@ class AudioProfileSelector extends StatefulWidget {
       return getCurrentStateCallback();
     }
     final eqBands = await AppStateService.instance.loadEqBands();
+    final eqExt = await AppStateService.instance
+        .loadEqExtendedSettings(bandCount: eqBands.bandCount);
     final spatial = await AppStateService.instance.loadSpatialAudio();
     final delay = await AppStateService.instance.loadDelay();
     final dynamicBass = await AppStateService.instance.loadDynamicBass();
@@ -51,19 +53,30 @@ class AudioProfileSelector extends StatefulWidget {
     final stereoEnhancement =
         await AppStateService.instance.loadStereoEnhancement();
     final tuning = await AppStateService.instance.loadAudioTuning();
+    final toneCrossover = await AppStateService.instance.loadToneCrossover();
     final true3d = await AppStateService.instance.loadTrue3d();
     final limiter = await AppStateService.instance.loadLimiter();
+    final compressor = await AppStateService.instance.loadCompressor();
+    final loudnessNorm =
+        await AppStateService.instance.loadLoudnessNormalizer();
     final dspMap = await AppStateService.instance.loadSautiDspState();
     final parametricEq = await AppStateService.instance.loadParametricEq();
     final prefs = PreferencesStore.instance;
     final activeParametricPreset =
         prefs.getString('sp_active_parametric_preset') ?? 'Custom';
+    final eqFreqs = AudioProfileService.standardEqFrequencies(eqBands.bandCount);
 
     return {
       'eqState': {
         'enabled': eqBands.enabled,
         'preampDb': eqBands.preampDb,
+        'bandCount': eqBands.bandCount,
+        'freqs': eqFreqs,
         'gains': eqBands.gains,
+        'eqTopology': eqExt.topology,
+        'eqChannelMode': eqExt.channelMode,
+        'sliderLinkMode': eqExt.sliderLinkMode,
+        'gainsRight': eqExt.gainsRight,
         'parametricEnabled': parametricEq.enabled,
         'parametricPreset': activeParametricPreset,
         'parametricBands': parametricEq.bands,
@@ -128,6 +141,17 @@ class AudioProfileSelector extends StatefulWidget {
           'mid': tuning.mid,
           'high': tuning.high
         },
+        'toneCrossover': {
+          'enabled': toneCrossover.enabled,
+          'preset': toneCrossover.preset,
+          'bassGainDb': toneCrossover.bassGainDb,
+          'midGainDb': toneCrossover.midGainDb,
+          'trebleGainDb': toneCrossover.trebleGainDb,
+          'lowCrossoverHz': toneCrossover.lowCrossoverHz,
+          'highCrossoverHz': toneCrossover.highCrossoverHz,
+          'toneMode': toneCrossover.toneMode,
+          'spectralTiltDb': toneCrossover.spectralTiltDb,
+        },
         'true3d': {
           'enabled': true3d.enabled,
           'x': true3d.x,
@@ -139,6 +163,23 @@ class AudioProfileSelector extends StatefulWidget {
           'threshold': limiter.threshold,
           'attackMs': limiter.attackMs,
           'releaseMs': limiter.releaseMs
+        },
+        'compressor': {
+          'enabled': compressor.enabled,
+          'thresholdDb': compressor.thresholdDb,
+          'ratio': compressor.ratio,
+          'kneeDb': compressor.kneeDb,
+          'attackMs': compressor.attackMs,
+          'releaseMs': compressor.releaseMs,
+          'makeupGainDb': compressor.makeupGainDb,
+          'detector': compressor.detector,
+          'stereoLink': compressor.stereoLink,
+          'autoMakeup': compressor.autoMakeup,
+          'mix': compressor.mix,
+        },
+        'loudnessNormalizer': {
+          'enabled': loudnessNorm.enabled,
+          'targetLUFS': loudnessNorm.targetLUFS,
         },
       },
       'sautiDspState': dspMap,

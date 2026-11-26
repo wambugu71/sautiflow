@@ -2758,6 +2758,11 @@ typedef _SetMultibandEqGainNative = ffi.Void Function(
 typedef _SetMultibandEqGainDart = void Function(
     ffi.Pointer<ffi.Void>, int, double);
 
+typedef _SetMultibandEqGainsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, ffi.Int32);
+typedef _SetMultibandEqGainsDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int);
+
 typedef _GetMultibandEqGainNative = ffi.Float Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _GetMultibandEqGainDart = double Function(ffi.Pointer<ffi.Void>, int);
@@ -2787,6 +2792,11 @@ typedef _SetMultibandEqChannelGainNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32, ffi.Float);
 typedef _SetMultibandEqChannelGainDart = void Function(
     ffi.Pointer<ffi.Void>, int, int, double);
+
+typedef _SetMultibandEqChannelGainsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Pointer<ffi.Float>, ffi.Int32);
+typedef _SetMultibandEqChannelGainsDart = void Function(
+    ffi.Pointer<ffi.Void>, int, ffi.Pointer<ffi.Float>, int);
 
 typedef _GetMultibandEqChannelGainNative = ffi.Float Function(
     ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32);
@@ -3619,6 +3629,21 @@ class AudioEngineFFI {
     _setEqGains = _lib.lookupFunction<_SetEqGainsNative, _SetEqGainsDart>(
       'ae_set_eq_gains',
     );
+    try {
+      _setEqPreampDb =
+          _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
+        'ae_set_eq_preamp_db',
+      );
+    } catch (_) {
+      _setEqPreampDb = null;
+    }
+    try {
+      _getEqPreampDb = _lib.lookupFunction<_GetFloatNative, _GetFloatDart>(
+        'ae_get_eq_preamp_db',
+      );
+    } catch (_) {
+      _getEqPreampDb = null;
+    }
     _setGain = _lib.lookupFunction<_SetSingleFloatNative, _SetSingleFloatDart>(
       'ae_set_gain',
     );
@@ -4140,6 +4165,12 @@ class AudioEngineFFI {
         _lib.lookupFunction<_SetMultibandEqGainNative, _SetMultibandEqGainDart>(
       'ae_set_multiband_eq_gain',
     );
+    try {
+      _setMultibandEqGains = _lib.lookupFunction<_SetMultibandEqGainsNative,
+          _SetMultibandEqGainsDart>('ae_set_multiband_eq_gains');
+    } catch (_) {
+      _setMultibandEqGains = null;
+    }
     _getMultibandEqGain =
         _lib.lookupFunction<_GetMultibandEqGainNative, _GetMultibandEqGainDart>(
       'ae_get_multiband_eq_gain',
@@ -4164,6 +4195,14 @@ class AudioEngineFFI {
         _SetMultibandEqChannelGainNative, _SetMultibandEqChannelGainDart>(
       'ae_set_multiband_eq_channel_gain',
     );
+    try {
+      _setMultibandEqChannelGains = _lib.lookupFunction<
+          _SetMultibandEqChannelGainsNative, _SetMultibandEqChannelGainsDart>(
+        'ae_set_multiband_eq_channel_gains',
+      );
+    } catch (_) {
+      _setMultibandEqChannelGains = null;
+    }
     _getMultibandEqChannelGain = _lib.lookupFunction<
         _GetMultibandEqChannelGainNative, _GetMultibandEqChannelGainDart>(
       'ae_get_multiband_eq_channel_gain',
@@ -4512,6 +4551,8 @@ class AudioEngineFFI {
   late final _GetMasteringParamsDart _getMasteringParams;
   late final _SetFxEnabledDart _setEqEnabled;
   late final _SetEqGainsDart _setEqGains;
+  _SetSingleFloatDart? _setEqPreampDb;
+  _GetFloatDart? _getEqPreampDb;
   late final _SetSingleFloatDart _setGain;
   _SetSingleFloatDart? _setReplayGain;
   late final _SetSingleFloatDart _setPan;
@@ -4666,6 +4707,7 @@ class AudioEngineFFI {
   late final _InitMultibandEqDart _initMultibandEq;
   late final _SetMultibandEqEnabledDart _setMultibandEqEnabled;
   late final _SetMultibandEqGainDart _setMultibandEqGain;
+  _SetMultibandEqGainsDart? _setMultibandEqGains;
   late final _GetMultibandEqGainDart _getMultibandEqGain;
   late final _GetMultibandEqOptimizedGainDart _getMultibandEqOptimizedGain;
   late final _SetMultibandEqModeDart _setMultibandEqMode;
@@ -4673,6 +4715,7 @@ class AudioEngineFFI {
   late final _SetMultibandEqChannelModeDart _setMultibandEqChannelMode;
   late final _GetMultibandEqChannelModeDart _getMultibandEqChannelMode;
   late final _SetMultibandEqChannelGainDart _setMultibandEqChannelGain;
+  _SetMultibandEqChannelGainsDart? _setMultibandEqChannelGains;
   late final _GetMultibandEqChannelGainDart _getMultibandEqChannelGain;
   late final _GetMultibandEqChannelOptimizedGainDart
       _getMultibandEqChannelOptimizedGain;
@@ -4846,6 +4889,7 @@ class AudioEngineFFI {
   ffi.Pointer<ffi.Double>? _pAbStart;
   ffi.Pointer<ffi.Double>? _pAbEnd;
   double _masterGain = 1.0;
+  double _eqPreampDb = 0.0;
 
   void dispose() {
     if (_analyzerBufferPtr != null && _analyzerBufferPtr != ffi.nullptr) {
@@ -6482,6 +6526,21 @@ class AudioEngineFFI {
     );
   }
 
+  /// Sets the dedicated pre-EQ input preamp gain in dB [-24.0 to +24.0].
+  /// Applied BEFORE Dynamic EQ, Equalizer, Compressor, and Tone stages.
+  void setEqPreampDb(double preampDb) {
+    final clamped = preampDb.clamp(-24.0, 24.0);
+    _eqPreampDb = clamped;
+    if (_engine == ffi.nullptr) return;
+    _setEqPreampDb?.call(_engine, clamped);
+  }
+
+  /// Returns the current pre-EQ input preamp gain in dB.
+  double getEqPreampDb() {
+    if (_engine == ffi.nullptr || _getEqPreampDb == null) return _eqPreampDb;
+    return _getEqPreampDb!(_engine);
+  }
+
   /// Sets master output gain as a raw linear scalar multiplier [0.0 – 8.0].
   void setGain(double gain) {
     _masterGain = gain;
@@ -7767,6 +7826,26 @@ class AudioEngineFFI {
     _setMultibandEqGain(_engine, bandIndex, gain);
   }
 
+  /// Sets gains for all bands in a single native lock + solver pass.
+  void setMultibandEqGains(List<double> gainsDb) {
+    if (_engine == ffi.nullptr || gainsDb.isEmpty) return;
+    final fn = _setMultibandEqGains;
+    if (fn == null) {
+      for (int i = 0; i < gainsDb.length; i++) {
+        _setMultibandEqGain(_engine, i, gainsDb[i]);
+      }
+      return;
+    }
+    final count = gainsDb.length;
+    final ptr = _malloc(count * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    try {
+      ptr.asTypedList(count).setAll(0, gainsDb);
+      fn(_engine, ptr, count);
+    } finally {
+      _freePtr(ptr.cast<ffi.Void>());
+    }
+  }
+
   double getMultibandEqGain(int bandIndex) {
     if (_engine == ffi.nullptr) return 0.0;
     return _getMultibandEqGain(_engine, bandIndex);
@@ -7804,6 +7883,26 @@ class AudioEngineFFI {
   void setMultibandEqChannelGain(int channel, int bandIndex, double gain) {
     if (_engine == ffi.nullptr) return;
     _setMultibandEqChannelGain(_engine, channel, bandIndex, gain);
+  }
+
+  /// Sets gains for all bands on a specific channel in a single native lock + solver pass.
+  void setMultibandEqChannelGains(int channel, List<double> gainsDb) {
+    if (_engine == ffi.nullptr || gainsDb.isEmpty) return;
+    final fn = _setMultibandEqChannelGains;
+    if (fn == null) {
+      for (int i = 0; i < gainsDb.length; i++) {
+        _setMultibandEqChannelGain(_engine, channel, i, gainsDb[i]);
+      }
+      return;
+    }
+    final count = gainsDb.length;
+    final ptr = _malloc(count * ffi.sizeOf<ffi.Float>()).cast<ffi.Float>();
+    try {
+      ptr.asTypedList(count).setAll(0, gainsDb);
+      fn(_engine, channel, ptr, count);
+    } finally {
+      _freePtr(ptr.cast<ffi.Void>());
+    }
   }
 
   double getMultibandEqChannelGain(int channel, int bandIndex) {

@@ -32,6 +32,7 @@ class IsolateAudioPlayer {
   PlayerStatus? _lastStatus;
   bool _isPlaying = false;
   double _currentGain = 1.0;
+  double _eqPreampDb = 0.0;
   List<AudioSource> _sources = [];
   double _loudnessTargetLUFS = -14.0;
   bool _loudnessNormalizerEnabled = true;
@@ -497,6 +498,12 @@ class IsolateAudioPlayer {
   }
 
   double get gain => _currentGain;
+  double get eqPreampDb => _eqPreampDb;
+
+  void setEqPreampDb(double preampDb) {
+    _eqPreampDb = preampDb.clamp(-24.0, 24.0);
+    _send({'cmd': 'setEqPreampDb', 'preampDb': _eqPreampDb});
+  }
 
   void setGain(double gain) {
     _currentGain = gain;
@@ -1162,6 +1169,10 @@ class IsolateAudioPlayer {
     _send({'cmd': 'setMultibandEqBandGain', 'index': index, 'gain': gain});
   }
 
+  void setMultibandEqGains(List<double> gains) {
+    _send({'cmd': 'setMultibandEqGains', 'gains': List<double>.from(gains)});
+  }
+
   void setMultibandEqMode(int mode) {
     _send({'cmd': 'setMultibandEqMode', 'mode': mode});
   }
@@ -1176,6 +1187,14 @@ class IsolateAudioPlayer {
       'channel': channel,
       'index': index,
       'gain': gain,
+    });
+  }
+
+  void setMultibandEqChannelGains(int channel, List<double> gains) {
+    _send({
+      'cmd': 'setMultibandEqChannelGains',
+      'channel': channel,
+      'gains': List<double>.from(gains),
     });
   }
 
@@ -2394,6 +2413,9 @@ void _isolateEntry(_IsolateInitData initData) {
           player.setEq(
               low: message['low'], mid: message['mid'], high: message['high']);
           break;
+        case 'setEqPreampDb':
+          player.setEqPreampDb((message['preampDb'] as num?)?.toDouble() ?? 0.0);
+          break;
         case 'setGain':
           player.setGain(message['gain']);
           break;
@@ -2800,6 +2822,11 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'setMultibandEqBandGain':
           player.setMultibandEqBandGain(message['index'], message['gain']);
           break;
+        case 'setMultibandEqGains':
+          player.setMultibandEqBandGains(
+            (message['gains'] as List).map((e) => (e as num).toDouble()).toList(),
+          );
+          break;
         case 'setMultibandEqMode':
           player.setMultibandEqMode(message['mode'] as int);
           break;
@@ -2811,6 +2838,12 @@ void _isolateEntry(_IsolateInitData initData) {
             message['channel'] as int,
             message['index'] as int,
             (message['gain'] as num).toDouble(),
+          );
+          break;
+        case 'setMultibandEqChannelGains':
+          player.setMultibandEqChannelGains(
+            message['channel'] as int,
+            (message['gains'] as List).map((e) => (e as num).toDouble()).toList(),
           );
           break;
         case 'initMultibandFx':

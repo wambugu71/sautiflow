@@ -165,8 +165,8 @@ class _GraphicEqGraphState extends State<GraphicEqGraph> {
               child: CustomPaint(
                 size: Size.infinite,
                 painter: _InteractiveGraphicEqPainter(
-                  frequencies: widget.frequencies,
-                  gains: widget.gains,
+                  frequencies: List<double>.of(widget.frequencies),
+                  gains: List<double>.of(widget.gains),
                   preampDb: widget.preampDb,
                   isEnabled: widget.isEnabled,
                   primaryColor: effectivePrimary,
@@ -264,6 +264,63 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
 
     // 3. Construct Smooth Monotonic Cubic Hermite Spline (PCHIP) with zero overshoot
     final splinePath = _buildMonotonicSpline(points);
+
+    // 3b. Honest Preamp Reference & Net Curve (only when non-zero)
+    if (isEnabled && preampDb.abs() > 0.05) {
+      final preampY = dbToY(preampDb);
+      final preampLinePaint = Paint()
+        ..color = Colors.amberAccent.withValues(alpha: 0.45)
+        ..strokeWidth = 1.0;
+      const dashW = 5.0;
+      const gapW = 4.0;
+      double xDash = paddingLeft;
+      while (xDash < paddingLeft + graphWidth) {
+        final xEnd = math.min(xDash + dashW, paddingLeft + graphWidth);
+        canvas.drawLine(
+            Offset(xDash, preampY), Offset(xEnd, preampY), preampLinePaint);
+        xDash += dashW + gapW;
+      }
+
+      final preampLabel =
+          'PREAMP ${preampDb > 0 ? '+' : ''}${preampDb.toStringAsFixed(1)} dB';
+      final preampTp = TextPainter(
+        text: TextSpan(
+          text: preampLabel,
+          style: TextStyle(
+            color: Colors.amberAccent.withValues(alpha: 0.8),
+            fontSize: 9.0,
+            fontWeight: FontWeight.w600,
+            fontFamily: 'monospace',
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final labelY = (preampY - preampTp.height - 2.0) < paddingTop
+          ? preampY + 2.0
+          : preampY - preampTp.height - 2.0;
+      preampTp.paint(
+        canvas,
+        Offset(paddingLeft + graphWidth - preampTp.width - 4.0, labelY),
+      );
+
+      final netPoints = <Offset>[];
+      for (int i = 0; i < bandCount; i++) {
+        final rawGain = (i == activeBandIndex && activeGainDb != null)
+            ? activeGainDb!
+            : gains[i];
+        netPoints.add(Offset(points[i].dx, dbToY(rawGain + preampDb)));
+      }
+      final netPath = _buildMonotonicSpline(netPoints);
+      canvas.drawPath(
+        netPath,
+        Paint()
+          ..color = Colors.amberAccent.withValues(alpha: 0.65)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
 
     // 4. Draw Shaded Fill between Spline Curve and 0 dB Baseline
     final fillPath = Path.from(splinePath);
@@ -618,12 +675,24 @@ class _InteractiveGraphicEqPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _InteractiveGraphicEqPainter oldDelegate) {
-    return oldDelegate.frequencies != frequencies ||
-        oldDelegate.gains != gains ||
-        oldDelegate.preampDb != preampDb ||
+    if (oldDelegate.preampDb != preampDb ||
         oldDelegate.isEnabled != isEnabled ||
         oldDelegate.primaryColor != primaryColor ||
+        oldDelegate.channelLabel != channelLabel ||
         oldDelegate.activeBandIndex != activeBandIndex ||
-        oldDelegate.activeGainDb != activeGainDb;
+        oldDelegate.activeGainDb != activeGainDb) {
+      return true;
+    }
+    if (oldDelegate.frequencies.length != frequencies.length ||
+        oldDelegate.gains.length != gains.length) {
+      return true;
+    }
+    for (int i = 0; i < frequencies.length; i++) {
+      if (oldDelegate.frequencies[i] != frequencies[i]) return true;
+    }
+    for (int i = 0; i < gains.length; i++) {
+      if (oldDelegate.gains[i] != gains[i]) return true;
+    }
+    return false;
   }
 }

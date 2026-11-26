@@ -312,6 +312,8 @@ extern "C"
 
     AE_API void ae_set_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_eq_gains(AudioEngineHandle *engine, float low_gain, float mid_gain, float high_gain);
+    AE_API void ae_set_eq_preamp_db(AudioEngineHandle *engine, float preamp_db);
+    AE_API float ae_get_eq_preamp_db(AudioEngineHandle *engine);
     AE_API void ae_set_gain(AudioEngineHandle *engine, float gain);
     AE_API void ae_set_replay_gain(AudioEngineHandle *engine, float gain_db);
     AE_API void ae_set_replay_gain_with_peak(AudioEngineHandle *engine, float gain_db, float peak);
@@ -606,6 +608,7 @@ extern "C"
     AE_API void ae_init_multiband_eq(AudioEngineHandle *engine, int band_count, float *frequencies, float *q_factors);
     AE_API void ae_set_multiband_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API void ae_set_multiband_eq_gain(AudioEngineHandle *engine, int band_index, float gain_db);
+    AE_API void ae_set_multiband_eq_gains(AudioEngineHandle *engine, const float *gains_db, int count);
     AE_API float ae_get_multiband_eq_gain(AudioEngineHandle *engine, int band_index);
     AE_API float ae_get_multiband_eq_optimized_gain(AudioEngineHandle *engine, int band_index);
     AE_API void ae_set_multiband_eq_mode(AudioEngineHandle *engine, int mode);
@@ -613,6 +616,7 @@ extern "C"
     AE_API void ae_set_multiband_eq_channel_mode(AudioEngineHandle *engine, int mode);
     AE_API int ae_get_multiband_eq_channel_mode(AudioEngineHandle *engine);
     AE_API void ae_set_multiband_eq_channel_gain(AudioEngineHandle *engine, int channel, int band_index, float gain_db);
+    AE_API void ae_set_multiband_eq_channel_gains(AudioEngineHandle *engine, int channel, const float *gains_db, int count);
     AE_API float ae_get_multiband_eq_channel_gain(AudioEngineHandle *engine, int channel, int band_index);
     AE_API float ae_get_multiband_eq_channel_optimized_gain(AudioEngineHandle *engine, int channel, int band_index);
 

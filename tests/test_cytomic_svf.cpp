@@ -350,19 +350,15 @@ static void test_tilt_filter() {
 }
 
 // -----------------------------------------------------------------------------
-// Test 7: BandReject Filter (Parametric Notch / Peak-Dip)
+// Test 7: BandReject Filter (True Cut-Only Band-Stop / Variable-Depth Notch)
 // -----------------------------------------------------------------------------
 static void test_bandreject_filter() {
-    std::printf("\n== Test 7: BandReject Filter (Parametric Notch / Peak-Dip) ==\n");
+    std::printf("\n== Test 7: BandReject Filter (Cut-Only Band-Stop / Variable-Depth Notch) ==\n");
     const double fs = 48000.0;
     const double f0 = 1000.0;
     const double q = 2.0;
 
     CytomicSVF svf;
-
-    // Zero dB gain must be flat bypass
-    svf.setParameters(CytomicSVF::FilterType::BandReject, fs, f0, 0.0, q);
-    CHECK(svf.isFlat(), "BandReject at 0.0 dB gain is flagged as flat bypass");
 
     auto measureGainAt = [&](double gainDb, double testFreq) {
         svf.setParameters(CytomicSVF::FilterType::BandReject, fs, f0, gainDb, q);
@@ -382,7 +378,14 @@ static void test_bandreject_filter() {
         return 20.0 * std::log10(std::max(maxAmp, 1e-12));
     };
 
-    // Notch cut with -12.0 dB at f0
+    // 0.0 dB gain parameter means full deep notch at f0 (NOT flat bypass)
+    svf.setParameters(CytomicSVF::FilterType::BandReject, fs, f0, 0.0, q);
+    CHECK(!svf.isFlat(), "BandReject at 0.0 dB depth is NOT bypassed (acts as full notch)");
+    double gFullNotch = measureGainAt(0.0, 1000.0);
+    std::printf("  BandReject (0 dB / Full Notch): 1 kHz = %+.2f dB\n", gFullNotch);
+    CHECK(gFullNotch < -24.0, "BandReject at 0.0 dB notches center frequency steeply (< -24 dB)");
+
+    // Variable-depth cut with -12.0 dB at f0
     const double cutDb = -12.0;
     double gLow = measureGainAt(cutDb, 100.0);
     double gMid = measureGainAt(cutDb, 1000.0);
@@ -391,14 +394,14 @@ static void test_bandreject_filter() {
     std::printf("  BandReject (-12 dB): 100 Hz = %+.2f dB, 1 kHz = %+.2f dB, 10 kHz = %+.2f dB\n",
                 gLow, gMid, gHigh);
     CHECK(std::abs(gLow) < 0.2, "BandReject passes low frequencies at 0.0 dB (+/-0.2 dB)");
-    CHECK(std::abs(gMid - cutDb) < 0.3, "BandReject notches center frequency to -12.0 dB (+/-0.3 dB)");
+    CHECK(std::abs(gMid - cutDb) < 0.3, "BandReject attenuates center frequency to -12.0 dB (+/-0.3 dB)");
     CHECK(std::abs(gHigh) < 0.2, "BandReject passes high frequencies at 0.0 dB (+/-0.2 dB)");
 
-    // Boost with +6.0 dB at f0 (band-pass emphasis)
-    const double boostDb = 6.0;
-    double gMidBoost = measureGainAt(boostDb, 1000.0);
-    std::printf("  BandReject (+6 dB): 1 kHz = %+.2f dB\n", gMidBoost);
-    CHECK(std::abs(gMidBoost - boostDb) < 0.3, "BandReject boosts center frequency to +6.0 dB (+/-0.3 dB)");
+    // Positive gain inputs are clamped/mirrored to attenuation (never boosts!)
+    double gMidPositiveInput = measureGainAt(6.0, 1000.0);
+    std::printf("  BandReject (+6 dB input): 1 kHz = %+.2f dB (strictly <= 0 dB)\n", gMidPositiveInput);
+    CHECK(gMidPositiveInput <= 0.01 && std::abs(gMidPositiveInput - (-6.0)) < 0.3,
+          "BandReject never boosts on positive gain input (attenuates -6.0 dB)");
 }
 
 // -----------------------------------------------------------------------------

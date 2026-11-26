@@ -191,8 +191,134 @@ class EqScreen extends StatefulWidget {
     this.onScrollingChanged,
   });
 
-  /// Applies persisted Sauti DSP suite settings directly to the audio engine.
+  static List<double> _standardEqFrequencies(int bands) {
+    if (bands == 10) {
+      return [
+        32.0,
+        60.0,
+        125.0,
+        250.0,
+        500.0,
+        1000.0,
+        2000.0,
+        4000.0,
+        8000.0,
+        16000.0,
+      ];
+    } else if (bands == 16) {
+      return [
+        25.0,
+        40.0,
+        63.0,
+        100.0,
+        160.0,
+        250.0,
+        400.0,
+        630.0,
+        1000.0,
+        1600.0,
+        2500.0,
+        4000.0,
+        6300.0,
+        10000.0,
+        16000.0,
+        20000.0,
+      ];
+    } else if (bands == 32) {
+      return [
+        16.0,
+        20.0,
+        25.0,
+        31.5,
+        40.0,
+        50.0,
+        63.0,
+        80.0,
+        100.0,
+        125.0,
+        160.0,
+        200.0,
+        250.0,
+        315.0,
+        400.0,
+        500.0,
+        630.0,
+        800.0,
+        1000.0,
+        1250.0,
+        1600.0,
+        2000.0,
+        2500.0,
+        3150.0,
+        4000.0,
+        5000.0,
+        6300.0,
+        8000.0,
+        10000.0,
+        12500.0,
+        16000.0,
+        20000.0,
+      ];
+    }
+    return [
+      for (int i = 0; i < bands; i++)
+        (20.0 * math.pow(1000.0, i / math.max(1, bands - 1))).roundToDouble(),
+    ];
+  }
+
+  /// Applies persisted Sauti DSP suite, EQ, Preamp & Tone settings directly to the audio engine.
   static Future<void> applySavedStateToEngine(IsolateAudioPlayer player) async {
+    // 0. Restore Graphic EQ, Preamp, Tone Controls & 3-Band Tuning unconditionally
+    final eqBands = await AppStateService.instance.loadEqBands();
+    final eqExt = await AppStateService.instance
+        .loadEqExtendedSettings(bandCount: eqBands.bandCount);
+    final geqFreqs = _standardEqFrequencies(eqBands.bandCount);
+    player.setEqPreampDb(eqBands.preampDb);
+    player.setMultibandEqMode(eqExt.topology);
+    player.setMultibandEqChannelMode(eqExt.channelMode);
+    player.initMultibandEq(geqFreqs);
+    if (eqExt.channelMode == 1) {
+      player.setMultibandEqChannelGains(
+        0,
+        eqBands.gains.length == geqFreqs.length
+            ? eqBands.gains
+            : List<double>.filled(geqFreqs.length, 0.0),
+      );
+      player.setMultibandEqChannelGains(
+        1,
+        eqExt.gainsRight.length == geqFreqs.length
+            ? eqExt.gainsRight
+            : (eqBands.gains.length == geqFreqs.length
+                ? eqBands.gains
+                : List<double>.filled(geqFreqs.length, 0.0)),
+      );
+    } else {
+      player.setMultibandEqGains(
+        eqBands.gains.length == geqFreqs.length
+            ? eqBands.gains
+            : List<double>.filled(geqFreqs.length, 0.0),
+      );
+    }
+    player.setMultibandEqEnabled(eqBands.enabled);
+
+    final tuning = await AppStateService.instance.loadAudioTuning();
+    player.setEqEnabled(tuning.enabled);
+    player.setEq(low: tuning.low, mid: tuning.mid, high: tuning.high);
+
+    final toneCrossover = await AppStateService.instance.loadToneCrossover();
+    player.setToneMode(ToneMode.fromValue(toneCrossover.toneMode));
+    player.setToneSpectralTilt(toneCrossover.spectralTiltDb);
+    player.setToneCrossoverGains(
+      bassGainDb: toneCrossover.bassGainDb,
+      midGainDb: toneCrossover.midGainDb,
+      trebleGainDb: toneCrossover.trebleGainDb,
+    );
+    player.setToneCrossoverFrequencies(
+      lowCrossoverHz: toneCrossover.lowCrossoverHz,
+      highCrossoverHz: toneCrossover.highCrossoverHz,
+    );
+    player.setToneCrossoverEnabled(toneCrossover.enabled);
+
     // Restore Crossfeed / OpenStage / RACE independently of Sauti DSP Master
     final crossfeedSaved = await AppStateService.instance.loadCrossfeed();
     final raceSaved = await AppStateService.instance.loadRaceParams();
@@ -853,7 +979,7 @@ class _EqScreenState extends State<EqScreen>
     ],
     'Bass': [
       EqBandConfig(
-          type: EqBandType.lowshelf, frequencyHz: 80, gainDb: 5.5, slope: 1.2),
+          type: EqBandType.lowshelf, frequencyHz: 80, gainDb: 5.5, slope: 0.9),
       EqBandConfig(
           type: EqBandType.peak, frequencyHz: 160, gainDb: -2.0, q: 1.8),
       EqBandConfig(
@@ -889,7 +1015,7 @@ class _EqScreenState extends State<EqScreen>
           type: EqBandType.highshelf,
           frequencyHz: 9000,
           gainDb: 5.0,
-          slope: 1.2),
+          slope: 0.9),
       EqBandConfig(
           type: EqBandType.peak, frequencyHz: 14000, gainDb: 2.0, q: 0.8),
     ],
@@ -905,7 +1031,7 @@ class _EqScreenState extends State<EqScreen>
     ],
     'Rock': [
       EqBandConfig(
-          type: EqBandType.lowshelf, frequencyHz: 90, gainDb: 4.5, slope: 1.2),
+          type: EqBandType.lowshelf, frequencyHz: 90, gainDb: 4.5, slope: 0.9),
       EqBandConfig(
           type: EqBandType.peak, frequencyHz: 450, gainDb: -3.0, q: 1.6),
       EqBandConfig(
@@ -961,14 +1087,14 @@ class _EqScreenState extends State<EqScreen>
     ],
     'Loudness': [
       EqBandConfig(
-          type: EqBandType.lowshelf, frequencyHz: 65, gainDb: 6.0, slope: 1.2),
+          type: EqBandType.lowshelf, frequencyHz: 65, gainDb: 6.0, slope: 0.9),
       EqBandConfig(
           type: EqBandType.peak, frequencyHz: 1000, gainDb: -2.5, q: 1.0),
       EqBandConfig(
           type: EqBandType.highshelf,
           frequencyHz: 8500,
           gainDb: 4.5,
-          slope: 1.2),
+          slope: 0.9),
     ],
     'Warm Tilt (Mastering)': [
       EqBandConfig(
@@ -1515,11 +1641,11 @@ class _EqScreenState extends State<EqScreen>
   double _griesingerDamping = 0.30;
   double _griesingerWidth = 1.0;
 
-  // Audio Tuning (3-band EQ)
+  // Audio Tuning (3-band EQ, linear unity = 1.0)
   bool _audioTuningEnabled = false;
-  double _tuneLow = 0.0;
-  double _tuneMid = 0.0;
-  double _tuneHigh = 0.0;
+  double _tuneLow = 1.0;
+  double _tuneMid = 1.0;
+  double _tuneHigh = 1.0;
 
   // Audiophile Tone Controls Suite (Active Baxandall, Quad Spectral Tilt, 3-Band LR4)
   bool _toneCrossoverEnabled = false;
@@ -2568,8 +2694,62 @@ class _EqScreenState extends State<EqScreen>
   bool _isPlaying = false;
   StreamSubscription<PlayerStatus>? _statusSub;
   StreamSubscription<AutoEqProfileModel?>? _autoEqSub;
+  Timer? _saveDebounceTimer;
+  Timer? _dynamicEqMeterTimer;
+  bool _dynamicEqMeterInFlight = false;
+  final ValueNotifier<List<double>> _dynamicEqOffsetsNotifier =
+      ValueNotifier<List<double>>(List<double>.filled(_dynamicEqBandCount, 0.0));
 
   StateSetter? _subScreenSetState;
+
+  void _scheduleSaveEqState() {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) _saveEqState();
+    });
+  }
+
+  void _syncDynamicEqMeterTimer() {
+    if (_dynamicEqEnabled && _isPlaying && mounted) {
+      if (_dynamicEqMeterTimer != null) return;
+      _dynamicEqMeterTimer =
+          Timer.periodic(const Duration(milliseconds: 60), (_) async {
+        if (!mounted || !_dynamicEqEnabled || !_isPlaying || _dynamicEqMeterInFlight) {
+          return;
+        }
+        _dynamicEqMeterInFlight = true;
+        try {
+          final offsets = await Future.wait([
+            for (int i = 0; i < _dynamicEqBandCount; i++)
+              widget.player.getDynamicEqBandGainOffsetDb(i),
+          ]);
+          if (mounted) {
+            final prev = _dynamicEqOffsetsNotifier.value;
+            bool changed = false;
+            for (int i = 0; i < _dynamicEqBandCount; i++) {
+              if ((prev[i] - offsets[i]).abs() > 0.03) {
+                changed = true;
+                break;
+              }
+            }
+            if (changed) {
+              _dynamicEqOffsetsNotifier.value = offsets;
+            }
+          }
+        } finally {
+          _dynamicEqMeterInFlight = false;
+        }
+      });
+    } else {
+      _dynamicEqMeterTimer?.cancel();
+      _dynamicEqMeterTimer = null;
+      final cur = _dynamicEqOffsetsNotifier.value;
+      if (cur.any((v) => v != 0.0)) {
+        _dynamicEqOffsetsNotifier.value =
+            List<double>.filled(_dynamicEqBandCount, 0.0);
+      }
+    }
+  }
 
   late final M3EDropdownController<String> _hrirDropdownController =
       M3EDropdownController<String>();
@@ -2594,6 +2774,7 @@ class _EqScreenState extends State<EqScreen>
         setState(() {
           _isPlaying = status.isPlaying;
         });
+        _syncDynamicEqMeterTimer();
       }
     });
 
@@ -2762,6 +2943,11 @@ class _EqScreenState extends State<EqScreen>
 
   @override
   void dispose() {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
+    _dynamicEqMeterTimer?.cancel();
+    _dynamicEqMeterTimer = null;
+    _dynamicEqOffsetsNotifier.dispose();
     _stopDynamicsMeterTimer();
     _compressorGrNotifier.dispose();
     _deEsserGrNotifier.dispose();
@@ -3821,6 +4007,7 @@ class _EqScreenState extends State<EqScreen>
         );
       }
     }
+    _syncDynamicEqMeterTimer();
   }
 
   void _updateTapeDrift() {
@@ -3950,8 +4137,7 @@ class _EqScreenState extends State<EqScreen>
 
   /// Applies the loaded preamp value to the audio engine.
   void _applyStoredPreamp() {
-    final gain = math.pow(10, _preampDb / 20).toDouble();
-    widget.player.setGain(gain);
+    widget.player.setEqPreampDb(_preampDb);
   }
 
   void _persistLookaheadLimiterSettings() {
@@ -4290,16 +4476,10 @@ class _EqScreenState extends State<EqScreen>
 
   void _applyEqGains() {
     if (_eqChannelMode == 1) {
-      for (int i = 0; i < _eqGains.length; i++) {
-        widget.player.setMultibandEqChannelGain(0, i, _eqGains[i]);
-      }
-      for (int i = 0; i < _eqGainsRight.length; i++) {
-        widget.player.setMultibandEqChannelGain(1, i, _eqGainsRight[i]);
-      }
+      widget.player.setMultibandEqChannelGains(0, _eqGains);
+      widget.player.setMultibandEqChannelGains(1, _eqGainsRight);
     } else {
-      for (int i = 0; i < _eqGains.length; i++) {
-        widget.player.setMultibandEqBandGain(i, _eqGains[i]);
-      }
+      widget.player.setMultibandEqGains(_eqGains);
     }
   }
 
@@ -4329,14 +4509,18 @@ class _EqScreenState extends State<EqScreen>
       }
     });
 
-    if (_eqChannelMode == 1) {
-      final ch = _activeChannelIndex;
-      for (int i = 0; i < updated.length; i++) {
-        widget.player.setMultibandEqChannelGain(ch, i, updated[i]);
+    if (linkMode == EqSliderLinkMode.single) {
+      if (_eqChannelMode == 1) {
+        widget.player
+            .setMultibandEqChannelGain(_activeChannelIndex, index, updated[index]);
+      } else {
+        widget.player.setMultibandEqBandGain(index, updated[index]);
       }
     } else {
-      for (int i = 0; i < updated.length; i++) {
-        widget.player.setMultibandEqBandGain(i, updated[i]);
+      if (_eqChannelMode == 1) {
+        widget.player.setMultibandEqChannelGains(_activeChannelIndex, updated);
+      } else {
+        widget.player.setMultibandEqGains(updated);
       }
     }
   }
@@ -4377,6 +4561,9 @@ class _EqScreenState extends State<EqScreen>
               baseGains[lower] * (1.0 - fraction) + baseGains[upper] * fraction;
         }
       }
+      if (_eqChannelMode == 0) {
+        _eqGainsRight = List<double>.from(_eqGains);
+      }
       _applyEqGains();
     });
     // Persist the new preset
@@ -4415,10 +4602,18 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _performResetAll() {
+    setState(() {
+      _masterEqEnabled = true;
+      _eqChannelMode = 0;
+      _activeChannelIndex = 0;
+      _eqTopology = 0;
+      widget.player.setMultibandEqEnabled(true);
+      widget.player.setMultibandEqMode(0);
+      widget.player.setMultibandEqChannelMode(0);
+    });
     _applyPreset('Flat');
     setState(() {
       _masterEqEnabled = true;
-      widget.player.setMultibandEqEnabled(true);
 
       _crystalizerEnabled = false;
       _crystalizerIntensity = 0.5;
@@ -4561,9 +4756,9 @@ class _EqScreenState extends State<EqScreen>
 
       _audioTuningEnabled = false;
       widget.player.setEqEnabled(false);
-      _tuneLow = 0.0;
-      _tuneMid = 0.0;
-      _tuneHigh = 0.0;
+      _tuneLow = 1.0;
+      _tuneMid = 1.0;
+      _tuneHigh = 1.0;
       widget.player.setEq(low: _tuneLow, mid: _tuneMid, high: _tuneHigh);
 
       _toneCrossoverEnabled = false;
@@ -4584,7 +4779,7 @@ class _EqScreenState extends State<EqScreen>
           lowCrossoverHz: 250.0, highCrossoverHz: 3200.0);
 
       _preampDb = 0.0;
-      widget.player.setGain(1.0); // 1.0 is 0dB
+      widget.player.setEqPreampDb(0.0);
       _playbackRate = 1.0;
       _playbackPitch = 1.0;
       _playbackPitchCorrection = true;
@@ -4763,6 +4958,7 @@ class _EqScreenState extends State<EqScreen>
 
       _dynamicEqEnabled = false;
       widget.player.setDynamicEqEnabled(false);
+      _syncDynamicEqMeterTimer();
 
       _tapeDriftEnabled = false;
       _tapeDriftPreset = TapeDriftPreset.subtleHiFi;
@@ -6598,6 +6794,36 @@ class _EqScreenState extends State<EqScreen>
         _saveEqState();
       },
       children: [
+        // Channel Mode Selector (Stereo Whole vs 2-Way Dual Channel)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10.0),
+          child: M3ESegmentedButton<int>(
+            segments: [
+              for (final mode in EqChannelMode.values)
+                M3ESegment<int>(
+                  value: mode.id,
+                  label: mode.label,
+                ),
+            ],
+            selected: {_eqChannelMode},
+            onSelectionChanged: (sel) {
+              if (sel.isNotEmpty) {
+                final mode = sel.first;
+                setState(() {
+                  _eqChannelMode = mode;
+                  if (mode == 0) {
+                    _activeChannelIndex = 0;
+                    _eqGainsRight = List<double>.from(_eqGains);
+                  }
+                });
+                widget.player.setMultibandEqChannelMode(mode);
+                _applyEqGains();
+                _saveEqState();
+              }
+            },
+          ),
+        ),
+
         // Channel Routing & Link Controls
         if (_eqChannelMode == 1) ...[
           Padding(
@@ -6636,16 +6862,11 @@ class _EqScreenState extends State<EqScreen>
                     setState(() {
                       if (_activeChannelIndex == 0) {
                         _eqGainsRight = List<double>.from(_eqGains);
-                        for (int i = 0; i < _eqGains.length; i++) {
-                          widget.player
-                              .setMultibandEqChannelGain(1, i, _eqGains[i]);
-                        }
+                        widget.player.setMultibandEqChannelGains(1, _eqGains);
                       } else {
                         _eqGains = List<double>.from(_eqGainsRight);
-                        for (int i = 0; i < _eqGainsRight.length; i++) {
-                          widget.player.setMultibandEqChannelGain(
-                              0, i, _eqGainsRight[i]);
-                        }
+                        widget.player
+                            .setMultibandEqChannelGains(0, _eqGainsRight);
                       }
                     });
                     _saveEqState();
@@ -6762,6 +6983,42 @@ class _EqScreenState extends State<EqScreen>
                 _saveEqState();
               }
             },
+          ),
+        ),
+
+        // 3. Filter Topology Mode Selector (Matrix Cascade / Parallel / Legacy)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              M3ESegmentedButton<int>(
+                segments: const [
+                  M3ESegment(value: 0, label: 'Matrix'),
+                  M3ESegment(value: 1, label: 'Parallel'),
+                  M3ESegment(value: 2, label: 'Legacy'),
+                ],
+                selected: {_eqTopology},
+                onSelectionChanged: (Set<int> val) {
+                  if (val.isNotEmpty) {
+                    final mode = val.first;
+                    setState(() => _eqTopology = mode);
+                    widget.player.setMultibandEqMode(mode);
+                    _applyEqGains();
+                    _saveEqState();
+                  }
+                },
+              ),
+              const SizedBox(height: 6),
+              Text(
+                EqTopologyMode.fromId(_eqTopology).description,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.55),
+                  fontSize: 10.5,
+                  height: 1.3,
+                ),
+              ),
+            ],
           ),
         ),
 
@@ -7961,7 +8218,7 @@ class _EqScreenState extends State<EqScreen>
                 });
                 _subScreenSetState?.call(() {});
                 if (_toneCrossoverEnabled) _updateToneCrossover();
-                _saveEqState();
+                _scheduleSaveEqState();
               },
             ),
           ),
@@ -8019,7 +8276,7 @@ class _EqScreenState extends State<EqScreen>
                   });
                   _subScreenSetState?.call(() {});
                   if (_toneCrossoverEnabled) _updateToneCrossover();
-                  _saveEqState();
+                  _scheduleSaveEqState();
                 },
               ),
               ModernAudioKnob(
@@ -8039,7 +8296,7 @@ class _EqScreenState extends State<EqScreen>
                   });
                   _subScreenSetState?.call(() {});
                   if (_toneCrossoverEnabled) _updateToneCrossover();
-                  _saveEqState();
+                  _scheduleSaveEqState();
                 },
               ),
             ],
@@ -8104,7 +8361,7 @@ class _EqScreenState extends State<EqScreen>
                   });
                   _subScreenSetState?.call(() {});
                   if (_toneCrossoverEnabled) _updateToneCrossover();
-                  _saveEqState();
+                  _scheduleSaveEqState();
                 },
               ),
               ModernAudioKnob(
@@ -8124,7 +8381,7 @@ class _EqScreenState extends State<EqScreen>
                   });
                   _subScreenSetState?.call(() {});
                   if (_toneCrossoverEnabled) _updateToneCrossover();
-                  _saveEqState();
+                  _scheduleSaveEqState();
                 },
               ),
               ModernAudioKnob(
@@ -8144,7 +8401,7 @@ class _EqScreenState extends State<EqScreen>
                   });
                   _subScreenSetState?.call(() {});
                   if (_toneCrossoverEnabled) _updateToneCrossover();
-                  _saveEqState();
+                  _scheduleSaveEqState();
                 },
               ),
             ],
@@ -8174,6 +8431,7 @@ class _EqScreenState extends State<EqScreen>
                 min: 80.0,
                 max: 600.0,
                 flatValue: 250.0,
+                isLogarithmic: true,
                 activeColor:
                     _toneCrossoverEnabled ? crossoverColor : Colors.white54,
                 valueFormatter: (v) => "${v.toStringAsFixed(0)} Hz",
@@ -8184,7 +8442,7 @@ class _EqScreenState extends State<EqScreen>
                   });
                   _subScreenSetState?.call(() {});
                   if (_toneCrossoverEnabled) _updateToneCrossover();
-                  _saveEqState();
+                  _scheduleSaveEqState();
                 },
               ),
               ModernAudioKnob(
@@ -8193,6 +8451,7 @@ class _EqScreenState extends State<EqScreen>
                 min: 1500.0,
                 max: 6000.0,
                 flatValue: 3200.0,
+                isLogarithmic: true,
                 activeColor:
                     _toneCrossoverEnabled ? crossoverColor : Colors.white54,
                 valueFormatter: (v) => "${v.toStringAsFixed(0)} Hz",
@@ -8203,7 +8462,7 @@ class _EqScreenState extends State<EqScreen>
                   });
                   _subScreenSetState?.call(() {});
                   if (_toneCrossoverEnabled) _updateToneCrossover();
-                  _saveEqState();
+                  _scheduleSaveEqState();
                 },
               ),
             ],
@@ -8559,8 +8818,7 @@ class _EqScreenState extends State<EqScreen>
       }
       if (parsedPreamp != null) {
         _preampDb = parsedPreamp;
-        final linearGain = math.pow(10, _preampDb / 20).toDouble();
-        widget.player.setGain(linearGain);
+        widget.player.setEqPreampDb(_preampDb);
       }
     });
     if (createdProfileName != null) {
@@ -9129,8 +9387,10 @@ class _EqScreenState extends State<EqScreen>
                       frequencyHz: band.frequencyHz,
                       enabled: band.enabled,
                       q: band.q,
-                      gainDb: band.gainDb,
-                      slope: band.slope,
+                      gainDb: v == EqBandType.bandreject
+                          ? band.gainDb.clamp(-24.0, 0.0)
+                          : band.gainDb,
+                      slope: band.slope.clamp(0.1, 1.0),
                     );
                     _parametricPreset = 'Custom';
                     _applyParametricBands();
@@ -9150,6 +9410,7 @@ class _EqScreenState extends State<EqScreen>
                     min: 20.0,
                     max: 20000.0,
                     flatValue: 1000.0,
+                    isLogarithmic: true,
                     activeColor:
                         _parametricEqEnabled ? primaryColor : Colors.white,
                     valueFormatter: (v) => '${v.toInt()}Hz',
@@ -9165,59 +9426,57 @@ class _EqScreenState extends State<EqScreen>
                         );
                         _parametricPreset = 'Custom';
                         _applyParametricBands();
-                        _saveEqState();
                       });
+                      _scheduleSaveEqState();
                     },
                   ),
 
                   // Q Factor / Slope Knob
-                  ModernAudioKnob(
-                    size: 52,
-                    label: band.type == EqBandType.lowshelf ||
-                            band.type == EqBandType.highshelf ||
-                            band.type == EqBandType.tilt
-                        ? 'SLOPE'
-                        : 'Q',
-                    value: band.type == EqBandType.lowshelf ||
-                            band.type == EqBandType.highshelf ||
-                            band.type == EqBandType.tilt
-                        ? band.slope
-                        : band.q,
-                    min: 0.1,
-                    max: 18.0,
-                    flatValue: 1.0,
-                    activeColor:
-                        _parametricEqEnabled ? primaryColor : Colors.white,
-                    valueFormatter: (v) => v.toStringAsFixed(1),
-                    onChanged: (v) {
-                      setState(() {
-                        if (band.type == EqBandType.lowshelf ||
-                            band.type == EqBandType.highshelf ||
-                            band.type == EqBandType.tilt) {
-                          _parametricBands[index] = EqBandConfig(
-                            type: band.type,
-                            frequencyHz: band.frequencyHz,
-                            enabled: band.enabled,
-                            q: band.q,
-                            gainDb: band.gainDb,
-                            slope: v,
-                          );
-                        } else {
-                          _parametricBands[index] = EqBandConfig(
-                            type: band.type,
-                            frequencyHz: band.frequencyHz,
-                            enabled: band.enabled,
-                            q: v,
-                            gainDb: band.gainDb,
-                            slope: band.slope,
-                          );
-                        }
-                        _parametricPreset = 'Custom';
-                        _applyParametricBands();
-                        _saveEqState();
-                      });
-                    },
-                  ),
+                  Builder(builder: (_) {
+                    final isSlopeType = band.type == EqBandType.lowshelf ||
+                        band.type == EqBandType.highshelf ||
+                        band.type == EqBandType.tilt;
+                    return ModernAudioKnob(
+                      size: 52,
+                      label: isSlopeType ? 'SLOPE' : 'Q',
+                      value: isSlopeType
+                          ? band.slope.clamp(0.1, 1.0)
+                          : band.q.clamp(0.1, 18.0),
+                      min: 0.1,
+                      max: isSlopeType ? 1.0 : 18.0,
+                      flatValue: 1.0,
+                      isLogarithmic: !isSlopeType,
+                      activeColor:
+                          _parametricEqEnabled ? primaryColor : Colors.white,
+                      valueFormatter: (v) => v.toStringAsFixed(1),
+                      onChanged: (v) {
+                        setState(() {
+                          if (isSlopeType) {
+                            _parametricBands[index] = EqBandConfig(
+                              type: band.type,
+                              frequencyHz: band.frequencyHz,
+                              enabled: band.enabled,
+                              q: band.q,
+                              gainDb: band.gainDb,
+                              slope: v,
+                            );
+                          } else {
+                            _parametricBands[index] = EqBandConfig(
+                              type: band.type,
+                              frequencyHz: band.frequencyHz,
+                              enabled: band.enabled,
+                              q: v,
+                              gainDb: band.gainDb,
+                              slope: band.slope,
+                            );
+                          }
+                          _parametricPreset = 'Custom';
+                          _applyParametricBands();
+                        });
+                        _scheduleSaveEqState();
+                      },
+                    );
+                  }),
 
                   // Gain Knob (for Peak, Bell, Low Shelf, High Shelf, Tilt, Band-Reject)
                   if (band.type == EqBandType.peak ||
@@ -9228,10 +9487,16 @@ class _EqScreenState extends State<EqScreen>
                       band.type == EqBandType.bandreject)
                     ModernAudioKnob(
                       size: 52,
-                      label: band.type == EqBandType.tilt ? 'TILT' : 'GAIN',
-                      value: band.gainDb,
+                      label: band.type == EqBandType.tilt
+                          ? 'TILT'
+                          : (band.type == EqBandType.bandreject
+                              ? 'CUT'
+                              : 'GAIN'),
+                      value: band.type == EqBandType.bandreject
+                          ? band.gainDb.clamp(-24.0, 0.0)
+                          : band.gainDb.clamp(-24.0, 24.0),
                       min: -24.0,
-                      max: 24.0,
+                      max: band.type == EqBandType.bandreject ? 0.0 : 24.0,
                       flatValue: 0.0,
                       activeColor:
                           _parametricEqEnabled ? primaryColor : Colors.white,
@@ -9249,8 +9514,8 @@ class _EqScreenState extends State<EqScreen>
                           );
                           _parametricPreset = 'Custom';
                           _applyParametricBands();
-                          _saveEqState();
                         });
+                        _scheduleSaveEqState();
                       },
                     ),
                 ],
@@ -12873,10 +13138,9 @@ class _EqScreenState extends State<EqScreen>
               onChanged: (v) {
                 setState(() {
                   _preampDb = v;
-                  double gain = math.pow(10, v / 20).toDouble();
-                  widget.player.setGain(gain);
                 });
-                _saveEqState();
+                widget.player.setEqPreampDb(v);
+                _scheduleSaveEqState();
               },
             ),
           ],
@@ -12895,9 +13159,8 @@ class _EqScreenState extends State<EqScreen>
                 onPressed: () {
                   setState(() {
                     _preampDb = p;
-                    double gain = math.pow(10, p / 20).toDouble();
-                    widget.player.setGain(gain);
                   });
+                  widget.player.setEqPreampDb(p);
                   _saveEqState();
                 },
               ),
@@ -15197,14 +15460,21 @@ class _EqScreenState extends State<EqScreen>
       children: [
         // 1. Dynamic EQ Visualization Graph
         RepaintBoundary(
-          child: DynamicEqGraph(
-            bands: _dynamicEqBands.map((b) => b.toModel()).toList(),
-            isEnabled: _dynamicEqEnabled,
-            height: 135.0,
-            primaryColor: primaryColor,
-            sampleRate: (widget.sampleRate > 0 ? widget.sampleRate : 48000).toDouble(),
-            selectedBandIndex: _selectedDynamicEqBand,
-            onBandSelected: _scrollToDynamicEqBand,
+          child: ValueListenableBuilder<List<double>>(
+            valueListenable: _dynamicEqOffsetsNotifier,
+            builder: (context, liveOffsets, _) {
+              return DynamicEqGraph(
+                bands: _dynamicEqBands.map((b) => b.toModel()).toList(),
+                isEnabled: _dynamicEqEnabled,
+                height: 135.0,
+                primaryColor: primaryColor,
+                sampleRate:
+                    (widget.sampleRate > 0 ? widget.sampleRate : 48000).toDouble(),
+                selectedBandIndex: _selectedDynamicEqBand,
+                liveGainOffsetsDb: liveOffsets,
+                onBandSelected: _scrollToDynamicEqBand,
+              );
+            },
           ),
         ),
         const SizedBox(height: 12),
@@ -15499,6 +15769,7 @@ class _EqScreenState extends State<EqScreen>
                               min: 20.0,
                               max: 20000.0,
                               flatValue: 1000.0,
+                              isLogarithmic: true,
                               activeColor: _dynamicEqEnabled && band.enabled
                                   ? bandColor
                                   : Colors.white38,
@@ -15510,8 +15781,8 @@ class _EqScreenState extends State<EqScreen>
                                   band.freqHz = v;
                                   _dynamicEqPreset = 'Custom';
                                   if (_dynamicEqEnabled) _updateDynamicEq();
-                                  _saveEqState();
                                 });
+                                _scheduleSaveEqState();
                               },
                             ),
                             ModernAudioKnob(
@@ -15521,6 +15792,7 @@ class _EqScreenState extends State<EqScreen>
                               min: 0.1,
                               max: 10.0,
                               flatValue: 1.0,
+                              isLogarithmic: true,
                               activeColor: _dynamicEqEnabled && band.enabled
                                   ? bandColor
                                   : Colors.white38,
@@ -15530,8 +15802,8 @@ class _EqScreenState extends State<EqScreen>
                                   band.q = v;
                                   _dynamicEqPreset = 'Custom';
                                   if (_dynamicEqEnabled) _updateDynamicEq();
-                                  _saveEqState();
                                 });
+                                _scheduleSaveEqState();
                               },
                             ),
                             ModernAudioKnob(
@@ -15551,8 +15823,8 @@ class _EqScreenState extends State<EqScreen>
                                   band.baseGainDb = v;
                                   _dynamicEqPreset = 'Custom';
                                   if (_dynamicEqEnabled) _updateDynamicEq();
-                                  _saveEqState();
                                 });
+                                _scheduleSaveEqState();
                               },
                             ),
                           ],
@@ -15580,8 +15852,8 @@ class _EqScreenState extends State<EqScreen>
                                   band.thresholdDb = v;
                                   _dynamicEqPreset = 'Custom';
                                   if (_dynamicEqEnabled) _updateDynamicEq();
-                                  _saveEqState();
                                 });
+                                _scheduleSaveEqState();
                               },
                             ),
                             ModernAudioKnob(
@@ -15602,8 +15874,8 @@ class _EqScreenState extends State<EqScreen>
                                   band.rangeDb = v;
                                   _dynamicEqPreset = 'Custom';
                                   if (_dynamicEqEnabled) _updateDynamicEq();
-                                  _saveEqState();
                                 });
+                                _scheduleSaveEqState();
                               },
                             ),
                             ModernAudioKnob(
@@ -15624,8 +15896,8 @@ class _EqScreenState extends State<EqScreen>
                                   band.ratio = v;
                                   _dynamicEqPreset = 'Custom';
                                   if (_dynamicEqEnabled) _updateDynamicEq();
-                                  _saveEqState();
                                 });
+                                _scheduleSaveEqState();
                               },
                             ),
                           ],
@@ -15642,6 +15914,7 @@ class _EqScreenState extends State<EqScreen>
                               min: 0.5,
                               max: 100.0,
                               flatValue: 2.0,
+                              isLogarithmic: true,
                               activeColor:
                                   _dynamicEqEnabled && band.enabled && !isStatic
                                       ? bandColor
@@ -15653,8 +15926,8 @@ class _EqScreenState extends State<EqScreen>
                                   band.attackMs = v;
                                   _dynamicEqPreset = 'Custom';
                                   if (_dynamicEqEnabled) _updateDynamicEq();
-                                  _saveEqState();
                                 });
+                                _scheduleSaveEqState();
                               },
                             ),
                             ModernAudioKnob(
@@ -15664,6 +15937,7 @@ class _EqScreenState extends State<EqScreen>
                               min: 10.0,
                               max: 500.0,
                               flatValue: 60.0,
+                              isLogarithmic: true,
                               activeColor:
                                   _dynamicEqEnabled && band.enabled && !isStatic
                                       ? bandColor
@@ -15674,8 +15948,8 @@ class _EqScreenState extends State<EqScreen>
                                   band.releaseMs = v;
                                   _dynamicEqPreset = 'Custom';
                                   if (_dynamicEqEnabled) _updateDynamicEq();
-                                  _saveEqState();
                                 });
+                                _scheduleSaveEqState();
                               },
                             ),
                           ],
@@ -15888,6 +16162,7 @@ class ModernAudioKnob extends StatefulWidget {
   final bool isPercentage;
   final double displayMultiplier;
   final double size;
+  final bool isLogarithmic;
 
   const ModernAudioKnob({
     super.key,
@@ -15902,6 +16177,7 @@ class ModernAudioKnob extends StatefulWidget {
     this.isPercentage = false,
     this.displayMultiplier = 1.0,
     this.size = 60.0,
+    this.isLogarithmic = false,
   });
 
   @override
@@ -15913,10 +16189,24 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
 
   void _onVerticalDragUpdate(DragUpdateDetails details) {
     // dragging up (negative dy) increases value
-    double sensitivity = (widget.max - widget.min) / 150.0;
-    double newValue = widget.value - (details.delta.dy * sensitivity);
+    final useLog =
+        widget.isLogarithmic && widget.min > 0.0 && widget.max > widget.min;
+    double newValue;
+    if (useLog) {
+      final logMin = math.log(widget.min);
+      final logMax = math.log(widget.max);
+      final curNorm =
+          ((math.log(widget.value.clamp(widget.min, widget.max)) - logMin) /
+                  (logMax - logMin))
+              .clamp(0.0, 1.0);
+      final nextNorm = (curNorm - details.delta.dy / 150.0).clamp(0.0, 1.0);
+      newValue = math.exp(logMin + nextNorm * (logMax - logMin));
+    } else {
+      final double sensitivity = (widget.max - widget.min) / 150.0;
+      newValue = widget.value - (details.delta.dy * sensitivity);
+    }
     newValue = newValue.clamp(widget.min, widget.max);
-    if ((newValue - widget.value).abs() > 0.001) {
+    if ((newValue - widget.value).abs() > 1e-6) {
       widget.onChanged(newValue);
     }
   }
@@ -16045,8 +16335,21 @@ class _ModernAudioKnobState extends State<ModernAudioKnob> {
 
   @override
   Widget build(BuildContext context) {
-    double normalizedValue =
-        (widget.value - widget.min) / (widget.max - widget.min);
+    final useLog =
+        widget.isLogarithmic && widget.min > 0.0 && widget.max > widget.min;
+    final double normalizedValue;
+    if (useLog) {
+      final logMin = math.log(widget.min);
+      final logMax = math.log(widget.max);
+      normalizedValue =
+          ((math.log(widget.value.clamp(widget.min, widget.max)) - logMin) /
+                  (logMax - logMin))
+              .clamp(0.0, 1.0);
+    } else {
+      normalizedValue =
+          ((widget.value - widget.min) / (widget.max - widget.min))
+              .clamp(0.0, 1.0);
+    }
 
     String displayValue;
     double dbValue = 0.0;

@@ -142,7 +142,7 @@ public:
         float clamped = std::clamp(gainDb, -15.0f, 15.0f);
         bass_gain_db_.store(clamped, std::memory_order_relaxed);
         target_bass_linear_ = std::pow(10.0, static_cast<double>(clamped) * 0.05);
-        baxandall_tone_.setBassGainDb(clamped);
+        syncBaxandall();
     }
     float getBassGainDb() const { return bass_gain_db_.load(std::memory_order_relaxed); }
 
@@ -157,14 +157,14 @@ public:
         float clamped = std::clamp(gainDb, -15.0f, 15.0f);
         treble_gain_db_.store(clamped, std::memory_order_relaxed);
         target_treble_linear_ = std::pow(10.0, static_cast<double>(clamped) * 0.05);
-        baxandall_tone_.setTrebleGainDb(clamped);
+        syncBaxandall();
     }
     float getTrebleGainDb() const { return treble_gain_db_.load(std::memory_order_relaxed); }
 
     void setTiltDb(float tiltDb) {
         float clamped = std::clamp(tiltDb, -6.0f, 6.0f);
         tilt_gain_db_.store(clamped, std::memory_order_relaxed);
-        baxandall_tone_.setTiltDb(clamped);
+        syncBaxandall();
     }
     float getTiltDb() const { return tilt_gain_db_.load(std::memory_order_relaxed); }
 
@@ -231,8 +231,9 @@ public:
 
                 // 4. Tone gain scaling & phase-coherent recombination
                 double y = (x_low * gLow) + (x_mid * gMid) + (x_high * gHigh);
+                if (!std::isfinite(y)) y = 0.0;
 
-                buffer[idx] = static_cast<float>(std::clamp(y, -2.0, 2.0));
+                buffer[idx] = static_cast<float>(y);
             }
         }
     }
@@ -268,7 +269,8 @@ public:
                 double x_high  = hp2_.process(hp2_coeffs_, c, x_high1);
 
                 double y = (x_low * gLow) + (x_mid * gMid) + (x_high * gHigh);
-                buffer[idx] = std::clamp(y, -2.0, 2.0);
+                if (!std::isfinite(y)) y = 0.0;
+                buffer[idx] = y;
             }
         }
     }
@@ -276,7 +278,11 @@ public:
 private:
     void syncBaxandall() {
         ToneMode m = mode_.load(std::memory_order_relaxed);
-        if (m == ToneMode::QuadSpectralTilt) {
+        if (m == ToneMode::CrossoverLR4) {
+            baxandall_tone_.setBassGainDb(0.0f);
+            baxandall_tone_.setTrebleGainDb(0.0f);
+            baxandall_tone_.setTiltDb(0.0f);
+        } else if (m == ToneMode::QuadSpectralTilt) {
             baxandall_tone_.setBassGainDb(0.0f);
             baxandall_tone_.setTrebleGainDb(0.0f);
             baxandall_tone_.setTiltDb(tilt_gain_db_.load(std::memory_order_relaxed));

@@ -133,7 +133,13 @@ public:
 
     void setAllGains(const float* gains_db) {
         if (!gains_db || band_count_ <= 0) return;
-        for (int i = 0; i < band_count_; ++i) {
+        setAllGains(gains_db, band_count_);
+    }
+
+    void setAllGains(const float* gains_db, int count) {
+        if (!gains_db || band_count_ <= 0 || count <= 0) return;
+        const int n = std::min(count, band_count_);
+        for (int i = 0; i < n; ++i) {
             target_gains_db_[i] = std::clamp((double)gains_db[i], -24.0, 24.0);
         }
         updateFilterParameters();
@@ -141,7 +147,13 @@ public:
 
     void setAllGains(const double* gains_db) {
         if (!gains_db || band_count_ <= 0) return;
-        for (int i = 0; i < band_count_; ++i) {
+        setAllGains(gains_db, band_count_);
+    }
+
+    void setAllGains(const double* gains_db, int count) {
+        if (!gains_db || band_count_ <= 0 || count <= 0) return;
+        const int n = std::min(count, band_count_);
+        for (int i = 0; i < n; ++i) {
             target_gains_db_[i] = std::clamp(gains_db[i], -24.0, 24.0);
         }
         updateFilterParameters();
@@ -470,6 +482,9 @@ private:
             }
 
             // Fixed-point complex magnitude refinement (accounts for quadrature skirt phase)
+            for (int i = 0; i < band_count_; ++i) {
+                weights[i] = std::clamp(weights[i], -0.985, 62.0);
+            }
             for (int iter = 0; iter < 12; ++iter) {
                 double err[kMaxBands]{};
                 for (int i = 0; i < band_count_; ++i) {
@@ -488,11 +503,12 @@ private:
                     for (int j = 0; j < band_count_; ++j) {
                         dw += invParRe_[i][j] * err[j];
                     }
-                    weights[i] += dw;
+                    weights[i] = std::clamp(weights[i] + 0.65 * dw, -0.985, 62.0);
                 }
             }
 
             for (int i = 0; i < band_count_; ++i) {
+                weights[i] = std::clamp(weights[i], -0.985, 62.0);
                 const double lin_gain = std::max(0.015, 1.0 + weights[i]);
                 optimized_gains_db_[i] = std::clamp(20.0 * std::log10(lin_gain), -36.0, 36.0);
                 // SVF BandPass (m1=1) has peak gain Q; scale by 1/Q for unity-peak basis
@@ -502,7 +518,7 @@ private:
                 filters_[i].setParameters(CytomicSVF::FilterType::BandPass, sample_rate_, frequencies_[i], optimized_gains_db_[i], q_factors_[i]);
             }
         } else {
-            // Matrix-Compensated Cascade decoupling: g_opt = invB * g_target
+            // Matrix-Compensated Cascade decoupling: initial linear estimate g_opt = invB * g_target
             for (int i = 0; i < band_count_; ++i) {
                 double sum = 0.0;
                 for (int j = 0; j < band_count_; ++j) {
@@ -510,6 +526,30 @@ private:
                 }
                 // Clamp within safe physical filter bounds [-36, +36] dB
                 optimized_gains_db_[i] = std::clamp(sum, -36.0, 36.0);
+            }
+
+            // 2-pass damped iterative residual refinement (eliminates large-gain Bell skirt nonlinearity error)
+            for (int iter = 0; iter < 2; ++iter) {
+                double residual[kMaxBands]{};
+                for (int i = 0; i < band_count_; ++i) {
+                    double actual_db = 0.0;
+                    for (int j = 0; j < band_count_; ++j) {
+                        if (std::abs(optimized_gains_db_[j]) >= 0.005) {
+                            actual_db += evaluateSingleFilterDb(frequencies_[j], q_factors_[j], optimized_gains_db_[j], frequencies_[i], sample_rate_);
+                        }
+                    }
+                    residual[i] = target_gains_db_[i] - actual_db;
+                }
+                for (int i = 0; i < band_count_; ++i) {
+                    double dg = 0.0;
+                    for (int j = 0; j < band_count_; ++j) {
+                        dg += invB_[i][j] * residual[j];
+                    }
+                    optimized_gains_db_[i] = std::clamp(optimized_gains_db_[i] + 0.85 * dg, -36.0, 36.0);
+                }
+            }
+
+            for (int i = 0; i < band_count_; ++i) {
                 parallel_scales_[i] = 0.0;
                 filters_[i].setParameters(CytomicSVF::FilterType::Bell, sample_rate_, frequencies_[i], optimized_gains_db_[i], q_factors_[i]);
             }

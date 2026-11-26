@@ -821,6 +821,10 @@ class MiniAudioPlayer {
   void setMultibandEqBandGain(int bandIndex, double gainDb) =>
       _engine.setMultibandEqGain(bandIndex, gainDb);
 
+  /// Set gains (in dB) for all Graphic EQ bands in a single batch solve.
+  void setMultibandEqBandGains(List<double> gainsDb) =>
+      _engine.setMultibandEqGains(gainsDb);
+
   /// Get the current gain (in dB) for a specific EQ band.
   double getMultibandEqBandGain(int bandIndex) =>
       _engine.getMultibandEqGain(bandIndex);
@@ -851,6 +855,10 @@ class MiniAudioPlayer {
   /// [channel]: 0 = Left / Linked Stereo, 1 = Right
   void setMultibandEqChannelGain(int channel, int bandIndex, double gainDb) =>
       _engine.setMultibandEqChannelGain(channel, bandIndex, gainDb);
+
+  /// Set gains (in dB) for all Graphic EQ bands on a specific channel in one batch solve.
+  void setMultibandEqChannelGains(int channel, List<double> gainsDb) =>
+      _engine.setMultibandEqChannelGains(channel, gainsDb);
 
   /// Get the current gain (in dB) for a specific EQ band on a specific channel.
   double getMultibandEqChannelGain(int channel, int bandIndex) =>
@@ -917,6 +925,9 @@ class MiniAudioPlayer {
   }) {
     _engine.setEqGainsDb(lowDb: lowDb, midDb: midDb, highDb: highDb);
   }
+
+  void setEqPreampDb(double preampDb) => _engine.setEqPreampDb(preampDb);
+  double getEqPreampDb() => _engine.getEqPreampDb();
 
   void setGain(double gain) => _engine.setGain(gain);
   void setReplayGain(double gainDb) => _engine.setReplayGain(gainDb);

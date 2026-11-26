@@ -37,7 +37,7 @@ namespace sauti::dsp {
 // =============================================================================
 class BaxandallToneDSP {
 public:
-    static constexpr int kMaxChannels = 8;
+    static constexpr int kMaxChannels = CytomicSVF::kMaxChannels;
     static constexpr double kPivotFrequencyHz = 650.0;
     static constexpr double kMaxGainDb = 15.0;
     static constexpr double kMaxTiltDb = 6.0;
@@ -66,12 +66,10 @@ public:
     bool isEnabled() const { return enabled_.load(std::memory_order_relaxed); }
 
     void reset() {
-        for (int c = 0; c < kMaxChannels; ++c) {
-            bassShelf_[c].reset();
-            trebleShelf_[c].reset();
-            tiltLow_[c].reset();
-            tiltHigh_[c].reset();
-        }
+        bassShelf_.reset();
+        trebleShelf_.reset();
+        tiltLow_.reset();
+        tiltHigh_.reset();
         curBassDb_ = targetBassDb_.load(std::memory_order_relaxed);
         curTrebleDb_ = targetTrebleDb_.load(std::memory_order_relaxed);
         curTiltDb_ = targetTiltDb_.load(std::memory_order_relaxed);
@@ -114,12 +112,46 @@ public:
 
     // Interleaved 32-bit float processing
     void process(float* buffer, uint32_t frames, int channels = 2) {
+        processImpl(buffer, frames, channels);
+    }
+
+    // Interleaved 64-bit double processing
+    void process(double* buffer, uint32_t frames, int channels = 2) {
+        processImpl(buffer, frames, channels);
+    }
+
+private:
+    template <typename SampleT>
+    void processImpl(SampleT* buffer, uint32_t frames, int channels) {
         if (!isEnabled() || !buffer || frames == 0 || channels < 1) return;
         const int chs = std::min(channels, kMaxChannels);
 
         const double tgtBass = targetBassDb_.load(std::memory_order_relaxed);
         const double tgtTreble = targetTrebleDb_.load(std::memory_order_relaxed);
         const double tgtTilt = targetTiltDb_.load(std::memory_order_relaxed);
+
+        // Fast SIMD block path once per-sample parameter smoothing has settled
+        if (std::abs(tgtBass - curBassDb_) <= 1.0e-4 &&
+            std::abs(tgtTreble - curTrebleDb_) <= 1.0e-4 &&
+            std::abs(tgtTilt - curTiltDb_) <= 1.0e-4) {
+            curBassDb_ = tgtBass;
+            curTrebleDb_ = tgtTreble;
+            curTiltDb_ = tgtTilt;
+            if (std::abs(curBassDb_ - lastCalculatedBassDb_) > 1.0e-5 ||
+                std::abs(curTrebleDb_ - lastCalculatedTrebleDb_) > 1.0e-5 ||
+                std::abs(curTiltDb_ - lastCalculatedTiltDb_) > 1.0e-5) {
+                updateFilters();
+            }
+            if (hasActiveTone_) {
+                bassShelf_.process(buffer, static_cast<uint32_t>(frames), channels);
+                trebleShelf_.process(buffer, static_cast<uint32_t>(frames), channels);
+            }
+            if (hasActiveTilt_) {
+                tiltLow_.process(buffer, static_cast<uint32_t>(frames), channels);
+                tiltHigh_.process(buffer, static_cast<uint32_t>(frames), channels);
+            }
+            return;
+        }
 
         for (uint32_t i = 0; i < frames; ++i) {
             curBassDb_   += gainSmoothAlpha_ * (tgtBass   - curBassDb_);
@@ -137,60 +169,20 @@ public:
                 double x = static_cast<double>(buffer[idx]);
 
                 if (hasActiveTone_) {
-                    x = bassShelf_[c].processSample(x);
-                    x = trebleShelf_[c].processSample(x);
+                    x = bassShelf_.processSample(x, c);
+                    x = trebleShelf_.processSample(x, c);
                 }
 
                 if (hasActiveTilt_) {
-                    x = tiltLow_[c].processSample(x);
-                    x = tiltHigh_[c].processSample(x);
+                    x = tiltLow_.processSample(x, c);
+                    x = tiltHigh_.processSample(x, c);
                 }
 
-                buffer[idx] = static_cast<float>(x);
+                buffer[idx] = static_cast<SampleT>(x);
             }
         }
     }
 
-    // Interleaved 64-bit double processing
-    void process(double* buffer, uint32_t frames, int channels = 2) {
-        if (!isEnabled() || !buffer || frames == 0 || channels < 1) return;
-        const int chs = std::min(channels, kMaxChannels);
-
-        const double tgtBass = targetBassDb_.load(std::memory_order_relaxed);
-        const double tgtTreble = targetTrebleDb_.load(std::memory_order_relaxed);
-        const double tgtTilt = targetTiltDb_.load(std::memory_order_relaxed);
-
-        for (uint32_t i = 0; i < frames; ++i) {
-            curBassDb_   += gainSmoothAlpha_ * (tgtBass   - curBassDb_);
-            curTrebleDb_ += gainSmoothAlpha_ * (tgtTreble - curTrebleDb_);
-            curTiltDb_   += gainSmoothAlpha_ * (tgtTilt   - curTiltDb_);
-
-            if (std::abs(curBassDb_   - lastCalculatedBassDb_)   > 0.02 ||
-                std::abs(curTrebleDb_ - lastCalculatedTrebleDb_) > 0.02 ||
-                std::abs(curTiltDb_   - lastCalculatedTiltDb_)   > 0.02) {
-                updateFilters();
-            }
-
-            for (int c = 0; c < chs; ++c) {
-                const size_t idx = static_cast<size_t>(i) * channels + c;
-                double x = buffer[idx];
-
-                if (hasActiveTone_) {
-                    x = bassShelf_[c].processSample(x);
-                    x = trebleShelf_[c].processSample(x);
-                }
-
-                if (hasActiveTilt_) {
-                    x = tiltLow_[c].processSample(x);
-                    x = tiltHigh_[c].processSample(x);
-                }
-
-                buffer[idx] = x;
-            }
-        }
-    }
-
-private:
     void updateSmoothingAlpha() {
         constexpr double kSmoothingMs = 25.0; // 25ms click-free time constant
         gainSmoothAlpha_ = 1.0 - std::exp(-1.0 / (sampleRate_ * (kSmoothingMs * 0.001)));
@@ -219,20 +211,16 @@ private:
         const double trebleFc = 15000.0 - (15000.0 - 8000.0) * std::pow(uTreble, 0.6);
         const double trebleQ  = 0.4500 + (0.70710678 - 0.4500) * std::pow(uTreble, 0.75);
 
-        for (int c = 0; c < kMaxChannels; ++c) {
-            bassShelf_[c].setParameters(CytomicSVF::FilterType::LowShelf, sampleRate_, bassFc, curBassDb_, bassQ);
-            trebleShelf_[c].setParameters(CytomicSVF::FilterType::HighShelf, sampleRate_, trebleFc, curTrebleDb_, trebleQ);
-        }
+        bassShelf_.setParameters(CytomicSVF::FilterType::LowShelf, sampleRate_, bassFc, curBassDb_, bassQ);
+        trebleShelf_.setParameters(CytomicSVF::FilterType::HighShelf, sampleRate_, trebleFc, curTrebleDb_, trebleQ);
 
         // --- Quad Spectral Tilt Filter ---
         // Dual reciprocal shelves pivoted at 650 Hz (wide skirt Q = 0.42)
         const double halfTilt = curTiltDb_ * 0.5;
         constexpr double kTiltQ = 0.42;
 
-        for (int c = 0; c < kMaxChannels; ++c) {
-            tiltLow_[c].setParameters(CytomicSVF::FilterType::LowShelf, sampleRate_, kPivotFrequencyHz, -halfTilt, kTiltQ);
-            tiltHigh_[c].setParameters(CytomicSVF::FilterType::HighShelf, sampleRate_, kPivotFrequencyHz, +halfTilt, kTiltQ);
-        }
+        tiltLow_.setParameters(CytomicSVF::FilterType::LowShelf, sampleRate_, kPivotFrequencyHz, -halfTilt, kTiltQ);
+        tiltHigh_.setParameters(CytomicSVF::FilterType::HighShelf, sampleRate_, kPivotFrequencyHz, +halfTilt, kTiltQ);
     }
 
     double sampleRate_ = 48000.0;
@@ -255,10 +243,10 @@ private:
     bool hasActiveTone_ = false;
     bool hasActiveTilt_ = false;
 
-    CytomicSVF bassShelf_[kMaxChannels];
-    CytomicSVF trebleShelf_[kMaxChannels];
-    CytomicSVF tiltLow_[kMaxChannels];
-    CytomicSVF tiltHigh_[kMaxChannels];
+    CytomicSVF bassShelf_;
+    CytomicSVF trebleShelf_;
+    CytomicSVF tiltLow_;
+    CytomicSVF tiltHigh_;
 };
 
 } // namespace sauti::dsp

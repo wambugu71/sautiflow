@@ -42,6 +42,7 @@ class AutoEqResult {
             fc: b.frequencyHz,
             gainDb: b.gainDb,
             q: b.q,
+            slope: b.slope,
             f: f,
           );
         }
@@ -199,10 +200,9 @@ class AutoEqParser {
           preampDb = double.tryParse(match.group(1) ?? '0') ?? 0.0;
         }
       } else if (trimmed.toLowerCase().startsWith('filter')) {
-        // e.g. Filter 1: ON PK Fc 105 Hz Gain 5.5 dB Q 0.71
-        // or Filter: ON LSC Fc 105 Gain 5.5 Q 0.71
+        // Supports standard EqualizerAPO with Gain/Q/Slope as well as gainless HP/LP/NO/AP lines
         final filterMatch = RegExp(
-          r'Filter\s*(?:\d+)?:\s*(ON|OFF)\s+([A-Z0-9_]+)\s+Fc\s+([0-9.]+)\s*(?:Hz)?\s+Gain\s+([+-]?[0-9.]+)\s*(?:dB)?(?:\s+Q\s+([0-9.]+))?',
+          r'Filter\s*(?:\d+)?:\s*(ON|OFF)\s+([A-Z0-9_]+)\s+Fc\s+([0-9.]+)\s*(?:Hz)?(.*)$',
           caseSensitive: false,
         ).firstMatch(trimmed);
 
@@ -210,35 +210,95 @@ class AutoEqParser {
           final enabled = filterMatch.group(1)?.toUpperCase() == 'ON';
           final typeStr = filterMatch.group(2)?.toUpperCase() ?? 'PK';
           final fc = double.tryParse(filterMatch.group(3) ?? '1000') ?? 1000.0;
-          final gain = double.tryParse(filterMatch.group(4) ?? '0') ?? 0.0;
-          final q = double.tryParse(filterMatch.group(5) ?? '1.0') ?? 1.0;
+          final tail = filterMatch.group(4) ?? '';
+
+          final gainMatch = RegExp(
+            r'Gain\s+([+-]?[0-9.]+)\s*(?:dB)?',
+            caseSensitive: false,
+          ).firstMatch(tail);
+          final qMatch = RegExp(
+            r'(?:^|\s)Q\s+([0-9.]+)',
+            caseSensitive: false,
+          ).firstMatch(tail);
+          final slopeMatch = RegExp(
+            r'(?:^|\s)(?:Slope|S)\s+([0-9.]+)',
+            caseSensitive: false,
+          ).firstMatch(tail);
 
           EqBandType bType = EqBandType.peak;
-          if (typeStr == 'LSC' || typeStr == 'LS' || typeStr == 'LOWSHELF' || typeStr == 'LOW_SHELF') {
+          if (typeStr == 'LSC' ||
+              typeStr == 'LS' ||
+              typeStr == 'LOWSHELF' ||
+              typeStr == 'LOW_SHELF') {
             bType = EqBandType.lowshelf;
-          } else if (typeStr == 'HSC' || typeStr == 'HS' || typeStr == 'HIGHSHELF' || typeStr == 'HIGH_SHELF') {
+          } else if (typeStr == 'HSC' ||
+              typeStr == 'HS' ||
+              typeStr == 'HIGHSHELF' ||
+              typeStr == 'HIGH_SHELF') {
             bType = EqBandType.highshelf;
-          } else if (typeStr == 'LP' || typeStr == 'LPF' || typeStr == 'LOWPASS' || typeStr == 'LOW_PASS') {
+          } else if (typeStr == 'LP' ||
+              typeStr == 'LPF' ||
+              typeStr == 'LPQ' ||
+              typeStr == 'LOWPASS' ||
+              typeStr == 'LOW_PASS') {
             bType = EqBandType.lowpass;
-          } else if (typeStr == 'HP' || typeStr == 'HPF' || typeStr == 'HIGHPASS' || typeStr == 'HIGH_PASS') {
+          } else if (typeStr == 'HP' ||
+              typeStr == 'HPF' ||
+              typeStr == 'HPQ' ||
+              typeStr == 'HIGHPASS' ||
+              typeStr == 'HIGH_PASS') {
             bType = EqBandType.highpass;
-          } else if (typeStr == 'BP' || typeStr == 'BPF' || typeStr == 'BANDPASS' || typeStr == 'BAND_PASS') {
+          } else if (typeStr == 'BP' ||
+              typeStr == 'BPF' ||
+              typeStr == 'BANDPASS' ||
+              typeStr == 'BAND_PASS') {
             bType = EqBandType.bandpass;
           } else if (typeStr == 'NO' || typeStr == 'NOTCH') {
             bType = EqBandType.notch;
           } else if (typeStr == 'TILT') {
             bType = EqBandType.tilt;
-          } else if (typeStr == 'AP' || typeStr == 'ALLPASS' || typeStr == 'ALL_PASS') {
+          } else if (typeStr == 'AP' ||
+              typeStr == 'ALLPASS' ||
+              typeStr == 'ALL_PASS') {
             bType = EqBandType.allpass;
-          } else if (typeStr == 'BR' || typeStr == 'BANDREJECT' || typeStr == 'BAND_REJECT') {
+          } else if (typeStr == 'BR' ||
+              typeStr == 'BANDREJECT' ||
+              typeStr == 'BAND_REJECT') {
             bType = EqBandType.bandreject;
           }
+
+          final parsedGain = gainMatch != null
+              ? double.tryParse(gainMatch.group(1) ?? '')
+              : null;
+          final parsedQ =
+              qMatch != null ? double.tryParse(qMatch.group(1) ?? '') : null;
+          final parsedSlope = slopeMatch != null
+              ? double.tryParse(slopeMatch.group(1) ?? '')
+              : null;
+
+          final isShelfOrTilt = bType == EqBandType.lowshelf ||
+              bType == EqBandType.highshelf ||
+              bType == EqBandType.tilt;
+          final isPass =
+              bType == EqBandType.lowpass || bType == EqBandType.highpass;
+
+          final gain = (bType == EqBandType.bandreject && parsedGain != null)
+              ? parsedGain.clamp(-24.0, 0.0)
+              : (parsedGain ?? 0.0);
+          final slope = (isShelfOrTilt && parsedSlope != null)
+              ? parsedSlope.clamp(0.1, 1.0)
+              : 1.0;
+          final q = parsedQ ??
+              ((isShelfOrTilt && parsedSlope == null) || isPass
+                  ? 0.70710678
+                  : 1.0);
 
           pBands.add(EqBandConfig(
             type: bType,
             frequencyHz: fc,
             gainDb: gain,
             q: q,
+            slope: slope,
             enabled: enabled,
           ));
         }
@@ -258,6 +318,7 @@ class AutoEqParser {
           fc: band.frequencyHz,
           gainDb: band.gainDb,
           q: band.q,
+          slope: band.slope,
           f: f,
         );
       }
@@ -302,60 +363,230 @@ class AutoEqParser {
     return 0.0;
   }
 
-  /// Evaluates approximate dB response at frequency f for a parametric biquad filter.
+  static double _analogHighShelfMag(
+      double freqHz, double fcHz, double a, double k0) {
+    final u = freqHz / fcHz;
+    final u2 = u * u;
+    final sqrtA = math.sqrt(a);
+    final imag = k0 * sqrtA * u;
+    final numRe = 1.0 - a * u2;
+    final denRe = a - u2;
+    final numMagSq = numRe * numRe + imag * imag;
+    final denMagSq = math.max(denRe * denRe + imag * imag, 1.0e-30);
+    return a * math.sqrt(numMagSq / denMagSq);
+  }
+
+  /// Evaluates exact Cytomic TPT SVF dB response at frequency [f] for a parametric filter.
   static double evaluateParametricBandDb({
     required EqBandType type,
     required double fc,
     required double gainDb,
     required double q,
+    double slope = 1.0,
     required double f,
+    double fs = 48000.0,
   }) {
-    if (gainDb == 0.0 && type != EqBandType.notch && type != EqBandType.lowpass && type != EqBandType.highpass) {
-      return 0.0;
-    }
-    if (f <= 0 || fc <= 0) return 0.0;
+    if (f <= 0 || fc <= 0 || fs <= 0) return 0.0;
+    final fcClamped = fc.clamp(10.0, fs * 0.499);
+    final clampedGain = gainDb.clamp(-36.0, 36.0);
 
-    double ratio = f / fc;
-    if (type == EqBandType.peak || type == EqBandType.bell) {
-      // Peaking filter approximation
-      double logDist = (math.log(ratio) / math.ln10).abs();
-      double bwFactor = 1.0 / (2.0 * math.max(q, 0.1));
-      double response = math.exp(-math.pow(logDist / bwFactor, 2));
-      return gainDb * response;
-    } else if (type == EqBandType.lowshelf) {
-      if (f <= fc) {
-        return gainDb;
-      } else {
-        double logDist = (math.log(ratio) / math.ln10);
-        double falloff = math.exp(-logDist * 2.0 * math.max(q, 0.2));
-        return gainDb * falloff;
-      }
-    } else if (type == EqBandType.highshelf) {
-      if (f >= fc) {
-        return gainDb;
-      } else {
-        double logDist = (math.log(fc / f) / math.ln10);
-        double falloff = math.exp(-logDist * 2.0 * math.max(q, 0.2));
-        return gainDb * falloff;
-      }
-    } else if (type == EqBandType.notch) {
-      double logDist = (math.log(ratio) / math.ln10).abs();
-      double bwFactor = 1.0 / (2.0 * math.max(q, 0.5));
-      if (logDist < bwFactor) {
-        return -24.0 * (1.0 - (logDist / bwFactor));
-      }
+    final isGainType = type == EqBandType.peak ||
+        type == EqBandType.bell ||
+        type == EqBandType.lowshelf ||
+        type == EqBandType.highshelf ||
+        type == EqBandType.tilt;
+    if (isGainType && clampedGain.abs() < 0.005) {
       return 0.0;
-    } else if (type == EqBandType.allpass) {
-      return 0.0;
-    } else if (type == EqBandType.tilt) {
-      double logRatio = math.log(ratio) / math.ln10;
-      return (gainDb * 0.5 * (logRatio / 1.3)).clamp(-gainDb.abs() * 0.5, gainDb.abs() * 0.5);
-    } else if (type == EqBandType.bandreject) {
-      double logDist = (math.log(ratio) / math.ln10).abs();
-      double bwFactor = 1.0 / (2.0 * math.max(q, 0.1));
-      double response = math.exp(-math.pow(logDist / bwFactor, 2));
-      return gainDb * response;
     }
-    return 0.0;
+    if (type == EqBandType.allpass) {
+      return 0.0;
+    }
+
+    final isShelfOrTilt = type == EqBandType.lowshelf ||
+        type == EqBandType.highshelf ||
+        type == EqBandType.tilt;
+    double rawQ = q;
+    if (isShelfOrTilt) {
+      const kButterworthQ = 0.7071067811865475;
+      if ((slope - 1.0).abs() > 1.0e-5 && slope > 0.0) {
+        final s = slope.clamp(0.1, 1.0);
+        final aAbs = math.pow(10.0, clampedGain.abs() / 40.0).toDouble();
+        final invQ2 = (aAbs + 1.0 / aAbs) * (1.0 / s - 1.0) + 2.0;
+        rawQ = 1.0 / math.sqrt(math.max(invQ2, 1.0e-6));
+      } else if ((q - 1.0).abs() > 1.0e-5 && q > 0.0) {
+        rawQ = q;
+      } else {
+        rawQ = kButterworthQ;
+      }
+    }
+    final effQ = rawQ.clamp(0.05, 30.0);
+    final w0 = 2.0 * math.pi * fcClamped / fs;
+    final a = math.pow(10.0, clampedGain / 40.0).toDouble();
+    final k0 = 1.0 / effQ;
+    final t0 = math.tan(0.5 * w0);
+
+    double g = t0;
+    double k = k0;
+    double m0 = 1.0;
+    double m1 = 0.0;
+    double m2 = 0.0;
+
+    switch (type) {
+      case EqBandType.peak:
+      case EqBandType.bell:
+        final absGainDb = clampedGain.abs();
+        final aPos = math.pow(10.0, absGainDb / 40.0).toDouble();
+        final gPos = aPos * aPos;
+        final gb = aPos;
+        final r =
+            math.sqrt(1.0 + 1.0 / (4.0 * effQ * effQ)) - 1.0 / (2.0 * effQ);
+        final t1 = math.tan(0.5 * w0 * r);
+        final uNyq = math.pi / w0;
+        final oneMinusU2 = 1.0 - uNyq * uNyq;
+        final bwTermNum = (aPos * uNyq) / effQ;
+        final bwTermDen = uNyq / (effQ * aPos);
+        final g1Sq = (oneMinusU2 * oneMinusU2 + bwTermNum * bwTermNum) /
+            math.max(oneMinusU2 * oneMinusU2 + bwTermDen * bwTermDen, 1.0e-30);
+        final g1 = math.sqrt(math.min(g1Sq, gPos * gPos - 1.0e-15));
+        final x0 = math.max(t0 * t0, 1.0e-24);
+        final x1 = math.max(t1 * t1, 1.0e-24);
+        final g2M1 = math.max(gPos * gPos - 1.0, 1.0e-24);
+        final w2 = x0 *
+            math.sqrt(math.max((gPos * gPos - g1Sq) / g2M1, 1.0e-18));
+        final rhs1 = (gPos * gPos * (w2 - x0) * (w2 - x0) -
+                (w2 - g1 * x0) * (w2 - g1 * x0)) /
+            x0;
+        final rhs2 = (gb * gb * (w2 - x1) * (w2 - x1) -
+                (w2 - g1 * x1) * (w2 - g1 * x1)) /
+            x1;
+        final bd2 = math.max(
+            (rhs2 - rhs1) / math.max(gPos * gPos - gb * gb, 1.0e-24), 1.0e-24);
+        final bn2 = math.max(rhs1 + gPos * gPos * bd2, 1.0e-24);
+        final bn = math.sqrt(bn2);
+        final bd = math.sqrt(bd2);
+        if (clampedGain >= 0.0) {
+          g = math.sqrt(w2);
+          k = bd / g;
+          m0 = g1;
+          m1 = (bn / g) - g1 * k;
+          m2 = 1.0 - g1;
+        } else {
+          final invG1 = 1.0 / g1;
+          g = math.sqrt(w2 * invG1);
+          k = bd > 0.0 ? (bn * invG1) / g : k0;
+          m0 = invG1;
+          m1 = ((bd * invG1) / g) - invG1 * k;
+          m2 = 1.0 - invG1;
+        }
+        break;
+
+      case EqBandType.lowshelf:
+        g = t0 / math.sqrt(a);
+        m0 = 1.0;
+        m1 = k0 * (a - 1.0);
+        m2 = a * a - 1.0;
+        break;
+
+      case EqBandType.highshelf:
+        final aPos = math.pow(10.0, clampedGain.abs() / 40.0).toDouble();
+        final g1 = _analogHighShelfMag(0.5 * fs, fcClamped, aPos, k0);
+        final r = (g1 + aPos) / (1.0 + aPos);
+        final w2 = t0 * t0 * r;
+        final gBoost = math.sqrt(w2);
+        final ratioNyq = (fcClamped / (0.5 * fs)).clamp(0.0, 1.0);
+        final blend = ratioNyq * ratioNyq;
+        final fRef = (1.0 - blend) * (0.7 * fcClamped) +
+            blend * math.sqrt(fcClamped * 0.48 * fs);
+        final m = _analogHighShelfMag(fRef, fcClamped, aPos, k0);
+        final m2Sq = m * m;
+        final t1 = math.tan(math.pi * fRef / fs);
+        final x1 = t1 * t1;
+        final denomK = w2 * x1 * (m2Sq - aPos * aPos);
+        final numK =
+            (w2 - g1 * x1) * (w2 - g1 * x1) - m2Sq * (w2 - x1) * (w2 - x1);
+        double kEff = k0;
+        if (denomK.abs() > 1.0e-12 && (numK / denomK) > 0.0) {
+          kEff = math.sqrt(numK / denomK).clamp(0.25 * k0, 4.0 * k0).toDouble();
+        }
+        if (clampedGain >= 0.0) {
+          g = gBoost;
+          k = kEff;
+          m0 = g1;
+          m1 = (aPos - g1) * kEff;
+          m2 = 1.0 - g1;
+        } else {
+          final sqrtG1 = math.sqrt(g1);
+          final invG1 = 1.0 / g1;
+          g = gBoost / sqrtG1;
+          k = (aPos * kEff) / sqrtG1;
+          m0 = invG1;
+          m1 = (kEff / sqrtG1) - invG1 * k;
+          m2 = 1.0 - invG1;
+        }
+        break;
+
+      case EqBandType.bandpass:
+        m0 = 0.0;
+        m1 = 1.0;
+        m2 = 0.0;
+        break;
+
+      case EqBandType.notch:
+        m0 = 1.0;
+        m1 = -k0;
+        m2 = 0.0;
+        break;
+
+      case EqBandType.lowpass:
+        m0 = 0.0;
+        m1 = 0.0;
+        m2 = 1.0;
+        break;
+
+      case EqBandType.highpass:
+        m0 = 1.0;
+        m1 = -k0;
+        m2 = -1.0;
+        break;
+
+      case EqBandType.tilt:
+        g = t0 * math.sqrt(a);
+        m0 = a;
+        m1 = (1.0 - a) * k0;
+        m2 = (1.0 / a) - a;
+        break;
+
+      case EqBandType.bandreject:
+        final gCut = clampedGain.abs() < 0.005
+            ? 0.0
+            : math.pow(10.0, -clampedGain.abs() / 20.0).toDouble();
+        m0 = 1.0;
+        m1 = (gCut - 1.0) * k0;
+        m2 = 0.0;
+        break;
+
+      case EqBandType.allpass:
+      case EqBandType.asupercut:
+      case EqBandType.asuperpass:
+      case EqBandType.asuperstop:
+        return 0.0;
+    }
+
+    if (f >= 0.5 * fs * (1.0 - 1.0e-7)) {
+      return 20.0 * (math.log(math.max(m0.abs(), 1.0e-12)) / math.ln10);
+    }
+    final t = math.tan(math.pi * f / fs);
+    final t2 = t * t;
+    final g2 = g * g;
+    final kg = k * g;
+    final denRe = g2 - t2;
+    final denIm = kg * t;
+    final numRe = m0 * denRe + m2 * g2;
+    final numIm = (m0 * kg + m1 * g) * t;
+    final numMagSq = numRe * numRe + numIm * numIm;
+    final denMagSq = math.max(denRe * denRe + denIm * denIm, 1.0e-30);
+    final magSq = numMagSq / denMagSq;
+    if (magSq <= 1.0e-12) return -60.0;
+    return 10.0 * (math.log(magSq) / math.ln10);
   }
 }

@@ -51,7 +51,7 @@ class ParametricEqGraph extends StatelessWidget {
         child: CustomPaint(
           size: Size.infinite,
           painter: _ParametricEqPainter(
-            bands: bands,
+            bands: List<EqBandConfig>.of(bands),
             isEnabled: isEnabled,
             primaryColor: effectivePrimary,
             sampleRate: sampleRate > 0 ? sampleRate : 48000.0,
@@ -439,26 +439,33 @@ class _ParametricEqPainter extends CustomPainter {
     final isShelfOrTilt = band.type == EqBandType.lowshelf ||
         band.type == EqBandType.highshelf ||
         band.type == EqBandType.tilt;
-    final rawQ = (isShelfOrTilt &&
-            (band.slope - 1.0).abs() > 1.0e-5 &&
-            band.slope > 0.0)
-        ? band.slope
-        : band.q;
+    double rawQ = band.q;
+    if (isShelfOrTilt) {
+      const kButterworthQ = 0.7071067811865475;
+      if ((band.slope - 1.0).abs() > 1.0e-5 && band.slope > 0.0) {
+        final s = band.slope.clamp(0.1, 1.0);
+        final aAbs = math.pow(10.0, gainDb.abs() / 40.0).toDouble();
+        final invQ2 = (aAbs + 1.0 / aAbs) * (1.0 / s - 1.0) + 2.0;
+        rawQ = 1.0 / math.sqrt(math.max(invQ2, 1.0e-6));
+      } else if ((band.q - 1.0).abs() > 1.0e-5 && band.q > 0.0) {
+        rawQ = band.q;
+      } else {
+        rawQ = kButterworthQ;
+      }
+    }
     final q = rawQ.clamp(0.05, 30.0);
 
     final isGainType = band.type == EqBandType.peak ||
         band.type == EqBandType.bell ||
         band.type == EqBandType.lowshelf ||
         band.type == EqBandType.highshelf ||
-        band.type == EqBandType.tilt ||
-        band.type == EqBandType.bandreject;
+        band.type == EqBandType.tilt;
     if (isGainType && gainDb.abs() < 0.005) {
       return const _SvfCoeffs(isFlat: true);
     }
 
     final w0 = 2.0 * math.pi * fc / fs;
     final a = math.pow(10.0, gainDb / 40.0).toDouble();
-    final gLin = a * a;
     final k0 = 1.0 / q;
     final t0 = math.tan(w0 * 0.5);
 
@@ -557,9 +564,7 @@ class _ParametricEqPainter extends CustomPainter {
         double kEff = k0;
         if (denomK.abs() > 1.0e-12 && (numK / denomK) > 0.0) {
           final cand = math.sqrt(numK / denomK);
-          if (cand >= 0.25 * k0 && cand <= 4.0 * k0) {
-            kEff = cand;
-          }
+          kEff = cand.clamp(0.25 * k0, 4.0 * k0).toDouble();
         }
 
         if (gainDb >= 0.0) {
@@ -612,11 +617,14 @@ class _ParametricEqPainter extends CustomPainter {
         );
 
       case EqBandType.bandreject:
+        final gCut = gainDb.abs() < 0.005
+            ? 0.0
+            : math.pow(10.0, -gainDb.abs() / 20.0).toDouble();
         return _SvfCoeffs(
           g: t0,
           k: k0,
           m0: 1.0,
-          m1: (gLin - 1.0) * k0,
+          m1: (gCut - 1.0) * k0,
           m2: 0.0,
           isFlat: false,
         );
@@ -774,6 +782,24 @@ class _ParametricEqPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ParametricEqPainter oldDelegate) {
-    return true;
+    if (oldDelegate.isEnabled != isEnabled ||
+        oldDelegate.primaryColor != primaryColor ||
+        oldDelegate.sampleRate != sampleRate ||
+        oldDelegate.bands.length != bands.length) {
+      return true;
+    }
+    for (int i = 0; i < bands.length; i++) {
+      final a = oldDelegate.bands[i];
+      final b = bands[i];
+      if (a.type != b.type ||
+          a.frequencyHz != b.frequencyHz ||
+          a.gainDb != b.gainDb ||
+          a.q != b.q ||
+          a.slope != b.slope ||
+          a.enabled != b.enabled) {
+        return true;
+      }
+    }
+    return false;
   }
 }
