@@ -43,7 +43,6 @@ class MainActivity : AudioServiceActivity() {
         private const val TAG = "SautiHardware"
         private const val METHOD_CHANNEL = "com.wambugu.sautiflow/hardware"
         private const val EVENT_CHANNEL = "com.wambugu.sautiflow/hardware_stream"
-        private const val REQUEST_BT_PERMISSION = 7749
 
         private const val ACTION_CODEC_CONFIG_CHANGED =
             "android.bluetooth.a2dp.profile.action.CODEC_CONFIG_CHANGED"
@@ -198,6 +197,13 @@ class MainActivity : AudioServiceActivity() {
                         result.error("INVALID_ARGS", "filePaths is required and must not be empty", null)
                     }
                 }
+                "refreshBluetoothProfile" -> {
+                    if (hasBtPermission()) {
+                        setupBluetoothProfile()
+                    }
+                    pushCurrentSpecs()
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -224,7 +230,9 @@ class MainActivity : AudioServiceActivity() {
         super.onStart()
         enableHighRefreshRateIfAvailable()
         setupAudioDeviceCallback()
-        requestBluetoothPermissionIfNeeded()
+        if (hasBtPermission()) {
+            setupBluetoothProfile()
+        }
         registerHardwareReceiver()
     }
 
@@ -280,44 +288,6 @@ class MainActivity : AudioServiceActivity() {
         teardownBluetoothProfile()
         unregisterHardwareReceiver()
         releaseMulticastLock()
-    }
-
-    private fun requestBluetoothPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ContextCompat.checkSelfPermission(
-                    this, Manifest.permission.BLUETOOTH_CONNECT
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                setupBluetoothProfile()
-            } else {
-                Log.d(TAG, "Requesting BLUETOOTH_CONNECT permission")
-                requestPermissions(
-                    arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
-                    REQUEST_BT_PERMISSION
-                )
-            }
-        } else {
-            setupBluetoothProfile()
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_BT_PERMISSION) {
-            val granted = grantResults.isNotEmpty() &&
-                    grantResults[0] == PackageManager.PERMISSION_GRANTED
-            if (granted) {
-                Log.d(TAG, "BLUETOOTH_CONNECT granted — connecting BT profile")
-                setupBluetoothProfile()
-            } else {
-                Log.d(TAG, "BLUETOOTH_CONNECT denied — BT codec/name unavailable")
-            }
-            pushCurrentSpecs()
-        }
     }
 
     // ── Setup / Teardown ──────────────────────────────────────────────────────

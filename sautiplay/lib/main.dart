@@ -9,6 +9,7 @@ import 'package:dart_ytmusic_api/dart_ytmusic_api.dart'; // Added
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'database/app_database.dart';
 import 'database/migration_helper.dart';
 import 'database/preferences_store.dart';
 import 'package:showcaseview/showcaseview.dart';
@@ -63,6 +64,7 @@ import 'streaming_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabaseMigrationHelper.migrateIfNeeded();
+  ArtworkThemeService.instance.attachDatabase(AppDatabase.instance);
   await LikedSongsService.instance.init();
   unawaited(ProjectMPresetManager.instance.initialize());
   // Metadata God removed in favor of audiotags
@@ -117,7 +119,7 @@ class _DemoAppState extends State<DemoApp> with SingleTickerProviderStateMixin {
     super.initState();
     _themeAnimController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 350),
+      duration: const Duration(milliseconds: 500),
     )..addListener(() {
         final t = Curves.easeInOutCubic.transform(_themeAnimController.value);
         setState(() {
@@ -131,9 +133,19 @@ class _DemoAppState extends State<DemoApp> with SingleTickerProviderStateMixin {
     _themeSub = AppThemeService.instance.themeChanged.stream.listen((id) {
       if (mounted) {
         final target = AppThemeService.instance.currentData;
-        if (target.primary == _toThemeData.primary &&
-            target.bgDark == _toThemeData.bgDark &&
-            target.cardDark == _toThemeData.cardDark) {
+        if (target.id == _toThemeData.id &&
+            target.hasSameColors(_toThemeData)) {
+          return;
+        }
+        final reduceMotion =
+            MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+        if (reduceMotion) {
+          _themeAnimController.stop();
+          setState(() {
+            _fromThemeData = target;
+            _toThemeData = target;
+            _currentThemeData = target;
+          });
           return;
         }
         _fromThemeData = _currentThemeData;
@@ -355,6 +367,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   int _lastPublishedDurationSecs = 0;
   int _nowPlayingPublishGeneration = 0;
   int _playbackSessionId = 0;
+  int _metadataRequestId = 0;
+  bool _isArtworkFetchPending = false;
+  AppThemeId _lastObservedThemeId = AppThemeService.instance.current;
+  StreamSubscription<AppThemeId>? _themeModeSub;
 
   // FTP Background Downloading State
   List<FtpFileEntry> _pendingFtpDownloads = [];
@@ -745,6 +761,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   final Set<String> _cachedTrackIdsThisSession = <String>{};
   DateTime? _lastOfflineSnackBarTime;
   int _lastQueueSaveTimeMs = 0;
+  bool _permissionCheckInFlight = false;
+  bool _recheckedNotificationOnPlayback = false;
 
   void _showOfflineSnackBar({String? message}) {
     if (!mounted) return;
@@ -954,6 +972,19 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
     _metadata.addListener(_applyReplayGain);
     _metadata.addListener(_extractArtworkTheme);
+    _lastObservedThemeId = AppThemeService.instance.current;
+    _themeModeSub = AppThemeService.instance.themeChanged.stream.listen((id) {
+      if (!mounted) return;
+      if (id == AppThemeId.dynamicAlbumArt &&
+          _lastObservedThemeId != AppThemeId.dynamicAlbumArt) {
+        _extractArtworkTheme();
+        final idx = _status.value.currentIndex;
+        if (idx >= 0) {
+          unawaited(_prefetchUpcomingArtworkThemes(idx));
+        }
+      }
+      _lastObservedThemeId = id;
+    });
     _replayGainSubscription =
         AppStateService.instance.replayGainChanged.stream.listen((_) {
       _applyReplayGain();
@@ -1052,6 +1083,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       _playlist.add(src);
     });
 
+    _isArtworkFetchPending = artworkUrl != null && artworkUrl.isNotEmpty;
     _metadata.value = TrackMetadata(
       artist,
       null,
@@ -1081,28 +1113,24 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     }
   }
 
-  String _getTrackArtCacheKey(Uint8List? art, Uri? uri) {
-    if (art != null && art.isNotEmpty) {
-      final len = art.length;
-      final f = art.first;
-      final l = art.last;
-      final m = art[len ~/ 2];
-      return 'art_${len}_${f}_${m}_$l';
-    }
-    return 'uri_${uri?.toString() ?? "none"}';
-  }
-
   void _extractArtworkTheme() {
+    if (AppThemeService.instance.current != AppThemeId.dynamicAlbumArt) {
+      return;
+    }
     final meta = _metadata.value;
     final source = (_status.value.currentIndex >= 0 &&
             _status.value.currentIndex < _playlist.length)
         ? _playlist[_status.value.currentIndex]
         : null;
-    final trackKey = _getTrackArtCacheKey(meta.albumArt, source?.uri);
-    ArtworkThemeService.instance.extractAndEmit(
-      trackKey: trackKey,
-      artBytes: meta.albumArt,
-      isDark: true,
+    final trackKey = source?.uri.toString() ?? 'none';
+    unawaited(
+      ArtworkThemeService.instance.extractAndEmit(
+        trackKey: trackKey,
+        artBytes: meta.albumArt,
+        isDark: true,
+        isArtworkPending: _isArtworkFetchPending,
+        respectModeGate: true,
+      ),
     );
   }
 
@@ -1358,6 +1386,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     _hardwareSubscription?.cancel();
     _metadata.removeListener(_applyReplayGain);
     _metadata.removeListener(_extractArtworkTheme);
+    _themeModeSub?.cancel();
     LikedSongsService.instance.likedSongsNotifier.removeListener(_syncNotificationFavoriteStatus);
     ChromecastService.instance.removeListener(_onCastOutputConfigChanged);
     DlnaService.instance.removeListener(_onCastOutputConfigChanged);
@@ -1370,30 +1399,66 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  Future<void> _ensureNotificationPermission() async {
-    final notif = await Permission.notification.status;
-    if (notif.isGranted) return;
-
-    final req = await Permission.notification.request();
-    if (req.isGranted) {
-      _player.refreshSystemNotification();
-      return;
-    }
-    if (!req.isGranted) {
-      _logs.insert(
-        0,
-        '[permission] Notification permission denied. Media notification may not appear.',
-      );
-      if (req.isPermanentlyDenied) {
-        _logs.insert(
-          0,
-          '[permission] Notification permission permanently denied. Open app settings.',
-        );
+  Future<void> _ensureNotificationPermission({bool includeBluetooth = true}) async {
+    if (!Platform.isAndroid || _permissionCheckInFlight) return;
+    _permissionCheckInFlight = true;
+    try {
+      final notif = await Permission.notification.status;
+      if (!notif.isGranted && !notif.isPermanentlyDenied) {
+        final req = await Permission.notification.request();
+        if (req.isGranted) {
+          _player.refreshSystemNotification();
+        } else {
+          _logs.insert(
+            0,
+            '[permission] Notification permission denied. Media notification may not appear.',
+          );
+          if (req.isPermanentlyDenied) {
+            _logs.insert(
+              0,
+              '[permission] Notification permission permanently denied. Open app settings.',
+            );
+          }
+        }
       }
+
+      if (includeBluetooth) {
+        try {
+          final bt = await Permission.bluetoothConnect.status;
+          var btGranted = bt.isGranted;
+          if (!btGranted && !bt.isPermanentlyDenied) {
+            final btReq = await Permission.bluetoothConnect.request();
+            btGranted = btReq.isGranted;
+          }
+          if (btGranted) {
+            await const MethodChannel('com.wambugu.sautiflow/hardware')
+                .invokeMethod<void>('refreshBluetoothProfile');
+          }
+        } catch (_) {}
+      }
+    } finally {
+      _permissionCheckInFlight = false;
     }
   }
 
+  Future<void> _recheckNotificationPermissionOnPlayback() async {
+    if (!Platform.isAndroid ||
+        _permissionCheckInFlight ||
+        _recheckedNotificationOnPlayback) {
+      return;
+    }
+    _recheckedNotificationOnPlayback = true;
+    final status = await Permission.notification.status;
+    if (status.isGranted || status.isPermanentlyDenied) {
+      return;
+    }
+    await _ensureNotificationPermission(includeBluetooth: false);
+  }
+
   void _publishNowPlayingFromStatus(PlayerStatus status) {
+    if (Platform.isAndroid && status.isPlaying) {
+      unawaited(_recheckNotificationPermissionOnPlayback());
+    }
     final idx = status.currentIndex;
     if (idx < 0 || idx >= _playlist.length) return;
 
@@ -1844,47 +1909,70 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
   }
 
   /// Lookahead pre-fetch pipeline: pre-reads ReplayGain for loudness crossfade
-  /// and pre-extracts the next track's dynamic theme palette while current track plays.
+  /// and pre-extracts upcoming tracks' adaptive palettes while current track plays.
   Future<void> _prefetchNextTrack(int currentIndex) async {
     await _prefetchNextTrackReplayGain(currentIndex);
+    await _prefetchUpcomingArtworkThemes(currentIndex);
+  }
 
-    if (AppThemeService.instance.current == AppThemeId.dynamicAlbumArt) {
-      final nextIndex = currentIndex + 1;
-      if (nextIndex < _playlist.length) {
-        final nextSource = _playlist[nextIndex];
-        try {
-          Uint8List? nextArt;
-          if (_onlineTrackMetadata.containsKey(nextSource.uri)) {
-            final thumbUrl = _onlineTrackMetadata[nextSource.uri]?.thumbnailUrl;
-            if (thumbUrl != null && _thumbnailCache.containsKey(thumbUrl)) {
+  Future<void> _prefetchUpcomingArtworkThemes(int currentIndex) async {
+    if (AppThemeService.instance.current != AppThemeId.dynamicAlbumArt) {
+      return;
+    }
+    for (final offset in const [1, 2]) {
+      if (!mounted ||
+          AppThemeService.instance.current != AppThemeId.dynamicAlbumArt) {
+        return;
+      }
+      final nextIndex = currentIndex + offset;
+      if (nextIndex < 0 || nextIndex >= _playlist.length) continue;
+      final nextSource = _playlist[nextIndex];
+      try {
+        Uint8List? nextArt;
+        if (_onlineTrackMetadata.containsKey(nextSource.uri)) {
+          final thumbUrl = _onlineTrackMetadata[nextSource.uri]?.thumbnailUrl;
+          if (thumbUrl != null && thumbUrl.isNotEmpty) {
+            if (_thumbnailCache.containsKey(thumbUrl)) {
               nextArt = _thumbnailCache[thumbUrl];
-            }
-          } else if (nextSource.uri.scheme == 'file') {
-            final rawPath = _safeFilePathFromUri(nextSource.uri);
-            final path = rawPath != null ? CueVirtualPath.strip(rawPath) : null;
-            if (path != null) {
-              final meta =
-                  await _readLocalTrackMetadataOffload(path, getImage: true);
-              nextArt = meta.albumArt;
+            } else {
+              final cachedFile =
+                  await DefaultCacheManager().getFileFromCache(thumbUrl);
+              if (cachedFile != null && await cachedFile.file.exists()) {
+                nextArt = await cachedFile.file.readAsBytes();
+              }
             }
           }
+        } else if (nextSource.uri.scheme == 'file') {
+          final rawPath = _safeFilePathFromUri(nextSource.uri);
+          final path = rawPath != null ? CueVirtualPath.strip(rawPath) : null;
+          if (path != null) {
+            final meta =
+                await _readLocalTrackMetadataOffload(path, getImage: true);
+            nextArt = meta.albumArt;
+          }
+        }
 
-          if (nextArt != null && nextArt.isNotEmpty) {
-            final nextKey = _getTrackArtCacheKey(nextArt, nextSource.uri);
-            unawaited(ArtworkThemeService.instance.prefetch(
-              trackKey: nextKey,
+        if (!mounted ||
+            AppThemeService.instance.current != AppThemeId.dynamicAlbumArt) {
+          return;
+        }
+        if (nextArt != null && nextArt.isNotEmpty) {
+          unawaited(
+            ArtworkThemeService.instance.prefetch(
+              trackKey: nextSource.uri.toString(),
               artBytes: nextArt,
               isDark: true,
-            ));
-          }
-        } catch (_) {}
-      }
+            ),
+          );
+        }
+      } catch (_) {}
     }
   }
 
   Future<void> _updateMetadata(AudioSource source) async {
     if (_lastMetadataSource == source) return;
     _lastMetadataSource = source;
+    final reqId = ++_metadataRequestId;
 
     String artist = _subtitleFromSource(source);
     String? title = source.title;
@@ -1925,6 +2013,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
             _logs.insert(0, '[metadata] Failed to download thumbnail: $e');
             if (mounted) setState(() {});
           }
+          if (!mounted || reqId != _metadataRequestId || _lastMetadataSource != source) {
+            return;
+          }
         }
       }
     }
@@ -1951,6 +2042,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
           try {
             final meta =
                 await _readLocalTrackMetadataOffload(filePath, getImage: true);
+            if (!mounted || reqId != _metadataRequestId || _lastMetadataSource != source) {
+              return;
+            }
             if ((title == null || title.isEmpty) &&
                 meta.title != null &&
                 meta.title!.isNotEmpty) {
@@ -1974,6 +2068,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
                 (rgTrack == null && rgAlbum == null)) {
               try {
                 final tags = await _player.readFileTags(filePath);
+                if (!mounted || reqId != _metadataRequestId || _lastMetadataSource != source) {
+                  return;
+                }
                 if (tags != null) {
                   final artStr = tags['artist'] as String?;
                   if (!hasSourceArtist &&
@@ -1995,6 +2092,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
               final dir = File(filePath).parent;
               if (dir.existsSync()) {
                 final files = await dir.list().toList();
+                if (!mounted || reqId != _metadataRequestId || _lastMetadataSource != source) {
+                  return;
+                }
                 for (final f in files) {
                   if (f is File) {
                     final lowerPath = f.path.toLowerCase();
@@ -2003,6 +2103,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
                         lowerPath.endsWith('.png') ||
                         lowerPath.endsWith('.webp')) {
                       albumArt = await f.readAsBytes();
+                      if (!mounted || reqId != _metadataRequestId || _lastMetadataSource != source) {
+                        return;
+                      }
                       break;
                     }
                   }
@@ -2022,6 +2125,10 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       }
     }
 
+    if (!mounted || reqId != _metadataRequestId || _lastMetadataSource != source) {
+      return;
+    }
+    _isArtworkFetchPending = false;
     _metadata.value = TrackMetadata(artist, albumArt,
         replayGainTrack: rgTrack,
         replayGainAlbum: rgAlbum,
@@ -4155,6 +4262,7 @@ void _showNowPlayingScreen() {
                               if (status.isPlaying) {
                                 _player.pause();
                               } else {
+                                unawaited(_recheckNotificationPermissionOnPlayback());
                                 _player.play();
                               }
                             },
@@ -4190,6 +4298,8 @@ void _showNowPlayingScreen() {
                 indicatorStyle: M3ENavBarIndicatorStyle.pill,
                 labelBehavior: M3ENavBarLabelBehavior.alwaysShow,
                 backgroundColor: context.bgDark,
+                indicatorColor:
+                    context.activeNavigation.withValues(alpha: 0.22),
                 destinations: [
                   M3ENavigationBarDestination(
                     icon: AppShowcase(

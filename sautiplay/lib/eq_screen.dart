@@ -538,6 +538,33 @@ class EqScreen extends StatefulWidget {
           (state['levellerSilenceGateLufs'] as num?)?.toDouble() ?? -45.0,
     );
 
+    // 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter
+    final lookaheadAgcEnabled =
+        masterEnabled && (state['lookaheadAgcEnabled'] ?? false);
+    player.setLookaheadAgcEnabled(lookaheadAgcEnabled);
+    player.setLookaheadAgcParams(
+      targetLufs:
+          (state['lookaheadAgcTargetLufs'] as num?)?.toDouble() ?? -14.0,
+      maxBoostDb: (state['lookaheadAgcMaxBoostDb'] as num?)?.toDouble() ?? 9.0,
+      maxAttenuationDb:
+          (state['lookaheadAgcMaxAttenuationDb'] as num?)?.toDouble() ?? 15.0,
+      agcRiseDbSec:
+          (state['lookaheadAgcRiseDbSec'] as num?)?.toDouble() ?? 1.5,
+      agcFallDbSec:
+          (state['lookaheadAgcFallDbSec'] as num?)?.toDouble() ?? 4.0,
+      silenceGateLufs:
+          (state['lookaheadAgcSilenceGateLufs'] as num?)?.toDouble() ?? -45.0,
+      lookaheadMs:
+          (state['lookaheadAgcLookaheadMs'] as num?)?.toDouble() ?? 10.0,
+      ceilingDb: (state['lookaheadAgcCeilingDb'] as num?)?.toDouble() ?? -0.1,
+      lowXoverHz:
+          (state['lookaheadAgcLowXoverHz'] as num?)?.toDouble() ?? 180.0,
+      highXoverHz:
+          (state['lookaheadAgcHighXoverHz'] as num?)?.toDouble() ?? 3000.0,
+      bassReleaseMs:
+          (state['lookaheadAgcBassReleaseMs'] as num?)?.toDouble() ?? 160.0,
+    );
+
     // 6-Band Dynamic Parametric Equalizer
     final dynamicEqEnabled =
         masterEnabled && (state['dynamicEqEnabled'] ?? false);
@@ -1844,6 +1871,36 @@ class _EqScreenState extends State<EqScreen>
   double _levellerSilenceGateLufs = -45.0;
   final ValueNotifier<double> _levellerGainNotifier = ValueNotifier(0.0);
 
+  // 9b. 3-Band Lookahead AGC + Limiter
+  bool _lookaheadAgcEnabled = false;
+  double _lookaheadAgcTargetLufs = -14.0;
+  double _lookaheadAgcMaxBoostDb = 9.0;
+  double _lookaheadAgcMaxAttenuationDb = 15.0;
+  double _lookaheadAgcRiseDbSec = 1.5;
+  double _lookaheadAgcFallDbSec = 4.0;
+  double _lookaheadAgcSilenceGateLufs = -45.0;
+  double _lookaheadAgcLookaheadMs = 10.0;
+  double _lookaheadAgcCeilingDb = -0.1;
+  double _lookaheadAgcLowXoverHz = 180.0;
+  double _lookaheadAgcHighXoverHz = 3000.0;
+  double _lookaheadAgcBassReleaseMs = 160.0;
+  final ValueNotifier<
+      ({
+        double agcGainDb,
+        double lowGrDb,
+        double midGrDb,
+        double highGrDb,
+        double peakGrDb,
+      })> _lookaheadAgcTelemetryNotifier = ValueNotifier(
+    (
+      agcGainDb: 0.0,
+      lowGrDb: 0.0,
+      midGrDb: 0.0,
+      highGrDb: 0.0,
+      peakGrDb: 0.0,
+    ),
+  );
+
   // 10. 6-Band Dynamic Equalizer (DynamicEqDSP)
   bool _dynamicEqEnabled = false;
   int _selectedDynamicEqBand = 0;
@@ -2478,7 +2535,8 @@ class _EqScreenState extends State<EqScreen>
       final anyDynamicsActive = _compressorEnabled ||
           _deEsserEnabled ||
           _noiseGateEnabled ||
-          _levellerEnabled;
+          _levellerEnabled ||
+          _lookaheadAgcEnabled;
 
       if (!_isPlaying || !anyDynamicsActive) {
         if (_compressorGrNotifier.value != 0.0) {
@@ -2492,6 +2550,20 @@ class _EqScreenState extends State<EqScreen>
         }
         if (_levellerGainNotifier.value != 0.0) {
           _levellerGainNotifier.value = 0.0;
+        }
+        final laVal = _lookaheadAgcTelemetryNotifier.value;
+        if (laVal.agcGainDb != 0.0 ||
+            laVal.lowGrDb != 0.0 ||
+            laVal.midGrDb != 0.0 ||
+            laVal.highGrDb != 0.0 ||
+            laVal.peakGrDb != 0.0) {
+          _lookaheadAgcTelemetryNotifier.value = (
+            agcGainDb: 0.0,
+            lowGrDb: 0.0,
+            midGrDb: 0.0,
+            highGrDb: 0.0,
+            peakGrDb: 0.0,
+          );
         }
         return;
       }
@@ -2538,6 +2610,36 @@ class _EqScreenState extends State<EqScreen>
         if (mounted) _levellerGainNotifier.value = 0.0;
       }
 
+      if (_lookaheadAgcEnabled && _isPlaying) {
+        futures.add(widget.player.getLookaheadAgcTelemetry().then((t) {
+          if (!mounted) return;
+          final prev = _lookaheadAgcTelemetryNotifier.value;
+          if ((prev.agcGainDb - t.agcGainDb).abs() > 0.05 ||
+              (prev.lowGrDb - t.lowGrDb).abs() > 0.05 ||
+              (prev.midGrDb - t.midGrDb).abs() > 0.05 ||
+              (prev.highGrDb - t.highGrDb).abs() > 0.05 ||
+              (prev.peakGrDb - t.peakGrDb).abs() > 0.05) {
+            _lookaheadAgcTelemetryNotifier.value = t;
+          }
+        }));
+      } else {
+        final laVal = _lookaheadAgcTelemetryNotifier.value;
+        if (mounted &&
+            (laVal.agcGainDb != 0.0 ||
+                laVal.lowGrDb != 0.0 ||
+                laVal.midGrDb != 0.0 ||
+                laVal.highGrDb != 0.0 ||
+                laVal.peakGrDb != 0.0)) {
+          _lookaheadAgcTelemetryNotifier.value = (
+            agcGainDb: 0.0,
+            lowGrDb: 0.0,
+            midGrDb: 0.0,
+            highGrDb: 0.0,
+            peakGrDb: 0.0,
+          );
+        }
+      }
+
       if (futures.isNotEmpty) {
         await Future.wait(futures);
       }
@@ -2552,6 +2654,13 @@ class _EqScreenState extends State<EqScreen>
     if (_deEsserGrNotifier.value != 0.0) _deEsserGrNotifier.value = 0.0;
     if (_noiseGateGrNotifier.value != 0.0) _noiseGateGrNotifier.value = 0.0;
     if (_levellerGainNotifier.value != 0.0) _levellerGainNotifier.value = 0.0;
+    _lookaheadAgcTelemetryNotifier.value = (
+      agcGainDb: 0.0,
+      lowGrDb: 0.0,
+      midGrDb: 0.0,
+      highGrDb: 0.0,
+      peakGrDb: 0.0,
+    );
   }
 
   @override
@@ -2561,6 +2670,7 @@ class _EqScreenState extends State<EqScreen>
     _deEsserGrNotifier.dispose();
     _noiseGateGrNotifier.dispose();
     _levellerGainNotifier.dispose();
+    _lookaheadAgcTelemetryNotifier.dispose();
     _statusSub?.cancel();
     _autoEqSub?.cancel();
     _eqSettingsSub?.cancel();
@@ -2993,6 +3103,32 @@ class _EqScreenState extends State<EqScreen>
         _levellerSilenceGateLufs =
             (dspMap['levellerSilenceGateLufs'] as num?)?.toDouble() ?? -45.0;
 
+        // 3-Band Lookahead AGC + Limiter
+        _lookaheadAgcEnabled = dspMap['lookaheadAgcEnabled'] ?? false;
+        _lookaheadAgcTargetLufs =
+            (dspMap['lookaheadAgcTargetLufs'] as num?)?.toDouble() ?? -14.0;
+        _lookaheadAgcMaxBoostDb =
+            (dspMap['lookaheadAgcMaxBoostDb'] as num?)?.toDouble() ?? 9.0;
+        _lookaheadAgcMaxAttenuationDb =
+            (dspMap['lookaheadAgcMaxAttenuationDb'] as num?)?.toDouble() ??
+                15.0;
+        _lookaheadAgcRiseDbSec =
+            (dspMap['lookaheadAgcRiseDbSec'] as num?)?.toDouble() ?? 1.5;
+        _lookaheadAgcFallDbSec =
+            (dspMap['lookaheadAgcFallDbSec'] as num?)?.toDouble() ?? 4.0;
+        _lookaheadAgcSilenceGateLufs =
+            (dspMap['lookaheadAgcSilenceGateLufs'] as num?)?.toDouble() ?? -45.0;
+        _lookaheadAgcLookaheadMs =
+            (dspMap['lookaheadAgcLookaheadMs'] as num?)?.toDouble() ?? 10.0;
+        _lookaheadAgcCeilingDb =
+            (dspMap['lookaheadAgcCeilingDb'] as num?)?.toDouble() ?? -0.1;
+        _lookaheadAgcLowXoverHz =
+            (dspMap['lookaheadAgcLowXoverHz'] as num?)?.toDouble() ?? 180.0;
+        _lookaheadAgcHighXoverHz =
+            (dspMap['lookaheadAgcHighXoverHz'] as num?)?.toDouble() ?? 3000.0;
+        _lookaheadAgcBassReleaseMs =
+            (dspMap['lookaheadAgcBassReleaseMs'] as num?)?.toDouble() ?? 160.0;
+
         // Dynamic EQ
         _dynamicEqEnabled = dspMap['dynamicEqEnabled'] ?? false;
         final rawDynPreset = dspMap['dynamicEqPreset'] as String?;
@@ -3104,6 +3240,7 @@ class _EqScreenState extends State<EqScreen>
     _updateDynamicLoudness();
     _updateNoiseGate();
     _updateLeveller();
+    _updateLookaheadAgc();
     _updateDynamicEq();
     _updateTapeDrift();
 
@@ -3505,6 +3642,25 @@ class _EqScreenState extends State<EqScreen>
         maxBoostDb: _levellerMaxBoostDb,
         maxAttenuationDb: _levellerMaxAttenuationDb,
         silenceGateLufs: _levellerSilenceGateLufs,
+      );
+    }
+  }
+
+  void _updateLookaheadAgc() {
+    widget.player.setLookaheadAgcEnabled(_lookaheadAgcEnabled);
+    if (_lookaheadAgcEnabled) {
+      widget.player.setLookaheadAgcParams(
+        targetLufs: _lookaheadAgcTargetLufs,
+        maxBoostDb: _lookaheadAgcMaxBoostDb,
+        maxAttenuationDb: _lookaheadAgcMaxAttenuationDb,
+        agcRiseDbSec: _lookaheadAgcRiseDbSec,
+        agcFallDbSec: _lookaheadAgcFallDbSec,
+        silenceGateLufs: _lookaheadAgcSilenceGateLufs,
+        lookaheadMs: _lookaheadAgcLookaheadMs,
+        ceilingDb: _lookaheadAgcCeilingDb,
+        lowXoverHz: _lookaheadAgcLowXoverHz,
+        highXoverHz: _lookaheadAgcHighXoverHz,
+        bassReleaseMs: _lookaheadAgcBassReleaseMs,
       );
     }
   }
@@ -3939,6 +4095,18 @@ class _EqScreenState extends State<EqScreen>
       'levellerMaxBoostDb': _levellerMaxBoostDb,
       'levellerMaxAttenuationDb': _levellerMaxAttenuationDb,
       'levellerSilenceGateLufs': _levellerSilenceGateLufs,
+      'lookaheadAgcEnabled': _lookaheadAgcEnabled,
+      'lookaheadAgcTargetLufs': _lookaheadAgcTargetLufs,
+      'lookaheadAgcMaxBoostDb': _lookaheadAgcMaxBoostDb,
+      'lookaheadAgcMaxAttenuationDb': _lookaheadAgcMaxAttenuationDb,
+      'lookaheadAgcRiseDbSec': _lookaheadAgcRiseDbSec,
+      'lookaheadAgcFallDbSec': _lookaheadAgcFallDbSec,
+      'lookaheadAgcSilenceGateLufs': _lookaheadAgcSilenceGateLufs,
+      'lookaheadAgcLookaheadMs': _lookaheadAgcLookaheadMs,
+      'lookaheadAgcCeilingDb': _lookaheadAgcCeilingDb,
+      'lookaheadAgcLowXoverHz': _lookaheadAgcLowXoverHz,
+      'lookaheadAgcHighXoverHz': _lookaheadAgcHighXoverHz,
+      'lookaheadAgcBassReleaseMs': _lookaheadAgcBassReleaseMs,
       'dynamicEqEnabled': _dynamicEqEnabled,
       'dynamicEqPreset': _dynamicEqPreset,
       'dynamicEqBands': _dynamicEqBands.map((b) => b.toJson()).toList(),
@@ -4430,6 +4598,27 @@ class _EqScreenState extends State<EqScreen>
       _levellerGainNotifier.value = 0.0;
       widget.player.setLevellerEnabled(false);
 
+      _lookaheadAgcEnabled = false;
+      _lookaheadAgcTargetLufs = -14.0;
+      _lookaheadAgcMaxBoostDb = 9.0;
+      _lookaheadAgcMaxAttenuationDb = 15.0;
+      _lookaheadAgcRiseDbSec = 1.5;
+      _lookaheadAgcFallDbSec = 4.0;
+      _lookaheadAgcSilenceGateLufs = -45.0;
+      _lookaheadAgcLookaheadMs = 10.0;
+      _lookaheadAgcCeilingDb = -0.1;
+      _lookaheadAgcLowXoverHz = 180.0;
+      _lookaheadAgcHighXoverHz = 3000.0;
+      _lookaheadAgcBassReleaseMs = 160.0;
+      _lookaheadAgcTelemetryNotifier.value = (
+        agcGainDb: 0.0,
+        lowGrDb: 0.0,
+        midGrDb: 0.0,
+        highGrDb: 0.0,
+        peakGrDb: 0.0,
+      );
+      widget.player.setLookaheadAgcEnabled(false);
+
       _dynamicEqEnabled = false;
       widget.player.setDynamicEqEnabled(false);
 
@@ -4569,7 +4758,8 @@ class _EqScreenState extends State<EqScreen>
         title == 'De-Esser' ||
         title == 'Noise Gate' ||
         title == 'Leveller' ||
-        title == 'Auto Gain Control';
+        title == 'Auto Gain Control' ||
+        title == 'Lookahead AGC + Limiter';
 
     if (_isDesktopExpanded) {
       if (isDynamicsScreen) {
@@ -5064,7 +5254,7 @@ class _EqScreenState extends State<EqScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: M3EList(
-                    itemCount: 5,
+                    itemCount: 6,
                     onTap: (index) {
                       switch (index) {
                         case 0:
@@ -5093,13 +5283,21 @@ class _EqScreenState extends State<EqScreen>
                           break;
                         case 3:
                           _openDetailScreen(
+                            'Lookahead AGC + Limiter',
+                            Icons.speed_rounded,
+                            (_) => _buildLookaheadAgcSection(),
+                            shape: Shapes.diamond,
+                          );
+                          break;
+                        case 4:
+                          _openDetailScreen(
                             'Dynamic Loudness',
                             SautiIcons.dynamicLoudness,
                             (_) => _buildDynamicLoudnessSection(),
                             shape: Shapes.burst,
                           );
                           break;
-                        case 4:
+                        case 5:
                           _openDetailScreen(
                             'ReplayGain',
                             SautiIcons.replaygain,
@@ -5173,6 +5371,39 @@ class _EqScreenState extends State<EqScreen>
                         );
                       }
                       if (index == 3) {
+                        return _buildEffectTileCard(
+                          icon: Icons.speed_rounded,
+                          shape: Shapes.diamond,
+                          title: 'Lookahead AGC + Limiter',
+                          subtitle: _lookaheadAgcEnabled
+                              ? '3-Band · ${_lookaheadAgcLookaheadMs.toStringAsFixed(0)} ms Lookahead · ${_lookaheadAgcTargetLufs.toInt()} LUFS'
+                              : 'Disabled',
+                          isEnabled: _lookaheadAgcEnabled,
+                          onToggle: (v) {
+                            setState(() {
+                              _lookaheadAgcEnabled = v;
+                              if (!v) {
+                                _lookaheadAgcTelemetryNotifier.value = (
+                                  agcGainDb: 0.0,
+                                  lowGrDb: 0.0,
+                                  midGrDb: 0.0,
+                                  highGrDb: 0.0,
+                                  peakGrDb: 0.0,
+                                );
+                              }
+                            });
+                            _updateLookaheadAgc();
+                            _saveEqState();
+                          },
+                          onTapDetail: () => _openDetailScreen(
+                            'Lookahead AGC + Limiter',
+                            Icons.speed_rounded,
+                            (_) => _buildLookaheadAgcSection(),
+                            shape: Shapes.diamond,
+                          ),
+                        );
+                      }
+                      if (index == 4) {
                         return _buildEffectTileCard(
                           icon: SautiIcons.dynamicLoudness,
                           shape: Shapes.burst,
@@ -13577,6 +13808,480 @@ class _EqScreenState extends State<EqScreen>
               },
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _buildLookaheadAgcSection() {
+    final primaryColor = context.primaryColor;
+    final secondaryAccent = HSLColor.fromColor(primaryColor)
+        .withHue((HSLColor.fromColor(primaryColor).hue + 35) % 360)
+        .withSaturation(
+            (HSLColor.fromColor(primaryColor).saturation * 0.9).clamp(0.4, 1.0))
+        .toColor();
+
+    Widget buildGrBandBar(String label, double grDb, Color barColor) {
+      final magDb = grDb.abs().clamp(0.0, 18.0);
+      final frac = (magDb / 18.0).clamp(0.0, 1.0);
+      return Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  _lookaheadAgcEnabled && _isPlaying
+                      ? '${grDb.toStringAsFixed(1)} dB'
+                      : '0.0',
+                  style: TextStyle(
+                    color: _lookaheadAgcEnabled && _isPlaying && magDb > 0.1
+                        ? barColor
+                        : Colors.white38,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Container(
+              height: 6,
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: _lookaheadAgcEnabled && _isPlaying ? frac : 0.0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: barColor,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return _CollapsibleSection(
+      icon: Center(
+        child: Icon(Icons.speed_rounded, color: primaryColor, size: 20),
+      ),
+      title: 'Lookahead AGC + Limiter',
+      subtitle: '3-band pre-emptive bass-safe AGC & ceiling limiter',
+      isEnabled: _lookaheadAgcEnabled,
+      onToggle: (v) {
+        setState(() {
+          _lookaheadAgcEnabled = v;
+          if (!v) {
+            _lookaheadAgcTelemetryNotifier.value = (
+              agcGainDb: 0.0,
+              lowGrDb: 0.0,
+              midGrDb: 0.0,
+              highGrDb: 0.0,
+              peakGrDb: 0.0,
+            );
+          }
+        });
+        _subScreenSetState?.call(() {});
+        _updateLookaheadAgc();
+        _saveEqState();
+      },
+      children: [
+        // Live Real-Time Telemetry: AGC Gain + 3-Band GR + Peak Safety
+        ValueListenableBuilder<
+            ({
+              double agcGainDb,
+              double lowGrDb,
+              double midGrDb,
+              double highGrDb,
+              double peakGrDb,
+            })>(
+          valueListenable: _lookaheadAgcTelemetryNotifier,
+          builder: (context, t, _) {
+            final currentGain = t.agcGainDb;
+            final isBoosting = _isPlaying && currentGain > 0.05;
+            final isAttenuating = _isPlaying && currentGain < -0.05;
+            final gainColor = isBoosting
+                ? primaryColor
+                : (isAttenuating ? secondaryAccent : Colors.white54);
+            final clampedRatio =
+                _isPlaying ? (currentGain / 18.0).clamp(-1.0, 1.0) : 0.0;
+
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: surfaceDarkerColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: primaryColor.withValues(
+                      alpha: _lookaheadAgcEnabled ? 0.35 : 0.1),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _lookaheadAgcEnabled &&
+                                      _isPlaying &&
+                                      (isBoosting || isAttenuating)
+                                  ? gainColor
+                                  : (_lookaheadAgcEnabled
+                                      ? primaryColor.withValues(alpha: 0.4)
+                                      : Colors.white24),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'LOOKAHEAD AGC GAIN',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        _lookaheadAgcEnabled
+                            ? (!_isPlaying
+                                ? '0.0 dB'
+                                : '${currentGain >= 0 ? '+' : ''}${currentGain.toStringAsFixed(1)} dB')
+                            : 'OFF',
+                        style: TextStyle(
+                          color: _lookaheadAgcEnabled && _isPlaying
+                              ? gainColor
+                              : (_lookaheadAgcEnabled
+                                  ? Colors.white70
+                                  : Colors.white38),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 12,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.white10,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        Container(width: 2, height: 12, color: Colors.white38),
+                        if (_lookaheadAgcEnabled &&
+                            _isPlaying &&
+                            clampedRatio.abs() > 0.005)
+                          Positioned.fill(
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: clampedRatio < 0
+                                        ? FractionallySizedBox(
+                                            widthFactor: clampedRatio
+                                                .abs()
+                                                .clamp(0.0, 1.0),
+                                            child: Container(
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: gainColor,
+                                                borderRadius: const BorderRadius
+                                                    .horizontal(
+                                                  left: Radius.circular(4),
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : const SizedBox.shrink(),
+                                  ),
+                                ),
+                                const SizedBox(width: 2),
+                                Expanded(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: clampedRatio > 0
+                                        ? FractionallySizedBox(
+                                            widthFactor:
+                                                clampedRatio.clamp(0.0, 1.0),
+                                            child: Container(
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: gainColor,
+                                                borderRadius: const BorderRadius
+                                                    .horizontal(
+                                                  right: Radius.circular(4),
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : const SizedBox.shrink(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      buildGrBandBar('BASS GR', t.lowGrDb, secondaryAccent),
+                      const SizedBox(width: 10),
+                      buildGrBandBar('MID GR', t.midGrDb, primaryColor),
+                      const SizedBox(width: 10),
+                      buildGrBandBar('HIGH GR', t.highGrDb, Colors.cyanAccent),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        '4x True-Peak Ceiling Guard',
+                        style: TextStyle(color: Colors.white54, fontSize: 9.5),
+                      ),
+                      Text(
+                        _lookaheadAgcEnabled && _isPlaying
+                            ? '${t.peakGrDb.toStringAsFixed(1)} dB'
+                            : 'IDLE',
+                        style: TextStyle(
+                          color: _lookaheadAgcEnabled &&
+                                  _isPlaying &&
+                                  t.peakGrDb < -0.1
+                              ? Colors.amberAccent
+                              : Colors.white38,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 14),
+
+        // Quick Preset Chips
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: [
+              for (final p in [
+                (
+                  'Balanced Music',
+                  -14.0,
+                  10.0,
+                  160.0,
+                  180.0,
+                  9.0,
+                  1.5,
+                  4.0,
+                ),
+                (
+                  'Deep Bass Safe',
+                  -14.0,
+                  12.0,
+                  200.0,
+                  200.0,
+                  9.0,
+                  1.5,
+                  5.0,
+                ),
+                (
+                  'Night Listening',
+                  -16.0,
+                  12.0,
+                  160.0,
+                  180.0,
+                  12.0,
+                  2.5,
+                  6.0,
+                ),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6.0),
+                  child: M3EChip(
+                    label: p.$1,
+                    type: M3EChipType.filter,
+                    selected: (_lookaheadAgcTargetLufs - p.$2).abs() < 0.1 &&
+                        (_lookaheadAgcLookaheadMs - p.$3).abs() < 0.2 &&
+                        (_lookaheadAgcBassReleaseMs - p.$4).abs() < 1.0 &&
+                        (_lookaheadAgcMaxBoostDb - p.$6).abs() < 0.1,
+                    onPressed: () {
+                      setState(() {
+                        _lookaheadAgcTargetLufs = p.$2;
+                        _lookaheadAgcLookaheadMs = p.$3;
+                        _lookaheadAgcBassReleaseMs = p.$4;
+                        _lookaheadAgcLowXoverHz = p.$5;
+                        _lookaheadAgcMaxBoostDb = p.$6;
+                        _lookaheadAgcRiseDbSec = p.$7;
+                        _lookaheadAgcFallDbSec = p.$8;
+                      });
+                      _subScreenSetState?.call(() {});
+                      if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                      _saveEqState();
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Knobs: Target LUFS, Max Boost, Lookahead Window, Ceiling, Bass Xover, Bass Release, Silence Gate
+        Center(
+          child: Wrap(
+            alignment: WrapAlignment.spaceEvenly,
+            spacing: 14,
+            runSpacing: 16,
+            children: [
+              ModernAudioKnob(
+                label: 'TARGET',
+                value: _lookaheadAgcTargetLufs,
+                min: -30.0,
+                max: -6.0,
+                flatValue: -14.0,
+                activeColor:
+                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                valueFormatter: (v) => '${v.toStringAsFixed(1)} LUFS',
+                onChanged: (v) {
+                  setState(() => _lookaheadAgcTargetLufs = v);
+                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'MAX BOOST',
+                value: _lookaheadAgcMaxBoostDb,
+                min: 0.0,
+                max: 18.0,
+                flatValue: 9.0,
+                activeColor:
+                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                valueFormatter: (v) => '+${v.toStringAsFixed(1)} dB',
+                onChanged: (v) {
+                  setState(() => _lookaheadAgcMaxBoostDb = v);
+                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'LOOKAHEAD',
+                value: _lookaheadAgcLookaheadMs,
+                min: 2.0,
+                max: 25.0,
+                flatValue: 10.0,
+                activeColor:
+                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
+                onChanged: (v) {
+                  setState(() => _lookaheadAgcLookaheadMs = v);
+                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'CEILING',
+                value: _lookaheadAgcCeilingDb,
+                min: -6.0,
+                max: -0.1,
+                flatValue: -0.1,
+                activeColor:
+                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
+                onChanged: (v) {
+                  setState(() => _lookaheadAgcCeilingDb = v);
+                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'BASS XOVER',
+                value: _lookaheadAgcLowXoverHz,
+                min: 80.0,
+                max: 400.0,
+                flatValue: 180.0,
+                activeColor:
+                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                valueFormatter: (v) => '${v.toInt()} Hz',
+                onChanged: (v) {
+                  setState(() => _lookaheadAgcLowXoverHz = v);
+                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'BASS REL',
+                value: _lookaheadAgcBassReleaseMs,
+                min: 60.0,
+                max: 400.0,
+                flatValue: 160.0,
+                activeColor:
+                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                valueFormatter: (v) => '${v.toInt()} ms',
+                onChanged: (v) {
+                  setState(() => _lookaheadAgcBassReleaseMs = v);
+                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                  _saveEqState();
+                },
+              ),
+              ModernAudioKnob(
+                label: 'SILENCE GATE',
+                value: _lookaheadAgcSilenceGateLufs,
+                min: -70.0,
+                max: -24.0,
+                flatValue: -45.0,
+                activeColor:
+                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                valueFormatter: (v) => '${v.toInt()} LUFS',
+                onChanged: (v) {
+                  setState(() => _lookaheadAgcSilenceGateLufs = v);
+                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 12),
       ],

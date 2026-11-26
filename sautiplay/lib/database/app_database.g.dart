@@ -4760,6 +4760,348 @@ class TagEditHistoryEntriesCompanion
   }
 }
 
+class $ArtworkPaletteEntriesTable extends ArtworkPaletteEntries
+    with TableInfo<$ArtworkPaletteEntriesTable, ArtworkPaletteEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ArtworkPaletteEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _artworkHashMeta =
+      const VerificationMeta('artworkHash');
+  @override
+  late final GeneratedColumn<String> artworkHash = GeneratedColumn<String>(
+      'artwork_hash', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _algorithmVersionMeta =
+      const VerificationMeta('algorithmVersion');
+  @override
+  late final GeneratedColumn<int> algorithmVersion = GeneratedColumn<int>(
+      'algorithm_version', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _payloadJsonMeta =
+      const VerificationMeta('payloadJson');
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+      'payload_json', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _createdAtMsMeta =
+      const VerificationMeta('createdAtMs');
+  @override
+  late final GeneratedColumn<int> createdAtMs = GeneratedColumn<int>(
+      'created_at_ms', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _lastAccessedAtMsMeta =
+      const VerificationMeta('lastAccessedAtMs');
+  @override
+  late final GeneratedColumn<int> lastAccessedAtMs = GeneratedColumn<int>(
+      'last_accessed_at_ms', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        artworkHash,
+        algorithmVersion,
+        payloadJson,
+        createdAtMs,
+        lastAccessedAtMs
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'artwork_palettes';
+  @override
+  VerificationContext validateIntegrity(
+      Insertable<ArtworkPaletteEntry> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('artwork_hash')) {
+      context.handle(
+          _artworkHashMeta,
+          artworkHash.isAcceptableOrUnknown(
+              data['artwork_hash']!, _artworkHashMeta));
+    } else if (isInserting) {
+      context.missing(_artworkHashMeta);
+    }
+    if (data.containsKey('algorithm_version')) {
+      context.handle(
+          _algorithmVersionMeta,
+          algorithmVersion.isAcceptableOrUnknown(
+              data['algorithm_version']!, _algorithmVersionMeta));
+    } else if (isInserting) {
+      context.missing(_algorithmVersionMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+          _payloadJsonMeta,
+          payloadJson.isAcceptableOrUnknown(
+              data['payload_json']!, _payloadJsonMeta));
+    } else if (isInserting) {
+      context.missing(_payloadJsonMeta);
+    }
+    if (data.containsKey('created_at_ms')) {
+      context.handle(
+          _createdAtMsMeta,
+          createdAtMs.isAcceptableOrUnknown(
+              data['created_at_ms']!, _createdAtMsMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMsMeta);
+    }
+    if (data.containsKey('last_accessed_at_ms')) {
+      context.handle(
+          _lastAccessedAtMsMeta,
+          lastAccessedAtMs.isAcceptableOrUnknown(
+              data['last_accessed_at_ms']!, _lastAccessedAtMsMeta));
+    } else if (isInserting) {
+      context.missing(_lastAccessedAtMsMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {artworkHash};
+  @override
+  ArtworkPaletteEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ArtworkPaletteEntry(
+      artworkHash: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}artwork_hash'])!,
+      algorithmVersion: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}algorithm_version'])!,
+      payloadJson: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}payload_json'])!,
+      createdAtMs: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}created_at_ms'])!,
+      lastAccessedAtMs: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}last_accessed_at_ms'])!,
+    );
+  }
+
+  @override
+  $ArtworkPaletteEntriesTable createAlias(String alias) {
+    return $ArtworkPaletteEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class ArtworkPaletteEntry extends DataClass
+    implements Insertable<ArtworkPaletteEntry> {
+  /// SHA-256 content hash of the artwork bytes.
+  final String artworkHash;
+
+  /// Extraction / theme-generation version for automatic cache invalidation.
+  final int algorithmVersion;
+
+  /// Serialized JSON payload for [ArtworkPaletteAnalysis].
+  final String payloadJson;
+  final int createdAtMs;
+  final int lastAccessedAtMs;
+  const ArtworkPaletteEntry(
+      {required this.artworkHash,
+      required this.algorithmVersion,
+      required this.payloadJson,
+      required this.createdAtMs,
+      required this.lastAccessedAtMs});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['artwork_hash'] = Variable<String>(artworkHash);
+    map['algorithm_version'] = Variable<int>(algorithmVersion);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['created_at_ms'] = Variable<int>(createdAtMs);
+    map['last_accessed_at_ms'] = Variable<int>(lastAccessedAtMs);
+    return map;
+  }
+
+  ArtworkPaletteEntriesCompanion toCompanion(bool nullToAbsent) {
+    return ArtworkPaletteEntriesCompanion(
+      artworkHash: Value(artworkHash),
+      algorithmVersion: Value(algorithmVersion),
+      payloadJson: Value(payloadJson),
+      createdAtMs: Value(createdAtMs),
+      lastAccessedAtMs: Value(lastAccessedAtMs),
+    );
+  }
+
+  factory ArtworkPaletteEntry.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ArtworkPaletteEntry(
+      artworkHash: serializer.fromJson<String>(json['artworkHash']),
+      algorithmVersion: serializer.fromJson<int>(json['algorithmVersion']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      createdAtMs: serializer.fromJson<int>(json['createdAtMs']),
+      lastAccessedAtMs: serializer.fromJson<int>(json['lastAccessedAtMs']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'artworkHash': serializer.toJson<String>(artworkHash),
+      'algorithmVersion': serializer.toJson<int>(algorithmVersion),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'createdAtMs': serializer.toJson<int>(createdAtMs),
+      'lastAccessedAtMs': serializer.toJson<int>(lastAccessedAtMs),
+    };
+  }
+
+  ArtworkPaletteEntry copyWith(
+          {String? artworkHash,
+          int? algorithmVersion,
+          String? payloadJson,
+          int? createdAtMs,
+          int? lastAccessedAtMs}) =>
+      ArtworkPaletteEntry(
+        artworkHash: artworkHash ?? this.artworkHash,
+        algorithmVersion: algorithmVersion ?? this.algorithmVersion,
+        payloadJson: payloadJson ?? this.payloadJson,
+        createdAtMs: createdAtMs ?? this.createdAtMs,
+        lastAccessedAtMs: lastAccessedAtMs ?? this.lastAccessedAtMs,
+      );
+  ArtworkPaletteEntry copyWithCompanion(ArtworkPaletteEntriesCompanion data) {
+    return ArtworkPaletteEntry(
+      artworkHash:
+          data.artworkHash.present ? data.artworkHash.value : this.artworkHash,
+      algorithmVersion: data.algorithmVersion.present
+          ? data.algorithmVersion.value
+          : this.algorithmVersion,
+      payloadJson:
+          data.payloadJson.present ? data.payloadJson.value : this.payloadJson,
+      createdAtMs:
+          data.createdAtMs.present ? data.createdAtMs.value : this.createdAtMs,
+      lastAccessedAtMs: data.lastAccessedAtMs.present
+          ? data.lastAccessedAtMs.value
+          : this.lastAccessedAtMs,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ArtworkPaletteEntry(')
+          ..write('artworkHash: $artworkHash, ')
+          ..write('algorithmVersion: $algorithmVersion, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('createdAtMs: $createdAtMs, ')
+          ..write('lastAccessedAtMs: $lastAccessedAtMs')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(artworkHash, algorithmVersion, payloadJson,
+      createdAtMs, lastAccessedAtMs);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ArtworkPaletteEntry &&
+          other.artworkHash == this.artworkHash &&
+          other.algorithmVersion == this.algorithmVersion &&
+          other.payloadJson == this.payloadJson &&
+          other.createdAtMs == this.createdAtMs &&
+          other.lastAccessedAtMs == this.lastAccessedAtMs);
+}
+
+class ArtworkPaletteEntriesCompanion
+    extends UpdateCompanion<ArtworkPaletteEntry> {
+  final Value<String> artworkHash;
+  final Value<int> algorithmVersion;
+  final Value<String> payloadJson;
+  final Value<int> createdAtMs;
+  final Value<int> lastAccessedAtMs;
+  final Value<int> rowid;
+  const ArtworkPaletteEntriesCompanion({
+    this.artworkHash = const Value.absent(),
+    this.algorithmVersion = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.createdAtMs = const Value.absent(),
+    this.lastAccessedAtMs = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ArtworkPaletteEntriesCompanion.insert({
+    required String artworkHash,
+    required int algorithmVersion,
+    required String payloadJson,
+    required int createdAtMs,
+    required int lastAccessedAtMs,
+    this.rowid = const Value.absent(),
+  })  : artworkHash = Value(artworkHash),
+        algorithmVersion = Value(algorithmVersion),
+        payloadJson = Value(payloadJson),
+        createdAtMs = Value(createdAtMs),
+        lastAccessedAtMs = Value(lastAccessedAtMs);
+  static Insertable<ArtworkPaletteEntry> custom({
+    Expression<String>? artworkHash,
+    Expression<int>? algorithmVersion,
+    Expression<String>? payloadJson,
+    Expression<int>? createdAtMs,
+    Expression<int>? lastAccessedAtMs,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (artworkHash != null) 'artwork_hash': artworkHash,
+      if (algorithmVersion != null) 'algorithm_version': algorithmVersion,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (createdAtMs != null) 'created_at_ms': createdAtMs,
+      if (lastAccessedAtMs != null) 'last_accessed_at_ms': lastAccessedAtMs,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ArtworkPaletteEntriesCompanion copyWith(
+      {Value<String>? artworkHash,
+      Value<int>? algorithmVersion,
+      Value<String>? payloadJson,
+      Value<int>? createdAtMs,
+      Value<int>? lastAccessedAtMs,
+      Value<int>? rowid}) {
+    return ArtworkPaletteEntriesCompanion(
+      artworkHash: artworkHash ?? this.artworkHash,
+      algorithmVersion: algorithmVersion ?? this.algorithmVersion,
+      payloadJson: payloadJson ?? this.payloadJson,
+      createdAtMs: createdAtMs ?? this.createdAtMs,
+      lastAccessedAtMs: lastAccessedAtMs ?? this.lastAccessedAtMs,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (artworkHash.present) {
+      map['artwork_hash'] = Variable<String>(artworkHash.value);
+    }
+    if (algorithmVersion.present) {
+      map['algorithm_version'] = Variable<int>(algorithmVersion.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (createdAtMs.present) {
+      map['created_at_ms'] = Variable<int>(createdAtMs.value);
+    }
+    if (lastAccessedAtMs.present) {
+      map['last_accessed_at_ms'] = Variable<int>(lastAccessedAtMs.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ArtworkPaletteEntriesCompanion(')
+          ..write('artworkHash: $artworkHash, ')
+          ..write('algorithmVersion: $algorithmVersion, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('createdAtMs: $createdAtMs, ')
+          ..write('lastAccessedAtMs: $lastAccessedAtMs, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -4778,6 +5120,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $PlaylistItemEntriesTable(this);
   late final $TagEditHistoryEntriesTable tagEditHistoryEntries =
       $TagEditHistoryEntriesTable(this);
+  late final $ArtworkPaletteEntriesTable artworkPaletteEntries =
+      $ArtworkPaletteEntriesTable(this);
   late final Index idxLocalTracksTitle = Index('idx_local_tracks_title',
       'CREATE INDEX idx_local_tracks_title ON local_tracks (title)');
   late final Index idxLocalTracksArtist = Index('idx_local_tracks_artist',
@@ -4809,6 +5153,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       'CREATE INDEX idx_playlist_items_track ON playlist_items (track_path)');
   late final Index idxTagHistoryPath = Index('idx_tag_history_path',
       'CREATE INDEX idx_tag_history_path ON tag_edit_history (track_path, edited_at_ms)');
+  late final Index idxArtworkPalettesAccessed = Index(
+      'idx_artwork_palettes_accessed',
+      'CREATE INDEX idx_artwork_palettes_accessed ON artwork_palettes (last_accessed_at_ms)');
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4822,6 +5169,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         playlistEntries,
         playlistItemEntries,
         tagEditHistoryEntries,
+        artworkPaletteEntries,
         idxLocalTracksTitle,
         idxLocalTracksArtist,
         idxLocalTracksAlbum,
@@ -4836,7 +5184,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         idxPlaylistsPinnedUpdated,
         idxPlaylistItemsOrder,
         idxPlaylistItemsTrack,
-        idxTagHistoryPath
+        idxTagHistoryPath,
+        idxArtworkPalettesAccessed
       ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
@@ -7265,6 +7614,190 @@ typedef $$TagEditHistoryEntriesTableProcessedTableManager
         ),
         TagEditHistoryEntry,
         PrefetchHooks Function()>;
+typedef $$ArtworkPaletteEntriesTableCreateCompanionBuilder
+    = ArtworkPaletteEntriesCompanion Function({
+  required String artworkHash,
+  required int algorithmVersion,
+  required String payloadJson,
+  required int createdAtMs,
+  required int lastAccessedAtMs,
+  Value<int> rowid,
+});
+typedef $$ArtworkPaletteEntriesTableUpdateCompanionBuilder
+    = ArtworkPaletteEntriesCompanion Function({
+  Value<String> artworkHash,
+  Value<int> algorithmVersion,
+  Value<String> payloadJson,
+  Value<int> createdAtMs,
+  Value<int> lastAccessedAtMs,
+  Value<int> rowid,
+});
+
+class $$ArtworkPaletteEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $ArtworkPaletteEntriesTable> {
+  $$ArtworkPaletteEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get artworkHash => $composableBuilder(
+      column: $table.artworkHash, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get algorithmVersion => $composableBuilder(
+      column: $table.algorithmVersion,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get createdAtMs => $composableBuilder(
+      column: $table.createdAtMs, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get lastAccessedAtMs => $composableBuilder(
+      column: $table.lastAccessedAtMs,
+      builder: (column) => ColumnFilters(column));
+}
+
+class $$ArtworkPaletteEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $ArtworkPaletteEntriesTable> {
+  $$ArtworkPaletteEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get artworkHash => $composableBuilder(
+      column: $table.artworkHash, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get algorithmVersion => $composableBuilder(
+      column: $table.algorithmVersion,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get createdAtMs => $composableBuilder(
+      column: $table.createdAtMs, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get lastAccessedAtMs => $composableBuilder(
+      column: $table.lastAccessedAtMs,
+      builder: (column) => ColumnOrderings(column));
+}
+
+class $$ArtworkPaletteEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ArtworkPaletteEntriesTable> {
+  $$ArtworkPaletteEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get artworkHash => $composableBuilder(
+      column: $table.artworkHash, builder: (column) => column);
+
+  GeneratedColumn<int> get algorithmVersion => $composableBuilder(
+      column: $table.algorithmVersion, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+      column: $table.payloadJson, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAtMs => $composableBuilder(
+      column: $table.createdAtMs, builder: (column) => column);
+
+  GeneratedColumn<int> get lastAccessedAtMs => $composableBuilder(
+      column: $table.lastAccessedAtMs, builder: (column) => column);
+}
+
+class $$ArtworkPaletteEntriesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $ArtworkPaletteEntriesTable,
+    ArtworkPaletteEntry,
+    $$ArtworkPaletteEntriesTableFilterComposer,
+    $$ArtworkPaletteEntriesTableOrderingComposer,
+    $$ArtworkPaletteEntriesTableAnnotationComposer,
+    $$ArtworkPaletteEntriesTableCreateCompanionBuilder,
+    $$ArtworkPaletteEntriesTableUpdateCompanionBuilder,
+    (
+      ArtworkPaletteEntry,
+      BaseReferences<_$AppDatabase, $ArtworkPaletteEntriesTable,
+          ArtworkPaletteEntry>
+    ),
+    ArtworkPaletteEntry,
+    PrefetchHooks Function()> {
+  $$ArtworkPaletteEntriesTableTableManager(
+      _$AppDatabase db, $ArtworkPaletteEntriesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ArtworkPaletteEntriesTableFilterComposer(
+                  $db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ArtworkPaletteEntriesTableOrderingComposer(
+                  $db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ArtworkPaletteEntriesTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> artworkHash = const Value.absent(),
+            Value<int> algorithmVersion = const Value.absent(),
+            Value<String> payloadJson = const Value.absent(),
+            Value<int> createdAtMs = const Value.absent(),
+            Value<int> lastAccessedAtMs = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ArtworkPaletteEntriesCompanion(
+            artworkHash: artworkHash,
+            algorithmVersion: algorithmVersion,
+            payloadJson: payloadJson,
+            createdAtMs: createdAtMs,
+            lastAccessedAtMs: lastAccessedAtMs,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String artworkHash,
+            required int algorithmVersion,
+            required String payloadJson,
+            required int createdAtMs,
+            required int lastAccessedAtMs,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ArtworkPaletteEntriesCompanion.insert(
+            artworkHash: artworkHash,
+            algorithmVersion: algorithmVersion,
+            payloadJson: payloadJson,
+            createdAtMs: createdAtMs,
+            lastAccessedAtMs: lastAccessedAtMs,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$ArtworkPaletteEntriesTableProcessedTableManager
+    = ProcessedTableManager<
+        _$AppDatabase,
+        $ArtworkPaletteEntriesTable,
+        ArtworkPaletteEntry,
+        $$ArtworkPaletteEntriesTableFilterComposer,
+        $$ArtworkPaletteEntriesTableOrderingComposer,
+        $$ArtworkPaletteEntriesTableAnnotationComposer,
+        $$ArtworkPaletteEntriesTableCreateCompanionBuilder,
+        $$ArtworkPaletteEntriesTableUpdateCompanionBuilder,
+        (
+          ArtworkPaletteEntry,
+          BaseReferences<_$AppDatabase, $ArtworkPaletteEntriesTable,
+              ArtworkPaletteEntry>
+        ),
+        ArtworkPaletteEntry,
+        PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -7285,4 +7818,6 @@ class $AppDatabaseManager {
       $$PlaylistItemEntriesTableTableManager(_db, _db.playlistItemEntries);
   $$TagEditHistoryEntriesTableTableManager get tagEditHistoryEntries =>
       $$TagEditHistoryEntriesTableTableManager(_db, _db.tagEditHistoryEntries);
+  $$ArtworkPaletteEntriesTableTableManager get artworkPaletteEntries =>
+      $$ArtworkPaletteEntriesTableTableManager(_db, _db.artworkPaletteEntries);
 }

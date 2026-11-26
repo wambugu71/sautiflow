@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../audio_engine_ffi.dart';
 
@@ -102,6 +103,7 @@ class MiniAudioSystemAudioController {
     required void Function(double gain) onSetGain,
     double Function()? onGetGain,
     FutureOr<void> Function()? onToggleFavorite,
+    void Function(String message)? onLog,
   })  : _statusStream = statusStream,
         _telemetryStream = telemetryStream,
         _onPlay = onPlay,
@@ -112,7 +114,10 @@ class MiniAudioSystemAudioController {
         _onSeek = onSeek,
         _onSetGain = onSetGain,
         _onGetGain = onGetGain,
-        _onToggleFavorite = onToggleFavorite;
+        _onToggleFavorite = onToggleFavorite,
+        _onLog = onLog;
+
+  static _MiniAudioHandler? _sharedHandler;
 
   final Stream<PlayerStatus> _statusStream;
   final Stream<StreamTelemetry>? _telemetryStream;
@@ -125,6 +130,7 @@ class MiniAudioSystemAudioController {
   final void Function(double gain) _onSetGain;
   final double Function()? _onGetGain;
   final FutureOr<void> Function()? _onToggleFavorite;
+  final void Function(String message)? _onLog;
 
   AudioHandler? _handler;
   _MiniAudioHandler? _typedHandler;
@@ -133,6 +139,8 @@ class MiniAudioSystemAudioController {
   StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
   StreamSubscription<void>? _becomingNoisySub;
   StreamSubscription<AudioDevicesChangedEvent>? _devicesSub;
+  StreamSubscription<Object>? _asyncErrorSub;
+  Timer? _deactivateSessionTimer;
   MiniAudioSystemAudioConfig? _config;
   bool _isDucked = false;
   double _preDuckGain = 1.0;
@@ -145,6 +153,50 @@ class MiniAudioSystemAudioController {
 
   bool get isSupported => Platform.isAndroid || Platform.isIOS;
   bool get isEnabled => _config != null;
+
+  void _log(String message) {
+    debugPrint(message);
+    _onLog?.call(message);
+  }
+
+  Future<bool> activateSession() async {
+    if (!isSupported) return false;
+    _deactivateSessionTimer?.cancel();
+    _deactivateSessionTimer = null;
+    try {
+      final session = await AudioSession.instance;
+      final granted = await session.setActive(true);
+      _audioSessionActive = granted;
+      if (!granted) {
+        _log('[system-audio] AudioSession focus request denied');
+      }
+      return granted;
+    } catch (e) {
+      _log('[system-audio] AudioSession activateSession error: $e');
+      return false;
+    }
+  }
+
+  void notifyStopped() {
+    _deactivateSessionTimer?.cancel();
+    _deactivateSessionTimer = null;
+    _wasPlayingBeforeInterruption = false;
+    _isDucked = false;
+    _typedHandler?.markStopped();
+    if (isSupported && _audioSessionActive) {
+      _audioSessionActive = false;
+      unawaited(_deactivateAudioSessionSafely('stop'));
+    }
+  }
+
+  Future<void> _deactivateAudioSessionSafely(String reason) async {
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(false);
+    } catch (e) {
+      _log('[system-audio] AudioSession deactivate error ($reason): $e');
+    }
+  }
 
   void updateConfig(MiniAudioSystemAudioConfig config) {
     _config = config;
@@ -165,21 +217,39 @@ class MiniAudioSystemAudioController {
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration.music());
 
-      if (_handler == null) {
+      Future<void> handlePlay() async {
+        _deactivateSessionTimer?.cancel();
+        _deactivateSessionTimer = null;
+        final granted = await session.setActive(true);
+        _audioSessionActive = granted;
+        if (!granted) {
+          _log('[system-audio] AudioSession focus denied on play callback');
+        }
+        await _onPlay();
+      }
+
+      Future<void> handlePause() async {
+        await _onPause();
+        _deactivateSessionTimer?.cancel();
+        _deactivateSessionTimer = null;
+        _audioSessionActive = false;
+        await session.setActive(false);
+      }
+
+      Future<void> handleStop() async {
+        await _onStop();
+        _deactivateSessionTimer?.cancel();
+        _deactivateSessionTimer = null;
+        _audioSessionActive = false;
+        await session.setActive(false);
+      }
+
+      if (_handler == null && _sharedHandler == null) {
         final handler = await AudioService.init(
           builder: () => _MiniAudioHandler(
-            onPlay: () async {
-              await session.setActive(true);
-              await _onPlay();
-            },
-            onPause: () async {
-              await _onPause();
-              await session.setActive(false);
-            },
-            onStop: () async {
-              await _onStop();
-              await session.setActive(false);
-            },
+            onPlay: handlePlay,
+            onPause: handlePause,
+            onStop: handleStop,
             onNext: _onNext,
             onPrevious: _onPrevious,
             onSeek: _onSeek,
@@ -196,14 +266,32 @@ class MiniAudioSystemAudioController {
             androidNotificationIcon: config.androidNotificationIcon,
           ),
         );
+        _sharedHandler = handler;
         _handler = handler;
         _typedHandler = handler;
       } else {
-        _typedHandler?.updateHeadsetSettings(
+        final existing = _typedHandler ?? _sharedHandler!;
+        existing.rebindCallbacks(
+          onPlay: handlePlay,
+          onPause: handlePause,
+          onStop: handleStop,
+          onNext: _onNext,
+          onPrevious: _onPrevious,
+          onSeek: _onSeek,
+          onToggleFavorite: _onToggleFavorite,
+        );
+        existing.updateHeadsetSettings(
           handleHeadsetMultiClicks: config.handleHeadsetMultiClicks,
           headsetClickTimeoutMs: config.headsetClickTimeoutMs,
         );
+        _handler = existing;
+        _typedHandler = existing;
       }
+
+      _asyncErrorSub?.cancel();
+      _asyncErrorSub = AudioService.asyncError.listen((err) {
+        _log('[system-audio] AudioService asyncError: $err');
+      });
 
       if (_pendingIsFavorite != null) {
         _typedHandler?.setFavorite(_pendingIsFavorite!);
@@ -215,6 +303,7 @@ class MiniAudioSystemAudioController {
         _typedHandler?.updateFromPlayerStatus(
           _lastPlayerStatus!,
           telemetry: _latestTelemetry,
+          force: true,
         );
       }
 
@@ -230,10 +319,35 @@ class MiniAudioSystemAudioController {
         _lastPlayerStatus = status;
         _typedHandler?.updateFromPlayerStatus(status, telemetry: _latestTelemetry);
 
-        final shouldBeActive = status.isPlaying;
-        if (shouldBeActive != _audioSessionActive) {
-          _audioSessionActive = shouldBeActive;
-          unawaited(session.setActive(shouldBeActive));
+        if (status.isPlaying) {
+          _deactivateSessionTimer?.cancel();
+          _deactivateSessionTimer = null;
+          if (!_audioSessionActive) {
+            _audioSessionActive = true;
+            unawaited(
+              session.setActive(true).then((granted) {
+                if (!granted) {
+                  _audioSessionActive = false;
+                  _log('[system-audio] AudioSession focus denied on playback');
+                }
+              }).catchError((Object e) {
+                _audioSessionActive = false;
+                _log('[system-audio] AudioSession setActive(true) error: $e');
+              }),
+            );
+          }
+        } else if (_audioSessionActive &&
+            (_deactivateSessionTimer == null || !_deactivateSessionTimer!.isActive)) {
+          _deactivateSessionTimer = Timer(const Duration(seconds: 2), () {
+            _deactivateSessionTimer = null;
+            if (_lastPlayerStatus?.isPlaying == true || _wasPlayingBeforeInterruption) {
+              return;
+            }
+            if (_audioSessionActive) {
+              _audioSessionActive = false;
+              unawaited(_deactivateAudioSessionSafely('pause-debounce'));
+            }
+          });
         }
       });
 
@@ -278,6 +392,9 @@ class MiniAudioSystemAudioController {
 
           if (event.type == AudioInterruptionType.unknown) {
             // Permanent focus loss (e.g. another media app took exclusive playback)
+            _deactivateSessionTimer?.cancel();
+            _deactivateSessionTimer = null;
+            _audioSessionActive = false;
             if (c.permanentFocusLossAction == 'stop') {
               _onStop();
             } else {
@@ -288,6 +405,9 @@ class MiniAudioSystemAudioController {
           }
 
           if (c.pauseWhenInterrupted) {
+            _deactivateSessionTimer?.cancel();
+            _deactivateSessionTimer = null;
+            _audioSessionActive = false;
             _onPause();
           }
           return;
@@ -301,6 +421,7 @@ class MiniAudioSystemAudioController {
 
         if (c.resumeAfterInterruption && _wasPlayingBeforeInterruption) {
           _wasPlayingBeforeInterruption = false;
+          unawaited(activateSession());
           _onPlay();
         }
       });
@@ -331,16 +452,21 @@ class MiniAudioSystemAudioController {
 
       return true;
     } catch (e, stack) {
-      // ignore: avoid_print
-      print('[system-audio] Error enabling: $e\n$stack');
+      _log('[system-audio] Error enabling: $e\n$stack');
       _config = null;
       return false;
     }
   }
 
   Future<void> disable() async {
+    _deactivateSessionTimer?.cancel();
+    _deactivateSessionTimer = null;
     _statusSub?.cancel();
     _statusSub = null;
+    _telemetrySub?.cancel();
+    _telemetrySub = null;
+    _asyncErrorSub?.cancel();
+    _asyncErrorSub = null;
     _interruptionSub?.cancel();
     _interruptionSub = null;
     _becomingNoisySub?.cancel();
@@ -352,6 +478,7 @@ class MiniAudioSystemAudioController {
     _config = null;
     _pendingMediaItem = null;
     _pendingIsFavorite = null;
+    _wasPlayingBeforeInterruption = false;
 
     if (_isDucked && c != null) {
       _onSetGain(c.normalGain);
@@ -377,7 +504,11 @@ class MiniAudioSystemAudioController {
       h.mediaItem.add(_pendingMediaItem!);
     }
     if (_lastPlayerStatus != null) {
-      h.updateFromPlayerStatus(_lastPlayerStatus!, telemetry: _latestTelemetry);
+      h.updateFromPlayerStatus(
+        _lastPlayerStatus!,
+        telemetry: _latestTelemetry,
+        force: true,
+      );
     }
   }
 
@@ -433,6 +564,7 @@ class _MiniAudioHandler extends BaseAudioHandler
         _onNext = onNext,
         _onPrevious = onPrevious,
         _onSeek = onSeek,
+        _onToggleFavoriteFallback = onToggleFavorite,
         _onToggleFavorite = onToggleFavorite,
         _handleHeadsetMultiClicks = handleHeadsetMultiClicks,
         _headsetClickTimeoutMs = headsetClickTimeoutMs {
@@ -443,7 +575,7 @@ class _MiniAudioHandler extends BaseAudioHandler
           MediaControl.play,
           MediaControl.pause,
           MediaControl.skipToNext,
-          MediaControl.favoriteBorder,
+          _favoriteBorderControl,
           MediaControl.stop,
         ],
         systemActions: {
@@ -458,7 +590,22 @@ class _MiniAudioHandler extends BaseAudioHandler
     );
   }
 
-  final FutureOr<void> Function()? _onToggleFavorite;
+  static const _favoriteControl = MediaControl(
+    androidIcon: 'drawable/audio_service_favorite',
+    label: 'Favorite',
+    action: MediaAction.custom,
+    customAction: CustomMediaAction(name: 'favorite'),
+  );
+
+  static const _favoriteBorderControl = MediaControl(
+    androidIcon: 'drawable/audio_service_favorite_border',
+    label: 'Favorite',
+    action: MediaAction.custom,
+    customAction: CustomMediaAction(name: 'favorite'),
+  );
+
+  final FutureOr<void> Function()? _onToggleFavoriteFallback;
+  FutureOr<void> Function()? _onToggleFavorite;
   bool _isFavorite = false;
   PlayerStatus? _lastStatus;
   StreamTelemetry? _lastTelemetry;
@@ -466,6 +613,32 @@ class _MiniAudioHandler extends BaseAudioHandler
   int _headsetClickTimeoutMs;
   Timer? _mediaClickTimer;
   int _mediaClickCount = 0;
+
+  bool? _lastPushedPlaying;
+  int? _lastPushedIndex;
+  bool? _lastPushedFavorite;
+  int _lastPushedBufferedMs = 0;
+  int _lastPushedPosMs = 0;
+  int _lastPushTimeMs = 0;
+  bool _isStopped = false;
+
+  void rebindCallbacks({
+    required FutureOr<void> Function() onPlay,
+    required FutureOr<void> Function() onPause,
+    required FutureOr<void> Function() onStop,
+    required FutureOr<void> Function() onNext,
+    required FutureOr<void> Function() onPrevious,
+    required FutureOr<void> Function(Duration position) onSeek,
+    FutureOr<void> Function()? onToggleFavorite,
+  }) {
+    _onPlay = onPlay;
+    _onPause = onPause;
+    _onStop = onStop;
+    _onNext = onNext;
+    _onPrevious = onPrevious;
+    _onSeek = onSeek;
+    _onToggleFavorite = onToggleFavorite ?? _onToggleFavoriteFallback;
+  }
 
   void updateHeadsetSettings({
     required bool handleHeadsetMultiClicks,
@@ -478,9 +651,26 @@ class _MiniAudioHandler extends BaseAudioHandler
   void setFavorite(bool isFavorite) {
     if (_isFavorite == isFavorite) return;
     _isFavorite = isFavorite;
-    if (_lastStatus != null) {
-      updateFromPlayerStatus(_lastStatus!, telemetry: _lastTelemetry);
+    if (_lastStatus != null && !_isStopped) {
+      updateFromPlayerStatus(
+        _lastStatus!,
+        telemetry: _lastTelemetry,
+        force: true,
+      );
     }
+  }
+
+  void markStopped() {
+    _isStopped = true;
+    _lastPushedPlaying = false;
+    _lastPushTimeMs = 0;
+    final current = playbackState.hasValue ? playbackState.value : PlaybackState();
+    playbackState.add(
+      current.copyWith(
+        processingState: AudioProcessingState.idle,
+        playing: false,
+      ),
+    );
   }
 
   @override
@@ -492,12 +682,12 @@ class _MiniAudioHandler extends BaseAudioHandler
     return super.customAction(name, extras);
   }
 
-  final FutureOr<void> Function() _onPlay;
-  final FutureOr<void> Function() _onPause;
-  final FutureOr<void> Function() _onStop;
-  final FutureOr<void> Function() _onNext;
-  final FutureOr<void> Function() _onPrevious;
-  final FutureOr<void> Function(Duration position) _onSeek;
+  FutureOr<void> Function() _onPlay;
+  FutureOr<void> Function() _onPause;
+  FutureOr<void> Function() _onStop;
+  FutureOr<void> Function() _onNext;
+  FutureOr<void> Function() _onPrevious;
+  FutureOr<void> Function(Duration position) _onSeek;
 
   @override
   Future<void> play() async {
@@ -512,6 +702,15 @@ class _MiniAudioHandler extends BaseAudioHandler
   @override
   Future<void> stop() async {
     await _onStop();
+    markStopped();
+    await super.stop();
+  }
+
+  @override
+  Future<void> onTaskRemoved() async {
+    if (_lastStatus?.isPlaying != true) {
+      await stop();
+    }
   }
 
   @override
@@ -575,16 +774,55 @@ class _MiniAudioHandler extends BaseAudioHandler
     });
   }
 
-  void updateFromPlayerStatus(PlayerStatus status, {StreamTelemetry? telemetry}) {
+  void updateFromPlayerStatus(
+    PlayerStatus status, {
+    StreamTelemetry? telemetry,
+    bool force = false,
+  }) {
     _lastStatus = status;
     _lastTelemetry = telemetry;
-    final currentPositionMs = (status.positionSeconds * 1000).round();
+
+    if (_isStopped && !status.isPlaying && !force) {
+      return;
+    }
+
+    final currentPositionMs = math.max(0, (status.positionSeconds * 1000).round());
     final bufferAheadMs = (telemetry != null && telemetry.bufferedDuration > Duration.zero)
         ? telemetry.bufferedDuration.inMilliseconds
         : 0;
     final bufferedMs = currentPositionMs + bufferAheadMs;
 
-    final favoriteControl = _isFavorite ? MediaControl.favorite : MediaControl.favoriteBorder;
+    final wasStopped = _isStopped && status.isPlaying;
+    if (wasStopped) {
+      _isStopped = false;
+    }
+
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final elapsedSincePushMs = nowMs - _lastPushTimeMs;
+    final expectedPosMs = (_lastPushedPlaying == true && _lastPushTimeMs > 0)
+        ? _lastPushedPosMs + elapsedSincePushMs
+        : _lastPushedPosMs;
+    final seekDetected = _lastPushTimeMs > 0 &&
+        (currentPositionMs - expectedPosMs).abs() > 1200;
+    final stateChanged = status.isPlaying != _lastPushedPlaying ||
+        status.currentIndex != _lastPushedIndex ||
+        _isFavorite != _lastPushedFavorite ||
+        wasStopped ||
+        (!status.isPlaying && (bufferedMs - _lastPushedBufferedMs).abs() > 5000);
+    final periodicSyncDue = _lastPushTimeMs == 0 || elapsedSincePushMs >= 15000;
+
+    if (!force && !stateChanged && !seekDetected && !periodicSyncDue) {
+      return;
+    }
+
+    _lastPushedPlaying = status.isPlaying;
+    _lastPushedIndex = status.currentIndex;
+    _lastPushedFavorite = _isFavorite;
+    _lastPushedBufferedMs = bufferedMs;
+    _lastPushedPosMs = currentPositionMs;
+    _lastPushTimeMs = nowMs;
+
+    final favoriteControl = _isFavorite ? _favoriteControl : _favoriteBorderControl;
 
     playbackState.add(
       PlaybackState(

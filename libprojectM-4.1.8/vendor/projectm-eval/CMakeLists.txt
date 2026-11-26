@@ -1,5 +1,7 @@
-cmake_minimum_required(VERSION 3.21)
-cmake_policy(SET CMP0127 NEW) # <depends> syntax in cmake_dependent_option() is properly formatted for both old and new behavior.
+cmake_minimum_required(VERSION 3.20)
+if(POLICY CMP0127)
+    cmake_policy(SET CMP0127 NEW) # <depends> syntax in cmake_dependent_option() is properly formatted for both old and new behavior.
+endif()
 
 set(LANGUAGES C)
 if(BUILD_TESTING)
@@ -25,6 +27,15 @@ project(projectm-eval
         VERSION 1.0.7
         LANGUAGES ${LANGUAGES} # Using "enable_language(CXX)" in the test dir will NOT work properly!
         )
+
+# Polyfill for CMake < 3.21
+if(NOT DEFINED projectm-eval_IS_TOP_LEVEL)
+    if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+        set(projectm-eval_IS_TOP_LEVEL ON)
+    else()
+        set(projectm-eval_IS_TOP_LEVEL OFF)
+    endif()
+endif()
 
 cmake_dependent_option(ENABLE_PROJECTM_EVAL_INSTALL "Enable installing projectm-eval libraries and headers." OFF "NOT projectm-eval_IS_TOP_LEVEL" ON)
 

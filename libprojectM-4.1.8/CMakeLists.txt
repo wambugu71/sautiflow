@@ -1,4 +1,13 @@
-cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
+
+# Polyfill for CMake < 3.21
+if(NOT DEFINED PROJECT_IS_TOP_LEVEL)
+    if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+        set(PROJECT_IS_TOP_LEVEL ON)
+    else()
+        set(PROJECT_IS_TOP_LEVEL OFF)
+    endif()
+endif()
 
 include(CMakeDependentOption)
 include(CheckSymbolExists)

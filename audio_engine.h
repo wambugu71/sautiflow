@@ -861,6 +861,40 @@ extern "C"
     AE_API void ae_dsp_get_leveller_params(AudioEngineHandle *engine, float *out_target_lufs, float *out_max_rise, float *out_max_fall, float *out_max_boost, float *out_max_attenuation, float *out_silence_gate);
     AE_API float ae_dsp_get_leveller_current_gain_db(AudioEngineHandle *engine);
 
+    // 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter (LookaheadAgcLimiterDSP)
+    AE_API void ae_dsp_set_lookahead_agc_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_lookahead_agc_enabled(AudioEngineHandle *engine);
+    AE_API void ae_dsp_set_lookahead_agc_params(AudioEngineHandle *engine,
+                                                 float target_lufs,
+                                                 float max_boost_db,
+                                                 float max_attenuation_db,
+                                                 float agc_rise_db_sec,
+                                                 float agc_fall_db_sec,
+                                                 float silence_gate_lufs,
+                                                 float lookahead_ms,
+                                                 float ceiling_db,
+                                                 float low_xover_hz,
+                                                 float high_xover_hz,
+                                                 float bass_release_ms);
+    AE_API void ae_dsp_get_lookahead_agc_params(AudioEngineHandle *engine,
+                                                 float *out_target_lufs,
+                                                 float *out_max_boost_db,
+                                                 float *out_max_attenuation_db,
+                                                 float *out_agc_rise_db_sec,
+                                                 float *out_agc_fall_db_sec,
+                                                 float *out_silence_gate_lufs,
+                                                 float *out_lookahead_ms,
+                                                 float *out_ceiling_db,
+                                                 float *out_low_xover_hz,
+                                                 float *out_high_xover_hz,
+                                                 float *out_bass_release_ms);
+    AE_API void ae_dsp_get_lookahead_agc_telemetry(AudioEngineHandle *engine,
+                                                   float *out_agc_gain_db,
+                                                   float *out_low_gr_db,
+                                                   float *out_mid_gr_db,
+                                                   float *out_high_gr_db,
+                                                   float *out_peak_gr_db);
+
     // 6-Band Dynamic Equalizer (DynamicEqDSP)
     AE_API void  ae_dsp_set_dynamic_eq_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int   ae_dsp_get_dynamic_eq_enabled(AudioEngineHandle *engine);

@@ -506,6 +506,75 @@ typedef _DspGetLevellerParamsDart = void Function(
     ffi.Pointer<ffi.Float>,
     ffi.Pointer<ffi.Float>);
 
+typedef _DspSetLookaheadAgcParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float);
+typedef _DspSetLookaheadAgcParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double,
+    double);
+
+typedef _DspGetLookaheadAgcParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _DspGetLookaheadAgcParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
+typedef _DspGetLookaheadAgcTelemetryNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _DspGetLookaheadAgcTelemetryDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
 typedef _DspSetDynamicEqBandNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>,
     ffi.Int32,
@@ -694,6 +763,12 @@ class SautiDsp {
   late final _DspSetLevellerParamsDart _setLevellerParams;
   late final _DspGetLevellerParamsDart _getLevellerParams;
   late final _DspGetDialogEnhancerGainReductionDbDart _getLevellerCurrentGainDb;
+
+  late final _DspSetEnabledDart _setLookaheadAgcEnabled;
+  late final _DspHasConvolverIrDart _getLookaheadAgcEnabled;
+  late final _DspSetLookaheadAgcParamsDart _setLookaheadAgcParams;
+  late final _DspGetLookaheadAgcParamsDart _getLookaheadAgcParams;
+  late final _DspGetLookaheadAgcTelemetryDart _getLookaheadAgcTelemetry;
 
   late final _DspSetEnabledDart _setDynamicEqEnabled;
   late final _DspHasConvolverIrDart _getDynamicEqEnabled;
@@ -900,6 +975,21 @@ class SautiDsp {
     _getLevellerCurrentGainDb = _lib.lookupFunction<
         _DspGetDialogEnhancerGainReductionDbNative,
         _DspGetDialogEnhancerGainReductionDbDart>('ae_dsp_get_leveller_current_gain_db');
+
+    _setLookaheadAgcEnabled =
+        _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+            'ae_dsp_set_lookahead_agc_enabled');
+    _getLookaheadAgcEnabled = _lib.lookupFunction<_DspHasConvolverIrNative,
+        _DspHasConvolverIrDart>('ae_dsp_get_lookahead_agc_enabled');
+    _setLookaheadAgcParams = _lib.lookupFunction<
+        _DspSetLookaheadAgcParamsNative,
+        _DspSetLookaheadAgcParamsDart>('ae_dsp_set_lookahead_agc_params');
+    _getLookaheadAgcParams = _lib.lookupFunction<
+        _DspGetLookaheadAgcParamsNative,
+        _DspGetLookaheadAgcParamsDart>('ae_dsp_get_lookahead_agc_params');
+    _getLookaheadAgcTelemetry = _lib.lookupFunction<
+        _DspGetLookaheadAgcTelemetryNative,
+        _DspGetLookaheadAgcTelemetryDart>('ae_dsp_get_lookahead_agc_telemetry');
 
     _setDynamicEqEnabled =
         _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
@@ -1646,6 +1736,157 @@ class SautiDsp {
   double getLevellerCurrentGainDb() {
     if (_enginePtr == ffi.nullptr) return 0.0;
     return _getLevellerCurrentGainDb(_enginePtr);
+  }
+
+  /// 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter (LookaheadAgcLimiterDSP).
+  void setLookaheadAgcEnabled(bool enabled) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setLookaheadAgcEnabled(_enginePtr, enabled ? 1 : 0);
+  }
+
+  bool isLookaheadAgcEnabled() {
+    if (_enginePtr == ffi.nullptr) return false;
+    return _getLookaheadAgcEnabled(_enginePtr) != 0;
+  }
+
+  void setLookaheadAgcParams({
+    double targetLufs = -14.0,
+    double maxBoostDb = 9.0,
+    double maxAttenuationDb = 15.0,
+    double agcRiseDbSec = 1.5,
+    double agcFallDbSec = 4.0,
+    double silenceGateLufs = -45.0,
+    double lookaheadMs = 10.0,
+    double ceilingDb = -0.1,
+    double lowXoverHz = 180.0,
+    double highXoverHz = 3000.0,
+    double bassReleaseMs = 160.0,
+  }) {
+    if (_enginePtr == ffi.nullptr) return;
+    _setLookaheadAgcParams(
+      _enginePtr,
+      targetLufs,
+      maxBoostDb,
+      maxAttenuationDb,
+      agcRiseDbSec,
+      agcFallDbSec,
+      silenceGateLufs,
+      lookaheadMs,
+      ceilingDb,
+      lowXoverHz,
+      highXoverHz,
+      bassReleaseMs,
+    );
+  }
+
+  ({
+    double targetLufs,
+    double maxBoostDb,
+    double maxAttenuationDb,
+    double agcRiseDbSec,
+    double agcFallDbSec,
+    double silenceGateLufs,
+    double lookaheadMs,
+    double ceilingDb,
+    double lowXoverHz,
+    double highXoverHz,
+    double bassReleaseMs,
+  }) getLookaheadAgcParams() {
+    if (_enginePtr == ffi.nullptr) {
+      return (
+        targetLufs: -14.0,
+        maxBoostDb: 9.0,
+        maxAttenuationDb: 15.0,
+        agcRiseDbSec: 1.5,
+        agcFallDbSec: 4.0,
+        silenceGateLufs: -45.0,
+        lookaheadMs: 10.0,
+        ceilingDb: -0.1,
+        lowXoverHz: 180.0,
+        highXoverHz: 3000.0,
+        bassReleaseMs: 160.0,
+      );
+    }
+    final pTarget = calloc<ffi.Float>();
+    final pBoost = calloc<ffi.Float>();
+    final pAtten = calloc<ffi.Float>();
+    final pRise = calloc<ffi.Float>();
+    final pFall = calloc<ffi.Float>();
+    final pGate = calloc<ffi.Float>();
+    final pLa = calloc<ffi.Float>();
+    final pCeil = calloc<ffi.Float>();
+    final pLx = calloc<ffi.Float>();
+    final pHx = calloc<ffi.Float>();
+    final pBassRel = calloc<ffi.Float>();
+    try {
+      _getLookaheadAgcParams(
+        _enginePtr,
+        pTarget,
+        pBoost,
+        pAtten,
+        pRise,
+        pFall,
+        pGate,
+        pLa,
+        pCeil,
+        pLx,
+        pHx,
+        pBassRel,
+      );
+      return (
+        targetLufs: pTarget.value,
+        maxBoostDb: pBoost.value,
+        maxAttenuationDb: pAtten.value,
+        agcRiseDbSec: pRise.value,
+        agcFallDbSec: pFall.value,
+        silenceGateLufs: pGate.value,
+        lookaheadMs: pLa.value,
+        ceilingDb: pCeil.value,
+        lowXoverHz: pLx.value,
+        highXoverHz: pHx.value,
+        bassReleaseMs: pBassRel.value,
+      );
+    } finally {
+      calloc.free(pTarget);
+      calloc.free(pBoost);
+      calloc.free(pAtten);
+      calloc.free(pRise);
+      calloc.free(pFall);
+      calloc.free(pGate);
+      calloc.free(pLa);
+      calloc.free(pCeil);
+      calloc.free(pLx);
+      calloc.free(pHx);
+      calloc.free(pBassRel);
+    }
+  }
+
+  ({double agcGainDb, double lowGrDb, double midGrDb, double highGrDb, double peakGrDb})
+      getLookaheadAgcTelemetry() {
+    if (_enginePtr == ffi.nullptr) {
+      return (agcGainDb: 0.0, lowGrDb: 0.0, midGrDb: 0.0, highGrDb: 0.0, peakGrDb: 0.0);
+    }
+    final pAgc = calloc<ffi.Float>();
+    final pLow = calloc<ffi.Float>();
+    final pMid = calloc<ffi.Float>();
+    final pHigh = calloc<ffi.Float>();
+    final pPeak = calloc<ffi.Float>();
+    try {
+      _getLookaheadAgcTelemetry(_enginePtr, pAgc, pLow, pMid, pHigh, pPeak);
+      return (
+        agcGainDb: pAgc.value,
+        lowGrDb: pLow.value,
+        midGrDb: pMid.value,
+        highGrDb: pHigh.value,
+        peakGrDb: pPeak.value,
+      );
+    } finally {
+      calloc.free(pAgc);
+      calloc.free(pLow);
+      calloc.free(pMid);
+      calloc.free(pHigh);
+      calloc.free(pPeak);
+    }
   }
 
   /// 6-Band Dynamic Equalizer (DynamicEqDSP).

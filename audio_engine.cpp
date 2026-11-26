@@ -62,6 +62,7 @@
 #include "dsp/dynamic_loudness_dsp.h"
 #include "dsp/autoeq_parser.h"
 #include "dsp/broadcast_leveller_dsp.h"
+#include "dsp/lookahead_agc_limiter_dsp.h"
 #include "dsp/noise_gate_dsp.h"
 #include "dsp/dynamic_eq_dsp.h"
 #include "dsp/tape_drift_dsp.h"
@@ -4044,6 +4045,7 @@ struct AudioEngineHandle
     sauti::dsp::UltrasonicFilter ultrasonicFilter;
     sauti::dsp::DynamicLoudnessDSP dynamicLoudnessDsp;
     sauti::dsp::BroadcastLevellerDSP levellerDsp;
+    sauti::dsp::LookaheadAgcLimiterDSP lookaheadAgcDsp;
     sauti::dsp::NoiseGateDSP noiseGateDsp;
     sauti::dsp::DynamicEqDSP dynamicEqDsp;
     sauti::dsp::TapeDriftDSP tapeDriftDsp;
@@ -5606,6 +5608,7 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     e->ultrasonicFilter.setSampleRate(srF);
     e->dynamicLoudnessDsp.setSampleRate(srF);
     e->levellerDsp.setSampleRate(srF);
+    e->lookaheadAgcDsp.setSampleRate(srF);
     e->noiseGateDsp.setSampleRate(srF);
     e->dynamicEqDsp.setSampleRate(srF);
     e->tapeDriftDsp.setSampleRate(srF);
@@ -5754,6 +5757,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
     e->ultrasonicFilter.setSampleRate(srF);
         e->dynamicLoudnessDsp.setSampleRate(srF);
         e->levellerDsp.setSampleRate(srF);
+    e->lookaheadAgcDsp.setSampleRate(srF);
         e->noiseGateDsp.setSampleRate(srF);
         e->dynamicEqDsp.setSampleRate(srF);
         e->tapeDriftDsp.setSampleRate(srF);
@@ -8815,7 +8819,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // =====================================================================
         if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
             e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed) ||
-            e->levellerDsp.isEnabled())
+            e->levellerDsp.isEnabled() ||
+            e->lookaheadAgcDsp.isEnabled())
         {
             e->loudnessMeter.process(processBuffer, produced, e->channels, 1.0f);
         }
@@ -9745,6 +9750,20 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     }
                 }
             }
+
+            // 6.3 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter
+            // Placed BEFORE read-only metering so meters reflect levelled, peak-protected output.
+            if (e->lookaheadAgcDsp.isEnabled())
+            {
+                if (use64)
+                {
+                    e->lookaheadAgcDsp.process(buf64, produced, e->channels);
+                }
+                else
+                {
+                    e->lookaheadAgcDsp.process(processBuffer, produced, e->channels);
+                }
+            }
         } // End of !bypassAppDsp block
 
         // =====================================================================
@@ -10216,7 +10235,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                e->compressorEnabled || e->crossfeedEnabled || e->stereoWidenEnabled ||
                                e->stereoEnhancementEnabled || e->surroundDsp.isEnabled() ||
                                e->reverbEnabled || e->crystalizerEnabled || e->fftConvolverDsp.isEnabled() ||
-                               e->levellerDsp.isEnabled() || e->dynamicLoudnessDsp.isEnabled() ||
+                               e->levellerDsp.isEnabled() || e->lookaheadAgcDsp.isEnabled() || e->dynamicLoudnessDsp.isEnabled() ||
                                e->masterLimiterDsp.isEnabled() || e->lookaheadLimiterEnabled.load(std::memory_order_relaxed) ||
                                e->limiterEnabled);
     const bool isDspActive = isAppFxActive ||
@@ -14334,6 +14353,11 @@ extern "C"
                 // Look-ahead limiter delays the signal by its exact lookahead window.
                 totalLatency += (double)e->masterLimiterDsp.getLatencySamples();
             }
+            if (e->lookaheadAgcDsp.isEnabled())
+            {
+                // 3-band lookahead AGC + limiter delays the signal by its lookahead window.
+                totalLatency += (double)e->lookaheadAgcDsp.getLatencySamples();
+            }
         }
         if (e->deviceResamplerInit)
         {
@@ -14568,6 +14592,8 @@ extern "C"
                 mask |= (1u << 5); // Z6 AutoEQ FIR
             if (e->levellerDsp.isEnabled())
                 mask |= (1u << 6); // Z6 Broadcast Leveller
+            if (e->lookaheadAgcDsp.isEnabled())
+                mask |= (1u << 15); // Z6 Lookahead AGC + Limiter
             if (e->dynamicLoudnessDsp.isEnabled())
                 mask |= (1u << 7); // Dynamic Loudness
         }
@@ -15049,6 +15075,25 @@ extern "C"
                             {"Live Gain", fmtSignedDb(curGain, 1)},
                             {"Max Boost / Cut", "+" + fmtFloat(maxBoost, 1) + " / -" + fmtFloat(maxAtten, 1) + " dB"},
                             {"Silence Gate", fmtFloat(gate, 1) + " LUFS"}});
+            }
+
+            // 25b. 3-Band Lookahead AGC + Limiter
+            if (e->lookaheadAgcDsp.isEnabled())
+            {
+                float targetLufs = -14.0f, maxBoost = 9.0f, maxAtten = 15.0f, rise = 1.5f, fall = 4.0f;
+                float gate = -45.0f, laMs = 10.0f, ceilDb = -0.1f, lowHz = 180.0f, highHz = 3000.0f, bassRelMs = 160.0f;
+                e->lookaheadAgcDsp.getParams(&targetLufs, &maxBoost, &maxAtten, &rise, &fall, &gate,
+                                             &laMs, &ceilDb, &lowHz, &highHz, &bassRelMs);
+                float agcDb = 0.0f, lowGr = 0.0f, midGr = 0.0f, highGr = 0.0f, peakGr = 0.0f;
+                e->lookaheadAgcDsp.getTelemetry(&agcDb, &lowGr, &midGr, &highGr, &peakGr);
+                const double latMs = (sr > 0.0) ? ((double)e->lookaheadAgcDsp.getLatencySamples() * 1000.0 / sr) : (double)laMs;
+                appendNode("lookahead_agc_limiter", "Lookahead AGC + Limiter", nativePrec,
+                           "Target " + fmtFloat(targetLufs, 1) + " LUFS · Lookahead " + fmtFloat(laMs, 0) + " ms · Gain " + fmtSignedDb(agcDb, 1),
+                           latMs,
+                           {{"Target", fmtFloat(targetLufs, 1) + " LUFS"},
+                            {"AGC Gain", fmtSignedDb(agcDb, 1)},
+                            {"Bass / Mid / High GR", fmtFloat(lowGr, 1) + " / " + fmtFloat(midGr, 1) + " / " + fmtFloat(highGr, 1) + " dB"},
+                            {"Lookahead / Ceiling", fmtFloat(laMs, 1) + " ms / " + fmtFloat(ceilDb, 1) + " dBTP"}});
             }
 
             // 26. Dynamic Loudness (ISO 226)
@@ -19369,6 +19414,7 @@ extern "C"
         engine->dynamicLoudnessDsp.reset();
         engine->noiseGateDsp.reset();
         engine->levellerDsp.reset();
+        engine->lookaheadAgcDsp.reset();
         engine->dynamicEqDsp.reset();
         engine->tapeDriftDsp.reset();
     }
@@ -19526,6 +19572,73 @@ extern "C"
         if (!engine) return 0.0f;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
         return engine->levellerDsp.getCurrentGainDb();
+    }
+
+    // 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter (LookaheadAgcLimiterDSP)
+    AE_API void ae_dsp_set_lookahead_agc_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->lookaheadAgcDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_get_lookahead_agc_enabled(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->lookaheadAgcDsp.isEnabled() ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_lookahead_agc_params(AudioEngineHandle *engine,
+                                                 float target_lufs,
+                                                 float max_boost_db,
+                                                 float max_attenuation_db,
+                                                 float agc_rise_db_sec,
+                                                 float agc_fall_db_sec,
+                                                 float silence_gate_lufs,
+                                                 float lookahead_ms,
+                                                 float ceiling_db,
+                                                 float low_xover_hz,
+                                                 float high_xover_hz,
+                                                 float bass_release_ms)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->lookaheadAgcDsp.setParams(target_lufs, max_boost_db, max_attenuation_db,
+                                          agc_rise_db_sec, agc_fall_db_sec, silence_gate_lufs,
+                                          lookahead_ms, ceiling_db, low_xover_hz, high_xover_hz, bass_release_ms);
+    }
+
+    AE_API void ae_dsp_get_lookahead_agc_params(AudioEngineHandle *engine,
+                                                 float *out_target_lufs,
+                                                 float *out_max_boost_db,
+                                                 float *out_max_attenuation_db,
+                                                 float *out_agc_rise_db_sec,
+                                                 float *out_agc_fall_db_sec,
+                                                 float *out_silence_gate_lufs,
+                                                 float *out_lookahead_ms,
+                                                 float *out_ceiling_db,
+                                                 float *out_low_xover_hz,
+                                                 float *out_high_xover_hz,
+                                                 float *out_bass_release_ms)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->lookaheadAgcDsp.getParams(out_target_lufs, out_max_boost_db, out_max_attenuation_db,
+                                          out_agc_rise_db_sec, out_agc_fall_db_sec, out_silence_gate_lufs,
+                                          out_lookahead_ms, out_ceiling_db, out_low_xover_hz, out_high_xover_hz, out_bass_release_ms);
+    }
+
+    AE_API void ae_dsp_get_lookahead_agc_telemetry(AudioEngineHandle *engine,
+                                                   float *out_agc_gain_db,
+                                                   float *out_low_gr_db,
+                                                   float *out_mid_gr_db,
+                                                   float *out_high_gr_db,
+                                                   float *out_peak_gr_db)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->lookaheadAgcDsp.getTelemetry(out_agc_gain_db, out_low_gr_db, out_mid_gr_db, out_high_gr_db, out_peak_gr_db);
     }
 
     // 6-Band Dynamic Equalizer (DynamicEqDSP)

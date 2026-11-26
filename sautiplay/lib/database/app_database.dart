@@ -5,6 +5,7 @@ import 'package:sautiflow/sautiflow.dart';
 
 import '../models/local_song_item.dart';
 import 'tables/app_preferences.dart';
+import 'tables/artwork_palettes.dart';
 import 'tables/cached_streams.dart';
 import 'tables/liked_songs.dart';
 import 'tables/local_tracks.dart';
@@ -50,6 +51,7 @@ class LocalAlbumSummary {
   PlaylistEntries,
   PlaylistItemEntries,
   TagEditHistoryEntries,
+  ArtworkPaletteEntries,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? e]) : super(e ?? _openConnection());
@@ -57,7 +59,7 @@ class AppDatabase extends _$AppDatabase {
   static final AppDatabase instance = AppDatabase();
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -103,6 +105,10 @@ class AppDatabase extends _$AppDatabase {
             await m.createIndex(idxPlaylistItemsTrack);
             await m.createTable(tagEditHistoryEntries);
             await m.createIndex(idxTagHistoryPath);
+          }
+          if (from < 4) {
+            await m.createTable(artworkPaletteEntries);
+            await m.createIndex(idxArtworkPalettesAccessed);
           }
         },
         beforeOpen: (details) async {
@@ -825,5 +831,78 @@ class AppDatabase extends _$AppDatabase {
       final entry = localTrackEntries.map(r.data);
       return toLocalSongItem(entry);
     }).toList();
+  }
+
+  // ─── Artwork Adaptive Palette Cache ─────────────────────────────────────────
+  Future<ArtworkPaletteEntry?> getArtworkPalette(
+    String artworkHash, {
+    required int expectedVersion,
+  }) async {
+    final row = await (select(artworkPaletteEntries)
+          ..where((t) => t.artworkHash.equals(artworkHash)))
+        .getSingleOrNull();
+    if (row == null) return null;
+
+    if (row.algorithmVersion != expectedVersion) {
+      await deleteArtworkPalette(artworkHash);
+      return null;
+    }
+
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await (update(artworkPaletteEntries)
+            ..where((t) => t.artworkHash.equals(artworkHash)))
+          .write(ArtworkPaletteEntriesCompanion(lastAccessedAtMs: Value(nowMs)));
+    } catch (_) {}
+    return row;
+  }
+
+  Future<void> upsertArtworkPalette({
+    required String artworkHash,
+    required int algorithmVersion,
+    required String payloadJson,
+    int maxEntries = 500,
+  }) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    await transaction(() async {
+      await into(artworkPaletteEntries).insertOnConflictUpdate(
+        ArtworkPaletteEntriesCompanion(
+          artworkHash: Value(artworkHash),
+          algorithmVersion: Value(algorithmVersion),
+          payloadJson: Value(payloadJson),
+          createdAtMs: Value(nowMs),
+          lastAccessedAtMs: Value(nowMs),
+        ),
+      );
+
+      final countExp = artworkPaletteEntries.artworkHash.count();
+      final countRow =
+          await (selectOnly(artworkPaletteEntries)..addColumns([countExp]))
+              .getSingle();
+      final total = countRow.read(countExp) ?? 0;
+      if (total > maxEntries) {
+        final overflow = total - maxEntries;
+        final oldest = await (select(artworkPaletteEntries)
+              ..orderBy([(t) => OrderingTerm.asc(t.lastAccessedAtMs)])
+              ..limit(overflow))
+            .get();
+        if (oldest.isNotEmpty) {
+          final hashes = oldest.map((e) => e.artworkHash).toList();
+          await (delete(artworkPaletteEntries)
+                ..where((t) => t.artworkHash.isIn(hashes)))
+              .go();
+        }
+      }
+    });
+  }
+
+  Future<void> deleteArtworkPalette(String artworkHash) async {
+    await (delete(artworkPaletteEntries)
+          ..where((t) => t.artworkHash.equals(artworkHash)))
+        .go();
+  }
+
+  Future<void> clearArtworkPalettes() async {
+    await delete(artworkPaletteEntries).go();
   }
 }

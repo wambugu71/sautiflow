@@ -491,6 +491,7 @@ class AudioProfileService {
       'limiterEnabled': false,
       'surroundEnabled': false,
       'levellerEnabled': false,
+      'lookaheadAgcEnabled': false,
       ...profile.sautiDspState,
     };
     await AppStateService.instance.saveSautiDspState(cleanDspState);
@@ -767,6 +768,7 @@ class AudioProfileService {
           'limiterCeilingDb': -0.2,
           'limiterReleaseMs': 50.0,
           'levellerEnabled': false,
+          'lookaheadAgcEnabled': false,
         },
       ),
       AudioProfile(

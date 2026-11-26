@@ -37,6 +37,7 @@ abstract final class ActiveNodeMask {
   static const int z1Subsonic = 1 << 12;
   static const int z1NoiseGate = 1 << 13;
   static const int z1Expander = 1 << 14;
+  static const int z6LookaheadAgc = 1 << 15;
 }
 
 enum ChainNodeKind {
@@ -842,6 +843,19 @@ SignalPathResult buildSignalPath(
           badge: dspFmt,
           title: 'BROADCAST LEVELLER',
           detail: 'Active',
+          liveParams: {'Status': 'Enabled', 'Precision': dspFmt},
+          outgoingArrow: SignalPathArrow(formatLabel: dspFmt),
+        ));
+      }
+
+      if (t['lookaheadAgcEnabled'] == true ||
+          (nodeMask & ActiveNodeMask.z6LookaheadAgc) != 0) {
+        nodes.add(SignalPathNode(
+          id: 'lookahead_agc_limiter',
+          kind: ChainNodeKind.dspEffect,
+          badge: dspFmt,
+          title: 'LOOKAHEAD AGC + LIMITER',
+          detail: '3-Band Lookahead',
           liveParams: {'Status': 'Enabled', 'Precision': dspFmt},
           outgoingArrow: SignalPathArrow(formatLabel: dspFmt),
         ));

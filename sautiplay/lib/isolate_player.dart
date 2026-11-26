@@ -127,6 +127,8 @@ class IsolateAudioPlayer {
   MiniAudioSystemAudioController? _systemAudio;
   DesktopSystemAudioController? _desktopAudio;
   FutureOr<void> Function()? onToggleFavorite;
+  Map<String, dynamic>? _pendingNowPlaying;
+  bool? _pendingFavorite;
 
   int _nextRequestId = 0;
   final Map<int, Completer<dynamic>> _pendingRequests = {};
@@ -149,63 +151,8 @@ class IsolateAudioPlayer {
       onError: _errorPort!.sendPort,
     );
 
-    try {
-      final lNorm = await AppStateService.instance.loadLoudnessNormalizer();
-      _loudnessNormalizerEnabled = lNorm.enabled;
-      _loudnessTargetLUFS = lNorm.targetLUFS;
-    } catch (_) {}
-
-    // Initialize system audio controller on the main isolate
-    if (enableSystemAudio) {
-      if (Platform.isAndroid || Platform.isIOS) {
-        final focusSettings =
-            await AppStateService.instance.loadAudioFocusSettings();
-        _systemAudio = MiniAudioSystemAudioController(
-          statusStream: statusStream,
-          telemetryStream: _telemetryController.stream,
-          onPlay: play,
-          onPause: pause,
-          onStop: stop,
-          onNext: next,
-          onPrevious: previous,
-          onSeek: (pos) => seekTo(pos),
-          onSetGain: setGain,
-          onGetGain: () => _currentGain,
-          onToggleFavorite: () => onToggleFavorite?.call(),
-        );
-        await _systemAudio!.enable(
-          config: MiniAudioSystemAudioConfig(
-            enableDucking: focusSettings.enableDucking,
-            duckGain: focusSettings.duckGain,
-            pauseWhenInterrupted: focusSettings.pauseWhenInterrupted,
-            resumeAfterInterruption: focusSettings.resumeAfterCall,
-            pauseOnBecomingNoisy: focusSettings.pauseOnBecomingNoisy,
-            resumeOnHeadsetConnect: focusSettings.resumeOnHeadsetConnect,
-            permanentFocusLossAction: focusSettings.permanentFocusLossAction,
-            handleHeadsetMultiClicks: focusSettings.handleHeadsetMultiClicks,
-            headsetClickTimeoutMs: focusSettings.headsetClickTimeoutMs,
-            androidNotificationIcon: 'drawable/splash',
-          ),
-        );
-      } else if (!kIsWeb &&
-          (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
-        _desktopAudio = DesktopSystemAudioController(
-          onPlay: play,
-          onPause: pause,
-          onNext: next,
-          onPrevious: previous,
-          onSeek: (pos) => seekTo(pos),
-        );
-        await _desktopAudio!.enable();
-
-        _desktopAudioSub?.cancel();
-        _desktopAudioSub = _statusController.stream.listen((status) {
-          _desktopAudio?.updatePlaybackStatus(status.isPlaying);
-        });
-      }
-    }
-
-    // Listen for messages from the isolate
+    // Listen for messages from the isolate immediately so IPC/status updates
+    // are never blocked on AudioService/AudioSession initialization.
     _receivePort.listen((message) {
       if (message is SendPort) {
         _sendPort = message;
@@ -274,6 +221,103 @@ class IsolateAudioPlayer {
         }
       }
     });
+
+    try {
+      final lNorm = await AppStateService.instance.loadLoudnessNormalizer();
+      _loudnessNormalizerEnabled = lNorm.enabled;
+      _loudnessTargetLUFS = lNorm.targetLUFS;
+    } catch (_) {}
+
+    // Initialize system audio controller on the main isolate
+    if (enableSystemAudio) {
+      if (Platform.isAndroid || Platform.isIOS) {
+        final focusSettings =
+            await AppStateService.instance.loadAudioFocusSettings();
+        _systemAudio = MiniAudioSystemAudioController(
+          statusStream: statusStream,
+          telemetryStream: _telemetryController.stream,
+          onPlay: play,
+          onPause: pause,
+          onStop: stop,
+          onNext: next,
+          onPrevious: previous,
+          onSeek: (pos) => seekTo(pos),
+          onSetGain: setGain,
+          onGetGain: () => _currentGain,
+          onToggleFavorite: () => onToggleFavorite?.call(),
+          onLog: (msg) {
+            if (!_logController.isClosed) {
+              _logController.add(msg);
+            }
+          },
+        );
+        final enabled = await _systemAudio!.enable(
+          config: MiniAudioSystemAudioConfig(
+            enableDucking: focusSettings.enableDucking,
+            duckGain: focusSettings.duckGain,
+            pauseWhenInterrupted: focusSettings.pauseWhenInterrupted,
+            resumeAfterInterruption: focusSettings.resumeAfterCall,
+            pauseOnBecomingNoisy: focusSettings.pauseOnBecomingNoisy,
+            resumeOnHeadsetConnect: focusSettings.resumeOnHeadsetConnect,
+            permanentFocusLossAction: focusSettings.permanentFocusLossAction,
+            handleHeadsetMultiClicks: focusSettings.handleHeadsetMultiClicks,
+            headsetClickTimeoutMs: focusSettings.headsetClickTimeoutMs,
+            androidNotificationChannelId: 'com.wambugu.sautiplay.playback',
+            androidNotificationChannelName: 'SautiPlay Playback',
+            androidNotificationOngoing: false,
+            androidStopForegroundOnPause: false,
+            androidNotificationIcon: 'drawable/ic_notification',
+          ),
+        );
+        if (!_logController.isClosed) {
+          _logController.add(
+            enabled
+                ? '[system-audio] enabled=true'
+                : '[system-audio] WARNING: enabled=false (Android AudioSession/AudioService failed to initialize)',
+          );
+        }
+        if (_pendingFavorite != null) {
+          _systemAudio!.setFavorite(_pendingFavorite!);
+        }
+        final pendingNowPlaying = _pendingNowPlaying;
+        if (pendingNowPlaying != null) {
+          final artUriStr = pendingNowPlaying['artUri'] as String?;
+          final parsedUri = (artUriStr != null && artUriStr.isNotEmpty)
+              ? Uri.tryParse(artUriStr)
+              : null;
+          unawaited(
+            _systemAudio!.updateNowPlaying(
+              id: pendingNowPlaying['id'] as String,
+              title: pendingNowPlaying['title'] as String,
+              artist: pendingNowPlaying['artist'] as String,
+              duration: pendingNowPlaying['duration'] as Duration,
+              album: pendingNowPlaying['album'] as String?,
+              artUri: parsedUri,
+              isFavorite: pendingNowPlaying['isFavorite'] as bool?,
+            ),
+          );
+        }
+        if (enabled && (_isPlaying || _lastStatus?.isPlaying == true)) {
+          unawaited(_systemAudio!.activateSession());
+          _systemAudio!.refreshNotification();
+        }
+      } else if (!kIsWeb &&
+          (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+        _desktopAudio = DesktopSystemAudioController(
+          onPlay: play,
+          onPause: pause,
+          onNext: next,
+          onPrevious: previous,
+          onSeek: (pos) => seekTo(pos),
+        );
+        await _desktopAudio!.enable();
+
+        _desktopAudioSub?.cancel();
+        _desktopAudioSub = _statusController.stream.listen((status) {
+          _desktopAudio?.updatePlaybackStatus(status.isPlaying);
+        });
+      }
+    }
   }
 
   void _flushPendingCommands() {
@@ -322,7 +366,7 @@ class IsolateAudioPlayer {
       _isolate = null;
     });
 
-    _systemAudio?.disable();
+    unawaited(_systemAudio?.disable());
     _desktopAudio?.dispose();
     _statusController.close();
     _logController.close();
@@ -344,6 +388,7 @@ class IsolateAudioPlayer {
 
   void play() {
     _isPlaying = true;
+    unawaited(_systemAudio?.activateSession());
     if (DlnaService.instance.activeRenderer != null) {
       DlnaService.instance.play();
     }
@@ -373,9 +418,12 @@ class IsolateAudioPlayer {
       ChromecastService.instance.stop();
     }
     _send({'cmd': 'stop'});
+    _systemAudio?.notifyStopped();
   }
 
   void load(AudioSource source) {
+    _isPlaying = true;
+    unawaited(_systemAudio?.activateSession());
     _sources = [source];
     _prearmTrackLoudnessForIndex(0);
     _send({'cmd': 'load', 'source': source});
@@ -386,6 +434,10 @@ class IsolateAudioPlayer {
       Duration? initialPosition,
       bool useLazyPreparation = true,
       bool autoPlay = true}) {
+    if (autoPlay) {
+      _isPlaying = true;
+      unawaited(_systemAudio?.activateSession());
+    }
     _sources = List<AudioSource>.from(sources);
     _prearmTrackLoudnessForIndex(initialIndex);
     _send({
@@ -1583,6 +1635,53 @@ class IsolateAudioPlayer {
     return (response as num?)?.toDouble() ?? 0.0;
   }
 
+  // --- 3-Band Lookahead AGC + Limiter (LookaheadAgcLimiterDSP) ---
+  void setLookaheadAgcEnabled(bool enabled) =>
+      _send({'cmd': 'setLookaheadAgcEnabled', 'enabled': enabled});
+
+  void setLookaheadAgcParams({
+    double targetLufs = -14.0,
+    double maxBoostDb = 9.0,
+    double maxAttenuationDb = 15.0,
+    double agcRiseDbSec = 1.5,
+    double agcFallDbSec = 4.0,
+    double silenceGateLufs = -45.0,
+    double lookaheadMs = 10.0,
+    double ceilingDb = -0.1,
+    double lowXoverHz = 180.0,
+    double highXoverHz = 3000.0,
+    double bassReleaseMs = 160.0,
+  }) =>
+      _send({
+        'cmd': 'setLookaheadAgcParams',
+        'targetLufs': targetLufs,
+        'maxBoostDb': maxBoostDb,
+        'maxAttenuationDb': maxAttenuationDb,
+        'agcRiseDbSec': agcRiseDbSec,
+        'agcFallDbSec': agcFallDbSec,
+        'silenceGateLufs': silenceGateLufs,
+        'lookaheadMs': lookaheadMs,
+        'ceilingDb': ceilingDb,
+        'lowXoverHz': lowXoverHz,
+        'highXoverHz': highXoverHz,
+        'bassReleaseMs': bassReleaseMs,
+      });
+
+  Future<({double agcGainDb, double lowGrDb, double midGrDb, double highGrDb, double peakGrDb})>
+      getLookaheadAgcTelemetry() async {
+    final response = await _request('getLookaheadAgcTelemetry');
+    if (response is Map) {
+      return (
+        agcGainDb: (response['agcGainDb'] as num?)?.toDouble() ?? 0.0,
+        lowGrDb: (response['lowGrDb'] as num?)?.toDouble() ?? 0.0,
+        midGrDb: (response['midGrDb'] as num?)?.toDouble() ?? 0.0,
+        highGrDb: (response['highGrDb'] as num?)?.toDouble() ?? 0.0,
+        peakGrDb: (response['peakGrDb'] as num?)?.toDouble() ?? 0.0,
+      );
+    }
+    return (agcGainDb: 0.0, lowGrDb: 0.0, midGrDb: 0.0, highGrDb: 0.0, peakGrDb: 0.0);
+  }
+
   // --- 6-Band Dynamic Parametric EQ (DynamicEqDSP) ---
   void setDynamicEqEnabled(bool enabled) =>
       _send({'cmd': 'setDynamicEqEnabled', 'enabled': enabled});
@@ -1915,6 +2014,16 @@ class IsolateAudioPlayer {
     String? artUri,
     bool? isFavorite,
   }) async {
+    _pendingNowPlaying = {
+      'id': id,
+      'title': title,
+      'artist': artist,
+      'duration': duration,
+      'album': album,
+      'artUri': artUri,
+      'isFavorite': isFavorite,
+    };
+
     if (_desktopAudio != null) {
       await _desktopAudio!.updateNowPlaying(
         id: id,
@@ -1947,6 +2056,7 @@ class IsolateAudioPlayer {
   }
 
   void setFavorite(bool isFavorite) {
+    _pendingFavorite = isFavorite;
     _systemAudio?.setFavorite(isFavorite);
   }
 
@@ -1966,7 +2076,11 @@ class IsolateAudioPlayer {
         permanentFocusLossAction: settings.permanentFocusLossAction,
         handleHeadsetMultiClicks: settings.handleHeadsetMultiClicks,
         headsetClickTimeoutMs: settings.headsetClickTimeoutMs,
-        androidNotificationIcon: 'drawable/splash',
+        androidNotificationChannelId: 'com.wambugu.sautiplay.playback',
+        androidNotificationChannelName: 'SautiPlay Playback',
+        androidNotificationOngoing: false,
+        androidStopForegroundOnPause: false,
+        androidNotificationIcon: 'drawable/ic_notification',
       ),
     );
   }
@@ -3813,6 +3927,46 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'getLevellerCurrentGainDb':
           try {
             sendResponse(message, player.dsp.getLevellerCurrentGainDb());
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'setLookaheadAgcEnabled':
+          player.dsp.setLookaheadAgcEnabled(message['enabled'] == true);
+          break;
+        case 'setLookaheadAgcParams':
+          player.dsp.setLookaheadAgcParams(
+            targetLufs: (message['targetLufs'] as num?)?.toDouble() ?? -14.0,
+            maxBoostDb: (message['maxBoostDb'] as num?)?.toDouble() ?? 9.0,
+            maxAttenuationDb:
+                (message['maxAttenuationDb'] as num?)?.toDouble() ?? 15.0,
+            agcRiseDbSec:
+                (message['agcRiseDbSec'] as num?)?.toDouble() ?? 1.5,
+            agcFallDbSec:
+                (message['agcFallDbSec'] as num?)?.toDouble() ?? 4.0,
+            silenceGateLufs:
+                (message['silenceGateLufs'] as num?)?.toDouble() ?? -45.0,
+            lookaheadMs:
+                (message['lookaheadMs'] as num?)?.toDouble() ?? 10.0,
+            ceilingDb: (message['ceilingDb'] as num?)?.toDouble() ?? -0.1,
+            lowXoverHz:
+                (message['lowXoverHz'] as num?)?.toDouble() ?? 180.0,
+            highXoverHz:
+                (message['highXoverHz'] as num?)?.toDouble() ?? 3000.0,
+            bassReleaseMs:
+                (message['bassReleaseMs'] as num?)?.toDouble() ?? 160.0,
+          );
+          break;
+        case 'getLookaheadAgcTelemetry':
+          try {
+            final t = player.dsp.getLookaheadAgcTelemetry();
+            sendResponse(message, {
+              'agcGainDb': t.agcGainDb,
+              'lowGrDb': t.lowGrDb,
+              'midGrDb': t.midGrDb,
+              'highGrDb': t.highGrDb,
+              'peakGrDb': t.peakGrDb,
+            });
           } catch (e) {
             sendResponse(message, null, e);
           }

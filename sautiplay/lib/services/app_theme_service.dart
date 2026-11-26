@@ -7,6 +7,8 @@ import 'package:material_3_expressive/components/navigation_bar/styles/m3e_navig
 import '../database/preferences_store.dart';
 import 'm3e_typography_service.dart';
 
+import 'artwork_theme/adaptive_theme_generator.dart';
+import 'artwork_theme/artwork_palette_models.dart';
 import 'artwork_theme_service.dart';
 
 // ─── Theme IDs ───────────────────────────────────────────────────────────────
@@ -29,6 +31,16 @@ class AppThemeData {
   final Color primary;  // accent / primary
   final Color textDark; // muted text
   final IconData icon;
+  final Color? elevatedSurfaceColor;
+  final Color? secondaryAccentColor;
+  final Color? onPrimaryColor;
+  final Color? onSecondaryColor;
+  final Color? textPrimaryColor;
+  final Color? progressIndicatorColor;
+  final Color? progressTrackColor;
+  final Color? activeNavigationColor;
+  final Color? playbackControlColor;
+  final Color? surfaceTintColor;
 
   const AppThemeData({
     required this.id,
@@ -38,7 +50,50 @@ class AppThemeData {
     required this.primary,
     required this.textDark,
     required this.icon,
+    this.elevatedSurfaceColor,
+    this.secondaryAccentColor,
+    this.onPrimaryColor,
+    this.onSecondaryColor,
+    this.textPrimaryColor,
+    this.progressIndicatorColor,
+    this.progressTrackColor,
+    this.activeNavigationColor,
+    this.playbackControlColor,
+    this.surfaceTintColor,
   });
+
+  bool get _isDark => bgDark.computeLuminance() < 0.15;
+
+  Color get elevatedSurface => elevatedSurfaceColor ?? cardDark;
+  Color get secondaryAccent => secondaryAccentColor ?? primary;
+  Color get onPrimary =>
+      onPrimaryColor ?? (_isDark ? Colors.black : Colors.white);
+  Color get onSecondary => onSecondaryColor ?? onPrimary;
+  Color get textPrimary =>
+      textPrimaryColor ?? (_isDark ? Colors.white : const Color(0xFF1A1A2E));
+  Color get progressIndicator => progressIndicatorColor ?? primary;
+  Color get progressTrack =>
+      progressTrackColor ?? primary.withValues(alpha: 0.18);
+  Color get activeNavigation => activeNavigationColor ?? primary;
+  Color get playbackControl => playbackControlColor ?? primary;
+  Color get surfaceTint =>
+      surfaceTintColor ?? primary.withValues(alpha: 0.06);
+
+  bool hasSameColors(AppThemeData other) =>
+      bgDark == other.bgDark &&
+      cardDark == other.cardDark &&
+      elevatedSurface == other.elevatedSurface &&
+      primary == other.primary &&
+      secondaryAccent == other.secondaryAccent &&
+      onPrimary == other.onPrimary &&
+      onSecondary == other.onSecondary &&
+      textDark == other.textDark &&
+      textPrimary == other.textPrimary &&
+      progressIndicator == other.progressIndicator &&
+      progressTrack == other.progressTrack &&
+      activeNavigation == other.activeNavigation &&
+      playbackControl == other.playbackControl &&
+      surfaceTint == other.surfaceTint;
 
   /// High-refresh-rate 60Hz/120Hz frame-by-frame color interpolator
   static AppThemeData lerp(AppThemeData a, AppThemeData b, double t) {
@@ -51,6 +106,21 @@ class AppThemeData {
       primary: Color.lerp(a.primary, b.primary, t) ?? b.primary,
       textDark: Color.lerp(a.textDark, b.textDark, t) ?? b.textDark,
       icon: t < 0.5 ? a.icon : b.icon,
+      elevatedSurfaceColor:
+          Color.lerp(a.elevatedSurface, b.elevatedSurface, t),
+      secondaryAccentColor:
+          Color.lerp(a.secondaryAccent, b.secondaryAccent, t),
+      onPrimaryColor: Color.lerp(a.onPrimary, b.onPrimary, t),
+      onSecondaryColor: Color.lerp(a.onSecondary, b.onSecondary, t),
+      textPrimaryColor: Color.lerp(a.textPrimary, b.textPrimary, t),
+      progressIndicatorColor:
+          Color.lerp(a.progressIndicator, b.progressIndicator, t),
+      progressTrackColor: Color.lerp(a.progressTrack, b.progressTrack, t),
+      activeNavigationColor:
+          Color.lerp(a.activeNavigation, b.activeNavigation, t),
+      playbackControlColor:
+          Color.lerp(a.playbackControl, b.playbackControl, t),
+      surfaceTintColor: Color.lerp(a.surfaceTint, b.surfaceTint, t),
     );
   }
 
@@ -67,8 +137,8 @@ class AppThemeData {
     final activeUseM3E =
         useM3ETypography ?? AppThemeService.instance.useM3ETypography;
 
-    final isDark = bgDark.computeLuminance() < 0.15;
-    final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
+    final isDark = _isDark;
+    final resolvedTextPrimary = textPrimary;
     final textMuted = isDark ? textDark : const Color(0xFF64748B);
     final borderAlpha = isDark ? 0.12 : 0.08;
 
@@ -84,48 +154,49 @@ class AppThemeData {
     final m3eScheme = M3EColorScheme(
       brightness: isDark ? Brightness.dark : Brightness.light,
       primary: primary,
-      onPrimary: isDark ? Colors.black : Colors.white,
+      onPrimary: onPrimary,
       primaryContainer: primary.withValues(alpha: isDark ? 0.3 : 0.2),
-      onPrimaryContainer: isDark ? Colors.white : primary,
-      secondary: primary,
-      onSecondary: isDark ? Colors.black : Colors.white,
-      secondaryContainer: primary.withValues(alpha: isDark ? 0.25 : 0.15),
-      onSecondaryContainer: isDark ? Colors.white : primary,
-      tertiary: primary,
-      onTertiary: isDark ? Colors.black : Colors.white,
-      tertiaryContainer: primary.withValues(alpha: 0.2),
-      onTertiaryContainer: isDark ? Colors.white : primary,
+      onPrimaryContainer: isDark ? resolvedTextPrimary : primary,
+      secondary: secondaryAccent,
+      onSecondary: onSecondary,
+      secondaryContainer:
+          secondaryAccent.withValues(alpha: isDark ? 0.25 : 0.15),
+      onSecondaryContainer: isDark ? resolvedTextPrimary : secondaryAccent,
+      tertiary: secondaryAccent,
+      onTertiary: onSecondary,
+      tertiaryContainer: secondaryAccent.withValues(alpha: 0.2),
+      onTertiaryContainer: isDark ? resolvedTextPrimary : secondaryAccent,
       error: const Color(0xFFCF6679),
       onError: Colors.black,
       errorContainer: const Color(0xFFB00020).withValues(alpha: 0.2),
       onErrorContainer: const Color(0xFFCF6679),
       surface: cardDark,
-      onSurface: textPrimary,
+      onSurface: resolvedTextPrimary,
       onSurfaceVariant: textMuted,
       surfaceContainerLowest: bgDark,
       surfaceContainerLow: bgDark,
       surfaceContainer: cardDark,
-      surfaceContainerHigh: cardDark,
-      surfaceContainerHighest: cardDark,
+      surfaceContainerHigh: elevatedSurface,
+      surfaceContainerHighest: elevatedSurface,
       surfaceDim: bgDark,
-      surfaceBright: cardDark,
-      inverseSurface: textPrimary,
+      surfaceBright: elevatedSurface,
+      inverseSurface: resolvedTextPrimary,
       onInverseSurface: bgDark,
       inversePrimary: primary,
-      outline: textPrimary.withValues(alpha: 0.2),
-      outlineVariant: textPrimary.withValues(alpha: borderAlpha),
+      outline: resolvedTextPrimary.withValues(alpha: 0.2),
+      outlineVariant: resolvedTextPrimary.withValues(alpha: borderAlpha),
       shadow: Colors.black.withValues(alpha: isDark ? 0.4 : 0.1),
       scrim: Colors.black.withValues(alpha: 0.6),
-      surfaceTint: primary,
+      surfaceTint: surfaceTint,
       emphasis: primary,
-      onEmphasis: isDark ? Colors.black : Colors.white,
+      onEmphasis: onPrimary,
       info: primary,
       success: isDark ? const Color(0xFF81C784) : const Color(0xFF2E7D32),
       warning: isDark ? const Color(0xFFFFB74D) : const Color(0xFFEF6C00),
       danger: const Color(0xFFCF6679),
-      surfaceStrong: cardDark,
-      onSurfaceStrong: textPrimary,
-      outlineStrong: textPrimary.withValues(alpha: 0.3),
+      surfaceStrong: elevatedSurface,
+      onSurfaceStrong: resolvedTextPrimary,
+      outlineStrong: resolvedTextPrimary.withValues(alpha: 0.3),
     );
 
     return M3EThemeData(
@@ -157,9 +228,9 @@ class AppThemeData {
     final activeUseM3E =
         useM3ETypography ?? AppThemeService.instance.useM3ETypography;
 
-    final isDark = bgDark.computeLuminance() < 0.15;
+    final isDark = _isDark;
     final base = isDark ? ThemeData.dark() : ThemeData.light();
-    final textPrimary = isDark ? Colors.white : const Color(0xFF1A1A2E);
+    final resolvedTextPrimary = textPrimary;
     final textMuted = isDark ? textDark : const Color(0xFF64748B);
     final borderAlpha = isDark ? 0.12 : 0.08;
 
@@ -174,35 +245,41 @@ class AppThemeData {
     final colorScheme = isDark
         ? ColorScheme.dark(
             primary: primary,
-            onPrimary: Colors.black,
+            onPrimary: onPrimary,
+            secondary: secondaryAccent,
+            onSecondary: onSecondary,
             surface: cardDark,
-            onSurface: textPrimary,
+            onSurface: resolvedTextPrimary,
             surfaceContainerLowest: bgDark,
             surfaceContainerLow: bgDark,
             surfaceContainer: cardDark,
-            surfaceContainerHigh: cardDark,
-            surfaceContainerHighest: cardDark,
+            surfaceContainerHigh: elevatedSurface,
+            surfaceContainerHighest: elevatedSurface,
             surfaceDim: bgDark,
-            surfaceBright: cardDark,
+            surfaceBright: elevatedSurface,
+            surfaceTint: surfaceTint,
             onSurfaceVariant: textMuted,
-            outline: textPrimary.withValues(alpha: 0.2),
-            outlineVariant: textPrimary.withValues(alpha: borderAlpha),
+            outline: resolvedTextPrimary.withValues(alpha: 0.2),
+            outlineVariant: resolvedTextPrimary.withValues(alpha: borderAlpha),
           )
         : ColorScheme.light(
             primary: primary,
-            onPrimary: Colors.white,
+            onPrimary: onPrimary,
+            secondary: secondaryAccent,
+            onSecondary: onSecondary,
             surface: cardDark,
-            onSurface: textPrimary,
+            onSurface: resolvedTextPrimary,
             surfaceContainerLowest: bgDark,
             surfaceContainerLow: bgDark,
             surfaceContainer: cardDark,
-            surfaceContainerHigh: cardDark,
-            surfaceContainerHighest: cardDark,
+            surfaceContainerHigh: elevatedSurface,
+            surfaceContainerHighest: elevatedSurface,
             surfaceDim: bgDark,
-            surfaceBright: cardDark,
+            surfaceBright: elevatedSurface,
+            surfaceTint: surfaceTint,
             onSurfaceVariant: textMuted,
-            outline: textPrimary.withValues(alpha: 0.2),
-            outlineVariant: textPrimary.withValues(alpha: borderAlpha),
+            outline: resolvedTextPrimary.withValues(alpha: 0.2),
+            outlineVariant: resolvedTextPrimary.withValues(alpha: borderAlpha),
           );
 
     return base.copyWith(
@@ -221,10 +298,11 @@ class AppThemeData {
         elevation: 6,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
-          side: BorderSide(color: textPrimary.withValues(alpha: borderAlpha)),
+          side: BorderSide(
+              color: resolvedTextPrimary.withValues(alpha: borderAlpha)),
         ),
         titleTextStyle: TextStyle(
-          color: textPrimary,
+          color: resolvedTextPrimary,
           fontSize: 18,
           fontWeight: FontWeight.bold,
         ),
@@ -235,32 +313,36 @@ class AppThemeData {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: cardDark,
-        contentTextStyle: TextStyle(color: textPrimary, fontSize: 14),
+        contentTextStyle: TextStyle(color: resolvedTextPrimary, fontSize: 14),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: textPrimary.withValues(alpha: borderAlpha)),
+          side: BorderSide(
+              color: resolvedTextPrimary.withValues(alpha: borderAlpha)),
         ),
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: bgDark,
-        foregroundColor: textPrimary,
+        foregroundColor: resolvedTextPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
-        iconTheme: IconThemeData(color: textPrimary),
+        iconTheme: IconThemeData(color: resolvedTextPrimary),
         titleTextStyle: TextStyle(
-          color: textPrimary,
+          color: resolvedTextPrimary,
           fontSize: 20,
           fontWeight: FontWeight.bold,
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: bgDark,
-        indicatorColor: primary.withValues(alpha: 0.3),
+        indicatorColor: activeNavigation.withValues(alpha: 0.22),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return TextStyle(
-                color: primary, fontSize: 12, fontWeight: FontWeight.w600);
+              color: activeNavigation,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            );
           }
           return TextStyle(
               color: textMuted.withValues(alpha: isDark ? 0.7 : 0.8),
@@ -268,7 +350,7 @@ class AppThemeData {
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return IconThemeData(color: primary);
+            return IconThemeData(color: activeNavigation);
           }
           return IconThemeData(
               color: textMuted.withValues(alpha: isDark ? 0.7 : 0.8));
@@ -281,11 +363,11 @@ class AppThemeData {
         ),
       ),
       dividerTheme: DividerThemeData(
-        color: textPrimary.withValues(alpha: borderAlpha),
+        color: resolvedTextPrimary.withValues(alpha: borderAlpha),
         thickness: 1,
       ),
-      dividerColor: textPrimary.withValues(alpha: borderAlpha),
-      iconTheme: IconThemeData(color: textPrimary),
+      dividerColor: resolvedTextPrimary.withValues(alpha: borderAlpha),
+      iconTheme: IconThemeData(color: resolvedTextPrimary),
     );
   }
 }
@@ -293,7 +375,7 @@ class AppThemeData {
 // ─── Service singleton ────────────────────────────────────────────────────────
 class AppThemeService {
   AppThemeService._() {
-    ArtworkThemeService.instance.onColorSchemeChanged.listen((_) {
+    ArtworkThemeService.instance.onSemanticPaletteChanged.listen((_) {
       if (_current == AppThemeId.dynamicAlbumArt) {
         themeChanged.add(_current);
       }
@@ -429,20 +511,33 @@ class AppThemeService {
   AppThemeData get currentData {
     final base = themes.firstWhere((t) => t.id == _current);
     if (_current == AppThemeId.dynamicAlbumArt) {
-      final scheme = ArtworkThemeService.instance.currentScheme;
-      if (scheme != null) {
-        return AppThemeData(
-          id: AppThemeId.dynamicAlbumArt,
-          displayName: 'Dynamic Cover',
-          bgDark: scheme.surface,
-          cardDark: scheme.surfaceContainerHigh,
-          primary: scheme.primary,
-          textDark: scheme.onSurface.withValues(alpha: 0.7),
-          icon: Icons.palette_outlined,
-        );
-      }
+      final palette = ArtworkThemeService.instance.currentSemanticPalette ??
+          AdaptiveThemeGenerator.fallbackPalette();
+      return _fromSemanticPalette(palette);
     }
     return base;
+  }
+
+  static AppThemeData _fromSemanticPalette(AdaptiveSemanticPalette p) {
+    return AppThemeData(
+      id: AppThemeId.dynamicAlbumArt,
+      displayName: 'Dynamic Cover',
+      bgDark: Color(p.background),
+      cardDark: Color(p.surface),
+      primary: Color(p.primaryAccent),
+      textDark: Color(p.secondaryText),
+      icon: Icons.palette_outlined,
+      elevatedSurfaceColor: Color(p.elevatedSurface),
+      secondaryAccentColor: Color(p.secondaryAccent),
+      onPrimaryColor: Color(p.onPrimary),
+      onSecondaryColor: Color(p.onSecondary),
+      textPrimaryColor: Color(p.primaryText),
+      progressIndicatorColor: Color(p.progressIndicator),
+      progressTrackColor: Color(p.progressTrack),
+      activeNavigationColor: Color(p.activeNavigation),
+      playbackControlColor: Color(p.playbackControl),
+      surfaceTintColor: Color(p.surfaceTint),
+    );
   }
 
   Future<void> loadTheme() async {
@@ -452,6 +547,8 @@ class AppThemeService {
       final match = AppThemeId.values.where((e) => e.name == saved);
       if (match.isNotEmpty) _current = match.first;
     }
+    ArtworkThemeService.instance
+        .setAdaptiveModeActive(_current == AppThemeId.dynamicAlbumArt);
     final savedShape = prefs.getString(_kAlbumArtShapeKey);
     if (savedShape != null) {
       final match = Shapes.values.where((e) => e.name == savedShape);
@@ -481,6 +578,8 @@ class AppThemeService {
 
   Future<void> saveTheme(AppThemeId id) async {
     _current = id;
+    ArtworkThemeService.instance
+        .setAdaptiveModeActive(id == AppThemeId.dynamicAlbumArt);
     await PreferencesStore.instance.setString(_kAppThemeKey, id.name);
     themeChanged.add(id);
   }
@@ -594,9 +693,7 @@ class AppThemeProvider extends InheritedWidget {
   @override
   bool updateShouldNotify(AppThemeProvider oldWidget) =>
       themeData.id != oldWidget.themeData.id ||
-      themeData.primary != oldWidget.themeData.primary ||
-      themeData.bgDark != oldWidget.themeData.bgDark ||
-      themeData.cardDark != oldWidget.themeData.cardDark ||
+      !themeData.hasSameColors(oldWidget.themeData) ||
       albumArtShape != oldWidget.albumArtShape ||
       useM3EAlbumArtShape != oldWidget.useM3EAlbumArtShape ||
       fontFamily != oldWidget.fontFamily ||
@@ -617,13 +714,23 @@ extension AppThemeContextExtension on BuildContext {
   TextTheme get emphasizedTextTheme => Theme.of(this).textTheme.emphasized;
   Color get bgDark => appTheme.bgDark;
   Color get cardDark => appTheme.cardDark;
+  Color get elevatedSurface => appTheme.elevatedSurface;
   Color get surfaceDarkerColor => appTheme.cardDark.withValues(alpha: 0.8);
   Color get primaryColor => appTheme.primary;
+  Color get secondaryAccent => appTheme.secondaryAccent;
+  Color get onPrimaryColor => appTheme.onPrimary;
+  Color get onSecondaryColor => appTheme.onSecondary;
+  Color get progressIndicator => appTheme.progressIndicator;
+  Color get progressTrack => appTheme.progressTrack;
+  Color get activeNavigation => appTheme.activeNavigation;
+  Color get playbackControl => appTheme.playbackControl;
+  Color get surfaceTint => appTheme.surfaceTint;
   Color get textMuted => appTheme.textDark;
   Color get textDark => appTheme.textDark;
   bool get isDark => bgDark.computeLuminance() < 0.15;
-  Color get textPrimary => isDark ? Colors.white : const Color(0xFF1A1A2E);
-  Color get outlineColor => (isDark ? Colors.white : const Color(0xFF1A1A2E)).withValues(alpha: 0.12);
+  Color get textPrimary => appTheme.textPrimary;
+  Color get outlineColor =>
+      textPrimary.withValues(alpha: 0.12);
 }
 
 

@@ -1030,7 +1030,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
               content: Row(
                 children: [
                   Icon(Icons.lyrics_outlined,
-                      color: AppThemeService.instance.currentData.primary,
+                      color: AppThemeProvider.of(context).primary,
                       size: 18),
                   const SizedBox(width: 8),
                   Expanded(
@@ -1077,11 +1077,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     showSautiM3EBottomSheet<void>(
       context,
       builder: (sheetContext) {
+        final sheetTheme = AppThemeProvider.of(sheetContext);
         return Material(
-          color: const Color(0xFF18232E),
+          color: sheetTheme.elevatedSurface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           child: StatefulBuilder(
             builder: (ctx, setSheetState) {
+              final theme = AppThemeProvider.of(ctx);
               return SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -1110,8 +1112,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 1.2,
-                              color:
-                                  AppThemeService.instance.currentData.primary,
+                              color: theme.primary,
                             ),
                           ),
                         ),
@@ -1176,8 +1177,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         ValueListenableBuilder<SleepTimerState>(
                           valueListenable: SleepTimerService.instance.state,
                           builder: (ctx, timer, _) {
-                            final primaryColor =
-                                AppThemeService.instance.currentData.primary;
+                            final primaryColor = AppThemeProvider.of(ctx).primary;
                             return ListTile(
                               leading: Icon(
                                 timer.isActive
@@ -1242,7 +1242,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             final hasDlna = dlna.activeRenderer != null;
                             final isActive = hasCast || hasDlna;
                             final primaryColor =
-                                AppThemeService.instance.currentData.primary;
+                                AppThemeProvider.of(ctx).primary;
                             final modeText =
                                 cast.audioMode == CastAudioMode.bitPerfect
                                     ? 'Bit-Perfect'
@@ -1336,8 +1336,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                           child: M3EProgressIndicator.circular(
                                             size: 20,
                                             strokeWidth: 2.2,
-                                            color: AppThemeService
-                                                .instance.currentData.primary,
+                                            color: AppThemeProvider.of(ctx)
+                                                .primary,
                                           ),
                                         ),
                                       )
@@ -1346,8 +1346,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                             ? Icons.download_done_rounded
                                             : Icons.download_rounded,
                                         color: isCached
-                                            ? AppThemeService
-                                                .instance.currentData.primary
+                                            ? AppThemeProvider.of(ctx).primary
                                             : Colors.white,
                                       ),
                                 title: Text(
@@ -1507,8 +1506,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         ),*/
                         ListTile(
                           leading: Icon(Icons.subtitles_outlined,
-                              color:
-                                  AppThemeService.instance.currentData.primary),
+                              color: theme.primary),
                           title: const Text('Add .lrc Lyrics File',
                               style: TextStyle(
                                   color: Colors.white,
@@ -1531,7 +1529,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                 ? Icons.layers
                                 : Icons.layers_clear,
                             color: _showLyricsOverlayOnAlbumArt
-                                ? AppThemeService.instance.currentData.primary
+                                ? theme.primary
                                 : Colors.white54,
                           ),
                           title: const Text('Lyrics Overlay on Album Art',
@@ -1542,8 +1540,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                               'Display synchronized lyrics over album cover',
                               style: TextStyle(
                                   color: Colors.white54, fontSize: 12)),
-                          activeThumbColor:
-                              AppThemeService.instance.currentData.primary,
+                          activeThumbColor: theme.primary,
                           value: _showLyricsOverlayOnAlbumArt,
                           onChanged: (_lyricsRaw == null &&
                                   !_isCustomLyricsLoaded)
@@ -1721,6 +1718,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }) {
     if (!_showLyricsOverlayOnAlbumArt) return const SizedBox.shrink();
 
+    final overlayPrimary = AppThemeProvider.of(context).primary;
     return Positioned(
       top: topOffset,
       left: 0,
@@ -1732,8 +1730,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             borderRadius: BorderRadius.circular(borderRadius),
             color: Colors.black.withValues(alpha: 0.94),
             border: Border.all(
-              color: AppThemeService.instance.currentData.primary
-                  .withValues(alpha: 0.4),
+              color: overlayPrimary.withValues(alpha: 0.4),
               width: 1.5,
             ),
           ),
@@ -1771,17 +1768,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: AppThemeService.instance.currentData.primary
-                                .withValues(alpha: 0.25),
+                            color: overlayPrimary.withValues(alpha: 0.25),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(Icons.lyrics,
-                                  size: 12,
-                                  color: AppThemeService
-                                      .instance.currentData.primary),
+                                  size: 12, color: overlayPrimary),
                               const SizedBox(width: 4),
                               Flexible(
                                 child: AdaptiveMarqueeText(
@@ -2135,8 +2129,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                             height: 160,
                             child: Center(
                               child: M3EProgressIndicator.circular(
-                                color: AppThemeService
-                                    .instance.currentData.primary,
+                                color: AppThemeProvider.of(context).primary,
                               ),
                             ),
                           )
@@ -2152,7 +2145,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _buildHardwareSheetContent(AudioHardwareSpecs specs) {
-    final primaryColor = AppThemeService.instance.currentData.primary;
+    final primaryColor = AppThemeProvider.of(context).primary;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2355,7 +2348,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   }
 
   Widget _buildChainNode(SignalChainNode node) {
-    final primaryColor = AppThemeService.instance.currentData.primary;
+    final primaryColor = AppThemeProvider.of(context).primary;
     final accent = node.isHighlight ? primaryColor : Colors.white24;
     final labelColor = node.isHighlight ? primaryColor : Colors.white70;
 
@@ -2432,6 +2425,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _buildSpecChip(IconData icon, String label, String value,
       {bool isHiRes = false}) {
+    final chipPrimary = AppThemeProvider.of(context).primary;
     return Container(
       width: 160,
       padding: const EdgeInsets.all(12),
@@ -2440,8 +2434,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isHiRes
-              ? AppThemeService.instance.currentData.primary
-                  .withValues(alpha: 0.6)
+              ? chipPrimary.withValues(alpha: 0.6)
               : Colors.white.withValues(alpha: 0.08),
         ),
       ),
@@ -2452,9 +2445,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             children: [
               Icon(icon,
                   size: 14,
-                  color: isHiRes
-                      ? AppThemeService.instance.currentData.primary
-                      : Colors.white54),
+                  color: isHiRes ? chipPrimary : Colors.white54),
               const SizedBox(width: 6),
               Expanded(
                 child: AdaptiveMarqueeText(
@@ -2462,9 +2453,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: isHiRes
-                        ? AppThemeService.instance.currentData.primary
-                        : Colors.white54,
+                    color: isHiRes ? chipPrimary : Colors.white54,
                     letterSpacing: 0.5,
                   ),
                 ),
@@ -2538,11 +2527,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ? widget.getArtistId!(status.currentIndex)
             : (curTrack?.artistId ?? widget.artistId);
 
-        final Color primaryColor = AppThemeService.instance.currentData.primary;
-        final Color bgColor = AppThemeService.instance.currentData.bgDark;
-        final Shapes albumArtShape = AppThemeService.instance.albumArtShape;
-        final bool useM3EShape = AppThemeService.instance.useM3EAlbumArtShape;
-        const Color surfaceColor = Color(0xFF18232E);
+        final appTheme = AppThemeProvider.of(context);
+        final Color primaryColor = appTheme.primary;
+        final Color bgColor = appTheme.bgDark;
+        final Shapes albumArtShape = AppThemeProvider.ofShape(context);
+        final bool useM3EShape = AppThemeProvider.ofUseM3EShape(context);
+        final Color surfaceColor = appTheme.elevatedSurface;
+        final Color secondaryColor = appTheme.secondaryAccent;
+        final Color tintColor = appTheme.surfaceTint;
         const Color textLight = Colors.white;
 
         return Theme(
@@ -2551,6 +2543,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             primaryColor: primaryColor,
             colorScheme: ColorScheme.dark(
               primary: primaryColor,
+              onPrimary: appTheme.onPrimary,
+              secondary: secondaryColor,
+              onSecondary: appTheme.onSecondary,
               surface: surfaceColor,
             ),
           ),
@@ -2598,7 +2593,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
                                 colors: [
-                                  primaryColor.withValues(alpha: 0.18),
+                                  Color.alphaBlend(tintColor, bgColor),
                                   bgColor,
                                 ],
                               ),
@@ -4392,8 +4387,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       content: Row(
                         children: [
                           Icon(Icons.repeat_on_rounded,
-                              color:
-                                  AppThemeService.instance.currentData.primary,
+                              color: AppThemeProvider.of(context).primary,
                               size: 18),
                           const SizedBox(width: 8),
                           Text(
@@ -4435,6 +4429,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
   Widget _buildAbRegionLabels({required double maxMs}) {
     if (_abPointAMs == null) return const SizedBox.shrink();
+    final labelPrimary = AppThemeProvider.of(context).primary;
     return Padding(
       padding: const EdgeInsets.only(bottom: 2.0),
       child: Row(
@@ -4460,19 +4455,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: AppThemeService.instance.currentData.primary
-                    .withValues(alpha: 0.2),
+                color: labelPrimary.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                    color: AppThemeService.instance.currentData.primary,
-                    width: 1),
+                border: Border.all(color: labelPrimary, width: 1),
               ),
               child: Text(
                 'B ${_fmt(Duration(milliseconds: _abPointBMs!.toInt()))}',
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: AppThemeService.instance.currentData.primary,
+                  color: labelPrimary,
                 ),
               ),
             )
@@ -4492,11 +4484,13 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       builder: (ctx) {
         double localA = _abPointAMs ?? 0;
         double localB = _abPointBMs ?? maxMs;
+        final outerTheme = AppThemeProvider.of(ctx);
         return Material(
-          color: const Color(0xFF18232E),
+          color: outerTheme.elevatedSurface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           child: StatefulBuilder(
-            builder: (ctx, setSheetState) {
+            builder: (sheetCtx, setSheetState) {
+              final sheetTheme = AppThemeProvider.of(sheetCtx);
               void apply() {
                 setState(() {
                   _abPointAMs = localA;
@@ -4521,7 +4515,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 1.2,
-                        color: AppThemeService.instance.currentData.primary,
+                        color: sheetTheme.primary,
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -4565,8 +4559,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                       children: [
                         Text('Point B',
                             style: TextStyle(
-                                color: AppThemeService
-                                    .instance.currentData.primary,
+                                color: sheetTheme.primary,
                                 fontWeight: FontWeight.bold)),
                         const Spacer(),
                         M3EIconButton(
@@ -4703,6 +4696,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     required bool isMobile,
     required Color primaryColor,
   }) {
+    final appTheme = AppThemeProvider.of(context);
+    final indicatorColor = appTheme.progressIndicator;
+    final trackColor = appTheme.progressTrack;
+
     if (_useWaveformSeekBar &&
         _currentWaveformPeaks != null &&
         _currentWaveformPeaks!.isNotEmpty) {
@@ -4715,7 +4712,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
           abPointAMs: _abPointAMs,
           abPointBMs: _abPointBMs,
           height: isMobile ? 48.0 : 56.0,
-          activeColor: primaryColor,
+          activeColor: indicatorColor,
           onDragStateChanged: (dragging) {
             _isDragging = dragging;
           },
@@ -4753,9 +4750,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             lineAmplitude: isMobile ? 3.0 : 3.5,
             strokeWidth: isMobile ? 2.5 : 3.0,
             height: isMobile ? 36.0 : 40.0,
-            activeColor: primaryColor,
-            inactiveColor: primaryColor.withValues(alpha: 0.2),
-            thumbColor: primaryColor,
+            activeColor: indicatorColor,
+            inactiveColor: trackColor,
+            thumbColor: indicatorColor,
             handleShape: M3ESeekbarHandleShape.circle,
             handleRadius: isMobile ? 8.0 : 10.0,
             decoration: const M3ESeekbarDecoration(
@@ -4787,9 +4784,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                 min: 0.0,
                 max: maxMs,
                 trackHeight: isMobile ? 4.0 : 6.0,
-                activeColor: primaryColor,
-                inactiveColor: primaryColor.withValues(alpha: 0.2),
-                thumbColor: primaryColor,
+                activeColor: indicatorColor,
+                inactiveColor: trackColor,
+                thumbColor: indicatorColor,
                 handleShape: M3ESeekbarHandleShape.circle,
                 handleRadius: isMobile ? 8.0 : 10.0,
                 label: _fmt(Duration(milliseconds: clampedPos.toInt())),
@@ -4868,6 +4865,7 @@ class _AbRegionPainter extends StatelessWidget {
         abRepeatState: abRepeatState,
         left: left,
         right: right,
+        primaryColor: context.primaryColor,
       ),
     );
   }
@@ -4877,24 +4875,25 @@ class _AbHighlightCustomPainter extends CustomPainter {
   final int abRepeatState;
   final double left;
   final double? right;
+  final Color primaryColor;
 
   const _AbHighlightCustomPainter({
     required this.abRepeatState,
     required this.left,
     this.right,
+    required this.primaryColor,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (abRepeatState == 2 && right != null) {
       final paint = Paint()
-        ..color =
-            AppThemeService.instance.currentData.primary.withValues(alpha: 0.25)
+        ..color = primaryColor.withValues(alpha: 0.25)
         ..style = PaintingStyle.fill;
       canvas.drawRect(Rect.fromLTRB(left, 0, right!, size.height), paint);
 
       final pinBPaint = Paint()
-        ..color = AppThemeService.instance.currentData.primary
+        ..color = primaryColor
         ..style = PaintingStyle.fill;
       canvas.drawRect(
           Rect.fromLTRB(right! - 1.5, 0, right! + 1.5, size.height), pinBPaint);
@@ -4911,7 +4910,8 @@ class _AbHighlightCustomPainter extends CustomPainter {
   bool shouldRepaint(_AbHighlightCustomPainter old) =>
       old.abRepeatState != abRepeatState ||
       old.left != left ||
-      old.right != right;
+      old.right != right ||
+      old.primaryColor != primaryColor;
 }
 
 class _AbRepeatCustomIcon extends StatelessWidget {
@@ -4921,6 +4921,7 @@ class _AbRepeatCustomIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = context.primaryColor;
     Color borderClr;
     Color bgClr;
     Color textClr;
@@ -4932,10 +4933,9 @@ class _AbRepeatCustomIcon extends StatelessWidget {
         textClr = const Color(0xFFFFA726);
         break;
       case 2:
-        borderClr = AppThemeService.instance.currentData.primary;
-        bgClr = AppThemeService.instance.currentData.primary
-            .withValues(alpha: 0.25);
-        textClr = const Color(0xFF38BDF8);
+        borderClr = accent;
+        bgClr = accent.withValues(alpha: 0.25);
+        textClr = accent;
         break;
       default:
         borderClr = Colors.white24;

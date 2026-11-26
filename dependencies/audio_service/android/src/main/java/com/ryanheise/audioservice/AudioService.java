@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.AudioManager;
@@ -24,6 +25,7 @@ import android.support.v4.media.RatingCompat;
 import android.support.v4.media.session.MediaControllerCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
+import android.util.Log;
 import android.util.LruCache;
 import android.util.Size;
 import android.view.KeyEvent;
@@ -282,6 +284,7 @@ public class AudioService extends MediaBrowserServiceCompat {
     private int repeatMode;
     private int shuffleMode;
     private boolean notificationCreated;
+    private boolean isForeground;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private VolumeProviderCompat volumeProvider;
 
@@ -308,6 +311,7 @@ public class AudioService extends MediaBrowserServiceCompat {
         repeatMode = 0;
         shuffleMode = 0;
         notificationCreated = false;
+        isForeground = false;
         playing = false;
         processingState = AudioProcessingState.idle;
         mediaSession = new MediaSessionCompat(this, "media-session");
@@ -381,6 +385,7 @@ public class AudioService extends MediaBrowserServiceCompat {
         releaseWakeLock();
         instance = null;
         notificationCreated = false;
+        isForeground = false;
     }
 
     public AudioServiceConfig getConfig() {
@@ -413,9 +418,19 @@ public class AudioService extends MediaBrowserServiceCompat {
     }
 
     int getResourceId(String resource) {
-        String[] parts = resource.split("/");
-        String resourceType = parts[0];
-        String resourceName = parts[1];
+        if (resource == null || resource.isEmpty()) {
+            return 0;
+        }
+        String[] parts = resource.split("/", 2);
+        String resourceType;
+        String resourceName;
+        if (parts.length < 2) {
+            resourceType = "drawable";
+            resourceName = resource;
+        } else {
+            resourceType = parts[0];
+            resourceName = parts[1];
+        }
         int id = getResources().getIdentifier(resourceName, resourceType, getApplicationContext().getPackageName());
         if (id == 0) {
             id = getResources().getIdentifier(resourceName, resourceType, getPackageName());
@@ -489,6 +504,10 @@ public class AudioService extends MediaBrowserServiceCompat {
 
     PlaybackStateCompat.CustomAction createCustomAction(MediaControl control) {
         int iconId = getResourceId(control.icon);
+        if (iconId == 0) {
+            Log.w("AudioService", "Skipping custom action with missing icon resource: " + control.icon);
+            return null;
+        }
         if (control.customAction != null) {
             return new PlaybackStateCompat.CustomAction.Builder(control.customAction.name, control.label, iconId)
                 .setExtras(mapToBundle(control.customAction.extras))
@@ -595,7 +614,11 @@ public class AudioService extends MediaBrowserServiceCompat {
         mediaSession.setShuffleMode(shuffleMode);
         mediaSession.setCaptioningEnabled(captioningEnabled);
 
-        if (!wasPlaying && playing) {
+        if (playing && !mediaSession.isActive()) {
+            mediaSession.setActive(true);
+        }
+
+        if (playing && (!wasPlaying || !notificationCreated || !isForeground)) {
             enterPlayingState();
         } else if (wasPlaying && !playing) {
             exitPlayingState();
@@ -604,7 +627,7 @@ public class AudioService extends MediaBrowserServiceCompat {
         if (oldProcessingState != AudioProcessingState.idle && processingState == AudioProcessingState.idle) {
             // TODO: Handle completed state as well?
             stop();
-        } else if (processingState != AudioProcessingState.idle && notificationChanged) {
+        } else if (processingState != AudioProcessingState.idle && (notificationChanged || playing)) {
             updateNotification();
         }
     }
@@ -741,6 +764,7 @@ public class AudioService extends MediaBrowserServiceCompat {
         if (channel == null) {
             channel = new NotificationChannel(notificationChannelId, config.androidNotificationChannelName, NotificationManager.IMPORTANCE_LOW);
             channel.setShowBadge(config.androidShowNotificationBadge);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             if (config.androidNotificationChannelDescription != null)
                 channel.setDescription(config.androidNotificationChannelDescription);
             notificationManager.createNotificationChannel(channel);
@@ -754,7 +778,11 @@ public class AudioService extends MediaBrowserServiceCompat {
     }
 
     private void enterPlayingState() {
-        ContextCompat.startForegroundService(this, new Intent(AudioService.this, AudioService.class));
+        try {
+            ContextCompat.startForegroundService(this, new Intent(AudioService.this, AudioService.class));
+        } catch (Exception e) {
+            Log.w("AudioService", "startForegroundService failed: " + e.getMessage(), e);
+        }
         if (!mediaSession.isActive())
             mediaSession.setActive(true);
 
@@ -771,12 +799,33 @@ public class AudioService extends MediaBrowserServiceCompat {
 
     private void exitForegroundState() {
         ServiceCompat.stopForeground(this, STOP_FOREGROUND_DETACH);
+        isForeground = false;
         releaseWakeLock();
     }
 
     private void internalStartForeground() {
-        startForeground(NOTIFICATION_ID, buildNotification());
-        notificationCreated = true;
+        Notification notification = buildNotification();
+        try {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                    ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    : 0
+            );
+            isForeground = true;
+            notificationCreated = true;
+        } catch (Exception e) {
+            isForeground = false;
+            Log.e("AudioService", "startForeground failed: " + e.getMessage(), e);
+            try {
+                getNotificationManager().notify(NOTIFICATION_ID, notification);
+                notificationCreated = true;
+            } catch (Exception notifyErr) {
+                Log.e("AudioService", "Fallback notification notify failed: " + notifyErr.getMessage(), notifyErr);
+            }
+        }
     }
 
     private void acquireWakeLock() {

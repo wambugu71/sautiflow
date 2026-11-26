@@ -124,7 +124,9 @@ class _MiniPlayerState extends State<MiniPlayer>
     final slideFraction =
         screenWidth > 0 ? (_dragOffsetX / screenWidth).clamp(-0.25, 0.25) : 0.0;
     final cardColor = context.cardDark;
-    final primaryColor = context.primaryColor;
+    final tintedCardColor = Color.alphaBlend(context.surfaceTint, cardColor);
+    final progressColor = context.progressIndicator;
+    final trackColor = context.progressTrack;
     final textPrimary = context.textPrimary;
     final textMuted = context.textMuted;
     final outlineColor = context.outlineColor;
@@ -147,7 +149,7 @@ class _MiniPlayerState extends State<MiniPlayer>
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: cardColor,
+            color: tintedCardColor,
             borderRadius: BorderRadius.circular(8),
             boxShadow: [
               BoxShadow(
@@ -182,9 +184,9 @@ class _MiniPlayerState extends State<MiniPlayer>
                           lineAmplitude: 1.8,
                           strokeWidth: 2.0,
                           height: 10.0,
-                          activeColor: primaryColor,
-                          inactiveColor: primaryColor.withValues(alpha: 0.15),
-                          thumbColor: primaryColor,
+                          activeColor: progressColor,
+                          inactiveColor: trackColor,
+                          thumbColor: progressColor,
                           handleShape: M3ESeekbarHandleShape.rectangle,
                           handleWidth: 3.0,
                           handleHeight: 6.0,
@@ -199,9 +201,9 @@ class _MiniPlayerState extends State<MiniPlayer>
                         min: 0.0,
                         max: 1.0,
                         trackHeight: 3.0,
-                        activeColor: primaryColor,
-                        inactiveColor: primaryColor.withValues(alpha: 0.15),
-                        thumbColor: primaryColor,
+                        activeColor: progressColor,
+                        inactiveColor: trackColor,
+                        thumbColor: progressColor,
                         handleShape: M3ESeekbarHandleShape.rectangle,
                         handleWidth: 3.0,
                         handleHeight: 5.0,
