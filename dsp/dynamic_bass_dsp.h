@@ -6,6 +6,7 @@
 #include <vector>
 #include <array>
 #include <cstring>
+#include "denormals.h"
 #include "simd_math.h"
 #include "cytomic_svf_dsp.h"
 
@@ -13,11 +14,11 @@ namespace sauti::dsp {
 
 enum class BassEnhanceProfile {
     NaturalBass = 0,        // Natural Mono Bass: Butterworth Q=0.53 + 18Hz DC-block + dual-stage soft clipping
-    PureBass = 1,           // Pure Bass+ Mono: 63-tap Polyphase FIR + phase-aligned delay-line mono injection
-    Subwoofer = 2,          // Subwoofer Mono: Dual-stage 44Hz/80Hz bandwidth peaking + 380Hz diff lowpass
-    HarmonicExciter = 3,    // Psychoacoustic Bass: Envelope-tracked Chebyshev harmonic synthesizer (2f + 3f)
-    PultecDeep = 4,         // Pultec EQP-1A Low-End Trick: Deep 45 Hz mono boost + 300 Hz mud scoop
-    DynamicMultiPole = 5,   // 4-Pole Cascaded Multi-Band Ladder Resonator with 19 Hardware Tuning Presets
+    PureBass = 1,           // Pure Bass+ Mono: 63-tap Linear-Phase SIMD FIR + time-aligned mono injection
+    Subwoofer = 2,          // Subwoofer: Dual-stage Cytomic SVF peaking + differential lowpass
+    HarmonicExciter = 3,    // Psychoacoustic Bass: DC-free Chebyshev 2f+3f synthesizer + post-LPF
+    PultecDeep = 4,         // Pultec EQP-1A Low-End Trick: LowShelf boost + proportional mud scoop
+    DynamicMultiPole = 5,   // Phase-Coherent LR4 Multi-Band Bass Matrix with 19 Hardware Tuning Presets
 
     // Backward-compatible aliases
     SubBassResonant = 0,
@@ -38,25 +39,25 @@ struct DynamicBassPreset {
 };
 
 inline constexpr std::array<DynamicBassPreset, 19> kDynamicBassPresets = {{
-    { "Smooth Natural Sub",   140.0f,  6200.0f, 40.0f, 60.0f,  0.10f, 0.80f },
-    { "Punchy In-Ear",        180.0f,  5800.0f, 55.0f, 80.0f,  0.10f, 0.70f },
-    { "Warm Over-Ear",        300.0f,  5600.0f, 60.0f, 105.0f, 0.10f, 0.50f },
-    { "Deep Acoustic",        600.0f,  5400.0f, 60.0f, 105.0f, 0.10f, 0.20f },
-    { "Wide Dynamic",         100.0f,  5600.0f, 40.0f, 80.0f,  0.50f, 0.50f },
-    { "Sub-Bass Boom",        1200.0f, 6200.0f, 40.0f, 80.0f,  0.00f, 0.20f },
-    { "Tight Sub",            1000.0f, 6200.0f, 40.0f, 80.0f,  0.00f, 0.10f },
-    { "Solid Impact",         800.0f,  6200.0f, 40.0f, 80.0f,  0.10f, 0.00f },
-    { "Clean Kick",           400.0f,  6200.0f, 40.0f, 80.0f,  0.10f, 0.00f },
-    { "Rich Low-End",         1200.0f, 6200.0f, 50.0f, 90.0f,  0.15f, 0.10f },
-    { "Club PA Punch",        1000.0f, 6200.0f, 50.0f, 90.0f,  0.30f, 0.10f },
-    { "Basshead Heavy",       1100.0f, 6200.0f, 60.0f, 100.0f, 0.20f, 0.00f },
-    { "Resonant Rumble",      1200.0f, 6200.0f, 50.0f, 100.0f, 0.10f, 0.50f },
-    { "Cinema Sub",           1200.0f, 6200.0f, 60.0f, 100.0f, 0.00f, 0.30f },
-    { "Car Audio Slam",       1200.0f, 6200.0f, 40.0f, 80.0f,  0.00f, 0.30f },
-    { "Audiophile Reference", 1000.0f, 6200.0f, 60.0f, 100.0f, 0.00f, 0.00f },
-    { "Studio Monitor Lows",  1000.0f, 6200.0f, 60.0f, 120.0f, 0.00f, 0.00f },
-    { "Deep Sub Extension",   1000.0f, 6200.0f, 80.0f, 140.0f, 0.00f, 0.00f },
-    { "Ultimate Subwoofer",   800.0f,  6200.0f, 80.0f, 140.0f, 0.00f, 0.00f }
+    { "Smooth Natural Sub",   140.0f, 6200.0f, 40.0f,  65.0f, 0.10f, 0.80f },
+    { "Punchy In-Ear",        180.0f, 5800.0f, 55.0f,  85.0f, 0.10f, 0.70f },
+    { "Warm Over-Ear",        300.0f, 5600.0f, 60.0f, 105.0f, 0.15f, 0.50f },
+    { "Deep Acoustic",        260.0f, 5400.0f, 50.0f,  95.0f, 0.20f, 0.60f },
+    { "Wide Dynamic",         280.0f, 5600.0f, 45.0f,  85.0f, 0.30f, 0.55f },
+    { "Sub-Bass Boom",        240.0f, 6200.0f, 38.0f,  78.0f, 0.10f, 0.95f },
+    { "Tight Sub",            240.0f, 6200.0f, 45.0f,  85.0f, 0.10f, 0.55f },
+    { "Solid Impact",         280.0f, 6200.0f, 50.0f,  90.0f, 0.20f, 0.40f },
+    { "Clean Kick",           250.0f, 6200.0f, 55.0f,  95.0f, 0.20f, 0.25f },
+    { "Rich Low-End",         320.0f, 6200.0f, 50.0f,  95.0f, 0.25f, 0.60f },
+    { "Club PA Punch",        320.0f, 6200.0f, 45.0f,  90.0f, 0.30f, 0.65f },
+    { "Basshead Heavy",       280.0f, 6200.0f, 55.0f, 105.0f, 0.20f, 0.85f },
+    { "Resonant Rumble",      260.0f, 6200.0f, 40.0f,  85.0f, 0.15f, 0.90f },
+    { "Cinema Sub",           260.0f, 6200.0f, 45.0f,  90.0f, 0.10f, 0.85f },
+    { "Car Audio Slam",       280.0f, 6200.0f, 40.0f,  85.0f, 0.15f, 0.80f },
+    { "Audiophile Reference", 220.0f, 6200.0f, 45.0f,  85.0f, 0.10f, 0.65f },
+    { "Studio Monitor Lows",  240.0f, 6200.0f, 50.0f,  95.0f, 0.10f, 0.55f },
+    { "Deep Sub Extension",   220.0f, 6200.0f, 35.0f,  75.0f, 0.05f, 1.00f },
+    { "Ultimate Subwoofer",   260.0f, 6200.0f, 45.0f,  95.0f, 0.10f, 0.90f }
 }};
 
 // =============================================================================
@@ -76,21 +77,19 @@ public:
         if (initialized_ && std::abs(sample_rate_ - sampleRate) < 0.1f) return;
         sample_rate_ = sampleRate;
         sample_period_ = 1.0f / sample_rate_;
+        anti_pop_step_ = 1.0f / (0.020f * sample_rate_); // 20ms smooth enable/disable ramp
         updateFilters();
         reset();
         initialized_ = true;
     }
 
     void setEnabled(bool enabled) {
-        if (enabled_ != enabled) {
-            if (enabled) {
-                reset();
-            }
-            enabled_ = enabled;
-        }
+        enabled_ = enabled;
     }
 
     bool isEnabled() const { return enabled_; }
+
+    bool isActive() const { return enabled_ || anti_pop_ > 0.0f; }
 
     void setProfile(BassEnhanceProfile profile) {
         if (profile_ != profile) {
@@ -110,25 +109,28 @@ public:
 
     float getCutoffFrequency() const { return cutoff_hz_; }
 
-    // Boost factor [0.0, 1.0] -> maps to dynamic bass gain multiplier
+    // Boost factor [0.0, 1.0]
     void setBoost(float boost) {
         boost_ = std::clamp(boost, 0.0f, 1.0f);
-        // Linear scale matching dynamic bass multiplier [0.0 .. 3.5x]
+        gain_db_ = boost_ * 18.0f;
         bass_factor_ = boost_ * 3.5f;
-        target_bass_gain_ = 1.0f + boost_ * 4.0f;
+        target_bass_gain_ = std::pow(10.0f, gain_db_ / 20.0f);
         updateFilters();
     }
 
     float getBoost() const { return boost_; }
 
-    // Gain in dB [0.0 .. 24.0 dB]
+    // Logarithmic gain in dB [0.0 .. 18.0 dB]
     void setGainDb(float gain_db) {
-        gain_db = std::clamp(gain_db, 0.0f, 24.0f);
-        setBoost(gain_db / 24.0f);
+        gain_db_ = std::clamp(gain_db, 0.0f, 18.0f);
+        boost_ = gain_db_ / 18.0f;
+        bass_factor_ = boost_ * 3.5f;
+        target_bass_gain_ = std::pow(10.0f, gain_db_ / 20.0f);
+        updateFilters();
     }
 
     float getGainDb() const {
-        return boost_ * 24.0f;
+        return gain_db_;
     }
 
     // Set one of the 19 pre-tuned acoustic profiles (0..18)
@@ -173,21 +175,26 @@ public:
     void reset() {
         anti_pop_ = anti_pop_enabled_ ? 0.0f : 1.0f;
         bass_factor_smoothed_ = bass_factor_;
+        current_boost_ = boost_;
+        cached_boost_ = -1.0f;
         current_bass_gain_ = target_bass_gain_;
         current_side_gain_x_ = target_side_gain_x_;
         current_side_gain_y_ = target_side_gain_y_;
-        current_low_ang_x_ = target_low_ang_x_;
-        current_upp_ang_x_ = target_upp_ang_x_;
-        current_low_ang_y_ = target_low_ang_y_;
-        current_upp_ang_y_ = target_upp_ang_y_;
+        current_x_low_ = target_x_low_;
+        current_y_low_ = target_y_low_;
+        current_y_high_ = target_y_high_;
+        cached_x_low_ = -1.0f;
+        cached_y_low_ = -1.0f;
+        cached_y_high_ = -1.0f;
 
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.030f * sample_rate_)); // 30ms smoothing
-        
+        anti_pop_step_ = 1.0f / (0.020f * sample_rate_);
+
         // 18 Hz DC blocker coefficient
         constexpr double PI = 3.14159265358979323846;
         dc_block_coeff_ = static_cast<float>(std::exp(-2.0 * PI * 18.0 / static_cast<double>(sample_rate_)));
-        dc_x1_[0] = dc_x1_[1] = 0.0f;
-        dc_y1_[0] = dc_y1_[1] = 0.0f;
+        dc_x1_[0] = dc_x1_[1] = 0.0;
+        dc_y1_[0] = dc_y1_[1] = 0.0;
 
         // Reset Natural / Pure Bass Direct Form I Biquad
         mono_lp_biquad_.reset();
@@ -195,39 +202,42 @@ public:
         biquad_stereo_[1].reset();
 
         // Reset Polyphase FIR history buffers and delay line
-        fir_head_l_ = 0;
-        fir_head_r_ = 0;
-        std::memset(fir_hist_l_, 0, sizeof(fir_hist_l_));
-        std::memset(fir_hist_r_, 0, sizeof(fir_hist_r_));
+        fir_head_ = 0;
+        for (auto& v : fir_hist_) v = SimdDouble2(0.0);
 
         bass_delay_head_ = 0;
         std::memset(bass_delay_ring_, 0, sizeof(bass_delay_ring_));
 
-        // Reset Subwoofer filters
-        sub_peak_l_.reset();
-        sub_peak_r_.reset();
-        sub_peak_low_l_.reset();
-        sub_peak_low_r_.reset();
-        sub_lowpass_l_.reset();
-        sub_lowpass_r_.reset();
+        // Reset Subwoofer SVFs
+        sub_peak_.reset();
+        sub_peak_low_.reset();
+        sub_lowpass_.reset();
+        recalcSubwooferFilters();
 
         // Reset Harmonic Exciter states
         harm_envelope_ = 1e-10;
+        t2_dc_l_ = 0.0;
+        t2_dc_r_ = 0.0;
         harm_lp_l_.reset();
         harm_lp_r_.reset();
         harm_hp_l_.reset();
         harm_hp_r_.reset();
+        harm_post_lp_l_.reset();
+        harm_post_lp_r_.reset();
 
         // Reset Pultec filter states
         pultec_boost_svf_.reset();
         pultec_scoop_svf_.reset();
+        recalcPultecFilters();
 
-        // Reset Multi-Pole Ladder filters
-        ladder_x_[0] = LadderChannel{};
-        ladder_x_[1] = LadderChannel{};
-        ladder_y_[0] = LadderChannel{};
-        ladder_y_[1] = LadderChannel{};
-        dynamic_lp_biquad_.reset();
+        // Reset Multi-Pole LR4 crossovers
+        split_xlow_.reset();
+        split_ylow_.reset();
+        split_yhigh_.reset();
+        ap_ubass_ylow_.reset();
+        ap_up_ylow_.reset();
+        ap_up_yhigh_.reset();
+        applyMultiPoleFrequencies();
     }
 
     // Process interleaved stereo samples: [L0, R0, L1, R1, ...]
@@ -243,7 +253,9 @@ public:
 private:
     template <typename T>
     void processImpl(T* samples, uint32_t frame_count) {
-        if (!enabled_ || frame_count == 0 || !samples) return;
+        if ((!enabled_ && anti_pop_ <= 0.0f) || frame_count == 0 || !samples) return;
+
+        ScopedDenormalsDisable denormals;
 
         switch (profile_) {
             case BassEnhanceProfile::NaturalBass:
@@ -266,6 +278,7 @@ private:
                 break;
         }
     }
+
     // =========================================================================
     // Direct Form I Biquad Implementation
     // =========================================================================
@@ -331,118 +344,77 @@ private:
     };
 
     // =========================================================================
-    // Multi-Type Parametric Biquad Filter (for Subwoofer & Resonance Bands)
+    // Stereo 64-bit TPT SVF + LR4 Crossover Helpers (for Mode 5)
     // =========================================================================
-    struct MultiBiquadFilter {
-        enum FilterType {
-            LOW_PASS,
-            HIGH_PASS,
-            BAND_PASS,
-            PEAK,
-            LOW_SHELF,
-            HIGH_SHELF
-        };
-
-        double a1_ = 0.0, a2_ = 0.0;
-        double b0_ = 1.0, b1_ = 0.0, b2_ = 0.0;
-        double x1_ = 0.0, x2_ = 0.0, y1_ = 0.0, y2_ = 0.0;
+    struct StereoTptSvf {
+        static constexpr double kButterworthK = 1.4142135623730950488;
+        double a1 = 0.0;
+        double a2 = 0.0;
+        double a3 = 0.0;
+        SimdDouble2 ic1{0.0};
+        SimdDouble2 ic2{0.0};
 
         void reset() {
-            x1_ = x2_ = y1_ = y2_ = 0.0;
+            ic1 = SimdDouble2(0.0);
+            ic2 = SimdDouble2(0.0);
         }
 
-        inline double process(double sample) {
-            double out = sample * b0_ + x1_ * b1_ + x2_ * b2_ + y1_ * a1_ + y2_ * a2_;
-            x2_ = x1_;
-            x1_ = sample;
-            y2_ = y1_;
-            y1_ = out;
-            return out;
+        void setFrequency(double fc, double fs) {
+            constexpr double kPi = 3.14159265358979323846;
+            const double clampedFc = std::clamp(fc, 15.0, fs * 0.45);
+            const double g = std::tan(kPi * clampedFc / fs);
+            a1 = 1.0 / (1.0 + g * (g + kButterworthK));
+            a2 = g * a1;
+            a3 = g * a2;
         }
 
-        void refreshFilter(FilterType type, float gain_amp, float frequency, float sampling_rate, float q_factor, bool is_bandwidth) {
-            double gain;
-            if (type == PEAK || type == LOW_SHELF || type == HIGH_SHELF) {
-                gain = std::pow(10.0, static_cast<double>(gain_amp) / 40.0);
-            } else {
-                gain = std::pow(10.0, static_cast<double>(gain_amp) / 20.0);
-            }
+        inline void processLpHp(const SimdDouble2& in, SimdDouble2& lp, SimdDouble2& hp) {
+            const SimdDouble2 va1(a1), va2(a2), va3(a3);
+            const SimdDouble2 vk(kButterworthK), vTwo(2.0);
+            const SimdDouble2 v3 = in - ic2;
+            const SimdDouble2 v1 = SimdDouble2::fma(va1, ic1, va2 * v3);
+            const SimdDouble2 v2 = SimdDouble2::fma(va2, ic1, ic2) + (va3 * v3);
+            ic1 = (vTwo * v1) - ic1;
+            ic2 = (vTwo * v2) - ic2;
+            lp = v2;
+            hp = in - (vk * v1) - v2;
+        }
 
-            constexpr double PI = 3.14159265358979323846;
-            const double omega = 2.0 * PI * static_cast<double>(frequency) / static_cast<double>(sampling_rate);
-            const double sin_omega = std::sin(omega);
-            const double cos_omega = std::cos(omega);
-
-            double y = 0.0;
-            double z = -1.0;
-
-            if (type == LOW_SHELF || type == HIGH_SHELF) {
-                y = sin_omega / 2.0 * std::sqrt((1.0 / gain + gain) * (1.0 / static_cast<double>(q_factor) - 1.0) + 2.0);
-                z = std::sqrt(gain) * 2.0 * y;
-            } else if (is_bandwidth) {
-                y = std::sinh(static_cast<double>(q_factor) * std::log(2.0) * omega / 2.0 / sin_omega) * sin_omega;
-            } else {
-                y = sin_omega / (static_cast<double>(q_factor) + static_cast<double>(q_factor));
-            }
-
-            double a0 = 1.0, a1 = 0.0, a2 = 0.0;
-            double b0 = 1.0, b1 = 0.0, b2 = 0.0;
-
-            switch (type) {
-                case LOW_PASS:
-                    a0 = 1.0 + y;
-                    a1 = -2.0 * cos_omega;
-                    a2 = 1.0 - y;
-                    b0 = (1.0 - cos_omega) / 2.0;
-                    b1 = 1.0 - cos_omega;
-                    b2 = (1.0 - cos_omega) / 2.0;
-                    break;
-                case HIGH_PASS:
-                    a0 = 1.0 + y;
-                    a1 = -2.0 * cos_omega;
-                    a2 = 1.0 - y;
-                    b0 = (1.0 + cos_omega) / 2.0;
-                    b1 = -(1.0 + cos_omega);
-                    b2 = (1.0 + cos_omega) / 2.0;
-                    break;
-                case PEAK:
-                    a0 = 1.0 + y / gain;
-                    a1 = -2.0 * cos_omega;
-                    a2 = 1.0 - y / gain;
-                    b0 = 1.0 + y * gain;
-                    b1 = -2.0 * cos_omega;
-                    b2 = 1.0 - y * gain;
-                    break;
-                case LOW_SHELF: {
-                    const double tmp1 = gain + 1.0 - (gain - 1.0) * cos_omega;
-                    const double tmp2 = gain + 1.0 + (gain - 1.0) * cos_omega;
-                    a1 = (gain - 1.0 + (gain + 1.0) * cos_omega) * -2.0;
-                    a2 = tmp2 - z;
-                    b1 = gain * 2.0 * (gain - 1.0 - (gain + 1.0) * cos_omega);
-                    a0 = tmp2 + z;
-                    b0 = (tmp1 + z) * gain;
-                    b2 = (tmp1 - z) * gain;
-                    break;
-                }
-                default:
-                    break;
-            }
-
-            a1_ = -(a1 / a0);
-            a2_ = -(a2 / a0);
-            b0_ = b0 / a0;
-            b1_ = b1 / a0;
-            b2_ = b2 / a0;
+        inline SimdDouble2 processAp(const SimdDouble2& in) {
+            const SimdDouble2 va1(a1), va2(a2), va3(a3);
+            const SimdDouble2 vTwoK(2.0 * kButterworthK), vTwo(2.0);
+            const SimdDouble2 v3 = in - ic2;
+            const SimdDouble2 v1 = SimdDouble2::fma(va1, ic1, va2 * v3);
+            const SimdDouble2 v2 = SimdDouble2::fma(va2, ic1, ic2) + (va3 * v3);
+            ic1 = (vTwo * v1) - ic1;
+            ic2 = (vTwo * v2) - ic2;
+            return in - (vTwoK * v1);
         }
     };
 
-    // =========================================================================
-    // 4-Pole Ladder Channel (for Dynamic Multi-Pole Resonator)
-    // =========================================================================
-    struct LadderChannel {
-        double in[3]{};
-        double x[4]{};
-        double y[4]{};
+    struct StereoLr4Split {
+        StereoTptSvf s1;
+        StereoTptSvf s2_lp;
+        StereoTptSvf s2_hp;
+
+        void reset() {
+            s1.reset();
+            s2_lp.reset();
+            s2_hp.reset();
+        }
+
+        void setFrequency(double fc, double fs) {
+            s1.setFrequency(fc, fs);
+            s2_lp.setFrequency(fc, fs);
+            s2_hp.setFrequency(fc, fs);
+        }
+
+        inline void process(const SimdDouble2& in, SimdDouble2& lp4, SimdDouble2& hp4) {
+            SimdDouble2 lp1, hp1, unused;
+            s1.processLpHp(in, lp1, hp1);
+            s2_lp.processLpHp(lp1, lp4, unused);
+            s2_hp.processLpHp(hp1, unused, hp4);
+        }
     };
 
     bool enabled_ = false;
@@ -453,13 +425,17 @@ private:
     float sample_period_ = 1.0f / 48000.0f;
     float cutoff_hz_ = 60.0f;
     float boost_ = 0.5f;
+    float gain_db_ = 9.0f;
     bool anti_pop_enabled_ = true;
     bool mono_mode_ = true;
 
     // Gain smoothing and Anti-Pop
     float anti_pop_ = 0.0f;
+    float anti_pop_step_ = 1.0f / (0.020f * 48000.0f);
     float bass_factor_ = 1.75f;
     float bass_factor_smoothed_ = 1.75f;
+    float current_boost_ = 0.5f;
+    float cached_boost_ = -1.0f;
     float smoothing_coeff_ = 0.001f;
 
     // 18 Hz DC Blocker states (Stereo, 64-bit)
@@ -471,58 +447,79 @@ private:
     BiquadDirectFormI mono_lp_biquad_;
     BiquadDirectFormI biquad_stereo_[2];
 
-    // Polyphase 63-Tap FIR Filter States (Pure Bass+, 64-bit)
-    double fir_hist_l_[126] = {0.0};
-    double fir_hist_r_[126] = {0.0};
-    size_t fir_head_l_ = 0;
-    size_t fir_head_r_ = 0;
+    // Polyphase 63-Tap FIR Filter States (Pure Bass+, 64-bit Stereo SIMD)
+    SimdDouble2 fir_hist_[126]{};
+    size_t fir_head_ = 0;
     double polyphase_kernel_[64] = {0.0};
 
-    // 63-Sample Latency Compensation Delay Line (Pure Bass+, 64-bit)
+    // 31-Sample Latency Compensation Delay Line (Pure Bass+, 64-bit)
     double bass_delay_ring_[63] = {0.0};
     size_t bass_delay_head_ = 0;
 
-    // Subwoofer MultiBiquads (44Hz Peak + 80Hz LowPeak + 380Hz LowPass)
-    MultiBiquadFilter sub_peak_l_, sub_peak_r_;
-    MultiBiquadFilter sub_peak_low_l_, sub_peak_low_r_;
-    MultiBiquadFilter sub_lowpass_l_, sub_lowpass_r_;
+    // Subwoofer 64-bit Cytomic SVFs (zero-zipper)
+    CytomicSVF sub_peak_;
+    CytomicSVF sub_peak_low_;
+    CytomicSVF sub_lowpass_;
 
     // Psychoacoustic Bass States
     double harm_envelope_ = 1e-10;
     double harm_attack_coeff_ = 0.01;
     double harm_release_coeff_ = 0.0001;
+    double t2_dc_coeff_ = 0.002;
+    double t2_dc_l_ = 0.0;
+    double t2_dc_r_ = 0.0;
     BiquadDirectFormI harm_lp_l_, harm_lp_r_;
     BiquadDirectFormI harm_hp_l_, harm_hp_r_;
+    BiquadDirectFormI harm_post_lp_l_, harm_post_lp_r_;
 
     // Pultec Low-End Trick 64-bit Cytomic SVF Stages
     CytomicSVF pultec_boost_svf_;
     CytomicSVF pultec_scoop_svf_;
 
-    // Multi-Pole Dynamic Resonator Parameters
-    float x_low_ = 800.0f;
+    // Multi-Pole LR4 Bass Matrix Parameters
+    float x_low_ = 260.0f;
     float x_high_ = 6200.0f;
-    float y_low_ = 80.0f;
-    float y_high_ = 140.0f;
-    float target_side_gain_x_ = 0.0f;
-    float current_side_gain_x_ = 0.0f;
-    float target_side_gain_y_ = 0.0f;
-    float current_side_gain_y_ = 0.0f;
-    float target_bass_gain_ = 2.8f;
-    float current_bass_gain_ = 2.8f;
-    float target_low_ang_x_ = 0.05f;
-    float current_low_ang_x_ = 0.05f;
-    float target_upp_ang_x_ = 0.35f;
-    float current_upp_ang_x_ = 0.35f;
-    float target_low_ang_y_ = 0.01f;
-    float current_low_ang_y_ = 0.01f;
-    float target_upp_ang_y_ = 0.02f;
-    float current_upp_ang_y_ = 0.02f;
+    float y_low_ = 45.0f;
+    float y_high_ = 95.0f;
+    float target_side_gain_x_ = 0.10f;
+    float current_side_gain_x_ = 0.10f;
+    float target_side_gain_y_ = 0.90f;
+    float current_side_gain_y_ = 0.90f;
+    float target_bass_gain_ = 2.818f;
+    float current_bass_gain_ = 2.818f;
 
-    LadderChannel ladder_x_[2]{};
-    LadderChannel ladder_y_[2]{};
-    BiquadDirectFormI dynamic_lp_biquad_;
+    float target_x_low_ = 260.0f;
+    float current_x_low_ = 260.0f;
+    float cached_x_low_ = -1.0f;
+    float target_y_low_ = 45.0f;
+    float current_y_low_ = 45.0f;
+    float cached_y_low_ = -1.0f;
+    float target_y_high_ = 95.0f;
+    float current_y_high_ = 95.0f;
+    float cached_y_high_ = -1.0f;
 
-    static constexpr float kDenormal = 1e-25f;
+    StereoLr4Split split_xlow_{};
+    StereoLr4Split split_ylow_{};
+    StereoLr4Split split_yhigh_{};
+    StereoTptSvf ap_ubass_ylow_{};
+    StereoTptSvf ap_up_ylow_{};
+    StereoTptSvf ap_up_yhigh_{};
+
+    inline void stepAntiPop() {
+        if (!anti_pop_enabled_) {
+            anti_pop_ = enabled_ ? 1.0f : 0.0f;
+            return;
+        }
+        if (enabled_) {
+            if (anti_pop_ < 1.0f) {
+                anti_pop_ = std::min(1.0f, anti_pop_ + anti_pop_step_);
+            }
+        } else {
+            if (anti_pop_ > 0.0f) {
+                anti_pop_ = std::max(0.0f, anti_pop_ - anti_pop_step_);
+            }
+        }
+    }
 
     // =========================================================================
     // Rational Algebraic Soft-Clipper with Knee (clean, warm, zero harsh harmonics)
@@ -540,22 +537,18 @@ private:
     // =========================================================================
     template <typename T>
     inline void shapeMix(double bass, T* samples, const uint32_t i) {
-        // 1. 18 Hz High-Pass DC Blocker
         const double y = static_cast<double>(dc_block_coeff_) * (dc_y1_[0] + bass - dc_x1_[0]);
         dc_x1_[0] = bass;
         dc_y1_[0] = y;
 
-        // 2. Stage 1 Soft-Clip on DC-blocked bass signal alone (knee = 0.8)
         bass = softClip(y, 0.8);
 
-        // 3. Sum bass into full-band signal without base-rate HF soft-clipping
         samples[2 * i]     = static_cast<T>(static_cast<double>(samples[2 * i]) + bass);
         samples[2 * i + 1] = static_cast<T>(static_cast<double>(samples[2 * i + 1]) + bass);
     }
 
     template <typename T>
     inline void shapeMixStereo(double bass_l, double bass_r, T* samples, const uint32_t i) {
-        // 1. 18 Hz High-Pass DC Blocker per channel
         const double dc_c = static_cast<double>(dc_block_coeff_);
         const double y_l = dc_c * (dc_y1_[0] + bass_l - dc_x1_[0]);
         dc_x1_[0] = bass_l;
@@ -565,11 +558,9 @@ private:
         dc_x1_[1] = bass_r;
         dc_y1_[1] = y_r;
 
-        // 2. Stage 1 Soft-Clip on bass channels alone
         bass_l = softClip(y_l, 0.8);
         bass_r = softClip(y_r, 0.8);
 
-        // 3. Inject bass without base-rate HF soft-clipping
         samples[2 * i]     = static_cast<T>(static_cast<double>(samples[2 * i]) + bass_l);
         samples[2 * i + 1] = static_cast<T>(static_cast<double>(samples[2 * i + 1]) + bass_r);
     }
@@ -581,40 +572,27 @@ private:
     void processNaturalBass(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
             bass_factor_smoothed_ += (bass_factor_ - bass_factor_smoothed_) * smoothing_coeff_;
+            stepAntiPop();
 
             if (mono_mode_) {
-                // Mono summation (L + R) / 2
                 const double mono_in = (static_cast<double>(samples[2 * i]) +
                                         static_cast<double>(samples[2 * i + 1])) * 0.5;
-
-                // Direct Form I Biquad Lowpass
                 double bass = mono_lp_biquad_.process(mono_in) * static_cast<double>(bass_factor_smoothed_);
-
-                // Anti-pop smooth ramp
-                if (anti_pop_ < 1.0f) {
-                    bass *= static_cast<double>(anti_pop_);
-                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
-                }
-
+                bass *= static_cast<double>(anti_pop_);
                 shapeMix(bass, samples, i);
             } else {
                 double bass_l = biquad_stereo_[0].process(static_cast<double>(samples[2 * i])) * static_cast<double>(bass_factor_smoothed_);
                 double bass_r = biquad_stereo_[1].process(static_cast<double>(samples[2 * i + 1])) * static_cast<double>(bass_factor_smoothed_);
-
-                if (anti_pop_ < 1.0f) {
-                    const double ap = static_cast<double>(anti_pop_);
-                    bass_l *= ap;
-                    bass_r *= ap;
-                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
-                }
-
+                const double ap = static_cast<double>(anti_pop_);
+                bass_l *= ap;
+                bass_r *= ap;
                 shapeMixStereo(bass_l, bass_r, samples, i);
             }
         }
     }
 
     // =========================================================================
-    // Mode 1: Pure Bass+ Mono (63-Tap Polyphase FIR + Aligned Mono Bass)
+    // Mode 1: Pure Bass+ Mono (63-Tap Stereo SIMD Polyphase FIR + Aligned Bass)
     // =========================================================================
     template <typename T>
     void processPureBassPlus(T* samples, uint32_t frame_count) {
@@ -626,104 +604,80 @@ private:
             const double mono_in = (in_l + in_r) * 0.5;
             const double lp_bass = mono_lp_biquad_.process(mono_in);
 
-            // 2. Push lowpass bass into delay line and tap it at constant 31-sample group delay
+            // 2. Push lowpass bass into delay line and tap at constant 31-sample group delay
             bass_delay_ring_[bass_delay_head_] = lp_bass;
-            const size_t delayed_idx = (bass_delay_head_ + 32) % 63; // written 31 frames ago
+            const size_t delayed_idx = (bass_delay_head_ + 32) % 63;
             const double delayed_bass = bass_delay_ring_[delayed_idx];
             bass_delay_head_ = (bass_delay_head_ + 1) % 63;
 
-            // 3. Polyphase 63-tap FIR convolution on Left channel (64-bit precision)
-            fir_head_l_ = (fir_head_l_ == 0) ? 62 : (fir_head_l_ - 1);
-            fir_hist_l_[fir_head_l_] = in_l;
-            fir_hist_l_[fir_head_l_ + 63] = in_l;
+            // 3. Vectorized Stereo 63-tap FIR convolution (SimdDouble2)
+            fir_head_ = (fir_head_ == 0) ? 62 : (fir_head_ - 1);
+            const SimdDouble2 vin(in_l, in_r);
+            fir_hist_[fir_head_] = vin;
+            fir_hist_[fir_head_ + 63] = vin;
 
-            double fir_out_l = 0.0;
+            SimdDouble2 fir_acc(0.0);
             for (size_t j = 0; j < 63; ++j) {
-                fir_out_l += polyphase_kernel_[j] * fir_hist_l_[fir_head_l_ + j];
+                fir_acc += SimdDouble2(polyphase_kernel_[j]) * fir_hist_[fir_head_ + j];
             }
 
-            // 4. Polyphase 63-tap FIR convolution on Right channel (64-bit precision)
-            fir_head_r_ = (fir_head_r_ == 0) ? 62 : (fir_head_r_ - 1);
-            fir_hist_r_[fir_head_r_] = in_r;
-            fir_hist_r_[fir_head_r_ + 63] = in_r;
+            samples[2 * i]     = static_cast<T>(fir_acc.get_low());
+            samples[2 * i + 1] = static_cast<T>(fir_acc.get_high());
 
-            double fir_out_r = 0.0;
-            for (size_t j = 0; j < 63; ++j) {
-                fir_out_r += polyphase_kernel_[j] * fir_hist_r_[fir_head_r_ + j];
-            }
-
-            // Write polyphase phase-shaped audio
-            samples[2 * i]     = static_cast<T>(fir_out_l);
-            samples[2 * i + 1] = static_cast<T>(fir_out_r);
-
-            // 5. Smooth gain and inject time-aligned mono bass
+            // 4. Smooth gain and inject time-aligned mono bass
             bass_factor_smoothed_ += (bass_factor_ - bass_factor_smoothed_) * smoothing_coeff_;
-            double driven_bass = delayed_bass * static_cast<double>(bass_factor_smoothed_);
-
-            if (anti_pop_ < 1.0f) {
-                driven_bass *= static_cast<double>(anti_pop_);
-                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
-            }
+            stepAntiPop();
+            const double driven_bass = delayed_bass * static_cast<double>(bass_factor_smoothed_) * static_cast<double>(anti_pop_);
 
             shapeMix(driven_bass, samples, i);
         }
     }
 
     // =========================================================================
-    // Mode 2: Subwoofer Mono (44Hz/80Hz Dual Peak + 380Hz Differential Lowpass)
+    // Mode 2: Subwoofer (Smoothed Cytomic SVF Dual Peak + Differential LPF)
     // =========================================================================
     template <typename T>
     void processSubwoofer(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
+            current_boost_ += smoothing_coeff_ * (boost_ - current_boost_);
+            if ((i & 31) == 0 && std::abs(current_boost_ - cached_boost_) > 0.002f) {
+                recalcSubwooferFilters();
+            }
+            stepAntiPop();
+
             const double in_l = static_cast<double>(samples[2 * i]);
             const double in_r = static_cast<double>(samples[2 * i + 1]);
 
-            // 1. Dual-peaking excursion on Left channel
-            double tmp_l = sub_peak_l_.process(in_l);
-            tmp_l = sub_peak_low_l_.process(tmp_l);
-            tmp_l = sub_lowpass_l_.process(tmp_l - in_l);
+            double tmp_l = sub_peak_.processSample(in_l, 0);
+            tmp_l = sub_peak_low_.processSample(tmp_l, 0);
+            tmp_l = sub_lowpass_.processSample(tmp_l - in_l, 0);
 
-            // 2. Dual-peaking excursion on Right channel
-            double tmp_r = sub_peak_r_.process(in_r);
-            tmp_r = sub_peak_low_r_.process(tmp_r);
-            tmp_r = sub_lowpass_r_.process(tmp_r - in_r);
+            double tmp_r = sub_peak_.processSample(in_r, 1);
+            tmp_r = sub_peak_low_.processSample(tmp_r, 1);
+            tmp_r = sub_lowpass_.processSample(tmp_r - in_r, 1);
 
+            const double ap = static_cast<double>(anti_pop_);
             if (mono_mode_) {
-                // 3. Mono-anchored subwoofer excursion energy
-                double sub_mono = ((tmp_l + tmp_r) * 0.5) * 0.6;
-
-                if (anti_pop_ < 1.0f) {
-                    sub_mono *= static_cast<double>(anti_pop_);
-                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
-                }
-
-                // Mix subwoofer differential into output with rational soft-clipping
+                const double sub_mono = ((tmp_l + tmp_r) * 0.5) * 0.6 * ap;
                 shapeMix(sub_mono, samples, i);
             } else {
-                // Stereo-preserving injection: keeps spatial cues for open-back headphones
-                double sub_l = tmp_l * 0.6;
-                double sub_r = tmp_r * 0.6;
-
-                if (anti_pop_ < 1.0f) {
-                    const double ap = static_cast<double>(anti_pop_);
-                    sub_l *= ap;
-                    sub_r *= ap;
-                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
-                }
-
+                const double sub_l = tmp_l * 0.6 * ap;
+                const double sub_r = tmp_r * 0.6 * ap;
                 shapeMixStereo(sub_l, sub_r, samples, i);
             }
         }
     }
 
     // =========================================================================
-    // Mode 3: Psychoacoustic Bass (Envelope-Tracked Chebyshev 2f+3f Synthesizer)
+    // Mode 3: Psychoacoustic Bass (DC-Free Envelope-Tracked Chebyshev 2f+3f)
     // =========================================================================
     template <typename T>
     void processHarmonicExciter(T* samples, uint32_t frame_count) {
-        const double intensity = static_cast<double>(boost_) * 0.85;
-
         for (uint32_t i = 0; i < frame_count; i++) {
+            current_boost_ += smoothing_coeff_ * (boost_ - current_boost_);
+            stepAntiPop();
+            const double intensity = static_cast<double>(current_boost_) * 0.85 * static_cast<double>(anti_pop_);
+
             const double in_l = static_cast<double>(samples[2 * i]);
             const double in_r = static_cast<double>(samples[2 * i + 1]);
 
@@ -744,161 +698,178 @@ private:
             if (harm_envelope_ < 1e-10) harm_envelope_ = 1e-10;
 
             // 3. Normalize into Chebyshev range [-1, 1]
-            double norm_l = std::clamp(bass_l / harm_envelope_, -1.0, 1.0);
-            double norm_r = std::clamp(bass_r / harm_envelope_, -1.0, 1.0);
+            const double norm_l = std::clamp(bass_l / harm_envelope_, -1.0, 1.0);
+            const double norm_r = std::clamp(bass_r / harm_envelope_, -1.0, 1.0);
 
-            // 4. Synthesize 2nd (T2 = 2x^2 - 1) and 3rd (T3 = 4x^3 - 3x) Order Harmonics
-            auto chebyshev_h3 = [](double x) {
-                double t2 = 2.0 * x * x - 1.0;
-                double t3 = 4.0 * x * x * x - 3.0 * x;
-                return 0.7 * t2 + 0.3 * t3;
-            };
+            // 4. DC-free 2nd (x^2 - DC_avg(x^2)) and 3rd (4x^3 - 3x) Order Harmonics
+            const double x2_l = norm_l * norm_l;
+            t2_dc_l_ += t2_dc_coeff_ * (x2_l - t2_dc_l_);
+            const double t2_l = 2.0 * (x2_l - t2_dc_l_);
+            const double t3_l = 4.0 * norm_l * x2_l - 3.0 * norm_l;
 
-            double h_l = chebyshev_h3(norm_l) * harm_envelope_;
-            double h_r = chebyshev_h3(norm_r) * harm_envelope_;
+            const double x2_r = norm_r * norm_r;
+            t2_dc_r_ += t2_dc_coeff_ * (x2_r - t2_dc_r_);
+            const double t2_r = 2.0 * (x2_r - t2_dc_r_);
+            const double t3_r = 4.0 * norm_r * x2_r - 3.0 * norm_r;
 
-            // 5. High-Pass Filter Harmonics above cutoff
-            h_l = harm_hp_l_.process(h_l);
-            h_r = harm_hp_r_.process(h_r);
+            double h_l = (0.7 * t2_l + 0.3 * t3_l) * harm_envelope_;
+            double h_r = (0.7 * t2_r + 0.3 * t3_r) * harm_envelope_;
 
-            // 6. Mono-summed harmonic injection
-            double mono_harm = ((h_l + h_r) * 0.5) * intensity;
+            // 5. Band-limit harmonics: HPF above cutoff + Post-LPF to suppress vocal-band buzz
+            h_l = harm_post_lp_l_.process(harm_hp_l_.process(h_l));
+            h_r = harm_post_lp_r_.process(harm_hp_r_.process(h_r));
 
-            if (anti_pop_ < 1.0f) {
-                mono_harm *= static_cast<double>(anti_pop_);
-                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+            if (mono_mode_) {
+                const double mono_harm = ((h_l + h_r) * 0.5) * intensity;
+                shapeMix(mono_harm, samples, i);
+            } else {
+                shapeMixStereo(h_l * intensity, h_r * intensity, samples, i);
             }
-
-            shapeMix(mono_harm, samples, i);
         }
     }
 
     // =========================================================================
-    // Mode 4: Pultec EQP-1A Low-End Trick in Mono Sub + Stereo Mud Scoop (64-bit SVF)
+    // Mode 4: Pultec EQP-1A Low-End Trick (Smoothed 64-bit Cytomic SVF)
     // =========================================================================
     template <typename T>
     void processPultecDeep(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
+            current_boost_ += smoothing_coeff_ * (boost_ - current_boost_);
+            if ((i & 31) == 0 && std::abs(current_boost_ - cached_boost_) > 0.002f) {
+                recalcPultecFilters();
+            }
+            stepAntiPop();
+
             const double in_l = static_cast<double>(samples[2 * i]);
             const double in_r = static_cast<double>(samples[2 * i + 1]);
+            const double ap = static_cast<double>(anti_pop_);
 
-            // 1. Mono Sub-Bass 45 Hz Low-Shelf Boost (64-bit Cytomic TPT SVF)
-            const double mono_in = (in_l + in_r) * 0.5;
-            const double b_out = pultec_boost_svf_.processSample(mono_in, 0);
-
-            // 2. Stereo 300 Hz Mud Scoop Bell Filter (64-bit Cytomic TPT SVF)
+            // 1. Stereo Mud Scoop Bell Filter
             const double s_out_l = pultec_scoop_svf_.processSample(in_l, 0);
             const double s_out_r = pultec_scoop_svf_.processSample(in_r, 1);
 
-            samples[2 * i]     = static_cast<T>(s_out_l);
-            samples[2 * i + 1] = static_cast<T>(s_out_r);
+            samples[2 * i]     = static_cast<T>(in_l + ap * (s_out_l - in_l));
+            samples[2 * i + 1] = static_cast<T>(in_r + ap * (s_out_r - in_r));
 
-            double mono_bass = (b_out - mono_in) * 0.8;
-
-            if (anti_pop_ < 1.0f) {
-                mono_bass *= static_cast<double>(anti_pop_);
-                anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
+            // 2. Low-Shelf Sub Boost (mono or stereo)
+            if (mono_mode_) {
+                const double mono_in = (in_l + in_r) * 0.5;
+                const double b_out = pultec_boost_svf_.processSample(mono_in, 0);
+                const double mono_bass = (b_out - mono_in) * 0.8 * ap;
+                shapeMix(mono_bass, samples, i);
+            } else {
+                const double b_l = pultec_boost_svf_.processSample(in_l, 0);
+                const double b_r = pultec_boost_svf_.processSample(in_r, 1);
+                shapeMixStereo((b_l - in_l) * 0.8 * ap, (b_r - in_r) * 0.8 * ap, samples, i);
             }
-
-            shapeMix(mono_bass, samples, i);
         }
     }
 
     // =========================================================================
-    // Mode 5: Dynamic Multi-Pole Resonator (Cascaded 4-Pole Ladder Network)
+    // Mode 5: Dynamic Multi-Pole Resonator (Phase-Coherent Stereo LR4 Matrix)
     // =========================================================================
-    inline void processLadder(LadderChannel* ch, double sample, double low_ang, double upp_ang, double& out1, double& out2, double& out3) {
-        const double oldest_sample = ch->in[2];
-        ch->in[2] = ch->in[1];
-        ch->in[1] = ch->in[0];
-        ch->in[0] = sample;
-
-        // 4-Pole Low-Pass Ladder
-        const double den = static_cast<double>(kDenormal);
-        ch->x[0] += low_ang * (sample - ch->x[0]) + den;
-        ch->x[1] += low_ang * (ch->x[0] - ch->x[1]) + den;
-        ch->x[2] += low_ang * (ch->x[1] - ch->x[2]) + den;
-        ch->x[3] += low_ang * (ch->x[2] - ch->x[3]) + den;
-
-        // 4-Pole High-Pass / Upper Ladder
-        ch->y[0] += upp_ang * (sample - ch->y[0]) + den;
-        ch->y[1] += upp_ang * (ch->y[0] - ch->y[1]) + den;
-        ch->y[2] += upp_ang * (ch->y[1] - ch->y[2]) + den;
-        ch->y[3] += upp_ang * (ch->y[2] - ch->y[3]) + den;
-
-        out1 = ch->x[3];                 // Low-pass sub-band (fundamental bass)
-        (void)oldest_sample;
-        out2 = sample - ch->y[3];        // High-pass residual (time-aligned with y[3] so bands sum to identity)
-        out3 = ch->y[3] - ch->x[3];      // Mid-frequency crossover band
-    }
-
     template <typename T>
     void processDynamicMultiPole(T* samples, uint32_t frame_count) {
         for (uint32_t i = 0; i < frame_count; i++) {
-            // Smooth parameters
             current_bass_gain_   += smoothing_coeff_ * (target_bass_gain_ - current_bass_gain_);
             current_side_gain_x_ += smoothing_coeff_ * (target_side_gain_x_ - current_side_gain_x_);
             current_side_gain_y_ += smoothing_coeff_ * (target_side_gain_y_ - current_side_gain_y_);
-            current_low_ang_x_   += smoothing_coeff_ * (target_low_ang_x_ - current_low_ang_x_);
-            current_upp_ang_x_   += smoothing_coeff_ * (target_upp_ang_x_ - current_upp_ang_x_);
-            current_low_ang_y_   += smoothing_coeff_ * (target_low_ang_y_ - current_low_ang_y_);
-            current_upp_ang_y_   += smoothing_coeff_ * (target_upp_ang_y_ - current_upp_ang_y_);
+            current_x_low_       += smoothing_coeff_ * (target_x_low_ - current_x_low_);
+            current_y_low_       += smoothing_coeff_ * (target_y_low_ - current_y_low_);
+            current_y_high_      += smoothing_coeff_ * (target_y_high_ - current_y_high_);
+
+            if ((i & 31) == 0) {
+                if (std::abs(current_x_low_ - cached_x_low_) > 0.25f ||
+                    std::abs(current_y_low_ - cached_y_low_) > 0.25f ||
+                    std::abs(current_y_high_ - cached_y_high_) > 0.25f) {
+                    applyMultiPoleFrequencies();
+                }
+            }
+            stepAntiPop();
 
             const double in_l = static_cast<double>(samples[2 * i]);
             const double in_r = static_cast<double>(samples[2 * i + 1]);
+            const SimdDouble2 vin(in_l, in_r);
 
-            if (x_low_ <= 120.0f) {
-                const double mono_in = (in_l + in_r) * 0.5;
-                const double low_out = dynamic_lp_biquad_.process(mono_in);
-                const double bg = static_cast<double>(current_bass_gain_) - 1.0;
-                double out_l = in_l + low_out * bg;
-                double out_r = in_r + low_out * bg;
+            SimdDouble2 x_lo, x_hi;
+            split_xlow_.process(vin, x_lo, x_hi);
 
-                if (anti_pop_ < 1.0f) {
-                    const double ap = static_cast<double>(anti_pop_);
-                    out_l = in_l + ap * (out_l - in_l);
-                    out_r = in_r + ap * (out_r - in_r);
-                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
-                }
+            SimdDouble2 y_lm, b_ubass_raw;
+            split_yhigh_.process(x_lo, y_lm, b_ubass_raw);
 
-                samples[2 * i]     = static_cast<T>(out_l);
-                samples[2 * i + 1] = static_cast<T>(out_r);
-            } else {
-                const double lax = static_cast<double>(current_low_ang_x_);
-                const double uax = static_cast<double>(current_upp_ang_x_);
-                const double lay = static_cast<double>(current_low_ang_y_);
-                const double uay = static_cast<double>(current_upp_ang_y_);
-                const double bg  = static_cast<double>(current_bass_gain_);
-                const double sgx = static_cast<double>(current_side_gain_x_);
-                const double sgy = static_cast<double>(current_side_gain_y_);
+            SimdDouble2 b_sub, b_punch;
+            split_ylow_.process(y_lm, b_sub, b_punch);
+            const SimdDouble2 b_ubass = ap_ubass_ylow_.processAp(b_ubass_raw);
 
-                // 1. Stage 1 Ladder X (Channel Decomposition)
-                double x1_l, x2_l, x3_l;
-                processLadder(&ladder_x_[0], in_l, lax, uax, x1_l, x2_l, x3_l);
-                double x1_r, x2_r, x3_r;
-                processLadder(&ladder_x_[1], in_r, lax, uax, x1_r, x2_r, x3_r);
+            // Band gains: exact 1.0 unity identity at 0 dB gain
+            const double drive = std::max(0.0, static_cast<double>(current_bass_gain_) - 1.0);
+            const double g_sub = 1.0 + drive * (0.30 + 0.70 * static_cast<double>(current_side_gain_y_));
+            const double g_punch = 1.0 + drive;
+            const double g_ubass = 1.0 + drive * (0.40 * static_cast<double>(current_side_gain_x_));
 
-                // 2. Stage 2 Ladder Y (Dynamic Bass Resonance)
-                double y1_l, y2_l, y3_l;
-                processLadder(&ladder_y_[0], bg * x1_l, lay, uay, y1_l, y2_l, y3_l);
-                double y1_r, y2_r, y3_r;
-                processLadder(&ladder_y_[1], bg * x1_r, lay, uay, y1_r, y2_r, y3_r);
+            const SimdDouble2 lo = (SimdDouble2(g_sub) * b_sub) +
+                                   (SimdDouble2(g_punch) * b_punch) +
+                                   (SimdDouble2(g_ubass) * b_ubass);
+            const SimdDouble2 up = ap_up_yhigh_.processAp(ap_up_ylow_.processAp(x_hi));
+            const SimdDouble2 v_out = lo + up;
 
-                // 3. Multi-Band Matrix Recombination
-                double out_l = x2_l + y3_l + sgx * y2_l + sgy * y1_l + x3_l;
-                double out_r = x2_r + y3_r + sgx * y2_r + sgy * y1_r + x3_r;
+            double out_l = v_out.get_low();
+            double out_r = v_out.get_high();
 
-                if (anti_pop_ < 1.0f) {
-                    const double ap = static_cast<double>(anti_pop_);
-                    out_l = in_l + ap * (out_l - in_l);
-                    out_r = in_r + ap * (out_r - in_r);
-                    anti_pop_ = std::min(1.0f, anti_pop_ + sample_period_ * 4.0f);
-                }
-
-                samples[2 * i]     = static_cast<T>(out_l);
-                samples[2 * i + 1] = static_cast<T>(out_r);
+            if (anti_pop_ < 1.0f) {
+                const double ap = static_cast<double>(anti_pop_);
+                out_l = in_l + ap * (out_l - in_l);
+                out_r = in_r + ap * (out_r - in_r);
             }
+
+            samples[2 * i]     = static_cast<T>(out_l);
+            samples[2 * i + 1] = static_cast<T>(out_r);
         }
+    }
+
+    void recalcSubwooferFilters() {
+        cached_boost_ = current_boost_;
+        const double sub_fc1 = static_cast<double>(cutoff_hz_);
+        const double sub_fc2 = std::clamp(sub_fc1 * 1.8, 60.0, 180.0);
+        const double gain_db = static_cast<double>(current_boost_) * 16.0;
+        const double gain_upper_db = static_cast<double>(current_boost_) * 8.0;
+
+        sub_peak_.setParameters(CytomicSVF::FilterType::Bell, sample_rate_, sub_fc1, gain_db, 0.95);
+        sub_peak_low_.setParameters(CytomicSVF::FilterType::Bell, sample_rate_, sub_fc2, gain_upper_db, 1.4);
+
+        const double sub_lp_fc = mono_mode_ ? 380.0 : 120.0;
+        sub_lowpass_.setParameters(CytomicSVF::FilterType::LowPass, sample_rate_, sub_lp_fc, 0.0, 0.65);
+    }
+
+    void recalcPultecFilters() {
+        cached_boost_ = current_boost_;
+        const double pultec_boost_db = static_cast<double>(current_boost_) * 12.0;
+        pultec_boost_svf_.setParameters(CytomicSVF::FilterType::LowShelf, sample_rate_,
+                                        static_cast<double>(cutoff_hz_), pultec_boost_db, 0.70710678);
+
+        const double scoop_fc = std::clamp(static_cast<double>(cutoff_hz_) * 5.0, 200.0, 400.0);
+        const double pultec_scoop_db = -static_cast<double>(current_boost_) * 4.5;
+        pultec_scoop_svf_.setParameters(CytomicSVF::FilterType::Bell, sample_rate_,
+                                        scoop_fc, pultec_scoop_db, 1.2);
+    }
+
+    void applyMultiPoleFrequencies() {
+        cached_x_low_ = current_x_low_;
+        cached_y_low_ = current_y_low_;
+        cached_y_high_ = current_y_high_;
+
+        const double fs = static_cast<double>(sample_rate_);
+        const double yl = std::clamp(static_cast<double>(current_y_low_), 20.0, 140.0);
+        const double yh = std::clamp(std::max(static_cast<double>(current_y_high_), yl + 15.0), 35.0, 300.0);
+        const double xl = std::clamp(std::max(static_cast<double>(current_x_low_), yh + 20.0), 60.0, 1500.0);
+
+        split_ylow_.setFrequency(yl, fs);
+        split_yhigh_.setFrequency(yh, fs);
+        split_xlow_.setFrequency(xl, fs);
+
+        ap_ubass_ylow_.setFrequency(yl, fs);
+        ap_up_ylow_.setFrequency(yl, fs);
+        ap_up_yhigh_.setFrequency(yh, fs);
     }
 
     void updateFilters() {
@@ -908,93 +879,71 @@ private:
         biquad_stereo_[1].setLowPass(cutoff_hz_, sample_rate_, 0.53f);
         buildPolyphaseKernel();
 
-        // 2. Subwoofer Configuration (44 Hz peak + 80 Hz low peak + 380 Hz lowpass)
-        const float effective_gain = 1.0f + boost_ * 9.0f; // 1.0x to 10.0x excursion gain
-        const float gain_db = 20.0f * std::log10(effective_gain);
-        const float gain_lower_db = 20.0f * std::log10(std::max(1.0f, effective_gain / 4.0f));
+        // 2. Subwoofer SVFs
+        recalcSubwooferFilters();
 
-        sub_peak_l_.refreshFilter(MultiBiquadFilter::PEAK, gain_db, 44.0f, sample_rate_, 0.75f, true);
-        sub_peak_r_.refreshFilter(MultiBiquadFilter::PEAK, gain_db, 44.0f, sample_rate_, 0.75f, true);
+        // 3. Psychoacoustic Bass Filters (full 30-160 Hz range + post-waveshaper LPF)
+        const float harm_cutoff = std::clamp(cutoff_hz_, 30.0f, 160.0f);
+        const float post_lp_fc = std::clamp(harm_cutoff * 3.5f, 160.0f, 380.0f);
+        harm_lp_l_.setLowPass(harm_cutoff, sample_rate_, 0.7071f);
+        harm_lp_r_.setLowPass(harm_cutoff, sample_rate_, 0.7071f);
+        harm_hp_l_.setHighPass(harm_cutoff, sample_rate_, 0.7071f);
+        harm_hp_r_.setHighPass(harm_cutoff, sample_rate_, 0.7071f);
+        harm_post_lp_l_.setLowPass(post_lp_fc, sample_rate_, 0.7071f);
+        harm_post_lp_r_.setLowPass(post_lp_fc, sample_rate_, 0.7071f);
 
-        sub_peak_low_l_.refreshFilter(MultiBiquadFilter::PEAK, gain_lower_db, 80.0f, sample_rate_, 0.2f, true);
-        sub_peak_low_r_.refreshFilter(MultiBiquadFilter::PEAK, gain_lower_db, 80.0f, sample_rate_, 0.2f, true);
-
-        const float sub_lp_fc = mono_mode_ ? 380.0f : 80.0f;
-        sub_lowpass_l_.refreshFilter(MultiBiquadFilter::LOW_PASS, 0.0f, sub_lp_fc, sample_rate_, 0.6f, false);
-        sub_lowpass_r_.refreshFilter(MultiBiquadFilter::LOW_PASS, 0.0f, sub_lp_fc, sample_rate_, 0.6f, false);
-
-        // 3. Psychoacoustic Bass Filters (Cutoff Lowpass + Cutoff Highpass)
-        const float harm_cutoff = std::clamp(cutoff_hz_, 60.0f, 150.0f);
-        harm_lp_l_.setLowPass(harm_cutoff, sample_rate_, 0.717f);
-        harm_lp_r_.setLowPass(harm_cutoff, sample_rate_, 0.717f);
-        harm_hp_l_.setHighPass(harm_cutoff, sample_rate_, 0.717f);
-        harm_hp_r_.setHighPass(harm_cutoff, sample_rate_, 0.717f);
-
-        // Envelope follower ballistics: ~2ms attack, ~208ms release independent of sample rate
+        // Envelope follower ballistics & 15 Hz T2 DC tracker
         harm_attack_coeff_ = 1.0 - std::exp(-1.0 / (static_cast<double>(sample_rate_) * 0.00208333));
         harm_release_coeff_ = 1.0 - std::exp(-1.0 / (static_cast<double>(sample_rate_) * 0.208333));
+        constexpr double kPi = 3.14159265358979323846;
+        t2_dc_coeff_ = 1.0 - std::exp(-2.0 * kPi * 15.0 / static_cast<double>(sample_rate_));
 
-        // 4. Pultec EQP-1A Low-End Trick (64-bit Cytomic TPT SVF):
-        // Deep 45 Hz Low-Shelf (+0 dB to +12 dB boost)
-        const double pultec_boost_db = static_cast<double>(boost_) * 12.0;
-        pultec_boost_svf_.setParameters(CytomicSVF::FilterType::LowShelf, sample_rate_, 45.0, pultec_boost_db, 0.70710678);
+        // 4. Pultec EQP-1A SVFs
+        recalcPultecFilters();
 
-        // 300 Hz Mud-Scoop (-0 dB to -4.5 dB cut at Q=1.2)
-        const double pultec_scoop_db = -static_cast<double>(boost_) * 4.5;
-        pultec_scoop_svf_.setParameters(CytomicSVF::FilterType::Bell, sample_rate_, 300.0, pultec_scoop_db, 1.2);
-
-        // 5. Dynamic Multi-Pole Resonator Ladders
-        const float coeff = 2.0f * 3.14159265358979323846f / sample_rate_;
-        auto onePoleCoeff = [coeff](float f) {
-            return std::clamp(1.0f - std::exp(-coeff * f), 0.0001f, 0.95f);
-        };
-        target_low_ang_x_ = onePoleCoeff(x_low_);
-        target_upp_ang_x_ = onePoleCoeff(x_high_);
-        target_low_ang_y_ = onePoleCoeff(y_low_);
-        target_upp_ang_y_ = onePoleCoeff(y_high_);
-
-        // 55 Hz Lowpass for low frequency fallback
-        const float q_peak = std::clamp((target_bass_gain_ - 1.0f) / 20.0f * 1600.0f, 0.0f, 1600.0f);
-        dynamic_lp_biquad_.setLowPass(55.0f, sample_rate_, q_peak / 666.0f + 0.5f);
+        // 5. Dynamic Multi-Pole LR4 target frequencies
+        const float yl = std::clamp(y_low_, 20.0f, 140.0f);
+        const float yh = std::clamp(std::max(y_high_, yl + 15.0f), 35.0f, 300.0f);
+        const float xl = std::clamp(std::max(x_low_, yh + 20.0f), 60.0f, 1500.0f);
+        target_y_low_ = yl;
+        target_y_high_ = yh;
+        target_x_low_ = xl;
     }
 
     // =========================================================================
     // Runtime-designed 63-tap linear-phase FIR for Pure Bass+ mode.
     // Blackman-windowed sinc, normalized to unity DC gain and symmetric about
-    // the center tap (constant ~31-sample group delay).
+    // the center tap (constant 31-sample group delay).
     // =========================================================================
     void buildPolyphaseKernel() {
         constexpr int N = 63;
-        constexpr int M = N / 2; // center tap -> 31-sample group delay
+        constexpr int M = N / 2;
         constexpr double kPi = 3.14159265358979323846;
-        // Normalized cutoff scaled to Nyquist (0.492 * fs) so 20 kHz @ 48 kHz and 30 kHz @ 96 kHz pass flat
         const double fc = 0.492;
 
         double sum = 0.0;
         for (int n = 0; n < N; ++n) {
-            const double x = (double)(n - M);
+            const double x = static_cast<double>(n - M);
             double v;
             if (std::fabs(x) < 1e-9) {
                 v = 2.0 * fc;
             } else {
                 v = std::sin(2.0 * kPi * fc * x) / (kPi * x);
             }
-            // Blackman window
             const double w = 0.42
-                - 0.5 * std::cos(2.0 * kPi * (double)n / (double)(N - 1))
-                + 0.08 * std::cos(4.0 * kPi * (double)n / (double)(N - 1));
+                - 0.5 * std::cos(2.0 * kPi * static_cast<double>(n) / static_cast<double>(N - 1))
+                + 0.08 * std::cos(4.0 * kPi * static_cast<double>(n) / static_cast<double>(N - 1));
             v *= w;
-            polyphase_kernel_[(size_t)n] = v;
+            polyphase_kernel_[static_cast<size_t>(n)] = v;
             sum += v;
         }
 
         if (sum > 1e-9) {
             const double inv = 1.0 / sum;
             for (int n = 0; n < N; ++n) {
-                polyphase_kernel_[(size_t)n] *= inv;
+                polyphase_kernel_[static_cast<size_t>(n)] *= inv;
             }
         } else {
-            // Degenerate fallback: pure identity at the center tap.
             std::memset(polyphase_kernel_, 0, sizeof(polyphase_kernel_));
             polyphase_kernel_[M] = 1.0;
         }

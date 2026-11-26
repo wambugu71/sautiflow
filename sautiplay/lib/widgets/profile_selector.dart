@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:path/path.dart' as p;
+import 'package:sautiflow/sautiflow.dart';
 import '../database/preferences_store.dart';
 import '../isolate_player.dart';
 import '../models/audio_profile.dart';
@@ -43,7 +44,6 @@ class AudioProfileSelector extends StatefulWidget {
         .loadEqExtendedSettings(bandCount: eqBands.bandCount);
     final spatial = await AppStateService.instance.loadSpatialAudio();
     final delay = await AppStateService.instance.loadDelay();
-    final dynamicBass = await AppStateService.instance.loadDynamicBass();
     final crystalizer = await AppStateService.instance.loadCrystalizer();
     final crossfeed = await AppStateService.instance.loadCrossfeed();
     final raceParams = await AppStateService.instance.loadRaceParams();
@@ -97,9 +97,12 @@ class AudioProfileSelector extends StatefulWidget {
           'time': delay.time
         },
         'dynamicBass': {
-          'enabled': dynamicBass.enabled,
-          'preset': dynamicBass.preset,
-          'gain': dynamicBass.gain
+          'enabled': (dspMap['bassEnabled'] == true) &&
+              ((dspMap['bassProfile'] as num?)?.toInt() ==
+                  HarmonicBassProfile.dynamicMultiPole.value),
+          'preset': (dspMap['bassPreset'] as num?)?.toInt() ?? 18,
+          'gain': ((dspMap['bassGainDb'] as num?)?.toDouble() ?? 9.0)
+              .clamp(0.0, 18.0),
         },
         'crystalizer': {
           'enabled': crystalizer.enabled,

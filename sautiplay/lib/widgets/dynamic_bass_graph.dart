@@ -3,17 +3,53 @@ import 'package:material_ui/material_ui.dart';
 import 'package:sautiflow/sautiflow.dart';
 import '../services/app_theme_service.dart';
 
-/// A real-time low-frequency resonance and harmonic excitation graph for Dynamic Bass.
-///
-/// Focuses on the sub-bass and mid-bass acoustic band [20Hz, 500Hz], computing the
-/// 4-pole cascaded ladder resonance curve, Focus Frequency peak, Bass Gain amplitude,
-/// and psychoacoustic harmonic overtone generation (2f0, 3f0).
+class DynamicBassPresetParams {
+  final String name;
+  final double xLow;
+  final double yLow;
+  final double yHigh;
+  final double sideGainX;
+  final double sideGainY;
+
+  const DynamicBassPresetParams(
+    this.name,
+    this.xLow,
+    this.yLow,
+    this.yHigh,
+    this.sideGainX,
+    this.sideGainY,
+  );
+}
+
+const List<DynamicBassPresetParams> kDynamicBassPresets = [
+  DynamicBassPresetParams('Smooth Natural Sub', 140.0, 40.0, 65.0, 0.10, 0.80),
+  DynamicBassPresetParams('Punchy In-Ear', 180.0, 55.0, 85.0, 0.10, 0.70),
+  DynamicBassPresetParams('Warm Over-Ear', 300.0, 60.0, 105.0, 0.15, 0.50),
+  DynamicBassPresetParams('Deep Acoustic', 260.0, 50.0, 95.0, 0.20, 0.60),
+  DynamicBassPresetParams('Wide Dynamic', 280.0, 45.0, 85.0, 0.30, 0.55),
+  DynamicBassPresetParams('Sub-Bass Boom', 240.0, 38.0, 78.0, 0.10, 0.95),
+  DynamicBassPresetParams('Tight Sub', 240.0, 45.0, 85.0, 0.10, 0.55),
+  DynamicBassPresetParams('Solid Impact', 280.0, 50.0, 90.0, 0.20, 0.40),
+  DynamicBassPresetParams('Clean Kick', 250.0, 55.0, 95.0, 0.20, 0.25),
+  DynamicBassPresetParams('Rich Low-End', 320.0, 50.0, 95.0, 0.25, 0.60),
+  DynamicBassPresetParams('Club PA Punch', 320.0, 45.0, 90.0, 0.30, 0.65),
+  DynamicBassPresetParams('Basshead Heavy', 280.0, 55.0, 105.0, 0.20, 0.85),
+  DynamicBassPresetParams('Resonant Rumble', 260.0, 40.0, 85.0, 0.15, 0.90),
+  DynamicBassPresetParams('Cinema Sub', 260.0, 45.0, 90.0, 0.10, 0.85),
+  DynamicBassPresetParams('Car Audio Slam', 280.0, 40.0, 85.0, 0.15, 0.80),
+  DynamicBassPresetParams('Audiophile Reference', 220.0, 45.0, 85.0, 0.10, 0.65),
+  DynamicBassPresetParams('Studio Monitor Lows', 240.0, 50.0, 95.0, 0.10, 0.55),
+  DynamicBassPresetParams('Deep Sub Extension', 220.0, 35.0, 75.0, 0.05, 1.00),
+  DynamicBassPresetParams('Ultimate Subwoofer', 260.0, 45.0, 95.0, 0.10, 0.90),
+];
+
+/// Analytical frequency response graph matching HarmonicBassDSP across all 6 modes.
 class DynamicBassGraph extends StatelessWidget {
   final HarmonicBassProfile profile;
   final int preset;
   final double cutoffHz; // 30Hz - 160Hz Focus Frequency
-  final double gainDb; // 0dB - 24dB Bass Gain
-  final double boost; // 0.0 - 1.0 Resonance / Q
+  final double gainDb; // 0dB - 18dB Bass Gain (Mode 5)
+  final double boost; // 0.0 - 1.0 Bass Power (Modes 0..4)
   final bool isEnabled;
   final double height;
   final Color? primaryColor;
@@ -71,6 +107,67 @@ class DynamicBassGraph extends StatelessWidget {
   }
 }
 
+typedef _Complex = ({double re, double im});
+
+_Complex _cAdd(_Complex a, _Complex b) => (re: a.re + b.re, im: a.im + b.im);
+_Complex _cSub(_Complex a, _Complex b) => (re: a.re - b.re, im: a.im - b.im);
+_Complex _cMul(_Complex a, _Complex b) =>
+    (re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re);
+_Complex _cDiv(_Complex a, _Complex b) {
+  final d = math.max(1e-30, b.re * b.re + b.im * b.im);
+  return (re: (a.re * b.re + a.im * b.im) / d, im: (a.im * b.re - a.re * b.im) / d);
+}
+_Complex _cScale(_Complex a, double s) => (re: a.re * s, im: a.im * s);
+double _cAbs(_Complex a) => math.sqrt(a.re * a.re + a.im * a.im);
+
+({ _Complex lp4, _Complex hp4, _Complex ap2 }) _evalLr4(
+    double fc, double t, double fs) {
+  final clampedFc = fc.clamp(15.0, fs * 0.45);
+  final g = math.tan(math.pi * clampedFc / fs);
+  const k = math.sqrt2;
+  final den = (re: g * g - t * t, im: k * g * t);
+  final lp2 = _cDiv((re: g * g, im: 0.0), den);
+  final hp2 = _cDiv((re: -t * t, im: 0.0), den);
+  final ap2 = _cDiv((re: g * g - t * t, im: -k * g * t), den);
+  return (lp4: _cMul(lp2, lp2), hp4: _cMul(hp2, hp2), ap2: ap2);
+}
+
+_Complex _evalSvfBell(double fc, double gainDb, double q, double t, double fs) {
+  if (gainDb.abs() < 0.005) return (re: 1.0, im: 0.0);
+  final a = math.pow(10.0, gainDb / 40.0).toDouble();
+  final g = math.tan(math.pi * fc.clamp(10.0, fs * 0.45) / fs);
+  final k = 1.0 / (q * a);
+  final num = (re: g * g - t * t, im: (a / q) * g * t);
+  final den = (re: g * g - t * t, im: k * g * t);
+  return _cDiv(num, den);
+}
+
+_Complex _evalSvfLowShelf(double fc, double gainDb, double q, double t, double fs) {
+  if (gainDb.abs() < 0.005) return (re: 1.0, im: 0.0);
+  final a = math.pow(10.0, gainDb / 40.0).toDouble();
+  final g = math.tan(math.pi * fc.clamp(10.0, fs * 0.45) / fs) / math.sqrt(a);
+  final k = 1.0 / q;
+  final num = (re: a * a * g * g - t * t, im: k * a * g * t);
+  final den = (re: g * g - t * t, im: k * g * t);
+  return _cDiv(num, den);
+}
+
+_Complex _evalSvfLowPass(double fc, double q, double t, double fs) {
+  final g = math.tan(math.pi * fc.clamp(10.0, fs * 0.45) / fs);
+  final k = 1.0 / q;
+  final den = (re: g * g - t * t, im: k * g * t);
+  return _cDiv((re: g * g, im: 0.0), den);
+}
+
+_Complex _evalDcBlocker(double f, double fs) {
+  final c = math.exp(-2.0 * math.pi * 18.0 / fs);
+  final w = 2.0 * math.pi * f / fs;
+  final zInv = (re: math.cos(w), im: -math.sin(w));
+  final num = _cScale(_cSub((re: 1.0, im: 0.0), zInv), c);
+  final den = _cSub((re: 1.0, im: 0.0), _cScale(zInv, c));
+  return _cDiv(num, den);
+}
+
 class _DynamicBassPainter extends CustomPainter {
   final HarmonicBassProfile profile;
   final int preset;
@@ -91,9 +188,9 @@ class _DynamicBassPainter extends CustomPainter {
   });
 
   static const double minFreq = 20.0;
-  static const double maxFreq = 500.0; // Focused sub/mid-bass display
-  static const double minDb = 0.0;
-  static const double maxDb = 24.0;
+  static const double maxFreq = 500.0;
+  static const double minDb = -6.0;
+  static const double maxDb = 18.0;
   static const int numPoints = 120;
 
   @override
@@ -125,8 +222,12 @@ class _DynamicBassPainter extends CustomPainter {
     // 1. Draw Grid
     _drawGrid(canvas, paddingLeft, paddingTop, graphWidth, graphHeight);
 
-    if (!isEnabled || gainDb < 0.1) {
-      // Flat baseline
+    final bool inactive = !isEnabled ||
+        (profile == HarmonicBassProfile.dynamicMultiPole
+            ? gainDb < 0.05
+            : boost < 0.005);
+
+    if (inactive) {
       canvas.drawLine(
         Offset(paddingLeft, baselineY),
         Offset(paddingLeft + graphWidth, baselineY),
@@ -142,38 +243,95 @@ class _DynamicBassPainter extends CustomPainter {
       return minFreq * math.pow(maxFreq / minFreq, i / (numPoints - 1));
     });
 
+    const double fs = 48000.0;
     final fc = cutoffHz.clamp(30.0, 160.0);
-    final k = boost.clamp(0.0, 1.0) * 3.6; // Ladder resonance feedback
+    final b = boost.clamp(0.0, 1.0);
+    final gDb = gainDb.clamp(0.0, 18.0);
 
-    // 3. Compute 4-Pole Ladder Resonance Response Curve
+    // 3. Compute exact transfer curve for the active HarmonicBassProfile
     final curveDbs = <double>[];
+    double peakFreq = fc;
+    double peakDb = 0.0;
+
     for (int i = 0; i < numPoints; i++) {
       final f = freqs[i];
-      final w = f / fc;
+      final t = math.tan(math.pi * f / fs);
+      double pointDb = 0.0;
 
-      // 4-pole pole factor: (1 + jw)^4
-      // (1 + jw)^2 = (1 - w^2) + j(2w)
-      final r2 = 1.0 - w * w;
-      final i2 = 2.0 * w;
-      // (1 + jw)^4 = (r2^2 - i2^2) + j(2 * r2 * i2)
-      final r4 = r2 * r2 - i2 * i2;
-      final i4 = 2.0 * r2 * i2;
+      switch (profile) {
+        case HarmonicBassProfile.dynamicMultiPole:
+          final p = kDynamicBassPresets[
+              preset.clamp(0, kDynamicBassPresets.length - 1)];
+          final yl = p.yLow.clamp(20.0, 140.0);
+          final yh = math.max(p.yHigh, yl + 15.0).clamp(35.0, 300.0);
+          final xl = math.max(p.xLow, yh + 20.0).clamp(60.0, 1500.0);
 
-      // Feedback denominator: (1 + jw)^4 + k
-      final denR = r4 + k;
-      final denI = i4;
-      final magSq = 1.0 / math.max(1e-6, denR * denR + denI * denI);
-      final rawGain = math.sqrt(magSq);
+          final bassGain = math.pow(10.0, gDb / 20.0).toDouble();
+          final drive = math.max(0.0, bassGain - 1.0);
+          final gSub = 1.0 + drive * (0.30 + 0.70 * p.sideGainY);
+          final gPunch = 1.0 + drive;
+          final gUbass = 1.0 + drive * (0.40 * p.sideGainX);
 
-      // Normalize peak to 1.0 at resonance and scale with gainDb
-      final peakRaw = 1.0 / math.max(0.05, 1.0 - k * 0.25);
-      final normalizedGain = (rawGain / peakRaw).clamp(0.0, 1.0);
+          final cXl = _evalLr4(xl, t, fs);
+          final cYh = _evalLr4(yh, t, fs);
+          final cYl = _evalLr4(yl, t, fs);
 
-      // Subsonic protection roll-off below 25Hz
-      final subsonicAtt = f < 30.0 ? math.sin((f / 30.0) * math.pi / 2.0) : 1.0;
+          final bSub = _cMul(cXl.lp4, _cMul(cYh.lp4, cYl.lp4));
+          final bPunch = _cMul(cXl.lp4, _cMul(cYh.lp4, cYl.hp4));
+          final bUbass = _cMul(cXl.lp4, _cMul(cYh.hp4, cYl.ap2));
+          final lo = _cAdd(
+            _cAdd(_cScale(bSub, gSub), _cScale(bPunch, gPunch)),
+            _cScale(bUbass, gUbass),
+          );
+          final up = _cMul(cYh.ap2, _cMul(cYl.ap2, cXl.hp4));
+          final hTot = _cAdd(lo, up);
+          pointDb = 20.0 * math.log(math.max(_cAbs(hTot), 1e-6)) / math.ln10;
+          break;
 
-      final pointDb = (gainDb * normalizedGain * subsonicAtt).clamp(0.0, maxDb);
-      curveDbs.add(pointDb);
+        case HarmonicBassProfile.naturalBass:
+        case HarmonicBassProfile.pureBass:
+          final lp = _evalSvfLowPass(fc, 0.53, t, fs);
+          final dc = _evalDcBlocker(f, fs);
+          final bass = _cScale(_cMul(lp, dc), b * 3.5);
+          final hTot = _cAdd((re: 1.0, im: 0.0), bass);
+          pointDb = 20.0 * math.log(math.max(_cAbs(hTot), 1e-6)) / math.ln10;
+          break;
+
+        case HarmonicBassProfile.subwoofer:
+          final subFc2 = (fc * 1.8).clamp(60.0, 180.0);
+          final p1 = _evalSvfBell(fc, b * 16.0, 0.95, t, fs);
+          final p2 = _evalSvfBell(subFc2, b * 8.0, 1.4, t, fs);
+          final lpf = _evalSvfLowPass(380.0, 0.65, t, fs);
+          final diff = _cSub(_cMul(p1, p2), (re: 1.0, im: 0.0));
+          final injected = _cScale(_cMul(_cMul(diff, lpf), _evalDcBlocker(f, fs)), 0.6);
+          final hTot = _cAdd((re: 1.0, im: 0.0), injected);
+          pointDb = 20.0 * math.log(math.max(_cAbs(hTot), 1e-6)) / math.ln10;
+          break;
+
+        case HarmonicBassProfile.harmonicExciter:
+          final lp = _evalSvfLowPass(fc, 0.7071, t, fs);
+          final fundMag = _cAbs(lp);
+          pointDb = 20.0 * math.log(math.max(1.0 + b * 1.5 * fundMag, 1e-6)) / math.ln10;
+          break;
+
+        case HarmonicBassProfile.pultecDeep:
+          final scoopFc = (fc * 5.0).clamp(200.0, 400.0);
+          final scoop = _evalSvfBell(scoopFc, -b * 4.5, 1.2, t, fs);
+          final shelf = _evalSvfLowShelf(fc, b * 12.0, 0.70710678, t, fs);
+          final boostInj = _cScale(
+              _cMul(_cSub(shelf, (re: 1.0, im: 0.0)), _evalDcBlocker(f, fs)),
+              0.8);
+          final hTot = _cAdd(scoop, boostInj);
+          pointDb = 20.0 * math.log(math.max(_cAbs(hTot), 1e-6)) / math.ln10;
+          break;
+      }
+
+      final clampedDb = pointDb.clamp(minDb, maxDb);
+      curveDbs.add(clampedDb);
+      if (clampedDb > peakDb) {
+        peakDb = clampedDb;
+        peakFreq = f;
+      }
     }
 
     // 4. Draw Gradient Fill Under Bass Curve
@@ -216,23 +374,18 @@ class _DynamicBassPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     canvas.drawPath(curvePath, strokePaint);
 
-    // 6. Draw Virtual Harmonic Excitation Bars (2f0, 3f0)
-    final hasHarmonics = profile == HarmonicBassProfile.dynamicMultiPole ||
-        profile == HarmonicBassProfile.harmonicExciter ||
-        profile == HarmonicBassProfile.subwoofer ||
-        profile == HarmonicBassProfile.pureBass;
-
-    if (hasHarmonics) {
+    // 6. Draw Harmonic Overtones ONLY in HarmonicExciter mode
+    if (profile == HarmonicBassProfile.harmonicExciter) {
       final h2Freq = fc * 2.0;
       final h3Freq = fc * 3.0;
+      final refDb = (b * 12.0).clamp(1.0, maxDb);
 
       void drawHarmonicBar(double freq, String label, double gainRatio) {
         if (freq <= maxFreq) {
           final barX = freqToX(freq);
-          final barHeight = gainDb * gainRatio;
+          final barHeight = refDb * gainRatio;
           final barTopY = dbToY(barHeight);
 
-          // Glowing vertical beam
           canvas.drawLine(
             Offset(barX, baselineY),
             Offset(barX, barTopY),
@@ -241,15 +394,12 @@ class _DynamicBassPainter extends CustomPainter {
               ..strokeWidth = 2.0
               ..strokeCap = StrokeCap.round,
           );
-
-          // Top dot
           canvas.drawCircle(
             Offset(barX, barTopY),
             3.5,
             Paint()..color = const Color(0xFF00E5FF),
           );
 
-          // Harmonic Tag
           final tp = TextPainter(
             text: TextSpan(
               text: label,
@@ -266,15 +416,14 @@ class _DynamicBassPainter extends CustomPainter {
         }
       }
 
-      drawHarmonicBar(h2Freq, '2f', 0.55);
-      drawHarmonicBar(h3Freq, '3f', 0.32);
+      drawHarmonicBar(h2Freq, '2f', 0.70);
+      drawHarmonicBar(h3Freq, '3f', 0.30);
     }
 
-    // 7. Focus Frequency Peak Handle
-    final peakX = freqToX(fc);
-    final peakY = dbToY(gainDb);
+    // 7. Peak Handle
+    final peakX = freqToX(peakFreq);
+    final peakY = dbToY(peakDb);
 
-    // Vertical dashed marker down to base
     final dashPaint = Paint()
       ..color = primaryColor.withValues(alpha: 0.3)
       ..strokeWidth = 1.0;
@@ -288,7 +437,6 @@ class _DynamicBassPainter extends CustomPainter {
       dy += 6;
     }
 
-    // Glowing Peak Center Dot
     canvas.drawCircle(
       Offset(peakX, peakY),
       6.5,
@@ -301,10 +449,12 @@ class _DynamicBassPainter extends CustomPainter {
     );
 
     // 8. Info Banner
+    final isDynamic = profile == HarmonicBassProfile.dynamicMultiPole;
+    final pObj = kDynamicBassPresets[preset.clamp(0, kDynamicBassPresets.length - 1)];
     final infoSpan = TextSpan(
       children: [
         TextSpan(
-          text: 'Focus: ${fc.toInt()}Hz  ',
+          text: isDynamic ? '${pObj.name}  ' : 'Focus: ${fc.toInt()}Hz  ',
           style: const TextStyle(
             color: Colors.white,
             fontSize: 9.0,
@@ -313,7 +463,7 @@ class _DynamicBassPainter extends CustomPainter {
           ),
         ),
         TextSpan(
-          text: '+${gainDb.toStringAsFixed(1)}dB  ',
+          text: '+${peakDb.toStringAsFixed(1)}dB  ',
           style: TextStyle(
             color: primaryColor,
             fontSize: 9.0,
@@ -322,7 +472,9 @@ class _DynamicBassPainter extends CustomPainter {
           ),
         ),
         TextSpan(
-          text: 'Q: ${(boost * 100).toInt()}%',
+          text: isDynamic
+              ? 'Sub ${pObj.yLow.toInt()}-${pObj.yHigh.toInt()}Hz'
+              : 'Power: ${(b * 100).toInt()}%',
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.6),
             fontSize: 8.5,
@@ -352,8 +504,8 @@ class _DynamicBassPainter extends CustomPainter {
       fontFamily: 'monospace',
     );
 
-    // Gain ticks: 0dB, +6dB, +12dB, +18dB, +24dB
-    final dbTicks = [0.0, 6.0, 12.0, 18.0, 24.0];
+    // Gain ticks: -6dB, 0dB, +6dB, +12dB, +18dB
+    final dbTicks = [-6.0, 0.0, 6.0, 12.0, 18.0];
     for (final db in dbTicks) {
       final norm = (db - minDb) / (maxDb - minDb);
       final y = paddingTop + (1.0 - norm) * graphHeight;
@@ -364,7 +516,7 @@ class _DynamicBassPainter extends CustomPainter {
         db == 0.0 ? baselinePaint : gridLinePaint,
       );
 
-      final label = '+${db.toInt()}';
+      final label = '${db > 0 ? '+' : ''}${db.toInt()}';
       final tp = TextPainter(
         text: TextSpan(text: label, style: textStyle),
         textDirection: TextDirection.ltr,

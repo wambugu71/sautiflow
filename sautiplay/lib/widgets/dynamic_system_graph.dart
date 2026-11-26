@@ -26,32 +26,28 @@ class DynamicSystemPresetParams {
 }
 
 const List<DynamicSystemPresetParams> kDynamicSystemPresets = [
-  DynamicSystemPresetParams('In-Ear Earbuds', 180.0, 5800.0, 55.0, 80.0, 0.10, 0.70, 3.4),
-  DynamicSystemPresetParams('Over-Ear Headphones', 300.0, 5600.0, 60.0, 105.0, 0.10, 0.50, 3.0),
-  DynamicSystemPresetParams('Studio Reference', 140.0, 6200.0, 40.0, 60.0, 0.10, 0.80, 2.2),
-  DynamicSystemPresetParams('Desktop Speakers', 400.0, 6200.0, 40.0, 80.0, 0.10, 0.00, 3.6),
-  DynamicSystemPresetParams('Club Subwoofer', 800.0, 6200.0, 80.0, 140.0, 0.00, 0.00, 4.6),
-  DynamicSystemPresetParams('Pure Dynamic', 1000.0, 6200.0, 50.0, 90.0, 0.30, 0.10, 3.8),
-  DynamicSystemPresetParams('Audiophile Open-Back', 1000.0, 6200.0, 60.0, 100.0, 0.00, 0.00, 2.5),
-  DynamicSystemPresetParams('Studio Monitor Lows', 1000.0, 6200.0, 60.0, 120.0, 0.00, 0.00, 2.8),
-  DynamicSystemPresetParams('Cinema Sub Slam', 1200.0, 6200.0, 60.0, 100.0, 0.00, 0.30, 4.2),
-  DynamicSystemPresetParams('Car Audio Bass', 1200.0, 6200.0, 40.0, 80.0, 0.00, 0.30, 4.0),
-  DynamicSystemPresetParams('Deep Acoustic Warmth', 600.0, 5400.0, 60.0, 105.0, 0.10, 0.20, 2.8),
-  DynamicSystemPresetParams('Clean Kick Drum', 400.0, 6200.0, 40.0, 80.0, 0.10, 0.00, 3.2),
-  DynamicSystemPresetParams('Resonant Rumble', 1200.0, 6200.0, 50.0, 100.0, 0.10, 0.50, 4.4),
-  DynamicSystemPresetParams('Sub-Bass Boom', 1200.0, 6200.0, 40.0, 80.0, 0.00, 0.20, 4.8),
-  DynamicSystemPresetParams('Solid Impact', 800.0, 6200.0, 40.0, 80.0, 0.10, 0.00, 3.5),
-  DynamicSystemPresetParams('Rich Low-End', 1200.0, 6200.0, 50.0, 90.0, 0.15, 0.10, 3.6),
-  DynamicSystemPresetParams('Club PA Punch', 1000.0, 6200.0, 50.0, 90.0, 0.30, 0.10, 4.0),
-  DynamicSystemPresetParams('Deep Sub Extension', 1000.0, 6200.0, 80.0, 140.0, 0.00, 0.00, 4.5),
-  DynamicSystemPresetParams('Ultimate Subwoofer', 800.0, 6200.0, 80.0, 140.0, 0.00, 0.00, 5.0),
+  DynamicSystemPresetParams('In-Ear Earbuds', 180.0, 5800.0, 55.0, 80.0, 0.10, 0.70, 2.8),
+  DynamicSystemPresetParams('Over-Ear Headphones', 300.0, 5600.0, 60.0, 105.0, 0.10, 0.50, 2.6),
+  DynamicSystemPresetParams('Studio Reference', 140.0, 6200.0, 40.0, 60.0, 0.10, 0.80, 2.0),
+  DynamicSystemPresetParams('Desktop Speakers', 280.0, 6200.0, 45.0, 85.0, 0.15, 0.25, 3.0),
+  DynamicSystemPresetParams('Club Subwoofer', 260.0, 6200.0, 55.0, 110.0, 0.10, 0.75, 3.8),
+  DynamicSystemPresetParams('Pure Dynamic', 320.0, 6200.0, 50.0, 90.0, 0.30, 0.45, 3.2),
+  DynamicSystemPresetParams('Audiophile Open-Back', 220.0, 6200.0, 45.0, 85.0, 0.10, 0.65, 2.1),
+  DynamicSystemPresetParams('Studio Monitor Lows', 240.0, 6200.0, 50.0, 95.0, 0.10, 0.55, 2.3),
+  DynamicSystemPresetParams('Cinema Sub Slam', 260.0, 6200.0, 45.0, 90.0, 0.10, 0.85, 3.6),
+  DynamicSystemPresetParams('Car Audio Bass', 280.0, 6200.0, 40.0, 85.0, 0.15, 0.80, 3.5),
+  DynamicSystemPresetParams('Deep Acoustic Warmth', 300.0, 5400.0, 55.0, 105.0, 0.25, 0.50, 2.5),
+  DynamicSystemPresetParams('Clean Kick Drum', 250.0, 6200.0, 55.0, 95.0, 0.20, 0.25, 2.9),
+  DynamicSystemPresetParams('Resonant Rumble', 260.0, 6200.0, 40.0, 85.0, 0.15, 0.90, 3.7),
+  DynamicSystemPresetParams('Sub-Bass Boom', 240.0, 6200.0, 38.0, 78.0, 0.10, 0.95, 4.0),
+  DynamicSystemPresetParams('Solid Impact', 280.0, 6200.0, 50.0, 90.0, 0.20, 0.40, 3.1),
+  DynamicSystemPresetParams('Rich Low-End', 320.0, 6200.0, 50.0, 95.0, 0.25, 0.60, 3.2),
+  DynamicSystemPresetParams('Club PA Punch', 320.0, 6200.0, 45.0, 90.0, 0.30, 0.65, 3.5),
+  DynamicSystemPresetParams('Deep Sub Extension', 220.0, 6200.0, 35.0, 75.0, 0.05, 1.00, 3.8),
+  DynamicSystemPresetParams('Ultimate Subwoofer', 260.0, 6200.0, 45.0, 95.0, 0.10, 0.90, 4.2),
 ];
 
-/// A real-time acoustic transfer simulation graph for Dynamic System (Transducer Modeling).
-///
-/// Graphs the multi-band transducer acoustic contour across [20Hz, 20kHz] based on the
-/// physical acoustic impedance characteristics of earbuds, headphones, planar drivers,
-/// and loudspeakers scaled dynamically by the Dynamic Drive strength knob.
+/// Exact analytical 5-band LR4 transfer simulation graph for Dynamic System.
 class DynamicSystemGraph extends StatelessWidget {
   final TransducerProfile profile;
   final double strength; // 0.0 to 1.0 (Dynamic Drive)
@@ -127,6 +123,32 @@ class DynamicSystemGraph extends StatelessWidget {
   }
 }
 
+typedef _Complex = ({double re, double im});
+
+_Complex _cAdd(_Complex a, _Complex b) => (re: a.re + b.re, im: a.im + b.im);
+_Complex _cMul(_Complex a, _Complex b) =>
+    (re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re);
+_Complex _cScale(_Complex a, double s) => (re: a.re * s, im: a.im * s);
+double _cAbs(_Complex a) => math.sqrt(a.re * a.re + a.im * a.im);
+
+({ _Complex lp4, _Complex hp4, _Complex ap2 }) _evalLr4Pair(
+    double fc, double t, double fs) {
+  final clampedFc = fc.clamp(15.0, fs * 0.45);
+  final g = math.tan(math.pi * clampedFc / fs);
+  const k = math.sqrt2;
+  final denRe = g * g - t * t;
+  final denIm = k * g * t;
+  final denSq = math.max(1e-30, denRe * denRe + denIm * denIm);
+
+  final _Complex lp2 = (re: (g * g * denRe) / denSq, im: (-g * g * denIm) / denSq);
+  final _Complex hp2 = (re: (-t * t * denRe) / denSq, im: (t * t * denIm) / denSq);
+  final _Complex ap2 = (
+    re: (denRe * denRe - denIm * denIm) / denSq,
+    im: (-2.0 * denRe * denIm) / denSq
+  );
+  return (lp4: _cMul(lp2, lp2), hp4: _cMul(hp2, hp2), ap2: ap2);
+}
+
 class _DynamicSystemPainter extends CustomPainter {
   final TransducerProfile profile;
   final double strength;
@@ -156,9 +178,9 @@ class _DynamicSystemPainter extends CustomPainter {
 
   static const double minFreq = 20.0;
   static const double maxFreq = 20000.0;
-  static const double minDb = -12.0;
-  static const double maxDb = 12.0;
-  static const int numPoints = 130;
+  static const double minDb = -6.0;
+  static const double maxDb = 15.0;
+  static const int numPoints = 140;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -189,8 +211,7 @@ class _DynamicSystemPainter extends CustomPainter {
     // 1. Draw Grid
     _drawGrid(canvas, paddingLeft, paddingTop, graphWidth, graphHeight);
 
-    if (!isEnabled || strength < 0.01) {
-      // Draw flat baseline
+    if (!isEnabled || strength < 0.005) {
       canvas.drawLine(
         Offset(paddingLeft, zeroY),
         Offset(paddingLeft + graphWidth, zeroY),
@@ -201,15 +222,8 @@ class _DynamicSystemPainter extends CustomPainter {
       return;
     }
 
-    // 2. Lookup Preset or Custom Parameters
-    final bool isCustom = profile.value >= kDynamicSystemPresets.length ||
-        (customXLow != null &&
-            customXHigh != null &&
-            customYLow != null &&
-            customYHigh != null &&
-            customSideGainX != null &&
-            customSideGainY != null &&
-            customBassGain != null);
+    // 2. Lookup Preset or Custom Parameters (only custom when profile == Custom)
+    final bool isCustom = profile == TransducerProfile.custom;
     final index = profile.value.clamp(0, kDynamicSystemPresets.length - 1);
     final basePreset = kDynamicSystemPresets[index];
     final p = isCustom
@@ -225,39 +239,51 @@ class _DynamicSystemPainter extends CustomPainter {
           )
         : basePreset;
 
-    // 3. Compute Transducer Acoustic Transfer Contour across [20Hz, 20kHz]
+    // Enforce the same monotonic crossover guard as C++ DynamicSystemDSP
+    const double fs = 48000.0;
+    final double yl = p.yLow.clamp(20.0, 140.0);
+    final double yh = math.max(p.yHigh, yl + 15.0).clamp(35.0, 300.0);
+    final double xl = math.max(p.xLow, yh + 20.0).clamp(60.0, 1500.0);
+    final double xh = math.max(p.xHigh, xl + 200.0).clamp(1500.0, 16000.0);
+
+    final double s = strength.clamp(0.0, 1.0);
+    final double bassGain = 1.0 + s * (p.maxDrive - 1.0);
+    final double drive = math.max(0.0, bassGain - 1.0);
+    final double gSub = 1.0 + drive * (0.30 + 0.70 * p.sideGainY.clamp(0.0, 1.5));
+    final double gPunch = 1.0 + drive;
+    final double gUbass = 1.0 + drive * (0.40 * p.sideGainX.clamp(0.0, 1.5));
+    final double gAir = 1.0 + s * 0.15;
+
+    // 3. Evaluate exact analytical 5-band LR4 transfer response across [20Hz, 20kHz]
     final freqs = List<double>.generate(numPoints, (i) {
       return minFreq * math.pow(maxFreq / minFreq, i / (numPoints - 1));
     });
 
     final curveDbs = <double>[];
-    final effectiveDrive = strength * p.maxDrive;
-    final subGain = (p.sideGainY * 1.4 + 0.3) * effectiveDrive * 2.0;
-    final midBassGain = (p.sideGainX * 1.2 + 0.1) * effectiveDrive * 1.5;
-
     for (int i = 0; i < numPoints; i++) {
       final f = freqs[i];
+      final t = math.tan(math.pi * f / fs);
+      final cXl = _evalLr4Pair(xl, t, fs);
+      final cXh = _evalLr4Pair(xh, t, fs);
+      final cYl = _evalLr4Pair(yl, t, fs);
+      final cYh = _evalLr4Pair(yh, t, fs);
 
-      // Stage 2: Sub-bass resonance bump around yLow
-      final subRatio = f / p.yLow;
-      final subBump = subGain / (1.0 + math.pow(math.log(math.max(1e-3, subRatio)), 2) * 3.5);
+      final bSub = _cMul(cXl.lp4, _cMul(cYh.lp4, cYl.lp4));
+      final bPunch = _cMul(cXl.lp4, _cMul(cYh.lp4, cYl.hp4));
+      final bUbass = _cMul(cXl.lp4, _cMul(cYh.hp4, cYl.ap2));
+      final loSum = _cAdd(
+        _cAdd(_cScale(bSub, gSub), _cScale(bPunch, gPunch)),
+        _cScale(bUbass, gUbass),
+      );
+      final lo = _cMul(cXh.ap2, loSum);
 
-      // Mid-bass punch bump around yHigh
-      final midRatio = f / p.yHigh;
-      final midBump = midBassGain / (1.0 + math.pow(math.log(math.max(1e-3, midRatio)), 2) * 2.5);
+      final bMid = _cMul(cXl.hp4, cXh.lp4);
+      final bAir = _cMul(cXl.hp4, cXh.hp4);
+      final up = _cMul(_cMul(cYh.ap2, cYl.ap2), _cAdd(bMid, _cScale(bAir, gAir)));
 
-      // Low crossover transition (attenuation below 30Hz for subsonic control)
-      final subsonicAtt = f < 30.0 ? math.sin((f / 30.0) * math.pi / 2.0) : 1.0;
-
-      // Stage 1: Upper-treble air presence lift above xHigh
-      double trebleAir = 0.0;
-      if (f > p.xHigh * 0.7) {
-        final tRatio = (f - p.xHigh * 0.7) / (maxFreq - p.xHigh * 0.7);
-        trebleAir = tRatio.clamp(0.0, 1.0) * 2.5 * strength;
-      }
-
-      final netDb = ((subBump + midBump) * subsonicAtt + trebleAir).clamp(minDb, maxDb);
-      curveDbs.add(netDb);
+      final hTot = _cAdd(lo, up);
+      final db = 20.0 * math.log(math.max(_cAbs(hTot), 1e-6)) / math.ln10;
+      curveDbs.add(db.clamp(minDb, maxDb));
     }
 
     // 4. Draw Gradient Fill Under Curve
@@ -331,8 +357,8 @@ class _DynamicSystemPainter extends CustomPainter {
       tp.paint(canvas, Offset(cx - tp.width / 2, paddingTop + 2));
     }
 
-    drawCrossoverMarker(p.xLow, 'xLow');
-    drawCrossoverMarker(p.xHigh, 'xHigh');
+    drawCrossoverMarker(xl, 'xLow');
+    drawCrossoverMarker(xh, 'xHigh');
 
     // 7. Info Readout
     final infoSpan = TextSpan(
@@ -347,7 +373,7 @@ class _DynamicSystemPainter extends CustomPainter {
           ),
         ),
         TextSpan(
-          text: 'Drive: ${(strength * 100).toInt()}%  ',
+          text: 'Drive: ${(s * 100).toInt()}%  ',
           style: TextStyle(
             color: primaryColor,
             fontSize: 9.0,
@@ -356,7 +382,7 @@ class _DynamicSystemPainter extends CustomPainter {
           ),
         ),
         TextSpan(
-          text: 'Sub: ${p.yLow.toInt()}Hz Mid: ${p.yHigh.toInt()}Hz',
+          text: 'Sub: ${yl.toInt()}Hz Mid: ${yh.toInt()}Hz',
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.55),
             fontSize: 8.5,
@@ -386,8 +412,8 @@ class _DynamicSystemPainter extends CustomPainter {
       fontFamily: 'monospace',
     );
 
-    // dB lines: -12, -6, 0, +6, +12
-    final dbTicks = [-12.0, -6.0, 0.0, 6.0, 12.0];
+    // dB lines: -6, 0, +6, +12
+    final dbTicks = [-6.0, 0.0, 6.0, 12.0];
     for (final db in dbTicks) {
       final norm = (db - minDb) / (maxDb - minDb);
       final y = paddingTop + (1.0 - norm) * graphHeight;

@@ -426,25 +426,9 @@ class AudioProfileService {
       );
     }
 
-    if (dsp.containsKey('dynamicBass')) {
-      final db = dsp['dynamicBass'] as Map;
-      final enabled = db['enabled'] ?? false;
-      final preset = (db['preset'] as num?)?.toInt() ?? 18;
-      final gain = (db['gain'] as num?)?.toDouble() ?? 15.0;
-      player.setDynamicBass(enabled: enabled, preset: preset, gain: gain);
-      await AppStateService.instance.saveDynamicBass(
-        enabled: enabled,
-        preset: preset,
-        gain: gain,
-      );
-    } else {
-      player.setDynamicBass(enabled: false, preset: 18, gain: 0.0);
-      await AppStateService.instance.saveDynamicBass(
-        enabled: false,
-        preset: 18,
-        gain: 0.0,
-      );
-    }
+    // Dynamic Bass is unified under Sauti DSP Suite (sautiDspState);
+    // legacy dspEffectsState['dynamicBass'] is migrated below if sautiDspState
+    // does not specify bassEnabled, preventing dual-ownership overrides.
 
     if (dsp.containsKey('crystalizer')) {
       final c = dsp['crystalizer'] as Map;
@@ -880,6 +864,21 @@ class AudioProfileService {
       'dynamicEqEnabled': false,
       ...profile.sautiDspState,
     };
+    if (!profile.sautiDspState.containsKey('bassEnabled') &&
+        dsp.containsKey('dynamicBass')) {
+      final db = dsp['dynamicBass'] as Map;
+      cleanDspState['bassEnabled'] = db['enabled'] == true;
+      cleanDspState['bassProfile'] = HarmonicBassProfile.dynamicMultiPole.value;
+      cleanDspState['bassPreset'] = (db['preset'] as num?)?.toInt() ?? 18;
+      cleanDspState['bassGainDb'] =
+          ((db['gain'] as num?)?.toDouble() ?? 9.0).clamp(0.0, 18.0);
+    }
+    await AppStateService.instance.saveDynamicBass(
+      enabled: cleanDspState['bassEnabled'] == true,
+      preset: (cleanDspState['bassPreset'] as num?)?.toInt() ?? 18,
+      gain: ((cleanDspState['bassGainDb'] as num?)?.toDouble() ?? 9.0)
+          .clamp(0.0, 18.0),
+    );
     await AppStateService.instance.saveSautiDspState(cleanDspState);
     await EqScreen.applySavedStateToEngine(player);
 
@@ -1143,11 +1142,6 @@ class AudioProfileService {
           ],
         },
         dspEffectsState: {
-          'dynamicBass': {
-            'enabled': false,
-            'preset': DynamicBassPreset.clubPaPunch.value,
-            'gain': 10.0,
-          },
           'limiter': {
             'enabled': false,
             'threshold': 0.95,

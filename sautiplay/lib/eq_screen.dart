@@ -389,7 +389,8 @@ class EqScreen extends StatefulWidget {
     final bassCutoffHz = (state['bassCutoffHz'] as num?)?.toDouble() ?? 60.0;
     final bassBoost = (state['bassBoost'] as num?)?.toDouble() ?? 0.5;
     final bassPreset = (state['bassPreset'] as num?)?.toInt() ?? 18;
-    final bassGainDb = (state['bassGainDb'] as num?)?.toDouble() ?? 15.0;
+    final bassGainDb =
+        ((state['bassGainDb'] as num?)?.toDouble() ?? 9.0).clamp(0.0, 18.0);
 
     final dynamicSystemEnabled =
         masterEnabled && (state['dynamicSystemEnabled'] ?? false);
@@ -412,7 +413,7 @@ class EqScreen extends StatefulWidget {
     final dynamicSystemSideGainY =
         (state['dynamicSystemSideGainY'] as num?)?.toDouble() ?? 0.70;
     final dynamicSystemMaxDrive =
-        (state['dynamicSystemMaxDrive'] as num?)?.toDouble() ?? 3.4;
+        (state['dynamicSystemMaxDrive'] as num?)?.toDouble() ?? 2.8;
 
     final analogWarmthEnabled =
         masterEnabled && (state['analogWarmthEnabled'] ?? false);
@@ -472,11 +473,6 @@ class EqScreen extends StatefulWidget {
       );
     }
 
-    player.setDynamicSystem(
-      enabled: dynamicSystemEnabled,
-      profile: dynamicSystemProfile,
-      strength: dynamicSystemStrength,
-    );
     if (dynamicSystemProfile == TransducerProfile.custom) {
       player.setDynamicSystemCustom(
         enabled: dynamicSystemEnabled,
@@ -484,9 +480,15 @@ class EqScreen extends StatefulWidget {
         xHigh: dynamicSystemXHigh,
         yLow: dynamicSystemYLow,
         yHigh: dynamicSystemYHigh,
-        sideGainLow: 1.0 + dynamicSystemStrength * (dynamicSystemSideGainX - 1.0),
-        sideGainHigh: 1.0 + dynamicSystemStrength * (dynamicSystemSideGainY - 1.0),
+        sideGainLow: dynamicSystemSideGainX,
+        sideGainHigh: dynamicSystemSideGainY,
         bassGain: 1.0 + dynamicSystemStrength * (dynamicSystemMaxDrive - 1.0),
+      );
+    } else {
+      player.setDynamicSystem(
+        enabled: dynamicSystemEnabled,
+        profile: dynamicSystemProfile,
+        strength: dynamicSystemStrength,
       );
     }
 
@@ -1956,6 +1958,7 @@ class _EqScreenState extends State<EqScreen>
   double _dialogEnhancerDucking = 0.55;
   double _dialogEnhancerClarity = 0.60;
   double _dialogEnhancerCenterFocus = 0.70;
+  final ValueNotifier<double> _dialogEnhancerGrNotifier = ValueNotifier(0.0);
 
   // 2. Harmonic / Dynamic Multi-Pole Bass
   bool _bassEnabled = false;
@@ -1963,7 +1966,7 @@ class _EqScreenState extends State<EqScreen>
   double _bassCutoffHz = 60.0;
   double _bassBoost = 0.5;
   int _bassPreset = 18;
-  double _bassGainDb = 15.0;
+  double _bassGainDb = 9.0;
 
   // 3. Dynamic Transducer System
   bool _dynamicSystemEnabled = false;
@@ -1975,7 +1978,7 @@ class _EqScreenState extends State<EqScreen>
   double _dynamicSystemYHigh = 80.0;
   double _dynamicSystemSideGainX = 0.10;
   double _dynamicSystemSideGainY = 0.70;
-  double _dynamicSystemMaxDrive = 3.4;
+  double _dynamicSystemMaxDrive = 2.8;
 
   // 4. Analog Warmth
   bool _analogWarmthEnabled = false;
@@ -2844,6 +2847,7 @@ class _EqScreenState extends State<EqScreen>
       if (!mounted || !_isDynamicsModalActive) return;
       final anyDynamicsActive = _compressorEnabled ||
           _deEsserEnabled ||
+          _dialogEnhancerEnabled ||
           _expanderEnabled ||
           _noiseGateEnabled ||
           _levellerEnabled ||
@@ -2855,6 +2859,9 @@ class _EqScreenState extends State<EqScreen>
         }
         if (_deEsserGrNotifier.value != 0.0) {
           _deEsserGrNotifier.value = 0.0;
+        }
+        if (_dialogEnhancerGrNotifier.value != 0.0) {
+          _dialogEnhancerGrNotifier.value = 0.0;
         }
         if (_expanderGrNotifier.value != 0.0) {
           _expanderGrNotifier.value = 0.0;
@@ -2902,6 +2909,17 @@ class _EqScreenState extends State<EqScreen>
         }));
       } else if (_deEsserGrNotifier.value != 0.0) {
         if (mounted) _deEsserGrNotifier.value = 0.0;
+      }
+
+      if (_dialogEnhancerEnabled && _isPlaying) {
+        futures.add(
+            widget.player.getDialogEnhancerGainReductionDB().then((dlgGr) {
+          if (mounted && (_dialogEnhancerGrNotifier.value - dlgGr).abs() > 0.05) {
+            _dialogEnhancerGrNotifier.value = dlgGr;
+          }
+        }));
+      } else if (_dialogEnhancerGrNotifier.value != 0.0) {
+        if (mounted) _dialogEnhancerGrNotifier.value = 0.0;
       }
 
       if (_expanderEnabled && _isPlaying) {
@@ -3040,6 +3058,9 @@ class _EqScreenState extends State<EqScreen>
     _compressorMeterTimer = null;
     if (_compressorGrNotifier.value != 0.0) _compressorGrNotifier.value = 0.0;
     if (_deEsserGrNotifier.value != 0.0) _deEsserGrNotifier.value = 0.0;
+    if (_dialogEnhancerGrNotifier.value != 0.0) {
+      _dialogEnhancerGrNotifier.value = 0.0;
+    }
     if (_expanderGrNotifier.value != 0.0) _expanderGrNotifier.value = 0.0;
     if (_noiseGateGrNotifier.value != 0.0) _noiseGateGrNotifier.value = 0.0;
     if (_levellerGainNotifier.value != 0.0) _levellerGainNotifier.value = 0.0;
@@ -3066,6 +3087,7 @@ class _EqScreenState extends State<EqScreen>
     _stopDynamicsMeterTimer();
     _compressorGrNotifier.dispose();
     _deEsserGrNotifier.dispose();
+    _dialogEnhancerGrNotifier.dispose();
     _expanderGrNotifier.dispose();
     _noiseGateGrNotifier.dispose();
     _levellerGainNotifier.dispose();
@@ -3320,7 +3342,8 @@ class _EqScreenState extends State<EqScreen>
         _bassCutoffHz = (dspMap['bassCutoffHz'] as num?)?.toDouble() ?? 60.0;
         _bassBoost = (dspMap['bassBoost'] as num?)?.toDouble() ?? 0.5;
         _bassPreset = (dspMap['bassPreset'] as num?)?.toInt() ?? 18;
-        _bassGainDb = (dspMap['bassGainDb'] as num?)?.toDouble() ?? 15.0;
+        _bassGainDb =
+            ((dspMap['bassGainDb'] as num?)?.toDouble() ?? 9.0).clamp(0.0, 18.0);
 
         _dynamicSystemEnabled = dspMap['dynamicSystemEnabled'] ?? false;
         _dynamicSystemProfile = TransducerProfile.values.firstWhere(
@@ -3805,11 +3828,6 @@ class _EqScreenState extends State<EqScreen>
   }
 
   void _updateDynamicSystem() {
-    widget.player.setDynamicSystem(
-      enabled: _dynamicSystemEnabled,
-      profile: _dynamicSystemProfile,
-      strength: _dynamicSystemStrength,
-    );
     if (_dynamicSystemProfile == TransducerProfile.custom) {
       widget.player.setDynamicSystemCustom(
         enabled: _dynamicSystemEnabled,
@@ -3817,9 +3835,15 @@ class _EqScreenState extends State<EqScreen>
         xHigh: _dynamicSystemXHigh,
         yLow: _dynamicSystemYLow,
         yHigh: _dynamicSystemYHigh,
-        sideGainLow: 1.0 + _dynamicSystemStrength * (_dynamicSystemSideGainX - 1.0),
-        sideGainHigh: 1.0 + _dynamicSystemStrength * (_dynamicSystemSideGainY - 1.0),
+        sideGainLow: _dynamicSystemSideGainX,
+        sideGainHigh: _dynamicSystemSideGainY,
         bassGain: 1.0 + _dynamicSystemStrength * (_dynamicSystemMaxDrive - 1.0),
+      );
+    } else {
+      widget.player.setDynamicSystem(
+        enabled: _dynamicSystemEnabled,
+        profile: _dynamicSystemProfile,
+        strength: _dynamicSystemStrength,
       );
     }
   }
@@ -4947,6 +4971,7 @@ class _EqScreenState extends State<EqScreen>
       _dialogEnhancerDucking = 0.55;
       _dialogEnhancerClarity = 0.60;
       _dialogEnhancerCenterFocus = 0.70;
+      _dialogEnhancerGrNotifier.value = 0.0;
       widget.player.setDialogEnhancer(enabled: false);
 
       _bassEnabled = false;
@@ -4954,8 +4979,8 @@ class _EqScreenState extends State<EqScreen>
       _bassCutoffHz = 60.0;
       _bassBoost = 0.5;
       _bassPreset = 18;
-      _bassGainDb = 15.0;
-      widget.player.setDynamicBass(enabled: false, preset: 18, gain: 15.0);
+      _bassGainDb = 9.0;
+      widget.player.setDynamicBass(enabled: false, preset: 18, gain: 9.0);
       widget.player.setHarmonicBass(enabled: false);
 
       _dynamicSystemEnabled = false;
@@ -4967,7 +4992,7 @@ class _EqScreenState extends State<EqScreen>
       _dynamicSystemYHigh = 80.0;
       _dynamicSystemSideGainX = 0.10;
       _dynamicSystemSideGainY = 0.70;
-      _dynamicSystemMaxDrive = 3.4;
+      _dynamicSystemMaxDrive = 2.8;
       widget.player.setDynamicSystem(enabled: false);
 
       _analogWarmthEnabled = false;
@@ -5223,6 +5248,7 @@ class _EqScreenState extends State<EqScreen>
       {Shapes shape = Shapes.c4SidedCookie}) {
     final isDynamicsScreen = title == 'Compressor' ||
         title == 'De-Esser' ||
+        title == 'Dialogue Enhancer' ||
         title == 'Expander' ||
         title == 'Noise Gate' ||
         title == 'Leveller' ||
@@ -6215,7 +6241,7 @@ class _EqScreenState extends State<EqScreen>
                         },
                         onTapDetail: () => _openDetailScreen(
                           'Dynamic System',
-                          Icons.headphones_rounded,
+                          SautiIcons.dynamicSystem,
                           (_) => _buildDynamicSystemSection(),
                           shape: Shapes.burst,
                         ),
@@ -9680,7 +9706,7 @@ class _EqScreenState extends State<EqScreen>
     (
       index: 3,
       name: 'Deep',
-      description: 'Sub-harmonic',
+      description: 'Deep sub-bass & warm lower mids',
       bestFor: 'Orchestral, Live'
     ),
     (
@@ -9752,7 +9778,7 @@ class _EqScreenState extends State<EqScreen>
     (
       index: 15,
       name: 'Audiophile',
-      description: 'Linear phase',
+      description: 'Balanced, low-coloration bass extension',
       bestFor: 'Hi-Fi Audio, Lossless FLAC'
     ),
     (
@@ -9777,9 +9803,9 @@ class _EqScreenState extends State<EqScreen>
 
   String _getHarmonicBassProfileName(HarmonicBassProfile profile) {
     return switch (profile) {
-      HarmonicBassProfile.dynamicMultiPole => 'Dynamic(19 Presets)',
+      HarmonicBassProfile.dynamicMultiPole => 'Dynamic (19 Presets)',
       HarmonicBassProfile.naturalBass => 'Natural',
-      HarmonicBassProfile.pureBass => 'Punchy Kick',
+      HarmonicBassProfile.pureBass => 'Pure Bass+',
       HarmonicBassProfile.subwoofer => 'Subwoofer',
       HarmonicBassProfile.harmonicExciter => 'Harmonic Exciter',
       HarmonicBassProfile.pultecDeep => 'Pultec Deep',
@@ -9913,7 +9939,7 @@ class _EqScreenState extends State<EqScreen>
                 items: const [
                   M3EDropdownItem(
                     value: HarmonicBassProfile.dynamicMultiPole,
-                    label: 'Dynamic(19 Presets)',
+                    label: 'Dynamic (19 Presets)',
                   ),
                   M3EDropdownItem(
                     value: HarmonicBassProfile.naturalBass,
@@ -9921,19 +9947,19 @@ class _EqScreenState extends State<EqScreen>
                   ),
                   M3EDropdownItem(
                     value: HarmonicBassProfile.pureBass,
-                    label: 'Pure',
+                    label: 'Pure Bass+',
                   ),
                   M3EDropdownItem(
                     value: HarmonicBassProfile.subwoofer,
-                    label: 'Aggressive',
+                    label: 'Subwoofer',
                   ),
                   M3EDropdownItem(
                     value: HarmonicBassProfile.harmonicExciter,
-                    label: 'Harmonic',
+                    label: 'Harmonic Exciter',
                   ),
                   M3EDropdownItem(
                     value: HarmonicBassProfile.pultecDeep,
-                    label: 'Pultec',
+                    label: 'Pultec Deep',
                   ),
                 ],
                 onChanged: (val) {
@@ -10123,49 +10149,20 @@ class _EqScreenState extends State<EqScreen>
 
           const SizedBox(height: 16),
 
-          // Dynamic Bass Knobs Row
+          // Dynamic Bass Gain Knob (Mode 5 uses 19 calibrated LR4 presets + logarithmic gain)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               ModernAudioKnob(
                 label: 'BASS GAIN',
-                value: _bassGainDb,
+                value: _bassGainDb.clamp(0.0, 18.0),
                 min: 0.0,
-                max: 24.0,
-                flatValue: 15.0,
+                max: 18.0,
+                flatValue: 9.0,
                 activeColor: _bassEnabled ? primaryColor : Colors.white,
                 valueFormatter: (v) => '+${v.toStringAsFixed(1)} dB',
                 onChanged: (v) {
                   setState(() => _bassGainDb = v);
-                  if (_bassEnabled) _updateHarmonicBass();
-                  _saveEqState();
-                },
-              ),
-              ModernAudioKnob(
-                label: 'FOCUS FREQ',
-                value: _bassCutoffHz,
-                min: 30.0,
-                max: 160.0,
-                flatValue: 60.0,
-                activeColor: _bassEnabled ? primaryColor : Colors.white,
-                valueFormatter: (v) => '${v.toInt()} Hz',
-                onChanged: (v) {
-                  setState(() => _bassCutoffHz = v);
-                  if (_bassEnabled) _updateHarmonicBass();
-                  _saveEqState();
-                },
-              ),
-              ModernAudioKnob(
-                label: 'RESONANCE',
-                value: _bassBoost,
-                min: 0.0,
-                max: 1.0,
-                flatValue: 0.5,
-                activeColor: _bassEnabled ? primaryColor : Colors.white,
-                isPercentage: true,
-                valueFormatter: (v) => '${(v * 100).toInt()}%',
-                onChanged: (v) {
-                  setState(() => _bassBoost = v);
                   if (_bassEnabled) _updateHarmonicBass();
                   _saveEqState();
                 },
@@ -10313,7 +10310,7 @@ class _EqScreenState extends State<EqScreen>
               value: _dynamicSystemMaxDrive,
               min: 1.0,
               max: 6.0,
-              flatValue: 3.4,
+              flatValue: 2.8,
               activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
               onChanged: (v) {
@@ -10640,7 +10637,10 @@ class _EqScreenState extends State<EqScreen>
       subtitle: 'Speech intelligibility enhancement',
       isEnabled: _dialogEnhancerEnabled,
       onToggle: (v) {
-        setState(() => _dialogEnhancerEnabled = v);
+        setState(() {
+          _dialogEnhancerEnabled = v;
+          if (!v) _dialogEnhancerGrNotifier.value = 0.0;
+        });
         _updateDialogEnhancer();
         _saveEqState();
       },
@@ -10673,28 +10673,28 @@ class _EqScreenState extends State<EqScreen>
                     _dialogEnhancerProfile = val;
                     switch (val) {
                       case DialogEnhancerProfile.cinema:
-                        _dialogEnhancerAmount = 0.70;
-                        _dialogEnhancerDucking = 0.65;
+                        _dialogEnhancerAmount = 0.65;
+                        _dialogEnhancerDucking = 0.55;
                         _dialogEnhancerClarity = 0.60;
-                        _dialogEnhancerCenterFocus = 0.75;
+                        _dialogEnhancerCenterFocus = 0.70;
                         break;
                       case DialogEnhancerProfile.music:
-                        _dialogEnhancerAmount = 0.45;
-                        _dialogEnhancerDucking = 0.35;
-                        _dialogEnhancerClarity = 0.50;
-                        _dialogEnhancerCenterFocus = 0.40;
+                        _dialogEnhancerAmount = 0.35;
+                        _dialogEnhancerDucking = 0.20;
+                        _dialogEnhancerClarity = 0.40;
+                        _dialogEnhancerCenterFocus = 0.35;
                         break;
                       case DialogEnhancerProfile.voice:
                         _dialogEnhancerAmount = 0.85;
-                        _dialogEnhancerDucking = 0.75;
+                        _dialogEnhancerDucking = 0.65;
                         _dialogEnhancerClarity = 0.75;
                         _dialogEnhancerCenterFocus = 0.85;
                         break;
                       case DialogEnhancerProfile.night:
-                        _dialogEnhancerAmount = 0.80;
-                        _dialogEnhancerDucking = 0.85;
-                        _dialogEnhancerClarity = 0.55;
-                        _dialogEnhancerCenterFocus = 0.90;
+                        _dialogEnhancerAmount = 0.60;
+                        _dialogEnhancerDucking = 0.65;
+                        _dialogEnhancerClarity = 0.50;
+                        _dialogEnhancerCenterFocus = 0.75;
                         break;
                       case DialogEnhancerProfile.custom:
                         break;
@@ -10706,6 +10706,104 @@ class _EqScreenState extends State<EqScreen>
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+        // Live Speech Ducking Gain Reduction Meter
+        ValueListenableBuilder<double>(
+          valueListenable: _dialogEnhancerGrNotifier,
+          builder: (context, currentGr, _) {
+            final grDb = currentGr.abs();
+            final isActive = _dialogEnhancerEnabled && _isPlaying;
+            final grFraction = (grDb / 10.0).clamp(0.0, 1.0);
+            final statusText = !_dialogEnhancerEnabled
+                ? 'DIALOGUE ENHANCER DISABLED'
+                : (!_isPlaying
+                    ? 'STANDBY (IDLE)'
+                    : (grDb > 0.2 ? 'DUCKING BACKGROUND' : 'SPEECH MONITOR'));
+            final statusColor = !_dialogEnhancerEnabled
+                ? Colors.white38
+                : (!_isPlaying
+                    ? Colors.white70
+                    : (grDb > 0.2 ? Colors.amberAccent : dialogColor));
+
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: surfaceDarkerColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: dialogColor.withValues(
+                      alpha: _dialogEnhancerEnabled ? 0.35 : 0.1),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        statusText,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                      Text(
+                        !_dialogEnhancerEnabled
+                            ? 'OFF'
+                            : (isActive && grDb > 0.05
+                                ? '-${grDb.toStringAsFixed(1)} dB'
+                                : '0.0 dB'),
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 8,
+                    child: Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.white10,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: isActive ? grFraction : 0.0,
+                          child: Container(
+                            height: 8,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  dialogColor.withValues(alpha: 0.7),
+                                  Colors.amberAccent,
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
         const SizedBox(height: 16),
         Row(
@@ -10761,7 +10859,7 @@ class _EqScreenState extends State<EqScreen>
               flatValue: 0.0,
               activeColor: _dialogEnhancerEnabled ? dialogColor : Colors.white,
               isPercentage: true,
-              valueFormatter: (v) => '+${(v * 6.0).toStringAsFixed(1)} dB',
+              valueFormatter: (v) => '+${(v * 5.0).toStringAsFixed(1)} dB',
               onChanged: (v) {
                 setState(() {
                   _dialogEnhancerClarity = v;

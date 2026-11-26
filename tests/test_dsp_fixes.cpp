@@ -1575,23 +1575,18 @@ static void test_dialog_enhancer_headroom_and_dynamic_attenuation_p112()
     de.setSampleRate(48000.0f);
     de.setEnabled(true);
 
-    // 1. Automatic headroom trim compensation caps static cumulative boost (+19.5 dB)
+    // 1. Automatic headroom trim compensation caps actual evaluated 3-band peak (~14.1 dB -> -2.1 dB trim)
     {
-        de.reset();
-        // Custom profile with maximum boost parameters:
-        // formant_gain = +11 dB (2.4 kHz)
-        // body_gain = +3.5 dB (1.2 kHz)
-        // clarity_gain = +5.0 dB (3.8 kHz)
-        // Total cumulative boost = +19.5 dB
         de.setParams(sauti::dsp::DialogEnhancerProfile::Custom, 1.0f, 0.5f, 1.0f, 1.0f);
+        de.reset();
 
         float headroom_db = de.getHeadroomCompensationDb();
         float headroom_linear = de.getHeadroomCompensation();
 
         char hr_msg[128];
-        std::snprintf(hr_msg, sizeof(hr_msg), "DialogEnhancer headroom trim = %.2f dB (want ~ -7.5 dB, linear %.3f <= 0.45)", headroom_db, headroom_linear);
-        CHECK(headroom_db <= -7.0f && headroom_db >= -8.0f, hr_msg);
-        CHECK(headroom_linear <= 0.45f && headroom_linear > 0.40f, "Headroom compensation scales linear gain to ~0.422 (12 dB cap)");
+        std::snprintf(hr_msg, sizeof(hr_msg), "DialogEnhancer headroom trim = %.2f dB (want ~ -2.1 dB, linear %.3f)", headroom_db, headroom_linear);
+        CHECK(headroom_db <= -1.5f && headroom_db >= -3.0f, hr_msg);
+        CHECK(headroom_linear <= 0.85f && headroom_linear > 0.70f, "Headroom compensation scales linear gain to ~0.785 (12 dB cap on actual peak)");
     }
 
     // 2. High-level (0 dBFS) voice track protection via dynamic attenuation
@@ -2336,6 +2331,234 @@ static void test_dsp_audit_regressions()
     }
 }
 
+static void test_dsp_audit_v2_regressions()
+{
+    std::printf("\n== DSP Audit v2 Regressions (DialogEnhancer, DynamicSystem, DynamicBass) ==\n");
+
+    auto measureToneGainDb = [](auto &dsp, float freqHz, uint32_t frames = 24000) {
+        if (frames < 19200) frames = 19200;
+        std::vector<float> buf(2 * frames);
+        constexpr double kPi = 3.14159265358979323846;
+        for (uint32_t i = 0; i < frames; ++i) {
+            float s = 0.25f * std::sin(static_cast<float>(2.0 * kPi * freqHz * i / 48000.0));
+            buf[2 * i] = s;
+            buf[2 * i + 1] = s;
+        }
+        dsp.process(buf.data(), frames);
+        double re = 0.0, im = 0.0;
+        // 9600 frames = 0.2 s exact integer cycles for all 5 Hz multiples (25, 40, 60, ..., 14000)
+        const uint32_t winLen = 9600;
+        const uint32_t start = frames - winLen;
+        for (uint32_t i = start; i < frames; ++i) {
+            const double ang = 2.0 * kPi * freqHz * i / 48000.0;
+            re += static_cast<double>(buf[2 * i]) * std::sin(ang);
+            im += static_cast<double>(buf[2 * i]) * std::cos(ang);
+        }
+        const double amp = std::sqrt(re * re + im * im) / (0.5 * static_cast<double>(winLen));
+        return static_cast<float>(20.0 * std::log10(std::max(amp / 0.25, 1e-6)));
+    };
+
+    // 1. DialogEnhancerDSP regressions
+    {
+        // (a) 60 Hz centered kick does NOT duck stereo side
+        sauti::dsp::DialogEnhancerDSP de;
+        de.setSampleRate(48000.0f);
+        de.setEnabled(true);
+        de.setParams(sauti::dsp::DialogEnhancerProfile::Custom, 0.5f, 1.0f, 0.0f, 0.0f);
+        de.reset();
+        const uint32_t N = 9600;
+        std::vector<float> kickBuf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float kick = 0.5f * std::sin(2.0f * 3.14159265f * 60.0f * i / 48000.0f);
+            float side = 0.3f * std::sin(2.0f * 3.14159265f * 500.0f * i / 48000.0f);
+            kickBuf[2 * i]     = kick + side;
+            kickBuf[2 * i + 1] = kick - side;
+        }
+        de.process(kickBuf.data(), N);
+        float maxKickSide = 0.0f;
+        for (uint32_t i = N - 1000; i < N; ++i) {
+            maxKickSide = std::max(maxKickSide, std::abs(0.5f * (kickBuf[2 * i] - kickBuf[2 * i + 1])));
+        }
+        CHECK(maxKickSide > 0.27f, "DialogEnhancer 60 Hz centered kick does NOT duck stereo side");
+
+        // (b) 2.4 kHz centered speech DOES duck stereo side
+        de.reset();
+        std::vector<float> speechBuf(2 * N);
+        for (uint32_t i = 0; i < N; ++i) {
+            float sp = 0.3f * std::sin(2.0f * 3.14159265f * 2400.0f * i / 48000.0f);
+            float side = 0.3f * std::sin(2.0f * 3.14159265f * 500.0f * i / 48000.0f);
+            speechBuf[2 * i]     = sp + side;
+            speechBuf[2 * i + 1] = sp - side;
+        }
+        de.process(speechBuf.data(), N);
+        float maxSpeechSide = 0.0f;
+        for (uint32_t i = N - 1000; i < N; ++i) {
+            maxSpeechSide = std::max(maxSpeechSide, std::abs(0.5f * (speechBuf[2 * i] - speechBuf[2 * i + 1])));
+        }
+        CHECK(maxSpeechSide < 0.22f, "DialogEnhancer 2.4 kHz centered speech ducks stereo side");
+
+        // (c) setParams with non-Custom profile honors passed values and smooths cleanly
+        de.setParams(sauti::dsp::DialogEnhancerProfile::Cinema, 0.25f, 0.15f, 0.30f, 0.40f);
+        de.reset();
+        CHECK(nearlyEqual(de.getAmount(), 0.25f, 1e-4f), "DialogEnhancer setParams honors passed amount even on Cinema profile");
+        std::vector<float> settleBuf(2 * 2400, 0.4f);
+        de.process(settleBuf.data(), 2400);
+        std::vector<float> stepBuf(2 * 64, 0.4f);
+        de.setParams(sauti::dsp::DialogEnhancerProfile::Cinema, 1.0f, 0.15f, 1.0f, 0.40f);
+        de.process(stepBuf.data(), 64);
+        CHECK(std::abs(stepBuf[0] - stepBuf[2]) < 0.05f, "DialogEnhancer setParams smooths without single-sample jump");
+
+        // (d) Voice headroom comp does NOT cut 100 Hz Mid relative to Side
+        de.setProfile(sauti::dsp::DialogEnhancerProfile::Voice);
+        de.reset();
+        CHECK(de.getHeadroomCompensationDb() > -0.5f, "DialogEnhancer Voice profile does not over-cut 100 Hz Mid");
+
+        // (e) Fade-out on disable reaches bit-exact bypass smoothly
+        std::vector<float> fadeBuf(2 * 2400);
+        for (uint32_t i = 0; i < 2400; ++i) {
+            float s = 0.3f * std::sin(2.0f * 3.14159265f * 2400.0f * i / 48000.0f);
+            fadeBuf[2 * i] = fadeBuf[2 * i + 1] = s;
+        }
+        de.setEnabled(true);
+        de.process(fadeBuf.data(), 2400);
+        de.setEnabled(false);
+        CHECK(de.isActive(), "DialogEnhancer stays active during disable fade-out");
+        de.process(fadeBuf.data(), 2400);
+        CHECK(!de.isActive(), "DialogEnhancer reaches bit-exact bypass after fade-out");
+    }
+
+    // 2. DynamicSystemDSP regressions
+    {
+        sauti::dsp::DynamicSystemDSP ds;
+        ds.setSampleRate(48000.0f);
+        ds.setEnabled(true);
+
+        // (a) All 19 presets have zero destructive bass notches (min >= -0.2 dB)
+        const float checkFreqs[] = {25.0f, 40.0f, 60.0f, 80.0f, 120.0f, 250.0f, 1000.0f, 6000.0f, 14000.0f};
+        bool allNoNotch = true;
+        for (int p = 0; p < 19; ++p) {
+            ds.setPreset(p);
+            ds.setStrength(1.0f);
+            for (float f : checkFreqs) {
+                ds.reset();
+                if (measureToneGainDb(ds, f, 12000) < -0.2f) {
+                    allNoNotch = false;
+                }
+            }
+        }
+        CHECK(allNoNotch, "DynamicSystemDSP all 19 presets have zero notches (>= -0.2 dB across 25Hz-14kHz)");
+
+        // (b) strength = 0.0 is flat within +/-0.05 dB across 20Hz-16kHz
+        ds.setPreset(16);
+        ds.setStrength(0.0f);
+        bool allFlat = true;
+        for (float f : checkFreqs) {
+            ds.reset();
+            if (std::abs(measureToneGainDb(ds, f, 12000)) > 0.05f) {
+                allFlat = false;
+            }
+        }
+        CHECK(allFlat, "DynamicSystemDSP strength=0.0 is flat within +/-0.05 dB across spectrum");
+
+        // (c) x_high changes measurable 6 kHz response
+        ds.setCustomParams(300.0f, 3000.0f, 45.0f, 90.0f, 0.2f, 0.5f, 3.0f);
+        ds.reset();
+        const float gAt3k = measureToneGainDb(ds, 6000.0f, 12000);
+        ds.setCustomParams(300.0f, 9000.0f, 45.0f, 90.0f, 0.2f, 0.5f, 3.0f);
+        ds.reset();
+        const float gAt9k = measureToneGainDb(ds, 6000.0f, 12000);
+        CHECK(std::abs(gAt3k - gAt9k) > 0.5f, "DynamicSystemDSP x_high actively shifts 6 kHz air crossover");
+
+        // (d) Club PA Punch (#16) at 0.80 strength boosts 25-45 Hz by +7..+9.5 dB and keeps 1 kHz flat
+        ds.setPreset(16);
+        ds.setStrength(0.80f);
+        ds.reset();
+        const float g35 = measureToneGainDb(ds, 35.0f, 24000);
+        ds.reset();
+        const float g1k = measureToneGainDb(ds, 1000.0f, 24000);
+        CHECK(g35 >= 7.0f && g35 <= 9.5f && std::abs(g1k) < 0.3f,
+              "DynamicSystemDSP Club PA Punch @ 80% boosts 35 Hz (+7..+9.5 dB) and stays flat at 1 kHz");
+
+        // (e) setCustomParams sets TransducerProfile::Custom cleanly with zero crosstalk
+        ds.setCustomParams(260.0f, 5500.0f, 45.0f, 95.0f, 0.25f, 0.8f, 3.2f);
+        CHECK(ds.getProfile() == sauti::dsp::TransducerProfile::Custom, "DynamicSystemDSP setCustomParams sets Custom profile");
+        ds.reset();
+        std::vector<float> isoBuf(2 * 1024, 0.0f);
+        for (uint32_t i = 0; i < 1024; ++i) {
+            isoBuf[2 * i] = 0.5f * std::sin(2.0f * 3.14159265f * 80.0f * i / 48000.0f);
+        }
+        ds.process(isoBuf.data(), 1024);
+        float maxR = 0.0f;
+        for (uint32_t i = 0; i < 1024; ++i) maxR = std::max(maxR, std::abs(isoBuf[2 * i + 1]));
+        CHECK(maxR < 1e-6f, "DynamicSystemDSP Custom LR4 maintains zero channel crosstalk");
+    }
+
+    // 3. HarmonicBassDSP regressions
+    {
+        sauti::dsp::HarmonicBassDSP hb;
+        hb.setSampleRate(48000.0f);
+        hb.setEnabled(true);
+
+        // (a) Mode 5 at 0.0 dB gain is flat within +/-0.1 dB (fixes -17.4 dB notch)
+        hb.setProfile(sauti::dsp::BassEnhanceProfile::DynamicMultiPole);
+        hb.setPreset(18);
+        hb.setGainDb(0.0f);
+        const float bassFreqs[] = {25.0f, 40.0f, 60.0f, 80.0f, 140.0f, 500.0f, 2000.0f};
+        bool mode5Flat = true;
+        for (float f : bassFreqs) {
+            hb.reset();
+            if (std::abs(measureToneGainDb(hb, f, 12000)) > 0.1f) {
+                mode5Flat = false;
+            }
+        }
+        CHECK(mode5Flat, "HarmonicBassDSP Mode 5 @ 0.0 dB is flat within +/-0.1 dB across 25Hz-2kHz");
+
+        // (b) setGainDb(12.0f) boosts bass near +12 dB (logarithmic)
+        hb.setGainDb(12.0f);
+        hb.reset();
+        const float g50 = measureToneGainDb(hb, 50.0f, 24000);
+        CHECK(g50 >= 11.0f && g50 <= 12.2f, "HarmonicBassDSP Mode 5 setGainDb(12.0) produces ~+12 dB at 50 Hz");
+
+        // (c) Mode 3 HarmonicExciter produces zero DC/envelope thump on zero input after burst
+        hb.setProfile(sauti::dsp::BassEnhanceProfile::HarmonicExciter);
+        hb.setCutoffFrequency(60.0f);
+        hb.setBoost(0.8f);
+        hb.reset();
+        std::vector<float> excBurst(2 * 2400);
+        for (uint32_t i = 0; i < 2400; ++i) {
+            float s = 0.5f * std::sin(2.0f * 3.14159265f * 50.0f * i / 48000.0f);
+            excBurst[2 * i] = excBurst[2 * i + 1] = s;
+        }
+        hb.process(excBurst.data(), 2400);
+        std::vector<float> excSilence(2 * 2400, 0.0f);
+        hb.process(excSilence.data(), 2400);
+        float tailPeak = 0.0f;
+        for (uint32_t i = 1200; i < 2400; ++i) tailPeak = std::max(tailPeak, std::abs(excSilence[2 * i]));
+        CHECK(tailPeak < 0.01f, "HarmonicBassDSP HarmonicExciter has zero DC/envelope thump on trailing silence");
+
+        // (d) Modes 2 & 4 respond to setCutoffFrequency()
+        hb.setProfile(sauti::dsp::BassEnhanceProfile::Subwoofer);
+        hb.setBoost(0.7f);
+        hb.setCutoffFrequency(45.0f);
+        hb.reset();
+        const float sub45 = measureToneGainDb(hb, 45.0f, 12000);
+        hb.setCutoffFrequency(120.0f);
+        hb.reset();
+        const float sub120At45 = measureToneGainDb(hb, 45.0f, 12000);
+        CHECK(sub45 > sub120At45 + 1.5f, "HarmonicBassDSP Subwoofer tracks setCutoffFrequency()");
+
+        hb.setProfile(sauti::dsp::BassEnhanceProfile::PultecDeep);
+        hb.setBoost(0.8f);
+        hb.setCutoffFrequency(45.0f);
+        hb.reset();
+        const float pultecAt100a = measureToneGainDb(hb, 100.0f, 12000);
+        hb.setCutoffFrequency(120.0f);
+        hb.reset();
+        const float pultecAt100b = measureToneGainDb(hb, 100.0f, 12000);
+        CHECK(pultecAt100b > pultecAt100a + 1.5f, "HarmonicBassDSP PultecDeep tracks setCutoffFrequency()");
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -2375,6 +2598,7 @@ int main(int argc, char **argv)
     if (only.empty() || only == "p21") test_clarity_dsp_zero_heap_allocation_p21();
     if (only.empty() || only == "f64") test_uniform_f64_dsp_pipeline();
     if (only.empty() || only == "audit") test_dsp_audit_regressions();
+    if (only.empty() || only == "audit_v2") test_dsp_audit_v2_regressions();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

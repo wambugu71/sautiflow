@@ -9642,10 +9642,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 const bool isMono   = (e->channels == 1);
                 const bool hasStereoOnlyPre = e->downwardExpanderDsp.isEnabled() ||
                                               e->deEsserDsp.isEnabled() ||
-                                              e->harmonicBassDsp.isEnabled() ||
-                                              e->dynamicSystemDsp.isEnabled() ||
+                                              e->harmonicBassDsp.isActive() ||
+                                              e->dynamicSystemDsp.isActive() ||
                                               e->analogWarmthDsp.isEnabled() ||
-                                              e->dialogEnhancerDsp.isEnabled() ||
+                                              e->dialogEnhancerDsp.isActive() ||
                                               e->clarityDsp.isEnabled();
                 const bool hasMultiChPre = e->noiseGateDsp.isEnabled() ||
                                            e->dynamicEqDsp.isEnabled() ||
@@ -9713,11 +9713,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 runStereoOp([&](auto *s) { e->deEsserDsp.process(s, produced); });
 
                             // Zone 3.1: Harmonic Bass Synthesizer (Sub-120 Hz Fundamental Injection)
-                            if (e->harmonicBassDsp.isEnabled())
+                            if (e->harmonicBassDsp.isActive())
                                 runStereoOp([&](auto *s) { e->harmonicBassDsp.process(s, produced); });
 
-                            // Zone 3.2: Dynamic System (Multiband Ladder Dynamics)
-                            if (e->dynamicSystemDsp.isEnabled())
+                            // Zone 3.2: Dynamic System (Multiband LR4 Dynamics)
+                            if (e->dynamicSystemDsp.isActive())
                                 runStereoOp([&](auto *s) { e->dynamicSystemDsp.process(s, produced); });
 
                             // Zone 3.3: Analog Warmth (Oversampled Triode/Tape Saturation)
@@ -9729,7 +9729,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 e->tapeDriftDsp.process(buf, produced, e->channels);
 
                             // Zone 3.5: Dialog Enhancer (Vocal Formant Clarity)
-                            if (e->dialogEnhancerDsp.isEnabled())
+                            if (e->dialogEnhancerDsp.isActive())
                                 runStereoOp([&](auto *s) { e->dialogEnhancerDsp.process(s, produced); });
 
                             // Zone 3.6: Audio Clarity (Air Shelf & Harmonic Brilliance)
@@ -10303,9 +10303,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                e->toneCrossoverDsp.isEnabled() || e->subsonicFilter.isEnabled() || e->ultrasonicFilter.isEnabled() ||
                                e->noiseGateDsp.isEnabled() || e->downwardExpanderDsp.isEnabled() ||
                                e->dynamicEqDsp.isEnabled() || e->deEsserDsp.isEnabled() ||
-                               e->harmonicBassDsp.isEnabled() || e->dynamicSystemDsp.isEnabled() ||
+                               e->harmonicBassDsp.isActive() || e->dynamicSystemDsp.isActive() ||
                                e->analogWarmthDsp.isEnabled() || e->tapeDriftDsp.isEnabled() ||
-                               e->dialogEnhancerDsp.isEnabled() || e->clarityDsp.isEnabled() ||
+                               e->dialogEnhancerDsp.isActive() || e->clarityDsp.isEnabled() ||
                                e->compressorEnabled || e->crossfeedEnabled || e->stereoWidenEnabled ||
                                e->stereoEnhancementEnabled || e->surroundDsp.isEnabled() ||
                                e->reverbEnabled || e->crystalizerEnabled || e->fftConvolverDsp.isEnabled() ||
@@ -19583,7 +19583,8 @@ extern "C"
     {
         if (!engine) return;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
-        engine->dynamicSystemDsp.setProfile(static_cast<sauti::dsp::TransducerProfile>(profile));
+        const int clampedProfile = std::clamp(profile, 0, static_cast<int>(sauti::dsp::TransducerProfile::Custom));
+        engine->dynamicSystemDsp.setProfile(static_cast<sauti::dsp::TransducerProfile>(clampedProfile));
         engine->dynamicSystemDsp.setStrength(strength);
     }
 
@@ -19591,10 +19592,7 @@ extern "C"
     {
         if (!engine) return;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
-        engine->dynamicSystemDsp.setXCoeffs(x_low, x_high);
-        engine->dynamicSystemDsp.setYCoeffs(y_low, y_high);
-        engine->dynamicSystemDsp.setSideGain(side_gain_low, side_gain_high);
-        engine->dynamicSystemDsp.setBassGain(bass_gain);
+        engine->dynamicSystemDsp.setCustomParams(x_low, x_high, y_low, y_high, side_gain_low, side_gain_high, bass_gain);
     }
 
     // Analog Warmth (Tube & Tape Saturation)

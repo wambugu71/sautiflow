@@ -1367,6 +1367,11 @@ class IsolateAudioPlayer {
         'centerFocus': centerFocus,
       });
 
+  Future<double> getDialogEnhancerGainReductionDB() async {
+    final response = await _request('getDialogEnhancerGainReductionDB');
+    return (response as num?)?.toDouble() ?? 0.0;
+  }
+
   void setDeEsser({
     required bool enabled,
     DeEsserMode mode = DeEsserMode.splitBand,
@@ -3828,6 +3833,14 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'getDeEsserGainReductionDB':
           try {
             sendResponse(message, player.dsp.deEsserGainReductionDb);
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
+        case 'getDialogEnhancerGainReductionDB':
+          try {
+            sendResponse(
+                message, player.dsp.getDialogEnhancerGainReductionDb());
           } catch (e) {
             sendResponse(message, null, e);
           }
