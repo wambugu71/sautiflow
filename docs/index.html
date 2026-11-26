@@ -192,6 +192,7 @@
                     <li><strong>Fixes:</strong> Fixed bugs and fixed crossfade in the native sautiflow audio engine.</li>
                     <li><strong>Sautiplay:</strong> Added ViPER FX effects, UI improvements, performance boosts, and bug fixes to the Sautiplay app.</li>
                     <li><strong>v1.1.0:</strong> Hardened Android <code>AudioService</code> foreground media notifications and <code>AudioSession</code> focus recovery with R8 <code>res/raw/keep.xml</code> icon preservation, added the 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter DSP, and introduced adaptive perceptual artwork theming.</li>
+                    <li><strong>v1.1.1:</strong> Overhauled the 5 native Studio Reverb engines, 3-Band LR4 Adaptive M/S Stereo Enhancer, Hilbert Spatial 3D Stereo Imager, Spatial Surround suite, Analog Warmth (universal DC blocking, monotonic tanh, TPT tape LPF), and Vintage Tape Drift (calibrated presets, TPT HF damping, 15 ms PDC latency), with Zone 1–3 real-time mutex safety.</li>
                 </ul>
             </section>
 
@@ -201,7 +202,7 @@
                 <pre><code class="language-bash">flutter pub add sautiflow</code></pre>
                 <p>Or manually:</p>
                 <pre><code class="language-yaml">dependencies:
-    sautiflow: ^1.1.0</code></pre>
+    sautiflow: ^1.1.1</code></pre>
 
                 <div
                     style="background: rgba(255, 165, 0, 0.1); border-left: 4px solid orange; padding: 1rem; margin-top: 1rem; border-radius: 4px;">
@@ -797,7 +798,7 @@ player.setEngineDitherMode(2);
                 <h3>1. Dependencies</h3>
                 <p>Ensure your <code>pubspec.yaml</code> includes:</p>
                 <pre><code class="language-yaml">dependencies:
-  sautiflow: ^1.1.0
+  sautiflow: ^1.1.1
   audio_session: ^0.2.2
   audio_service: ^0.18.19</code></pre>
 

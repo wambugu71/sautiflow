@@ -1,3 +1,9 @@
+## v1.1.1 — 2026-11-26
+- Studio Reverb Overhaul: Overhauled all five native reverb engines (Hadamard FDN, Keith Barr Ring, Griesinger Tank, Lattice, Diffusion) with isolated state and responsive M3E dropdown controls
+- 3-Band LR4 Stereo Enhancer & Hilbert Stereo Imager: Upgraded Stereo Enhancer to a 3-band Linkwitz-Riley adaptive M/S engine that preserves center vocals, and added phase-matched Hilbert quadrature & RMS compensation across all Stereo Imager modes
+- Spatial Surround Suite: Overhauled Cinema Matrix 5.1, Binaural HRTF, and 3D Acoustic Stage processing with LR4 bass anchoring and clean bypass behavior
+- Analog Warmth & Vintage Tape Drift Calibration: Enabled DC blocking across all Warmth profiles, added monotonic tanh saturation and TPT tape LPF, calibrated all 4 Tape Drift presets across native/UI with smooth HF damping, and wired PDC latency & Zone 1–3 real-time mutex safety
+
 ## v1.1.0 — 2026-11-26
 - Android Background Playback & Media Notification Fix: Preserved notification/media control icons in release builds via R8 keep rules and hardened foreground service & AudioSession focus recovery
 - 3-Band Lookahead AGC + Bass-Safe Limiter DSP: Added 3-band lookahead AGC and brickwall peak limiter with real-time telemetry and EQ controls
