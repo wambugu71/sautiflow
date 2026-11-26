@@ -2,33 +2,55 @@
 
 /**
  * @file diffusion_reverb_dsp.h
- * @brief Clean-room Multi-Tap Diffusion Lattice Reverberator DSP.
+ * @brief Clean-room Multi-Stage Givens-Hadamard Diffusion Network Reverberator DSP.
  *
- * Implements a high-density, multi-stage diffusion reverberator featuring
- * mutually-prime delay comb resonators coupled with a multi-tap allpass
- * diffusion cascade. Provides independent decay time (ms), room size,
- * diffusion factor, damping, and stereo width control.
+ * Implements an authentic multi-stage orthonormal diffusion reverberator:
+ * - 70 Hz matched-Z input HPF + 4-channel orthogonal stereo expansion
+ * - 4 cascaded 4-channel prime-delay Givens-Hadamard diffusion stages
+ *   (orthonormal M(theta) morphing smoothly with Diffusion 0..1)
+ * - 4-channel room-size-scaled modulated Hadamard feedback loop with
+ *   4-point Catmull-Rom cubic interpolation
+ * - Independent Room Size (physical delay scaling) and Decay Time (RT60)
+ * - Jot (1991) delay-proportional sample-rate-invariant damping + 50 Hz DC blocker
+ * - Full F32/F64 precision without audio-thread allocations or per-sample pow/exp
  */
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <vector>
-#include <algorithm>
 #include "denormals.h"
 
 namespace sauti::dsp {
 
 class DiffusionReverbDSP {
 public:
-    static constexpr int NUM_COMBS = 4;
-    static constexpr int NUM_ALLPASS = 4;
+    static constexpr int NUM_CHANNELS = 4;
+    static constexpr int NUM_DIFF_STAGES = 4;
 
-    // Mutually prime delay lengths tuned for 48 kHz
-    static constexpr int BASE_COMB_L[NUM_COMBS] = { 1051, 1153, 1283, 1399 };
-    static constexpr int COMB_STEREO_OFFSET = 23;
+    // 4 cascaded prime-delay diffusion stages tuned for 48 kHz
+    static constexpr int BASE_DIFF_DELAYS[NUM_DIFF_STAGES][NUM_CHANNELS] = {
+        {  149,  211,  283,  359 },
+        {  431,  521,  613,  709 },
+        {  811,  929, 1061, 1193 },
+        { 1307, 1453, 1609, 1777 }
+    };
 
-    static constexpr int BASE_ALLPASS_L[NUM_ALLPASS] = { 223, 337, 443, 557 };
-    static constexpr int ALLPASS_STEREO_OFFSET = 16;
+    static constexpr float DIFF_SIGNS[NUM_DIFF_STAGES][NUM_CHANNELS] = {
+        {  1.0f, -1.0f,  1.0f, -1.0f },
+        {  1.0f,  1.0f, -1.0f, -1.0f },
+        { -1.0f,  1.0f,  1.0f, -1.0f },
+        {  1.0f, -1.0f, -1.0f,  1.0f }
+    };
+
+    // Modulated Hadamard feedback loop base delays (48 kHz, mutually prime)
+    static constexpr int BASE_LOOP_DELAYS[NUM_CHANNELS] = {
+        1613, 2129, 2719, 3463
+    };
+
+    static constexpr float LOOP_LFO_RATES[NUM_CHANNELS] = {
+        0.43f, 0.59f, 0.73f, 0.89f
+    };
 
     DiffusionReverbDSP() {
         setSampleRate(48000.0);
@@ -43,103 +65,184 @@ public:
         double scale = sampleRate / 48000.0;
         if (scale < 0.25) scale = 0.25;
 
-        for (int i = 0; i < NUM_COMBS; ++i) {
-            int lenL = std::max(16, (int)std::round(BASE_COMB_L[i] * scale));
-            int lenR = std::max(16, (int)std::round((BASE_COMB_L[i] + COMB_STEREO_OFFSET) * scale));
-
-            combBufL[i].assign(lenL, 0.0f);
-            combBufR[i].assign(lenR, 0.0f);
-            combIdxL[i] = 0;
-            combIdxR[i] = 0;
-            combFilterL[i] = 0.0f;
-            combFilterR[i] = 0.0f;
+        for (int s = 0; s < NUM_DIFF_STAGES; ++s) {
+            for (int c = 0; c < NUM_CHANNELS; ++c) {
+                int len = std::max(8, (int)std::lround((double)BASE_DIFF_DELAYS[s][c] * scale));
+                diffBuf[s][c].assign(len, 0.0f);
+                diffIdx[s][c] = 0;
+            }
         }
 
-        for (int i = 0; i < NUM_ALLPASS; ++i) {
-            int lenL = std::max(8, (int)std::round(BASE_ALLPASS_L[i] * scale));
-            int lenR = std::max(8, (int)std::round((BASE_ALLPASS_L[i] + ALLPASS_STEREO_OFFSET) * scale));
-
-            allpassBufL[i].assign(lenL, 0.0f);
-            allpassBufR[i].assign(lenR, 0.0f);
-            allpassIdxL[i] = 0;
-            allpassIdxR[i] = 0;
+        const int modHeadroom = (int)std::ceil(4.0 * scale) + 12;
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            baseLoopLen[c] = std::max(32, (int)std::lround((double)BASE_LOOP_DELAYS[c] * scale));
+            const int allocSize = (int)std::ceil((double)baseLoopLen[c] * 1.40) + modHeadroom;
+            loopBuf[c].assign(allocSize, 0.0f);
+            loopIdx[c] = 0;
+            loopDampState[c] = 0.0f;
+            loopHpfState[c] = 0.0f;
+            lfoPhase[c] = (float)c * 1.57079632679f;
         }
 
         buffersAllocated = true;
-        updateCombFeedback();
+        updateCoefficients();
         reset();
     }
 
     void setEnabled(bool e) { targetEnabled = e; }
     bool isEnabled() const { return targetEnabled; }
 
-    void setWet(float w) { targetWet = std::max(0.0f, std::min(w, 2.0f)); }
+    void setWet(float w) { targetWet = std::clamp(w, 0.0f, 2.0f); }
     float getWet() const { return targetWet; }
 
-    void setDry(float d) { targetDry = std::max(0.0f, std::min(d, 2.0f)); }
+    void setDry(float d) { targetDry = std::clamp(d, 0.0f, 2.0f); }
     float getDry() const { return targetDry; }
 
     void setRoomSize(float r) {
-        targetRoomSize = std::max(0.0f, std::min(r, 1.0f));
-        targetDecayTimeMs = 350.0f * std::pow(40.0f, targetRoomSize);
-        updateCombFeedback();
+        targetRoomSize = std::clamp(r, 0.0f, 1.0f);
+        updateCoefficients();
     }
     float getRoomSize() const { return targetRoomSize; }
 
     void setDecayTimeMs(float ms) {
-        targetDecayTimeMs = std::max(100.0f, std::min(ms, 15000.0f));
-        updateCombFeedback();
+        targetDecayTimeMs = std::clamp(ms, 100.0f, 15000.0f);
+        updateCoefficients();
     }
     float getDecayTimeMs() const { return targetDecayTimeMs; }
 
-    void setDiffusion(float diff) { targetDiffusion = std::max(0.0f, std::min(diff, 1.0f)); }
+    void setDiffusion(float diff) { targetDiffusion = std::clamp(diff, 0.0f, 1.0f); }
     float getDiffusion() const { return targetDiffusion; }
 
-    void setDamping(float d) { targetDamping = std::max(0.0f, std::min(d, 1.0f)); }
+    void setDamping(float d) {
+        targetDamping = std::clamp(d, 0.0f, 1.0f);
+        updateCoefficients();
+    }
     float getDamping() const { return targetDamping; }
 
-    void setWidth(float w) { targetWidth = std::max(0.0f, std::min(w, 2.0f)); }
+    void setWidth(float w) { targetWidth = std::clamp(w, 0.0f, 2.0f); }
     float getWidth() const { return targetWidth; }
 
     void setParams(float wet, float dry, float roomSize, float decayTimeMs, float diffusion, float damping, float width = 1.0f) {
-        setWet(wet);
-        setDry(dry);
-        setRoomSize(roomSize);
-        setDecayTimeMs(decayTimeMs);
-        setDiffusion(diffusion);
-        setDamping(damping);
-        setWidth(width);
+        targetWet = std::clamp(wet, 0.0f, 2.0f);
+        targetDry = std::clamp(dry, 0.0f, 2.0f);
+        targetRoomSize = std::clamp(roomSize, 0.0f, 1.0f);
+        targetDecayTimeMs = std::clamp(decayTimeMs, 100.0f, 15000.0f);
+        targetDiffusion = std::clamp(diffusion, 0.0f, 1.0f);
+        targetDamping = std::clamp(damping, 0.0f, 1.0f);
+        targetWidth = std::clamp(width, 0.0f, 2.0f);
+        updateCoefficients();
     }
 
     void reset() {
-        for (int i = 0; i < NUM_COMBS; ++i) {
-            std::fill(combBufL[i].begin(), combBufL[i].end(), 0.0f);
-            std::fill(combBufR[i].begin(), combBufR[i].end(), 0.0f);
-            combIdxL[i] = 0;
-            combIdxR[i] = 0;
-            combFilterL[i] = 0.0f;
-            combFilterR[i] = 0.0f;
+        for (int s = 0; s < NUM_DIFF_STAGES; ++s) {
+            for (int c = 0; c < NUM_CHANNELS; ++c) {
+                std::fill(diffBuf[s][c].begin(), diffBuf[s][c].end(), 0.0f);
+                diffIdx[s][c] = 0;
+            }
         }
-        for (int i = 0; i < NUM_ALLPASS; ++i) {
-            std::fill(allpassBufL[i].begin(), allpassBufL[i].end(), 0.0f);
-            std::fill(allpassBufR[i].begin(), allpassBufR[i].end(), 0.0f);
-            allpassIdxL[i] = 0;
-            allpassIdxR[i] = 0;
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            std::fill(loopBuf[c].begin(), loopBuf[c].end(), 0.0f);
+            loopIdx[c] = 0;
+            loopDampState[c] = 0.0f;
+            loopHpfState[c] = 0.0f;
+            lfoPhase[c] = (float)c * 1.57079632679f;
+            currentLoopDecay[c] = targetLoopDecay[c];
+            currentDampCoeff[c] = targetDampCoeff[c];
         }
+
+        inHpfStateL = 0.0f;
+        inHpfStateR = 0.0f;
 
         currentWet = targetWet;
         currentDry = targetDry;
         currentRoomSize = targetRoomSize;
-        currentDecayTimeMs = targetDecayTimeMs;
         currentDiffusion = targetDiffusion;
-        currentDamping = targetDamping;
         currentWidth = targetWidth;
         currentEnabled = targetEnabled;
-        updateCombFeedback();
     }
 
     void process(float* interleaved, uint32_t frames, int channels) {
-        if (!interleaved || frames == 0 || channels < 2) return;
+        processImpl(interleaved, frames, channels, true);
+    }
+
+    void process(double* interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels, true);
+    }
+
+    void processWetOnly(float* interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels, false);
+    }
+
+    void processWetOnly(double* interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels, false);
+    }
+
+private:
+    void updateCoefficients() {
+        if (!buffersAllocated || sampleRate <= 0.0) return;
+
+        constexpr double pi = 3.14159265358979323846;
+        constexpr double twoPi = 2.0 * pi;
+
+        const float targetSizeScale = 0.45f + 0.90f * targetRoomSize;
+        const float rt60Sec = std::max(0.1f, targetDecayTimeMs * 0.001f);
+        const float hfRatio = 1.0f - targetDamping * 0.88f;
+        const float rt60Hf = std::max(0.05f, rt60Sec * hfRatio);
+        const double wRef = std::min(0.95 * pi, twoPi * 10000.0 / sampleRate);
+
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            const float delaySec = ((float)baseLoopLen[c] * targetSizeScale) / (float)sampleRate;
+            targetLoopDecay[c] = std::min(0.990f, std::pow(10.0f, -3.0f * delaySec / rt60Sec));
+
+            if (targetDamping <= 0.0001f) {
+                targetDampCoeff[c] = 1.0f;
+            } else {
+                const float alpha = std::clamp(
+                    std::pow(10.0f, -3.0f * delaySec * (1.0f / rt60Hf - 1.0f / rt60Sec)),
+                    0.05f, 0.9999f);
+                const float a2 = std::min(0.9998f, alpha * alpha);
+                const float B = (1.0f - a2 * std::cos((float)wRef)) / (1.0f - a2);
+                const float pole = std::clamp(B - std::sqrt(std::max(0.0f, B * B - 1.0f)), 0.0f, 0.98f);
+                targetDampCoeff[c] = 1.0f - pole;
+            }
+        }
+
+        inHpfCoeff = 1.0f - std::exp(-std::min(3.0f, (float)(twoPi * 70.0 / sampleRate)));
+        loopHpfCoeff = 1.0f - std::exp(-std::min(3.0f, (float)(twoPi * 50.0 / sampleRate)));
+    }
+
+    static float readLoopCubic(const std::vector<float>& buf, int writeIdx, float delaySamples) {
+        const int sz = (int)buf.size();
+        if (sz < 8) return buf[writeIdx];
+        const float maxD = (float)(sz - 4);
+        if (delaySamples < 3.0f) delaySamples = 3.0f;
+        if (delaySamples > maxD) delaySamples = maxD;
+
+        float readPos = (float)writeIdx - delaySamples;
+        while (readPos < 0.0f) readPos += (float)sz;
+        while (readPos >= (float)sz) readPos -= (float)sz;
+
+        const int i0 = (int)readPos;
+        const int i1 = (i0 + 1 >= sz) ? 0 : i0 + 1;
+        const int im1 = (i0 - 1 < 0) ? sz - 1 : i0 - 1;
+        const int i2 = (i1 + 1 >= sz) ? 0 : i1 + 1;
+        const float frac = readPos - (float)i0;
+
+        const float y0 = buf[im1];
+        const float y1 = buf[i0];
+        const float y2 = buf[i1];
+        const float y3 = buf[i2];
+
+        const float c0 = y1;
+        const float c1 = 0.5f * (y2 - y0);
+        const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+        const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+        return ((c3 * frac + c2) * frac + c1) * frac + c0;
+    }
+
+    template <typename T>
+    void processImpl(T* interleaved, uint32_t frames, int channels, bool mixDry) {
+        if (!interleaved || frames == 0 || channels < 2 || !buffersAllocated) return;
 
         if (!targetEnabled && currentWet < 0.0001f) {
             currentEnabled = false;
@@ -149,117 +252,152 @@ public:
 
         ScopedDenormalsDisable ftz;
 
-        const float alpha = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
+        const float smoothAlpha = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
+        constexpr float twoPi = 6.28318530717958647692f;
+        constexpr float piOver4 = 0.78539816339744830962f;
+        const float modDepth = 3.0f * (float)(sampleRate / 48000.0);
 
-        if (std::abs(targetDecayTimeMs - currentDecayTimeMs) > 0.01f ||
-            std::abs(targetRoomSize - currentRoomSize) > 0.0001f) {
-            const float stepAlpha = 1.0f - std::pow(1.0f - alpha, (float)frames);
-            currentRoomSize += stepAlpha * (targetRoomSize - currentRoomSize);
-            currentDecayTimeMs += stepAlpha * (targetDecayTimeMs - currentDecayTimeMs);
-            updateCombFeedback();
+        float lfoInc[NUM_CHANNELS];
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            lfoInc[c] = (twoPi * LOOP_LFO_RATES[c]) / (float)sampleRate;
         }
 
+        float diffAngle = currentDiffusion * piOver4;
+        float cosDiff = std::cos(diffAngle);
+        float sinDiff = std::sin(diffAngle);
+
         for (uint32_t f = 0; f < frames; ++f) {
-            currentWet += alpha * (targetWet - currentWet);
-            currentDry += alpha * (targetDry - currentDry);
-            currentDiffusion += alpha * (targetDiffusion - currentDiffusion);
-            currentDamping += alpha * (targetDamping - currentDamping);
-            currentWidth += alpha * (targetWidth - currentWidth);
+            currentWet += smoothAlpha * (targetWet - currentWet);
+            currentDry += smoothAlpha * (targetDry - currentDry);
+            currentRoomSize += smoothAlpha * (targetRoomSize - currentRoomSize);
+            currentWidth += smoothAlpha * (targetWidth - currentWidth);
 
-            const float damp = currentDamping * 0.7f;
-            const float apFb = 0.35f + 0.35f * currentDiffusion;
-
-            float inL = interleaved[f * channels + 0];
-            float inR = interleaved[f * channels + 1];
-
-            // 1. Parallel Comb Resonator Bank
-            float combOutL = 0.0f;
-            float combOutR = 0.0f;
-
-            for (int i = 0; i < NUM_COMBS; ++i) {
-                // Left channel comb
-                const int szL = (int)combBufL[i].size();
-                int idxL = combIdxL[i];
-                float outL = combBufL[i][idxL];
-                combFilterL[i] = outL * (1.0f - damp) + combFilterL[i] * damp;
-                combBufL[i][idxL] = inL + combFilterL[i] * combFeedbackL[i];
-                combIdxL[i] = (idxL + 1 < szL) ? idxL + 1 : 0;
-                combOutL += outL;
-
-                // Right channel comb
-                const int szR = (int)combBufR[i].size();
-                int idxR = combIdxR[i];
-                float outR = combBufR[i][idxR];
-                combFilterR[i] = outR * (1.0f - damp) + combFilterR[i] * damp;
-                combBufR[i][idxR] = inR + combFilterR[i] * combFeedbackR[i];
-                combIdxR[i] = (idxR + 1 < szR) ? idxR + 1 : 0;
-                combOutR += outR;
+            // Update Givens rotation angle once per 32-sample sub-block when moving
+            if ((f & 31u) == 0u && std::abs(targetDiffusion - currentDiffusion) > 1.0e-5f) {
+                const float subAlpha = 1.0f - std::pow(1.0f - smoothAlpha, 32.0f);
+                currentDiffusion += subAlpha * (targetDiffusion - currentDiffusion);
+                diffAngle = currentDiffusion * piOver4;
+                cosDiff = std::cos(diffAngle);
+                sinDiff = std::sin(diffAngle);
+            } else if ((f & 31u) == 0u) {
+                currentDiffusion = targetDiffusion;
             }
 
-            float apInL = combOutL * 0.25f;
-            float apInR = combOutR * 0.25f;
-
-            // 2. Cascaded 4-Stage Canonical Schroeder Allpass Diffuser Network: H(z) = (-g + z^-D) / (1 - g * z^-D)
-            for (int i = 0; i < NUM_ALLPASS; ++i) {
-                // Left allpass
-                const int szL = (int)allpassBufL[i].size();
-                int idxL = allpassIdxL[i];
-                float bufOutL = allpassBufL[i][idxL];
-                float apOutL = -apFb * apInL + bufOutL;
-                allpassBufL[i][idxL] = apInL + (apOutL * apFb);
-                allpassIdxL[i] = (idxL + 1 < szL) ? idxL + 1 : 0;
-                apInL = apOutL;
-
-                // Right allpass
-                const int szR = (int)allpassBufR[i].size();
-                int idxR = allpassIdxR[i];
-                float bufOutR = allpassBufR[i][idxR];
-                float apOutR = -apFb * apInR + bufOutR;
-                allpassBufR[i][idxR] = apInR + (apOutR * apFb);
-                allpassIdxR[i] = (idxR + 1 < szR) ? idxR + 1 : 0;
-                apInR = apOutR;
+            for (int c = 0; c < NUM_CHANNELS; ++c) {
+                currentLoopDecay[c] += smoothAlpha * (targetLoopDecay[c] - currentLoopDecay[c]);
+                currentDampCoeff[c] += smoothAlpha * (targetDampCoeff[c] - currentDampCoeff[c]);
             }
 
-            // 3. Stereo Width Balance (Mid/Side)
-            float wetL = apInL;
-            float wetR = apInR;
+            const size_t base = (size_t)f * (size_t)channels;
+            const double rawInL = static_cast<double>(interleaved[base]);
+            const double rawInR = static_cast<double>(interleaved[base + 1]);
+            const float inL = static_cast<float>(rawInL);
+            const float inR = static_cast<float>(rawInR);
+
+            // 1. 70 Hz matched-Z input HPF + 4-channel orthogonal stereo expansion
+            inHpfStateL += inHpfCoeff * (inL - inHpfStateL);
+            inHpfStateR += inHpfCoeff * (inR - inHpfStateR);
+            flush_denormal(inHpfStateL);
+            flush_denormal(inHpfStateR);
+            const float hpL = inL - inHpfStateL;
+            const float hpR = inR - inHpfStateR;
+
+            float vec[NUM_CHANNELS] = {
+                hpL * 0.5f,
+                hpR * 0.5f,
+                (hpL + hpR) * 0.35355339f,
+                (hpL - hpR) * 0.35355339f
+            };
+
+            // 2. 4 Cascaded Orthonormal Givens-Hadamard Pre-Diffusion Stages
+            for (int s = 0; s < NUM_DIFF_STAGES; ++s) {
+                float d[NUM_CHANNELS];
+                for (int c = 0; c < NUM_CHANNELS; ++c) {
+                    const int sz = (int)diffBuf[s][c].size();
+                    const int idx = diffIdx[s][c];
+                    d[c] = diffBuf[s][c][idx] * DIFF_SIGNS[s][c];
+                    float wVal = vec[c];
+                    flush_denormal(wVal);
+                    diffBuf[s][c][idx] = wVal;
+                    diffIdx[s][c] = (idx + 1 < sz) ? idx + 1 : 0;
+                }
+
+                // Exact orthonormal 2-stage Givens-Hadamard scatter M(theta)
+                const float t0 = cosDiff * d[0] - sinDiff * d[1];
+                const float t1 = sinDiff * d[0] + cosDiff * d[1];
+                const float t2 = cosDiff * d[2] - sinDiff * d[3];
+                const float t3 = sinDiff * d[2] + cosDiff * d[3];
+
+                vec[0] = cosDiff * t0 - sinDiff * t2;
+                vec[2] = sinDiff * t0 + cosDiff * t2;
+                vec[1] = cosDiff * t1 - sinDiff * t3;
+                vec[3] = sinDiff * t1 + cosDiff * t3;
+            }
+
+            // 3. 4-Channel Room-Size-Scaled Modulated Hadamard Feedback Loop
+            const float sizeScale = 0.45f + 0.90f * currentRoomSize;
+            float loopOut[NUM_CHANNELS];
+
+            for (int c = 0; c < NUM_CHANNELS; ++c) {
+                const float lfoVal = std::sin(lfoPhase[c]);
+                lfoPhase[c] += lfoInc[c];
+                if (lfoPhase[c] >= twoPi) lfoPhase[c] -= twoPi;
+
+                const float delaySamples = (float)baseLoopLen[c] * sizeScale + lfoVal * modDepth;
+                const float delSample = readLoopCubic(loopBuf[c], loopIdx[c], delaySamples);
+
+                // Jot delay-proportional lowpass + 50 Hz loop DC blocker
+                loopDampState[c] += currentDampCoeff[c] * (delSample - loopDampState[c]);
+                flush_denormal(loopDampState[c]);
+                loopHpfState[c] += loopHpfCoeff * (loopDampState[c] - loopHpfState[c]);
+                flush_denormal(loopHpfState[c]);
+                const float conditioned = loopDampState[c] - loopHpfState[c];
+
+                loopOut[c] = conditioned * currentLoopDecay[c];
+            }
+
+            // Orthonormal 4x4 FWHT (0.5 * H_4)
+            const float s01 = loopOut[0] + loopOut[1];
+            const float d01 = loopOut[0] - loopOut[1];
+            const float s23 = loopOut[2] + loopOut[3];
+            const float d23 = loopOut[2] - loopOut[3];
+
+            const float fwht[NUM_CHANNELS] = {
+                (s01 + s23) * 0.5f,
+                (d01 + d23) * 0.5f,
+                (s01 - s23) * 0.5f,
+                (d01 - d23) * 0.5f
+            };
+
+            for (int c = 0; c < NUM_CHANNELS; ++c) {
+                const int sz = (int)loopBuf[c].size();
+                float writeVal = vec[c] + fwht[c];
+                flush_denormal(writeVal);
+                loopBuf[c][loopIdx[c]] = writeVal;
+                loopIdx[c] = (loopIdx[c] + 1 < sz) ? loopIdx[c] + 1 : 0;
+            }
+
+            // 4. Steady-State RMS-Normalized Stereo Extraction
+            const float avgG = 0.25f * (currentLoopDecay[0] + currentLoopDecay[1] + currentLoopDecay[2] + currentLoopDecay[3]);
+            const float wetNorm = 0.42f * std::sqrt(std::max(0.08f, 1.0f - 0.78f * avgG * avgG));
+            float wetL = (loopOut[0] + loopOut[2] + 0.25f * vec[0]) * wetNorm;
+            float wetR = (loopOut[1] - loopOut[3] + 0.25f * vec[1]) * wetNorm;
+
+            // 5. Mid/Side Stereo Width Balance
             if (std::abs(currentWidth - 1.0f) > 0.001f) {
-                float mid = 0.5f * (wetL + wetR);
-                float side = 0.5f * (wetL - wetR) * currentWidth;
+                const float mid = 0.5f * (wetL + wetR);
+                const float side = 0.5f * (wetL - wetR) * currentWidth;
                 wetL = mid + side;
                 wetR = mid - side;
             }
 
-            // 4. Wet / Dry Mix
-            float outL = inL * currentDry + wetL * currentWet;
-            float outR = inR * currentDry + wetR * currentWet;
-
-            interleaved[f * channels + 0] = std::max(-4.0f, std::min(outL, 4.0f));
-            interleaved[f * channels + 1] = std::max(-4.0f, std::min(outR, 4.0f));
-        }
-    }
-
-    void process(double* interleaved, uint32_t frames, int channels) {
-        if (!interleaved || frames == 0 || channels < 2) return;
-        std::vector<float> tmp(frames * channels);
-        for (size_t i = 0; i < tmp.size(); ++i) {
-            tmp[i] = static_cast<float>(interleaved[i]);
-        }
-        process(tmp.data(), frames, channels);
-        for (size_t i = 0; i < tmp.size(); ++i) {
-            interleaved[i] = static_cast<double>(tmp[i]);
-        }
-    }
-
-private:
-    void updateCombFeedback() {
-        if (!buffersAllocated || sampleRate <= 0.0) return;
-        const float t60Sec = std::max(0.1f, currentDecayTimeMs * 0.001f);
-        for (int i = 0; i < NUM_COMBS; ++i) {
-            const float szL = (float)combBufL[i].size();
-            const float szR = (float)combBufR[i].size();
-            combFeedbackL[i] = std::min(0.985f, std::pow(10.0f, -3.0f * szL / ((float)sampleRate * t60Sec)));
-            combFeedbackR[i] = std::min(0.985f, std::pow(10.0f, -3.0f * szR / ((float)sampleRate * t60Sec)));
+            if (mixDry) {
+                interleaved[base]     = static_cast<T>(rawInL * static_cast<double>(currentDry) + static_cast<double>(wetL) * static_cast<double>(currentWet));
+                interleaved[base + 1] = static_cast<T>(rawInR * static_cast<double>(currentDry) + static_cast<double>(wetR) * static_cast<double>(currentWet));
+            } else {
+                interleaved[base]     = static_cast<T>(static_cast<double>(wetL) * static_cast<double>(currentWet));
+                interleaved[base + 1] = static_cast<T>(static_cast<double>(wetR) * static_cast<double>(currentWet));
+            }
         }
     }
 
@@ -279,32 +417,33 @@ private:
     float currentRoomSize = 0.70f;
 
     float targetDecayTimeMs = 1500.0f;
-    float currentDecayTimeMs = 1500.0f;
 
     float targetDiffusion = 0.65f;
     float currentDiffusion = 0.65f;
 
     float targetDamping = 0.25f;
-    float currentDamping = 0.25f;
-
     float targetWidth = 1.0f;
     float currentWidth = 1.0f;
 
-    // Comb lines
-    std::vector<float> combBufL[NUM_COMBS];
-    std::vector<float> combBufR[NUM_COMBS];
-    int combIdxL[NUM_COMBS] = {0};
-    int combIdxR[NUM_COMBS] = {0};
-    float combFilterL[NUM_COMBS] = {0.0f};
-    float combFilterR[NUM_COMBS] = {0.0f};
-    float combFeedbackL[NUM_COMBS] = {0.85f, 0.85f, 0.85f, 0.85f};
-    float combFeedbackR[NUM_COMBS] = {0.85f, 0.85f, 0.85f, 0.85f};
+    std::vector<float> diffBuf[NUM_DIFF_STAGES][NUM_CHANNELS];
+    int diffIdx[NUM_DIFF_STAGES][NUM_CHANNELS] = {{0}};
 
-    // Allpass lines
-    std::vector<float> allpassBufL[NUM_ALLPASS];
-    std::vector<float> allpassBufR[NUM_ALLPASS];
-    int allpassIdxL[NUM_ALLPASS] = {0};
-    int allpassIdxR[NUM_ALLPASS] = {0};
+    std::vector<float> loopBuf[NUM_CHANNELS];
+    int baseLoopLen[NUM_CHANNELS] = {0};
+    int loopIdx[NUM_CHANNELS] = {0};
+    float loopDampState[NUM_CHANNELS] = {0.0f};
+    float loopHpfState[NUM_CHANNELS] = {0.0f};
+    float lfoPhase[NUM_CHANNELS] = {0.0f};
+
+    float targetLoopDecay[NUM_CHANNELS] = {0.85f, 0.85f, 0.85f, 0.85f};
+    float currentLoopDecay[NUM_CHANNELS] = {0.85f, 0.85f, 0.85f, 0.85f};
+    float targetDampCoeff[NUM_CHANNELS] = {0.65f, 0.65f, 0.65f, 0.65f};
+    float currentDampCoeff[NUM_CHANNELS] = {0.65f, 0.65f, 0.65f, 0.65f};
+
+    float inHpfStateL = 0.0f;
+    float inHpfStateR = 0.0f;
+    float inHpfCoeff = 0.01f;
+    float loopHpfCoeff = 0.005f;
 };
 
 } // namespace sauti::dsp

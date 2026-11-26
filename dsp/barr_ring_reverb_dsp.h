@@ -12,28 +12,20 @@
  *
  * Architectural Topology:
  * 1. Dual-Channel Cascaded Input Diffusers:
- *    4 cascaded Schroeder/Barr all-pass diffusers per channel (total 8) to smear incoming transients
- *    into a dense initial reflection cloud before injection into the ring.
- * 2. 4-Stage Closed Recirculating Ring (`2AP -> Delay -> 2AP -> Delay` in feedback):
- *    - Stage 1: Dual Allpasses (ap1: 1251, ap1b: 1551) -> Shelving Damping -> Delay 1 (2859 samples).
- *    - Stage 2: Dual Allpasses (ap2: 943, ap2b: 1343) -> Shelving Damping -> Delay 2 (3145 samples).
- *    - Stage 3: Dual Allpasses (ap3: 1282, ap3b: 1381) -> Shelving Damping -> Delay 3 (2476 samples).
- *    - Stage 4: Dual Allpasses (ap4: 1174, ap4b: 1382) -> Shelving Damping -> Delay 4 (3568 samples).
- *    - Closed feedback loop: Delay 4 feeds Stage 1, Delay 1 feeds Stage 2, Delay 2 feeds Stage 3, Delay 3 feeds Stage 4.
+ *    4 cascaded Schroeder/Barr all-pass diffusers per channel (total 8) to smear incoming transients.
+ * 2. 4-Stage Closed Recirculating Ring (`2AP -> LPF -> HPF -> Delay` in feedback):
+ *    - Stage 1..4 lengths calibrated at 32.768 kHz, scaled cleanly for 11 kHz .. 384 kHz.
+ *    - Sample-rate-invariant matched-Z 1-pole damping + 60 Hz DC/mud blocker HPF per stage.
  * 3. Quadrature LFO Modulation:
- *    0.5 Hz sine/cosine quadrature modulation on ap1 and ap3, eliminating repetitive mechanical flutter
- *    and imparting the signature lush, dreamy acoustic wash.
- * 4. Multi-Tap Decorrelated Output Extraction:
- *    4 distinct weighted taps per stereo channel extracted from the 4 delay lines:
- *    - Left:  0.8*del1[2630] + 0.7*del2[1943] + 0.6*del3[1200] + 0.5*del4[2016]
- *    - Right: 0.8*del1[2420] + 0.7*del2[1631] + 0.6*del3[1163] + 0.5*del4[2330]
- * 5. Mid/Side Stereo Width Balance & Per-Sample Click-Free Wet/Dry Crossfader.
+ *    0.5 Hz sine/cosine quadrature modulation on ap1 and ap3 with 4-point Catmull-Rom cubic
+ *    interpolation and sample-rate-scaled buffer headroom (zero wrap corruption up to 384 kHz).
+ * 4. Alternating-Polarity Multi-Tap Decorrelated Output Extraction + M/S Stereo Width.
  */
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <vector>
-#include <algorithm>
 #include "denormals.h"
 
 namespace sauti::dsp {
@@ -51,10 +43,11 @@ public:
     static constexpr int BASE_AP_B[NUM_STAGES]   = { 1551, 1343, 1381, 1382 };
     static constexpr int BASE_DELAYS[NUM_STAGES] = { 2859, 3145, 2476, 3568 };
 
-    // Multi-tap extraction offsets
+    // Multi-tap extraction offsets & alternating stereo polarity
     static constexpr int BASE_TAP_L[NUM_STAGES] = { 2630, 1943, 1200, 2016 };
     static constexpr int BASE_TAP_R[NUM_STAGES] = { 2420, 1631, 1163, 2330 };
-    static constexpr float TAP_GAINS[NUM_STAGES] = { 0.8f, 0.7f, 0.6f, 0.5f };
+    static constexpr float TAP_GAINS_L[NUM_STAGES] = { 0.8f,  0.7f, -0.6f,  0.5f };
+    static constexpr float TAP_GAINS_R[NUM_STAGES] = { 0.8f, -0.7f,  0.6f, -0.5f };
 
     BarrRingReverbDSP() {
         setSampleRate(48000.0);
@@ -66,26 +59,27 @@ public:
         if (std::abs(sampleRate - rate) < 0.1 && buffersAllocated) return;
 
         sampleRate = rate;
-        // Keith Barr's original FV-1 timing is calibrated at 32768 Hz
         double scale = sampleRate / 32768.0;
         if (scale < 0.25) scale = 0.25;
 
         for (int i = 0; i < NUM_INPUT_DIFFUSERS; ++i) {
-            int lenL = std::max(16, (int)std::round(BASE_IN_DIFF_L[i] * scale));
-            int lenR = std::max(16, (int)std::round(BASE_IN_DIFF_R[i] * scale));
+            int lenL = std::max(16, (int)std::lround((double)BASE_IN_DIFF_L[i] * scale));
+            int lenR = std::max(16, (int)std::lround((double)BASE_IN_DIFF_R[i] * scale));
             inDiffBufL[i].assign(lenL, 0.0f);
             inDiffBufR[i].assign(lenR, 0.0f);
             inDiffIdxL[i] = 0;
             inDiffIdxR[i] = 0;
         }
 
+        const int modHeadroom = (int)std::ceil(8.0 * scale) + 12;
         for (int i = 0; i < NUM_STAGES; ++i) {
-            int lenApA = std::max(32, (int)std::round(BASE_AP_A[i] * scale));
-            int lenApB = std::max(32, (int)std::round(BASE_AP_B[i] * scale));
-            int lenDel = std::max(64, (int)std::round(BASE_DELAYS[i] * scale));
+            int lenApA = std::max(32, (int)std::lround((double)BASE_AP_A[i] * scale));
+            int lenApB = std::max(32, (int)std::lround((double)BASE_AP_B[i] * scale));
+            int lenDel = std::max(64, (int)std::lround((double)BASE_DELAYS[i] * scale));
 
-            // Provide extra headroom (+32 samples) for LFO modulation on ap1 and ap3
-            apBufA[i].assign(lenApA + 32, 0.0f);
+            // Sample-rate-scaled headroom only on modulated stages (0 and 2)
+            const int extraA = (i == 0 || i == 2) ? modHeadroom : 0;
+            apBufA[i].assign(lenApA + extraA, 0.0f);
             apBufB[i].assign(lenApB, 0.0f);
             delBuf[i].assign(lenDel, 0.0f);
 
@@ -100,8 +94,8 @@ public:
             dampStateLpf[i] = 0.0f;
             dampStateHpf[i] = 0.0f;
 
-            tapOffsetL[i] = std::min(lenDel - 1, (int)std::round(BASE_TAP_L[i] * scale));
-            tapOffsetR[i] = std::min(lenDel - 1, (int)std::round(BASE_TAP_R[i] * scale));
+            tapOffsetL[i] = std::min(lenDel - 1, (int)std::lround((double)BASE_TAP_L[i] * scale));
+            tapOffsetR[i] = std::min(lenDel - 1, (int)std::lround((double)BASE_TAP_R[i] * scale));
         }
 
         buffersAllocated = true;
@@ -109,19 +103,16 @@ public:
         reset();
     }
 
-    void setEnabled(bool e) {
-        targetEnabled = e;
-        if (!e) currentEnabled = false;
-    }
-
+    void setEnabled(bool e) { targetEnabled = e; }
     bool isEnabled() const { return targetEnabled; }
 
     void setParams(float wet, float dry, float roomSize, float damping, float width = 1.0f) {
-        setWet(wet);
-        setDry(dry);
-        setRoomSize(roomSize);
-        setDamping(damping);
-        setWidth(width);
+        targetWet = std::clamp(wet, 0.0f, 2.0f);
+        targetDry = std::clamp(dry, 0.0f, 2.0f);
+        targetRoomSize = std::clamp(roomSize, 0.0f, 1.0f);
+        targetDamping = std::clamp(damping, 0.0f, 1.0f);
+        targetWidth = std::clamp(width, 0.0f, 2.0f);
+        updateCoefficients();
     }
 
     void setWet(float w) { targetWet = std::clamp(w, 0.0f, 2.0f); }
@@ -164,23 +155,60 @@ public:
         lfoPhase = 0.0f;
         currentWet = targetWet;
         currentDry = targetDry;
-        currentRoomSize = targetRoomSize;
-        currentDamping = targetDamping;
         currentWidth = targetWidth;
+        currentKrt_ = targetKrt_;
+        currentLpfCoeff_ = targetLpfCoeff_;
         currentEnabled = targetEnabled;
     }
 
     void process(float *interleaved, uint32_t frames, int channels) {
-        processImpl(interleaved, frames, channels);
+        processImpl(interleaved, frames, channels, true);
     }
 
     void process(double *interleaved, uint32_t frames, int channels) {
-        processImpl(interleaved, frames, channels);
+        processImpl(interleaved, frames, channels, true);
+    }
+
+    void processWetOnly(float *interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels, false);
+    }
+
+    void processWetOnly(double *interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels, false);
     }
 
 private:
+    static float readCubic(const std::vector<float>& buf, int writeIdx, float delaySamples) {
+        const int sz = (int)buf.size();
+        if (sz < 8) return buf[writeIdx];
+        const float maxD = (float)(sz - 4);
+        if (delaySamples < 3.0f) delaySamples = 3.0f;
+        if (delaySamples > maxD) delaySamples = maxD;
+
+        float readPos = (float)writeIdx - delaySamples;
+        while (readPos < 0.0f) readPos += (float)sz;
+        while (readPos >= (float)sz) readPos -= (float)sz;
+
+        const int i0 = (int)readPos;
+        const int i1 = (i0 + 1 >= sz) ? 0 : i0 + 1;
+        const int im1 = (i0 - 1 < 0) ? sz - 1 : i0 - 1;
+        const int i2 = (i1 + 1 >= sz) ? 0 : i1 + 1;
+        const float frac = readPos - (float)i0;
+
+        const float y0 = buf[im1];
+        const float y1 = buf[i0];
+        const float y2 = buf[i1];
+        const float y3 = buf[i2];
+
+        const float c0 = y1;
+        const float c1 = 0.5f * (y2 - y0);
+        const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+        const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+        return ((c3 * frac + c2) * frac + c1) * frac + c0;
+    }
+
     template <typename T>
-    void processImpl(T *interleaved, uint32_t frames, int channels) {
+    void processImpl(T *interleaved, uint32_t frames, int channels, bool mixDry) {
         if (!interleaved || frames == 0 || channels < 2 || !buffersAllocated)
             return;
 
@@ -190,159 +218,167 @@ private:
         }
         currentEnabled = true;
 
+        ScopedDenormalsDisable ftz;
+
         const float smoothCoeff = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
-        const float twoPi = 6.28318530717958647692f;
-        const float lfoInc = (twoPi * 0.5f) / (float)sampleRate; // 0.5 Hz LFO
-        const float modDepth = 8.0f * (float)(sampleRate / 32768.0); // +/- 8 samples @ 32.768 kHz scaled by sample rate
+        constexpr float twoPi = 6.28318530717958647692f;
+        const float lfoInc = (twoPi * 0.5f) / (float)sampleRate;
+        const float modDepth = 8.0f * (float)(sampleRate / 32768.0);
 
         for (uint32_t f = 0; f < frames; ++f) {
             currentWet += (targetWet - currentWet) * smoothCoeff;
             currentDry += (targetDry - currentDry) * smoothCoeff;
             currentWidth += (targetWidth - currentWidth) * smoothCoeff;
+            currentKrt_ += (targetKrt_ - currentKrt_) * smoothCoeff;
+            currentLpfCoeff_ += (targetLpfCoeff_ - currentLpfCoeff_) * smoothCoeff;
 
-            uint32_t idx = f * channels;
+            const size_t idx = (size_t)f * (size_t)channels;
             const double rawInL = static_cast<double>(interleaved[idx]);
             const double rawInR = static_cast<double>(interleaved[idx + 1]);
-            float inL = static_cast<float>(rawInL);
-            float inR = static_cast<float>(rawInR);
+            const float inL = static_cast<float>(rawInL);
+            const float inR = static_cast<float>(rawInR);
 
             // 1. Process 4 Cascaded Input Diffusers per channel
             float diffInL = inL * 0.6f;
             float diffInR = inR * 0.6f;
 
             for (int i = 0; i < NUM_INPUT_DIFFUSERS; ++i) {
-                // Left allpass (Direct Form II): y[n] = -g*x[n] + buf; buf = x[n] + g*y[n]
-                float bufOutL = inDiffBufL[i][inDiffIdxL[i]];
-                float yL = -0.6f * diffInL + bufOutL;
-                inDiffBufL[i][inDiffIdxL[i]] = diffInL + 0.6f * yL;
-                inDiffIdxL[i] = (inDiffIdxL[i] + 1) % (int)inDiffBufL[i].size();
+                const int szL = (int)inDiffBufL[i].size();
+                const float bufOutL = inDiffBufL[i][inDiffIdxL[i]];
+                const float yL = -0.6f * diffInL + bufOutL;
+                float nextL = diffInL + 0.6f * yL;
+                flush_denormal(nextL);
+                inDiffBufL[i][inDiffIdxL[i]] = nextL;
+                inDiffIdxL[i] = (inDiffIdxL[i] + 1 < szL) ? inDiffIdxL[i] + 1 : 0;
                 diffInL = yL;
 
-                // Right allpass
-                float bufOutR = inDiffBufR[i][inDiffIdxR[i]];
-                float yR = -0.6f * diffInR + bufOutR;
-                inDiffBufR[i][inDiffIdxR[i]] = diffInR + 0.6f * yR;
-                inDiffIdxR[i] = (inDiffIdxR[i] + 1) % (int)inDiffBufR[i].size();
+                const int szR = (int)inDiffBufR[i].size();
+                const float bufOutR = inDiffBufR[i][inDiffIdxR[i]];
+                const float yR = -0.6f * diffInR + bufOutR;
+                float nextR = diffInR + 0.6f * yR;
+                flush_denormal(nextR);
+                inDiffBufR[i][inDiffIdxR[i]] = nextR;
+                inDiffIdxR[i] = (inDiffIdxR[i] + 1 < szR) ? inDiffIdxR[i] + 1 : 0;
                 diffInR = yR;
             }
 
             // Advance Quadrature LFO
-            float sinVal = std::sin(lfoPhase);
-            float cosVal = std::cos(lfoPhase);
+            const float sinVal = std::sin(lfoPhase);
+            const float cosVal = std::cos(lfoPhase);
             lfoPhase += lfoInc;
             if (lfoPhase >= twoPi) lfoPhase -= twoPi;
 
             // 2. Closed Recirculating Ring Processing
-            // In Keith Barr's rom_rev2.spn:
-            // Stage 1 input = del4_out * krt + diffInL
-            // Stage 2 input = del1_out * krt + diffInR
-            // Stage 3 input = del2_out * krt + diffInL
-            // Stage 4 input = del3_out * krt + diffInR
+            const float stageInputs[NUM_STAGES] = {
+                delBuf[3][delIdx[3]] * currentKrt_ + diffInL,
+                delBuf[0][delIdx[0]] * currentKrt_ + diffInR,
+                delBuf[1][delIdx[1]] * currentKrt_ + diffInL,
+                delBuf[2][delIdx[2]] * currentKrt_ + diffInR
+            };
 
-            float stageInputs[NUM_STAGES];
-            stageInputs[0] = delBuf[3][delIdx[3]] * krt_ + diffInL;
-            stageInputs[1] = delBuf[0][delIdx[0]] * krt_ + diffInR;
-            stageInputs[2] = delBuf[1][delIdx[1]] * krt_ + diffInL;
-            stageInputs[3] = delBuf[2][delIdx[2]] * krt_ + diffInR;
-
-            float modOffsets[NUM_STAGES] = {
-                sinVal * modDepth, // ap1 modulated by Sine
+            const float modOffsets[NUM_STAGES] = {
+                sinVal * modDepth,
                 0.0f,
-                cosVal * modDepth, // ap3 modulated by Cosine (90 deg quadrature)
+                cosVal * modDepth,
                 0.0f
             };
 
             for (int s = 0; s < NUM_STAGES; ++s) {
-                float sig = stageInputs[s];
+                const float sig = stageInputs[s];
 
-                // First allpass in stage (coeff 0.6, with modulation on stages 0 & 2)
-                int apASize = (int)apBufA[s].size();
-                float readPos = (float)apIdxA[s] - ((float)apLenA[s] + modOffsets[s]);
-                while (readPos < 0.0f) readPos += (float)apASize;
-                while (readPos >= (float)apASize) readPos -= (float)apASize;
-
-                int i0 = (int)readPos;
-                int i1 = (i0 + 1 >= apASize) ? 0 : i0 + 1;
-                int im1 = (i0 - 1 < 0) ? apASize - 1 : i0 - 1;
-                int i2 = (i1 + 1 >= apASize) ? 0 : i1 + 1;
-                float frac = readPos - (float)i0;
-                // 4-point Catmull-Rom cubic interpolation reduces HF modulation loss vs linear
-                float y0 = apBufA[s][im1], y1 = apBufA[s][i0], y2 = apBufA[s][i1], y3 = apBufA[s][i2];
-                float c0 = y1;
-                float c1 = 0.5f * (y2 - y0);
-                float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
-                float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
-                float apAOutVal = ((c3 * frac + c2) * frac + c1) * frac + c0;
+                // First allpass in stage (coeff 0.6; cubic interp only on modulated stages 0 & 2)
+                const int apASize = (int)apBufA[s].size();
+                const float apAOutVal = (s == 0 || s == 2)
+                    ? readCubic(apBufA[s], apIdxA[s], (float)apLenA[s] + modOffsets[s])
+                    : apBufA[s][apIdxA[s]];
 
                 float yA = -0.6f * sig + apAOutVal;
                 flush_denormal(yA);
-                apBufA[s][apIdxA[s]] = sig + 0.6f * yA;
-                apIdxA[s] = (apIdxA[s] + 1) % apASize;
+                float nextA = sig + 0.6f * yA;
+                flush_denormal(nextA);
+                apBufA[s][apIdxA[s]] = nextA;
+                apIdxA[s] = (apIdxA[s] + 1 < apASize) ? apIdxA[s] + 1 : 0;
 
                 // Second allpass in stage (coeff 0.5)
-                float bufOutB = apBufB[s][apIdxB[s]];
+                const float bufOutB = apBufB[s][apIdxB[s]];
                 float yB = -0.5f * yA + bufOutB;
                 flush_denormal(yB);
-                apBufB[s][apIdxB[s]] = yA + 0.5f * yB;
-                apIdxB[s] = (apIdxB[s] + 1) % apLenB[s];
+                float nextB = yA + 0.5f * yB;
+                flush_denormal(nextB);
+                apBufB[s][apIdxB[s]] = nextB;
+                apIdxB[s] = (apIdxB[s] + 1 < apLenB[s]) ? apIdxB[s] + 1 : 0;
 
-                // 1-Pole Lowpass damping absorption
-                dampStateLpf[s] = dampStateLpf[s] + lpfCoeff_ * (yB - dampStateLpf[s]);
+                // Sample-rate-invariant 1-Pole LPF damping + 60 Hz DC/mud blocker HPF
+                dampStateLpf[s] += currentLpfCoeff_ * (yB - dampStateLpf[s]);
                 flush_denormal(dampStateLpf[s]);
+                dampStateHpf[s] += hpfCoeff_ * (dampStateLpf[s] - dampStateHpf[s]);
+                flush_denormal(dampStateHpf[s]);
+                const float stageOut = dampStateLpf[s] - dampStateHpf[s];
 
                 // Write to main stage delay line
-                delBuf[s][delIdx[s]] = dampStateLpf[s];
-                delIdx[s] = (delIdx[s] + 1) % delLen[s];
+                delBuf[s][delIdx[s]] = stageOut;
+                delIdx[s] = (delIdx[s] + 1 < delLen[s]) ? delIdx[s] + 1 : 0;
             }
 
-            // 3. Multi-Tap Extraction Matrix (Keith Barr rom_rev2 taps)
+            // 3. Alternating-Polarity Multi-Tap Extraction Matrix
             float wetL = 0.0f;
             float wetR = 0.0f;
 
             for (int s = 0; s < NUM_STAGES; ++s) {
                 int readTapL = delIdx[s] - tapOffsetL[s];
                 if (readTapL < 0) readTapL += delLen[s];
-                wetL += delBuf[s][readTapL] * TAP_GAINS[s];
+                wetL += delBuf[s][readTapL] * TAP_GAINS_L[s];
 
                 int readTapR = delIdx[s] - tapOffsetR[s];
                 if (readTapR < 0) readTapR += delLen[s];
-                wetR += delBuf[s][readTapR] * TAP_GAINS[s];
+                wetR += delBuf[s][readTapR] * TAP_GAINS_R[s];
             }
 
             wetL *= 0.32f;
             wetR *= 0.32f;
 
             // 4. Stereo Width M/S Balance
-            float mid = 0.5f * (wetL + wetR);
-            float side = 0.5f * (wetL - wetR) * currentWidth;
-            float outL = mid + side;
-            float outR = mid - side;
+            const float mid = 0.5f * (wetL + wetR);
+            const float side = 0.5f * (wetL - wetR) * currentWidth;
+            const float outL = mid + side;
+            const float outR = mid - side;
 
-            interleaved[idx]     = static_cast<T>(rawInL * static_cast<double>(currentDry) + static_cast<double>(outL) * static_cast<double>(currentWet));
-            interleaved[idx + 1] = static_cast<T>(rawInR * static_cast<double>(currentDry) + static_cast<double>(outR) * static_cast<double>(currentWet));
+            if (mixDry) {
+                interleaved[idx]     = static_cast<T>(rawInL * static_cast<double>(currentDry) + static_cast<double>(outL) * static_cast<double>(currentWet));
+                interleaved[idx + 1] = static_cast<T>(rawInR * static_cast<double>(currentDry) + static_cast<double>(outR) * static_cast<double>(currentWet));
+            } else {
+                interleaved[idx]     = static_cast<T>(static_cast<double>(outL) * static_cast<double>(currentWet));
+                interleaved[idx + 1] = static_cast<T>(static_cast<double>(outR) * static_cast<double>(currentWet));
+            }
         }
     }
 
     void updateCoefficients() {
-        // Unify RoomSize -> RT60 mapping (0.35s .. 14.0s) across all reverb engines.
-        // Total ring loop delay at 32.768 kHz is ~22315 samples (~0.6809s), or ~0.1702s per stage.
+        if (sampleRate <= 0.0) return;
+        constexpr float twoPi = 6.28318530717958647692f;
+        // Total ring loop delay at 32.768 kHz is ~22367 samples (~0.6826s), ~0.1706s per stage
         const float targetRT60 = 0.35f * std::pow(40.0f, targetRoomSize);
-        krt_ = std::min(0.985f, std::pow(10.0f, -3.0f * 0.1702f / targetRT60));
+        targetKrt_ = std::min(0.985f, std::pow(10.0f, -3.0f * 0.1706f / targetRT60));
 
-        // Damping lowpass filter coefficient (1.0 at damping=0 for zero insertion loss)
-        lpfCoeff_ = 1.0f - (targetDamping * 0.75f);
+        if (targetDamping <= 0.0001f) {
+            targetLpfCoeff_ = 1.0f;
+        } else {
+            const float dampHz = 18000.0f * std::pow(0.0667f, targetDamping);
+            const float w = std::min(3.0f, twoPi * dampHz / (float)sampleRate);
+            targetLpfCoeff_ = 1.0f - std::exp(-w);
+        }
+
+        hpfCoeff_ = 1.0f - std::exp(-std::min(3.0f, twoPi * 60.0f / (float)sampleRate));
     }
 
     double sampleRate = 48000.0;
     bool buffersAllocated = false;
 
-    // Input diffusers
     std::vector<float> inDiffBufL[NUM_INPUT_DIFFUSERS];
     std::vector<float> inDiffBufR[NUM_INPUT_DIFFUSERS];
     int inDiffIdxL[NUM_INPUT_DIFFUSERS] = {0};
     int inDiffIdxR[NUM_INPUT_DIFFUSERS] = {0};
 
-    // 4 Ring Stages
     std::vector<float> apBufA[NUM_STAGES];
     std::vector<float> apBufB[NUM_STAGES];
     std::vector<float> delBuf[NUM_STAGES];
@@ -362,8 +398,11 @@ private:
     int tapOffsetR[NUM_STAGES] = {0};
 
     float lfoPhase = 0.0f;
-    float krt_ = 0.70f;
-    float lpfCoeff_ = 0.50f;
+    float targetKrt_ = 0.70f;
+    float currentKrt_ = 0.70f;
+    float targetLpfCoeff_ = 0.65f;
+    float currentLpfCoeff_ = 0.65f;
+    float hpfCoeff_ = 0.008f;
 
     float targetWet = 0.35f;
     float targetDry = 1.0f;
@@ -374,8 +413,6 @@ private:
 
     float currentWet = 0.35f;
     float currentDry = 1.0f;
-    float currentRoomSize = 0.70f;
-    float currentDamping = 0.30f;
     float currentWidth = 1.0f;
     bool currentEnabled = false;
 };

@@ -2078,6 +2078,28 @@ typedef _SetReverbEngineDart = void Function(ffi.Pointer<ffi.Void>, int);
 typedef _GetReverbEngineNative = ffi.Int32 Function(ffi.Pointer<ffi.Void>);
 typedef _GetReverbEngineDart = int Function(ffi.Pointer<ffi.Void>);
 
+typedef _SetDattorroReverbParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
+typedef _SetDattorroReverbParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, double, double, double);
+
+typedef _GetDattorroReverbParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _GetDattorroReverbParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+
 typedef _SetLatticeReverbParamsNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Float, ffi.Float, ffi.Float, ffi.Float, ffi.Float);
 typedef _SetLatticeReverbParamsDart = void Function(
@@ -3467,6 +3489,19 @@ class AudioEngineFFI {
         _lib.lookupFunction<_GetReverbEngineNative, _GetReverbEngineDart>(
       'ae_get_reverb_engine',
     );
+    try {
+      _setDattorroReverbParams =
+          _lib.lookupFunction<_SetDattorroReverbParamsNative, _SetDattorroReverbParamsDart>(
+        'ae_set_dattorro_reverb_params',
+      );
+      _getDattorroReverbParams =
+          _lib.lookupFunction<_GetDattorroReverbParamsNative, _GetDattorroReverbParamsDart>(
+        'ae_get_dattorro_reverb_params',
+      );
+    } catch (_) {
+      _setDattorroReverbParams = null;
+      _getDattorroReverbParams = null;
+    }
     _setLatticeReverbParams =
         _lib.lookupFunction<_SetLatticeReverbParamsNative, _SetLatticeReverbParamsDart>(
       'ae_set_lattice_reverb_params',
@@ -4449,6 +4484,8 @@ class AudioEngineFFI {
   late final _GetReverbGainsDart _getReverbGains;
   late final _SetReverbEngineDart _setReverbEngine;
   late final _GetReverbEngineDart _getReverbEngine;
+  _SetDattorroReverbParamsDart? _setDattorroReverbParams;
+  _GetDattorroReverbParamsDart? _getDattorroReverbParams;
   late final _SetLatticeReverbParamsDart _setLatticeReverbParams;
   late final _GetLatticeReverbParamsDart _getLatticeReverbParams;
   late final _SetDiffusionReverbParamsDart _setDiffusionReverbParams;
@@ -5859,6 +5896,84 @@ class AudioEngineFFI {
   ReverbEngine getReverbEngine() {
     if (_engine == ffi.nullptr) return ReverbEngine.dattorro;
     return ReverbEngine.fromValue(_getReverbEngine(_engine));
+  }
+
+  /// Atomically updates all Dattorro Tank parameters under one engine lock.
+  void setDattorroReverbParams({
+    required double wet,
+    required double dry,
+    required double roomSize,
+    double damping = 0.5,
+    double preDelayMs = 10.0,
+    double width = 1.0,
+  }) {
+    if (_engine == ffi.nullptr) return;
+    final fn = _setDattorroReverbParams;
+    if (fn != null) {
+      fn(_engine, wet, dry, roomSize, damping, preDelayMs, width);
+    } else {
+      _setReverbParamsEx(_engine, wet, roomSize, damping, preDelayMs, width);
+      _setReverbGains(_engine, wet, dry);
+    }
+  }
+
+  /// Retrieves Dattorro Tank parameters from the native audio engine.
+  ({
+    double wet,
+    double dry,
+    double roomSize,
+    double damping,
+    double preDelayMs,
+    double width,
+  }) getDattorroReverbParams() {
+    if (_engine == ffi.nullptr) {
+      return (
+        wet: 0.0,
+        dry: 1.0,
+        roomSize: 0.5,
+        damping: 0.5,
+        preDelayMs: 10.0,
+        width: 1.0,
+      );
+    }
+    final fn = _getDattorroReverbParams;
+    if (fn == null) {
+      final ex = getReverbParamsEx();
+      final gains = getReverbGains();
+      return (
+        wet: gains.wet,
+        dry: gains.dry,
+        roomSize: ex.roomSize,
+        damping: ex.damping,
+        preDelayMs: ex.preDelayMs,
+        width: ex.width,
+      );
+    }
+    final wetPtr = calloc<ffi.Float>();
+    final dryPtr = calloc<ffi.Float>();
+    final roomPtr = calloc<ffi.Float>();
+    final dampPtr = calloc<ffi.Float>();
+    final predelayPtr = calloc<ffi.Float>();
+    final widthPtr = calloc<ffi.Float>();
+    try {
+      fn(_engine, wetPtr, dryPtr, roomPtr, dampPtr, predelayPtr, widthPtr);
+      return (
+        wet: wetPtr.value,
+        dry: dryPtr.value,
+        roomSize: roomPtr.value,
+        damping: dampPtr.value,
+        preDelayMs: predelayPtr.value,
+        width: widthPtr.value,
+      );
+    } finally {
+      calloc
+        ..free(wetPtr)
+        ..free(dryPtr)
+        ..free(roomPtr)
+        ..free(dampPtr)
+        ..free(predelayPtr)
+        ..free(widthPtr);
+    }
   }
 
   /// Updates parameters for the Clean-Room Lattice Reverb algorithm.

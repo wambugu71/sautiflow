@@ -436,10 +436,10 @@ class AppStateService {
     final prefs = PreferencesStore.instance;
     return (
       preset: prefs.getString(_kLatticePreset) ?? 'Custom',
-      wet: prefs.getDouble(_kLatticeWet) ?? 0.35,
-      dry: prefs.getDouble(_kLatticeDry) ?? 0.70,
-      roomSize: prefs.getDouble(_kLatticeRoomSize) ?? 0.75,
-      damping: prefs.getDouble(_kLatticeDamping) ?? 0.25,
+      wet: prefs.getDouble(_kLatticeWet) ?? 0.28,
+      dry: prefs.getDouble(_kLatticeDry) ?? 0.90,
+      roomSize: prefs.getDouble(_kLatticeRoomSize) ?? 0.50,
+      damping: prefs.getDouble(_kLatticeDamping) ?? 0.30,
       width: prefs.getDouble(_kLatticeWidth) ?? 1.0,
     );
   }

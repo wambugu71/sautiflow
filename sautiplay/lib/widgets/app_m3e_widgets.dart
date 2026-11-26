@@ -398,3 +398,124 @@ class AppSubScreenScaffold extends StatelessWidget {
   }
 }
 
+/// Stateful wrapper around [M3EDropdownMenu] that keeps selection, item list,
+/// and [onChanged] synchronized across parent rebuilds and prevents blanking on
+/// re-tap in single-select mode.
+class ControlledM3EDropdown<T> extends StatefulWidget {
+  final T value;
+  final List<M3EDropdownItem<T>> items;
+  final ValueChanged<T> onChanged;
+  final bool singleSelect;
+  final bool searchEnabled;
+  final bool showChipAnimation;
+  final M3EDropdownFieldStyle fieldStyle;
+  final M3EDropdownPanelStyle dropdownStyle;
+  final M3EDropdownSearchStyle searchStyle;
+  final M3EDropdownItemStyle itemStyle;
+
+  const ControlledM3EDropdown({
+    super.key,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    this.singleSelect = true,
+    this.searchEnabled = false,
+    this.showChipAnimation = false,
+    this.fieldStyle = const M3EDropdownFieldStyle(),
+    this.dropdownStyle = const M3EDropdownPanelStyle(),
+    this.searchStyle = const M3EDropdownSearchStyle(),
+    this.itemStyle = const M3EDropdownItemStyle(),
+  });
+
+  @override
+  State<ControlledM3EDropdown<T>> createState() =>
+      _ControlledM3EDropdownState<T>();
+}
+
+class _ControlledM3EDropdownState<T> extends State<ControlledM3EDropdown<T>> {
+  late final M3EDropdownController<T> _controller = M3EDropdownController<T>();
+  late List<M3EDropdownItem<T>> _mappedItems;
+
+  @override
+  void initState() {
+    super.initState();
+    _mappedItems = _buildMappedItems();
+  }
+
+  @override
+  void didUpdateWidget(covariant ControlledM3EDropdown<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _controller.onSelectionChange = _handleSelectionChange;
+    if (oldWidget.value != widget.value ||
+        !_itemsEqual(oldWidget.items, widget.items)) {
+      _mappedItems = _buildMappedItems();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  List<M3EDropdownItem<T>> _buildMappedItems() {
+    return widget.items.map((item) {
+      final isSelected = !item.disabled && item.value == widget.value;
+      return item.selected == isSelected
+          ? item
+          : item.copyWith(selected: isSelected);
+    }).toList();
+  }
+
+  static bool _itemsEqual<E>(
+    List<M3EDropdownItem<E>> a,
+    List<M3EDropdownItem<E>> b,
+  ) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i].value != b[i].value ||
+          a[i].label != b[i].label ||
+          a[i].disabled != b[i].disabled) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _handleSelectionChange(List<M3EDropdownItem<T>> selected) {
+    if (selected.isEmpty) {
+      if (widget.singleSelect) {
+        final restored = _buildMappedItems();
+        _mappedItems = restored;
+        _controller.setItems(restored);
+      }
+      return;
+    }
+    final chosen = selected.first.value;
+    if (chosen != widget.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          widget.onChanged(chosen);
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return M3EDropdownMenu<T>(
+      controller: _controller,
+      singleSelect: widget.singleSelect,
+      searchEnabled: widget.searchEnabled,
+      showChipAnimation: widget.showChipAnimation,
+      items: _mappedItems,
+      fieldStyle: widget.fieldStyle,
+      dropdownStyle: widget.dropdownStyle,
+      searchStyle: widget.searchStyle,
+      itemStyle: widget.itemStyle,
+      onSelectionChanged: _handleSelectionChange,
+    );
+  }
+}
+

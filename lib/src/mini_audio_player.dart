@@ -401,7 +401,7 @@ class MiniAudioPlayer {
     _engine.setReverbParams(mix: mix, feedback: feedback, delayMs: delayMs);
   }
 
-  /// Extended reverb (Freeverb FDN): independent wet/dry gains, room size,
+  /// Extended reverb (Dattorro Tank): independent wet/dry gains, room size,
   /// damping, pre-delay and width.
   void setReverbEx({
     required bool enabled,
@@ -413,16 +413,14 @@ class MiniAudioPlayer {
     double width = 1.0,
   }) {
     _engine.setReverbEnabled(enabled);
-    // setReverbParamsEx derives dry from mix, so apply the independent
-    // gains last to get the final wet/dry balance.
-    _engine.setReverbParamsEx(
-      mix: wet,
+    _engine.setDattorroReverbParams(
+      wet: wet,
+      dry: dry,
       roomSize: roomSize,
       damping: damping,
       preDelayMs: preDelayMs,
       width: width,
     );
-    _engine.setReverbGains(wet: wet, dry: dry);
   }
 
   /// Live wet/dry gain update without touching the other reverb params.

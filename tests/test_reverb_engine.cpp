@@ -310,6 +310,319 @@ int main()
         std::cout << "PASS: Engine " << eng << " produces rich, decorrelated stereo field." << std::endl;
     }
 
+    // Test 10: High-SR stress across all 6 engines (float & double, up to 384 kHz)
+    {
+        double allRates[] = {44100.0, 48000.0, 96000.0, 176400.0, 192000.0, 384000.0};
+        for (int eng = 0; eng <= 5; ++eng)
+        {
+            for (double sr : allRates)
+            {
+                ReverbNode node;
+                node.setSampleRate(sr);
+                node.setEngine(eng);
+                node.setEnabled(true);
+                node.setWet(0.6f);
+                node.setDry(0.8f);
+                node.setRoomSize(0.85f);
+                node.setDamping(0.35f);
+                node.setWidth(1.2f);
+                node.reset();
+
+                const uint32_t frames = 4096;
+                std::vector<float> buf32(frames * 2, 0.0f);
+                std::vector<double> buf64(frames * 2, 0.0);
+                for (uint32_t i = 0; i < 64; ++i)
+                {
+                    float s = std::sin(2.0f * 3.14159265f * 440.0f * (float)i / (float)sr);
+                    buf32[i * 2] = s;
+                    buf32[i * 2 + 1] = s * 0.8f;
+                    buf64[i * 2] = (double)s;
+                    buf64[i * 2 + 1] = (double)s * 0.8;
+                }
+                for (uint32_t i = 0; i < frames; i += 256)
+                {
+                    uint32_t n = std::min<uint32_t>(256, frames - i);
+                    node.process(&buf32[i * 2], n, 2);
+                }
+                node.reset();
+                for (uint32_t i = 0; i < frames; i += 256)
+                {
+                    uint32_t n = std::min<uint32_t>(256, frames - i);
+                    node.process(&buf64[i * 2], n, 2);
+                }
+
+                for (size_t i = 0; i < buf32.size(); ++i)
+                {
+                    if (!std::isfinite(buf32[i]) || std::abs(buf32[i]) > 10.0f)
+                    {
+                        std::cerr << "FAILED: High-SR float stress engine " << eng << " @ " << sr << std::endl;
+                        return 1;
+                    }
+                    if (!std::isfinite(buf64[i]) || std::abs(buf64[i]) > 10.0)
+                    {
+                        std::cerr << "FAILED: High-SR double stress engine " << eng << " @ " << sr << std::endl;
+                        return 1;
+                    }
+                }
+            }
+        }
+        std::cout << "PASS: High-SR stress verified across all 6 engines (44.1k..384k, F32 & F64)." << std::endl;
+    }
+
+    // Test 11: Zero engine bleed, parameter isolation, pre-delay isolation & 0 dry latency
+    {
+        ReverbNode node;
+        node.setSampleRate(48000.0);
+        node.setEngine(0); // Dattorro
+        node.setDattorroParams(1.0f, 0.0f, 0.9f, 0.2f, 150.0f, 1.2f);
+        node.setDiffusionParams(0.42f, 0.88f, 0.65f, 1800.0f, 0.77f, 0.31f, 1.1f);
+        node.setEnabled(true);
+        node.reset();
+
+        if (node.getLatencySamples() != 0.0)
+        {
+            std::cerr << "FAILED: getLatencySamples() should be 0.0 (dry path is zero-latency)." << std::endl;
+            return 1;
+        }
+
+        // Modifying Dattorro must not clobber Diffusion parameters
+        node.setWet(0.95f);
+        node.setRoomSize(0.98f);
+        float dWet = 0, dDry = 0, dRoom = 0, dDecay = 0, dDiff = 0, dDamp = 0, dWidth = 0;
+        node.getDiffusionParams(&dWet, &dDry, &dRoom, &dDecay, &dDiff, &dDamp, &dWidth);
+        if (std::abs(dWet - 0.42f) > 1e-4f || std::abs(dRoom - 0.65f) > 1e-4f || std::abs(dDecay - 1800.0f) > 1e-2f)
+        {
+            std::cerr << "FAILED: Dattorro parameter changes clobbered Diffusion parameters!" << std::endl;
+            return 1;
+        }
+
+        // Fill Dattorro pre-delay and tank with high energy
+        std::vector<float> burst(8192 * 2, 0.0f);
+        for (size_t i = 0; i < 2048; ++i)
+        {
+            burst[i * 2] = 0.8f * std::sin(0.1f * (float)i);
+            burst[i * 2 + 1] = 0.8f * std::cos(0.1f * (float)i);
+        }
+        node.process(burst.data(), 8192, 2);
+
+        // Switch through every other engine and feed pure silence: zero bleed allowed
+        for (int nextEng = 1; nextEng <= 5; ++nextEng)
+        {
+            node.setEngine(nextEng);
+            node.setWet(1.0f);
+            node.setDry(0.0f);
+            std::vector<float> silence(2048 * 2, 0.0f);
+            node.process(silence.data(), 2048, 2);
+            float maxAbs = 0.0f;
+            for (float s : silence) maxAbs = std::max(maxAbs, std::abs(s));
+            if (maxAbs > 1e-7f)
+            {
+                std::cerr << "FAILED: Tail bled into engine " << nextEng << " (maxAbs=" << maxAbs << ")" << std::endl;
+                return 1;
+            }
+        }
+        std::cout << "PASS: Zero engine bleed, parameter isolation, and 0-latency verified." << std::endl;
+    }
+
+    // Test 12: Idempotent setEngine(current) preserves ringing tail
+    {
+        for (int eng = 0; eng <= 5; ++eng)
+        {
+            ReverbNode node;
+            node.setSampleRate(48000.0);
+            node.setEngine(eng);
+            node.setWet(1.0f);
+            node.setDry(0.0f);
+            node.setRoomSize(0.75f);
+            node.setEnabled(true);
+            node.reset();
+
+            std::vector<float> buf(2048 * 2, 0.0f);
+            buf[0] = 1.0f;
+            buf[1] = 1.0f;
+            node.process(buf.data(), 2048, 2);
+
+            // Redundant setEngine with same index must NOT clear buffers
+            node.setEngine(eng);
+            std::vector<float> tail(2048 * 2, 0.0f);
+            node.process(tail.data(), 2048, 2);
+            float energy = 0.0f;
+            for (float s : tail) energy += s * s;
+            if (energy <= 0.0001f)
+            {
+                std::cerr << "FAILED: Idempotent setEngine(" << eng << ") cleared active tail!" << std::endl;
+                return 1;
+            }
+        }
+        std::cout << "PASS: Idempotent setEngine preserves active reverb tail across all engines." << std::endl;
+    }
+
+    // Test 13: DiffusionReverbDSP roomSize independence (same decayTimeMs, different roomSize)
+    {
+        sauti::dsp::DiffusionReverbDSP smallRoom, largeRoom;
+        smallRoom.setSampleRate(48000.0);
+        largeRoom.setSampleRate(48000.0);
+        smallRoom.setEnabled(true);
+        largeRoom.setEnabled(true);
+        smallRoom.setParams(1.0f, 0.0f, 0.10f, 1500.0f, 0.75f, 0.25f, 1.0f);
+        largeRoom.setParams(1.0f, 0.0f, 0.90f, 1500.0f, 0.75f, 0.25f, 1.0f);
+        smallRoom.reset();
+        largeRoom.reset();
+
+        const uint32_t frames = 16384;
+        std::vector<float> bufA(frames * 2, 0.0f), bufB(frames * 2, 0.0f);
+        bufA[0] = bufA[1] = 1.0f;
+        bufB[0] = bufB[1] = 1.0f;
+        smallRoom.process(bufA.data(), frames, 2);
+        largeRoom.process(bufB.data(), frames, 2);
+
+        double diffL2 = 0.0;
+        for (size_t i = 0; i < bufA.size(); ++i)
+        {
+            double d = (double)bufA[i] - (double)bufB[i];
+            diffL2 += d * d;
+        }
+        std::cout << "Diffusion roomSize L2 difference (0.1 vs 0.9 @ 1500ms): " << diffL2 << std::endl;
+        if (diffL2 < 0.05)
+        {
+            std::cerr << "FAILED: DiffusionReverbDSP roomSize did not meaningfully affect response!" << std::endl;
+            return 1;
+        }
+        std::cout << "PASS: DiffusionReverbDSP roomSize independently shapes physical delay lengths." << std::endl;
+    }
+
+    // Test 14: Hadamard FDN low-frequency multi-tone bass L/R balance
+    {
+        ReverbNode node;
+        node.setSampleRate(48000.0);
+        node.setEngine(3);
+        node.setHadamardParams(1.0f, 0.0f, 0.70f, 0.20f, 1.0f);
+        node.setEnabled(true);
+        node.reset();
+
+        const uint32_t frames = 24000;
+        const float freqs[8] = {60.0f, 85.0f, 110.0f, 140.0f, 175.0f, 210.0f, 250.0f, 300.0f};
+        std::vector<float> buf(frames * 2, 0.0f);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            float s = 0.0f;
+            for (int k = 0; k < 8; ++k)
+                s += std::sin(2.0f * 3.14159265f * freqs[k] * (float)i / 48000.0f);
+            s *= (0.5f / 8.0f);
+            buf[i * 2] = s;
+            buf[i * 2 + 1] = s;
+        }
+        node.process(buf.data(), frames, 2);
+
+        double sumL2 = 0.0, sumR2 = 0.0;
+        for (uint32_t i = 4000; i < frames; ++i)
+        {
+            sumL2 += (double)buf[i * 2] * buf[i * 2];
+            sumR2 += (double)buf[i * 2 + 1] * buf[i * 2 + 1];
+        }
+        double rmsL = std::sqrt(sumL2 / (frames - 4000));
+        double rmsR = std::sqrt(sumR2 / (frames - 4000));
+        double ratio = rmsL / (rmsR + 1e-12);
+        std::cout << "Hadamard LF bass RMS L=" << rmsL << " R=" << rmsR << " ratio=" << ratio << std::endl;
+        if (rmsL < 0.01 || rmsR < 0.01 || ratio < 0.65 || ratio > 1.55)
+        {
+            std::cerr << "FAILED: Hadamard FDN low-frequency L/R energy is unbalanced!" << std::endl;
+            return 1;
+        }
+        std::cout << "PASS: Hadamard FDN low-frequency stereo balance verified." << std::endl;
+    }
+
+    // Test 15: Damping effectiveness across all 6 engines at 48 kHz and 192 kHz
+    {
+        double testRates[] = {48000.0, 192000.0};
+        for (int eng = 0; eng <= 5; ++eng)
+        {
+            for (double sr : testRates)
+            {
+                ReverbNode bright, dark;
+                bright.setSampleRate(sr);
+                dark.setSampleRate(sr);
+                bright.setEngine(eng);
+                dark.setEngine(eng);
+                bright.setEnabled(true);
+                dark.setEnabled(true);
+                bright.setWet(1.0f);
+                bright.setDry(0.0f);
+                bright.setRoomSize(0.75f);
+                bright.setDamping(0.0f);
+                dark.setWet(1.0f);
+                dark.setDry(0.0f);
+                dark.setRoomSize(0.75f);
+                dark.setDamping(1.0f);
+                bright.reset();
+                dark.reset();
+
+                const uint32_t frames = (uint32_t)(sr * 0.75);
+                std::vector<float> bBuf(frames * 2, 0.0f), dBuf(frames * 2, 0.0f);
+                for (uint32_t i = 0; i < 256; ++i)
+                {
+                    float val = (i % 2 == 0) ? 1.0f : -1.0f;
+                    bBuf[i * 2] = dBuf[i * 2] = val;
+                    bBuf[i * 2 + 1] = dBuf[i * 2 + 1] = val;
+                }
+                bright.process(bBuf.data(), frames, 2);
+                dark.process(dBuf.data(), frames, 2);
+
+                double bE = 0.0, dE = 0.0;
+                const size_t start = (size_t)(sr * 0.15) * 2;
+                for (size_t i = start; i < bBuf.size(); ++i)
+                {
+                    bE += (double)bBuf[i] * bBuf[i];
+                    dE += (double)dBuf[i] * dBuf[i];
+                }
+                if (dE >= bE * 0.7)
+                {
+                    std::cerr << "FAILED: Damping ineffective on engine " << eng << " @ " << sr
+                              << " (bright=" << bE << ", dark=" << dE << ")" << std::endl;
+                    return 1;
+                }
+            }
+        }
+        std::cout << "PASS: Damping effectiveness verified across all 6 engines at 48 kHz and 192 kHz." << std::endl;
+    }
+
+    // Test 16: LatticeReverbDSP steady-state wet RMS calibration (no comb runaway)
+    {
+        sauti::dsp::LatticeReverbDSP lat;
+        lat.setSampleRate(48000.0);
+        lat.setParams(1.0f, 0.0f, 0.75f, 0.25f, 1.0f);
+        lat.setEnabled(true);
+        lat.reset();
+
+        const uint32_t frames = 24000;
+        std::vector<float> buf(frames * 2, 0.0f);
+        uint32_t seed = 987654321u;
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            float nL = (((float)(seed >> 16) / 32768.0f) - 1.0f) * 1.732f; // approx unit RMS
+            seed = seed * 1664525u + 1013904223u;
+            float nR = (((float)(seed >> 16) / 32768.0f) - 1.0f) * 1.732f;
+            buf[i * 2] = nL;
+            buf[i * 2 + 1] = nR;
+        }
+        lat.process(buf.data(), frames, 2);
+
+        double sum2 = 0.0;
+        for (uint32_t i = 8000; i < frames; ++i)
+        {
+            sum2 += 0.5 * ((double)buf[i * 2] * buf[i * 2] + (double)buf[i * 2 + 1] * buf[i * 2 + 1]);
+        }
+        double rms = std::sqrt(sum2 / (frames - 8000));
+        std::cout << "Lattice steady-state wet RMS (room=0.75, unit white noise): " << rms << std::endl;
+        if (rms < 0.15 || rms > 1.5)
+        {
+            std::cerr << "FAILED: Lattice wet RMS out of calibrated range [0.15, 1.5]!" << std::endl;
+            return 1;
+        }
+        std::cout << "PASS: LatticeReverbDSP wet RMS is well-calibrated." << std::endl;
+    }
+
     std::cout << "\nALL REVERB TESTS PASSED SUCCESSFULLY!" << std::endl;
     return 0;
 }

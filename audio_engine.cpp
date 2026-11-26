@@ -15031,15 +15031,21 @@ extern "C"
                     case 5: engName = "Griesinger Tank"; break;
                     default: engName = "Dattorro Tank"; break;
                 }
+                float revWet = 0.0f, revDry = 1.0f, revRoom = 0.5f, revDamp = 0.5f, revPreDelay = 0.0f, revWidth = 1.0f;
+                e->reverbNode.getActiveParams(&revWet, &revDry, &revRoom, &revDamp, &revPreDelay, &revWidth);
                 const double latMs = (sr > 0.0) ? (e->reverbNode.getLatencySamples() * 1000.0 / sr) : 0.0;
+                std::vector<std::pair<std::string, std::string>> revParams = {
+                    {"Engine", engName},
+                    {"Wet / Dry", fmtFloat(revWet * 100.0, 0) + "% / " + fmtFloat(revDry * 100.0, 0) + "%"},
+                    {"Room Size", fmtFloat(revRoom * 100.0, 0) + "%"},
+                    {"Damping", fmtFloat(revDamp * 100.0, 0) + "%"},
+                };
+                if (eng == 0 || revPreDelay > 0.01f)
+                    revParams.push_back({"Pre-Delay", fmtFloat(revPreDelay, 1) + " ms"});
+                revParams.push_back({"Width", fmtFloat(revWidth * 100.0, 0) + "%"});
                 appendNode("reverb", "Reverb", nativePrec,
-                           std::string(engName) + " · Wet " + fmtFloat(e->reverbNode.getWet() * 100.0, 0) + "% · Room " + fmtFloat(e->reverbNode.getRoomSize() * 100.0, 0) + "%", latMs,
-                           {{"Engine", engName},
-                            {"Wet / Dry", fmtFloat(e->reverbNode.getWet() * 100.0, 0) + "% / " + fmtFloat(e->reverbNode.getDry() * 100.0, 0) + "%"},
-                            {"Room Size", fmtFloat(e->reverbNode.getRoomSize() * 100.0, 0) + "%"},
-                            {"Damping", fmtFloat(e->reverbNode.getDamping() * 100.0, 0) + "%"},
-                            {"Pre-Delay", fmtFloat(e->reverbNode.getPreDelayMs(), 1) + " ms"},
-                            {"Width", fmtFloat(e->reverbNode.getWidth() * 100.0, 0) + "%"}});
+                           std::string(engName) + " · Wet " + fmtFloat(revWet * 100.0, 0) + "% · Room " + fmtFloat(revRoom * 100.0, 0) + "%", latMs,
+                           std::move(revParams));
             }
 
             if (e->crystalizerEnabled)
@@ -15251,6 +15257,22 @@ extern "C"
             return 0;
         std::lock_guard<std::mutex> fx(e->fxMutex);
         return e->reverbNode.getEngine();
+    }
+
+    AE_API void ae_set_dattorro_reverb_params(AudioEngineHandle *e, float wet, float dry, float room_size, float damping, float pre_delay_ms, float width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.setDattorroParams(wet, dry, room_size, damping, pre_delay_ms, width);
+    }
+
+    AE_API void ae_get_dattorro_reverb_params(AudioEngineHandle *e, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_pre_delay_ms, float *out_width)
+    {
+        if (e == nullptr)
+            return;
+        std::lock_guard<std::mutex> fx(e->fxMutex);
+        e->reverbNode.getDattorroParams(out_wet, out_dry, out_room_size, out_damping, out_pre_delay_ms, out_width);
     }
 
     AE_API void ae_set_lattice_reverb_params(AudioEngineHandle *e, float wet, float dry, float room_size, float damping, float width)

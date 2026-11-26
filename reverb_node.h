@@ -1,36 +1,33 @@
 #pragma once
 
-// High-Definition Dattorro Figure-8 Diffuse Tank Stereo Reverb Node.
+// High-Definition Multi-Engine Stereo Reverb Node.
 //
-// Replaces legacy 1960s/1990s parallel Schroeder/Freeverb comb architecture.
+// Engines:
+//   0: Dattorro Figure-8 Diffuse Tank (Jon Dattorro 1997 Plate)
+//   1: Gardner Nested Stereo Allpass Lattice (Room/Chamber)
+//   2: Multi-Stage Givens-Hadamard Diffusion Network
+//   3: 8-Channel Orthonormal Hadamard FDN Hall
+//   4: Keith Barr All-Pass Ring (Alesis / Spin FV-1)
+//   5: David Griesinger "Spin & Wander" Hall Tank (Lexicon 224/480L)
 //
-// Signal Flow:
-//   Input (Stereo)
-//     -> Smooth Pre-Delay Line (0 .. 250 ms)
-//     -> Abbey Road Pre-Filtering (160 Hz HPF + 7.5 kHz LPF to cut mud & digital glare)
-//     -> Dual-Channel Input Diffusers (4 cascaded allpasses per channel; smears
-//        sharp transients into a dense, silky cloud before entering the tank)
-//     -> Coupled Figure-8 Tank (Tank 1 <-> Tank 2):
-//          * Dual-Phase Quadrature LFO Modulated Allpass (eliminates metallic ringing)
-//          * Primary Tank Delay
-//          * Frequency-Dependent Damping Absorption One-Pole Filter
-//          * Room Size Decay Attenuation
-//          * Secondary Allpass Diffuser
-//          * Secondary Tank Delay
-//          * Full Cross-Coupling between Left and Right loops
-//     -> 14 Mutually Prime Multi-Tap Output Matrix
-//     -> True Stereo Width M/S Balance
-//     -> Per-sample smoothed wet/dry mix stage (click & zipper free)
+// Features:
+//   - Strict per-engine parameter isolation (adjusting one engine never clobbers others)
+//   - Clean buffer reset + 20 ms wet fade-in on engine switch or enable (zero tail bleed/clicks)
+//   - Zero-allocation audio path with pre-allocated scratch buffers
+//   - Full F32 / F64 precision preservation
+//   - Sample-rate-invariant matched-Z pre-filtering & damping (11 kHz .. 384 kHz)
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <type_traits>
 #include <vector>
-#include <algorithm>
-#include "dsp/lattice_reverb_dsp.h"
-#include "dsp/diffusion_reverb_dsp.h"
-#include "dsp/hadamard_fdn_dsp.h"
 #include "dsp/barr_ring_reverb_dsp.h"
+#include "dsp/denormals.h"
+#include "dsp/diffusion_reverb_dsp.h"
 #include "dsp/griesinger_tank_dsp.h"
+#include "dsp/hadamard_fdn_dsp.h"
+#include "dsp/lattice_reverb_dsp.h"
 
 enum class ReverbEngine {
     Dattorro = 0,
@@ -75,26 +72,69 @@ public:
 
     void setEnabled(bool e)
     {
+        if (targetEnabled == e)
+        {
+            syncSubEngineFlags();
+            return;
+        }
+        if (e)
+        {
+            resetEngineState(targetEngine);
+            clearPreDelayBuf();
+            currentPreDelayMs = enginePreDelayMs[static_cast<int>(targetEngine)];
+            subCurrentDry = getDry();
+            switchFadeGain = 0.0f;
+        }
+        else
+        {
+            resetEngineState(targetEngine);
+            clearPreDelayBuf();
+        }
         targetEnabled = e;
-        latticeDsp.setEnabled(e && targetEngine == ReverbEngine::Lattice);
-        diffusionDsp.setEnabled(e && targetEngine == ReverbEngine::Diffusion);
-        hadamardDsp.setEnabled(e && targetEngine == ReverbEngine::HadamardFdn);
-        barrDsp.setEnabled(e && targetEngine == ReverbEngine::BarrRing);
-        griesingerDsp.setEnabled(e && targetEngine == ReverbEngine::Griesinger);
+        syncSubEngineFlags();
     }
 
     void setEngine(int engine)
     {
         if (engine < 0 || engine > 5) engine = 0;
-        targetEngine = static_cast<ReverbEngine>(engine);
-        latticeDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Lattice);
-        diffusionDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Diffusion);
-        hadamardDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::HadamardFdn);
-        barrDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::BarrRing);
-        griesingerDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Griesinger);
+        const ReverbEngine newEngine = static_cast<ReverbEngine>(engine);
+        if (newEngine == targetEngine)
+        {
+            syncSubEngineFlags();
+            return;
+        }
+        resetEngineState(targetEngine);
+        resetEngineState(newEngine);
+        clearPreDelayBuf();
+        targetEngine = newEngine;
+        currentPreDelayMs = enginePreDelayMs[engine];
+        subCurrentDry = getDry();
+        switchFadeGain = 0.0f;
+        syncSubEngineFlags();
     }
 
     int getEngine() const { return static_cast<int>(targetEngine); }
+
+    void setDattorroParams(float wet, float dry, float roomSize, float damping, float preDelayMs, float width = 1.0f)
+    {
+        targetWet = std::clamp(wet, 0.0f, 2.0f);
+        targetDry = std::clamp(dry, 0.0f, 2.0f);
+        targetRoomSize = std::clamp(roomSize, 0.0f, 1.0f);
+        targetDamping = std::clamp(damping, 0.0f, 1.0f);
+        enginePreDelayMs[0] = std::clamp(preDelayMs, 0.0f, MAX_PRE_DELAY_MS);
+        targetWidth = std::clamp(width, 0.0f, 2.0f);
+        updateDattorroCoefficients();
+    }
+
+    void getDattorroParams(float *wet, float *dry, float *roomSize, float *damping, float *preDelayMs, float *width) const
+    {
+        if (wet) *wet = targetWet;
+        if (dry) *dry = targetDry;
+        if (roomSize) *roomSize = targetRoomSize;
+        if (damping) *damping = targetDamping;
+        if (preDelayMs) *preDelayMs = enginePreDelayMs[0];
+        if (width) *width = targetWidth;
+    }
 
     void setLatticeParams(float wet, float dry, float roomSize, float damping, float width = 1.0f)
     {
@@ -168,6 +208,34 @@ public:
         if (width) *width = griesingerDsp.getWidth();
     }
 
+    void getActiveParams(float *wet, float *dry, float *roomSize, float *damping, float *preDelayMs, float *width) const
+    {
+        switch (targetEngine)
+        {
+        case ReverbEngine::Lattice:
+            getLatticeParams(wet, dry, roomSize, damping, width);
+            break;
+        case ReverbEngine::Diffusion:
+            getDiffusionParams(wet, dry, roomSize, nullptr, nullptr, damping, width);
+            break;
+        case ReverbEngine::HadamardFdn:
+            getHadamardParams(wet, dry, roomSize, damping, width);
+            break;
+        case ReverbEngine::BarrRing:
+            getBarrParams(wet, dry, roomSize, damping, width);
+            break;
+        case ReverbEngine::Griesinger:
+            getGriesingerParams(wet, dry, roomSize, damping, width);
+            break;
+        case ReverbEngine::Dattorro:
+        default:
+            getDattorroParams(wet, dry, roomSize, damping, nullptr, width);
+            break;
+        }
+        if (preDelayMs)
+            *preDelayMs = enginePreDelayMs[static_cast<int>(targetEngine)];
+    }
+
     bool getEnabled() const { return targetEnabled; }
 
     void setMix(float m)
@@ -178,92 +246,189 @@ public:
 
     void setWet(float w)
     {
-        targetWet = std::max(0.0f, std::min(w, 2.0f));
-        latticeDsp.setWet(targetWet);
-        diffusionDsp.setWet(targetWet);
-        hadamardDsp.setWet(targetWet);
-        barrDsp.setWet(targetWet);
-        griesingerDsp.setWet(targetWet);
+        const float clamped = std::clamp(w, 0.0f, 2.0f);
+        switch (targetEngine)
+        {
+        case ReverbEngine::Lattice:     latticeDsp.setWet(clamped); break;
+        case ReverbEngine::Diffusion:   diffusionDsp.setWet(clamped); break;
+        case ReverbEngine::HadamardFdn: hadamardDsp.setWet(clamped); break;
+        case ReverbEngine::BarrRing:    barrDsp.setWet(clamped); break;
+        case ReverbEngine::Griesinger:  griesingerDsp.setWet(clamped); break;
+        case ReverbEngine::Dattorro:
+        default:                        targetWet = clamped; break;
+        }
     }
 
     void setDry(float d)
     {
-        targetDry = std::max(0.0f, std::min(d, 2.0f));
-        latticeDsp.setDry(targetDry);
-        diffusionDsp.setDry(targetDry);
-        hadamardDsp.setDry(targetDry);
-        barrDsp.setDry(targetDry);
-        griesingerDsp.setDry(targetDry);
+        const float clamped = std::clamp(d, 0.0f, 2.0f);
+        switch (targetEngine)
+        {
+        case ReverbEngine::Lattice:     latticeDsp.setDry(clamped); break;
+        case ReverbEngine::Diffusion:   diffusionDsp.setDry(clamped); break;
+        case ReverbEngine::HadamardFdn: hadamardDsp.setDry(clamped); break;
+        case ReverbEngine::BarrRing:    barrDsp.setDry(clamped); break;
+        case ReverbEngine::Griesinger:  griesingerDsp.setDry(clamped); break;
+        case ReverbEngine::Dattorro:
+        default:                        targetDry = clamped; break;
+        }
     }
 
     void setRoomSize(float r)
     {
-        targetRoomSize = std::max(0.0f, std::min(r, 1.0f));
-        latticeDsp.setRoomSize(targetRoomSize);
-        diffusionDsp.setRoomSize(targetRoomSize);
-        hadamardDsp.setRoomSize(targetRoomSize);
-        barrDsp.setRoomSize(targetRoomSize);
-        griesingerDsp.setRoomSize(targetRoomSize);
+        const float clamped = std::clamp(r, 0.0f, 1.0f);
+        switch (targetEngine)
+        {
+        case ReverbEngine::Lattice:     latticeDsp.setRoomSize(clamped); break;
+        case ReverbEngine::Diffusion:   diffusionDsp.setRoomSize(clamped); break;
+        case ReverbEngine::HadamardFdn: hadamardDsp.setRoomSize(clamped); break;
+        case ReverbEngine::BarrRing:    barrDsp.setRoomSize(clamped); break;
+        case ReverbEngine::Griesinger:  griesingerDsp.setRoomSize(clamped); break;
+        case ReverbEngine::Dattorro:
+        default:
+            targetRoomSize = clamped;
+            updateDattorroCoefficients();
+            break;
+        }
     }
 
     void setDamping(float d)
     {
-        targetDamping = std::max(0.0f, std::min(d, 1.0f));
-        latticeDsp.setDamping(targetDamping);
-        diffusionDsp.setDamping(targetDamping);
-        hadamardDsp.setDamping(targetDamping);
-        barrDsp.setDamping(targetDamping);
-        griesingerDsp.setDamping(targetDamping);
+        const float clamped = std::clamp(d, 0.0f, 1.0f);
+        switch (targetEngine)
+        {
+        case ReverbEngine::Lattice:     latticeDsp.setDamping(clamped); break;
+        case ReverbEngine::Diffusion:   diffusionDsp.setDamping(clamped); break;
+        case ReverbEngine::HadamardFdn: hadamardDsp.setDamping(clamped); break;
+        case ReverbEngine::BarrRing:    barrDsp.setDamping(clamped); break;
+        case ReverbEngine::Griesinger:  griesingerDsp.setDamping(clamped); break;
+        case ReverbEngine::Dattorro:
+        default:
+            targetDamping = clamped;
+            updateDattorroCoefficients();
+            break;
+        }
     }
 
     void setPreDelayMs(float ms)
     {
-        targetPreDelayMs = std::max(0.0f, std::min(ms, MAX_PRE_DELAY_MS));
+        enginePreDelayMs[static_cast<int>(targetEngine)] =
+            std::clamp(ms, 0.0f, MAX_PRE_DELAY_MS);
     }
 
     void setWidth(float w)
     {
-        targetWidth = std::max(0.0f, std::min(w, 2.0f));
-        latticeDsp.setWidth(targetWidth);
-        diffusionDsp.setWidth(targetWidth);
-        hadamardDsp.setWidth(targetWidth);
-        barrDsp.setWidth(targetWidth);
-        griesingerDsp.setWidth(targetWidth);
+        const float clamped = std::clamp(w, 0.0f, 2.0f);
+        switch (targetEngine)
+        {
+        case ReverbEngine::Lattice:     latticeDsp.setWidth(clamped); break;
+        case ReverbEngine::Diffusion:   diffusionDsp.setWidth(clamped); break;
+        case ReverbEngine::HadamardFdn: hadamardDsp.setWidth(clamped); break;
+        case ReverbEngine::BarrRing:    barrDsp.setWidth(clamped); break;
+        case ReverbEngine::Griesinger:  griesingerDsp.setWidth(clamped); break;
+        case ReverbEngine::Dattorro:
+        default:                        targetWidth = clamped; break;
+        }
     }
 
-    float getWet() const { return targetWet; }
-    float getDry() const { return targetDry; }
-    float getRoomSize() const { return targetRoomSize; }
-    float getDamping() const { return targetDamping; }
-    float getPreDelayMs() const { return targetPreDelayMs; }
-    float getWidth() const { return targetWidth; }
-
-    // Latency contributed by the pre-delay stage (samples).
-    double getLatencySamples() const
+    float getWet() const
     {
-        if (!currentEnabled && currentWet < 0.0001f)
-            return 0.0;
-        return (double)(currentPreDelayMs * 0.001f) * sampleRate;
+        float v = targetWet;
+        getActiveParams(&v, nullptr, nullptr, nullptr, nullptr, nullptr);
+        return v;
     }
+
+    float getDry() const
+    {
+        float v = targetDry;
+        getActiveParams(nullptr, &v, nullptr, nullptr, nullptr, nullptr);
+        return v;
+    }
+
+    float getRoomSize() const
+    {
+        float v = targetRoomSize;
+        getActiveParams(nullptr, nullptr, &v, nullptr, nullptr, nullptr);
+        return v;
+    }
+
+    float getDamping() const
+    {
+        float v = targetDamping;
+        getActiveParams(nullptr, nullptr, nullptr, &v, nullptr, nullptr);
+        return v;
+    }
+
+    float getPreDelayMs() const
+    {
+        return enginePreDelayMs[static_cast<int>(targetEngine)];
+    }
+
+    float getWidth() const
+    {
+        float v = targetWidth;
+        getActiveParams(nullptr, nullptr, nullptr, nullptr, nullptr, &v);
+        return v;
+    }
+
+    // Dry path has zero latency (pre-delay only offsets the wet reflection tail).
+    double getLatencySamples() const { return 0.0; }
 
     void reset()
+    {
+        clearPreDelayBuf();
+        resetDattorroState();
+        latticeDsp.reset();
+        diffusionDsp.reset();
+        hadamardDsp.reset();
+        barrDsp.reset();
+        griesingerDsp.reset();
+
+        currentPreDelayMs = enginePreDelayMs[static_cast<int>(targetEngine)];
+        subCurrentDry = getDry();
+        switchFadeGain = 1.0f;
+        currentEnabled = targetEnabled;
+        syncSubEngineFlags();
+    }
+
+    void process(float *interleaved, uint32_t frames, int channels)
+    {
+        processImpl(interleaved, frames, channels);
+    }
+
+    void process(double *interleaved, uint32_t frames, int channels)
+    {
+        processImpl(interleaved, frames, channels);
+    }
+
+private:
+    void syncSubEngineFlags()
+    {
+        latticeDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Lattice);
+        diffusionDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Diffusion);
+        hadamardDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::HadamardFdn);
+        barrDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::BarrRing);
+        griesingerDsp.setEnabled(targetEnabled && targetEngine == ReverbEngine::Griesinger);
+    }
+
+    void clearPreDelayBuf()
     {
         for (int ch = 0; ch < 2; ++ch)
         {
             if (!preDelayBuf[ch].empty())
-            {
                 std::fill(preDelayBuf[ch].begin(), preDelayBuf[ch].end(), 0.0f);
-            }
             preDelayWriteIdx[ch] = 0;
+        }
+    }
 
-            hpPrevIn[ch] = 0.0f;
+    void resetDattorroState()
+    {
+        for (int ch = 0; ch < 2; ++ch)
+        {
             hpState[ch] = 0.0f;
             lpState[ch] = 0.0f;
-
             for (int i = 0; i < 4; ++i)
-            {
                 diffusers[ch][i].clear();
-            }
         }
 
         tank1_modAp.clear();
@@ -282,57 +447,114 @@ public:
         tank2_lastOut = 0.0f;
 
         lfoPhase1 = 0.0f;
-        lfoPhase2 = 0.25f * (float)(2.0 * M_PI); // 90 degree quadrature phase offset
+        lfoPhase2 = 0.25f * (float)(2.0 * M_PI);
 
         currentWet = targetWet;
         currentDry = targetDry;
-        currentRoomSize = targetRoomSize;
-        currentDamping = targetDamping;
-        currentPreDelayMs = targetPreDelayMs;
         currentWidth = targetWidth;
-        currentEnabled = targetEnabled;
-        latticeDsp.reset();
-        diffusionDsp.reset();
-        hadamardDsp.reset();
-        barrDsp.reset();
-        griesingerDsp.reset();
+        currentDecay = targetDecay;
+        currentDampCoeff = targetDampCoeff;
     }
 
-    void process(float *interleaved, uint32_t frames, int channels)
+    void resetEngineState(ReverbEngine eng)
     {
-        processImpl(interleaved, frames, channels);
+        switch (eng)
+        {
+        case ReverbEngine::Lattice:     latticeDsp.reset(); break;
+        case ReverbEngine::Diffusion:   diffusionDsp.reset(); break;
+        case ReverbEngine::HadamardFdn: hadamardDsp.reset(); break;
+        case ReverbEngine::BarrRing:    barrDsp.reset(); break;
+        case ReverbEngine::Griesinger:  griesingerDsp.reset(); break;
+        case ReverbEngine::Dattorro:
+        default:                        resetDattorroState(); break;
+        }
     }
 
-    void process(double *interleaved, uint32_t frames, int channels)
+    void updateDattorroCoefficients()
     {
-        processImpl(interleaved, frames, channels);
+        if (sampleRate <= 0.0) return;
+        constexpr double twoPi = 2.0 * M_PI;
+        const float targetRT60 = 0.35f * std::pow(40.0f, targetRoomSize);
+        targetDecay = std::min(0.985f, std::pow(10.0f, -1.0881f / targetRT60));
+
+        if (targetDamping <= 0.0001f)
+        {
+            targetDampCoeff = 1.0f;
+        }
+        else
+        {
+            const float dampHz = 18000.0f * std::pow(0.0667f, targetDamping);
+            const float wDamp = std::min(3.0f, (float)(twoPi * dampHz / sampleRate));
+            targetDampCoeff = 1.0f - std::exp(-wDamp);
+        }
+
+        preHpAlpha = 1.0f - std::exp(-std::min(3.0f, (float)(twoPi * 80.0 / sampleRate)));
+        preLpAlpha = 1.0f - std::exp(-std::min(3.0f, (float)(twoPi * 15000.0 / sampleRate)));
     }
 
-private:
+    inline void readPreDelayLinear(float inL, float inR, float preDelayMs, float &outL, float &outR)
+    {
+        const size_t preDelayLen = preDelayBuf[0].size();
+        if (preDelayLen < 4)
+        {
+            outL = inL;
+            outR = inR;
+            return;
+        }
+
+        const float delaySamp = std::clamp(
+            (preDelayMs * 0.001f) * (float)sampleRate,
+            0.0f,
+            (float)(preDelayLen - 2));
+        const size_t dFloor = (size_t)delaySamp;
+        const float frac = delaySamp - (float)dFloor;
+
+        preDelayBuf[0][preDelayWriteIdx[0]] = inL;
+        preDelayBuf[1][preDelayWriteIdx[1]] = inR;
+
+        const size_t i0L = (preDelayWriteIdx[0] + preDelayLen - dFloor) % preDelayLen;
+        const size_t i1L = (i0L == 0) ? (preDelayLen - 1) : (i0L - 1);
+        outL = preDelayBuf[0][i0L] * (1.0f - frac) + preDelayBuf[0][i1L] * frac;
+
+        const size_t i0R = (preDelayWriteIdx[1] + preDelayLen - dFloor) % preDelayLen;
+        const size_t i1R = (i0R == 0) ? (preDelayLen - 1) : (i0R - 1);
+        outR = preDelayBuf[1][i0R] * (1.0f - frac) + preDelayBuf[1][i1R] * frac;
+
+        preDelayWriteIdx[0] = (preDelayWriteIdx[0] + 1 < preDelayLen) ? (preDelayWriteIdx[0] + 1) : 0;
+        preDelayWriteIdx[1] = (preDelayWriteIdx[1] + 1 < preDelayLen) ? (preDelayWriteIdx[1] + 1) : 0;
+    }
+
     template <typename T>
     void processImpl(T *interleaved, uint32_t frames, int channels)
     {
         if (!interleaved || frames == 0 || channels < 2)
             return;
 
-        if (!targetEnabled && currentWet < 0.0001f)
+        if (!targetEnabled)
         {
             currentEnabled = false;
             return;
         }
         currentEnabled = true;
 
+        sauti::dsp::ScopedDenormalsDisable ftz;
+
+        const float alphaSmooth = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
+        const float fadeAlpha = 1.0f - std::exp(-1.0f / (0.006f * (float)sampleRate));
+
         if (targetEngine != ReverbEngine::Dattorro)
         {
-            const float alphaSmooth =
-                1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
+            const float activeTargetPreDelay = enginePreDelayMs[static_cast<int>(targetEngine)];
+            const float activeTargetDry = getDry();
             const size_t preDelayLen = preDelayBuf[0].size();
-            const bool hasPreDelay = (preDelayLen > 0) &&
-                (targetPreDelayMs > 0.001f || currentPreDelayMs > 0.001f);
+            const bool hasPreDelay = (preDelayLen >= 4) &&
+                (activeTargetPreDelay > 0.001f || currentPreDelayMs > 0.001f);
 
-            if (!hasPreDelay)
+            if (!hasPreDelay && switchFadeGain >= 0.9999f)
             {
-                currentPreDelayMs = targetPreDelayMs;
+                currentPreDelayMs = activeTargetPreDelay;
+                subCurrentDry = activeTargetDry;
+                switchFadeGain = 1.0f;
                 if (targetEngine == ReverbEngine::Lattice)
                     latticeDsp.process(interleaved, frames, channels);
                 else if (targetEngine == ReverbEngine::Diffusion)
@@ -346,106 +568,95 @@ private:
                 return;
             }
 
-            auto &scratch = [&]() -> std::vector<T>& {
+            auto &scratch = [&]() -> std::vector<T> & {
                 if constexpr (std::is_same_v<T, double>)
                     return scratchPreDelay64;
                 else
                     return scratchPreDelay;
             }();
 
-            if (scratch.size() < (size_t)frames * (size_t)channels)
-                scratch.resize((size_t)frames * (size_t)channels, static_cast<T>(0));
+            const size_t needed = (size_t)frames * (size_t)channels;
+            if (scratch.size() < needed)
+                scratch.resize(needed, static_cast<T>(0));
 
-            for (uint32_t i = 0; i < frames; ++i)
+            if (hasPreDelay)
             {
-                currentPreDelayMs += alphaSmooth * (targetPreDelayMs - currentPreDelayMs);
-                const size_t delaySamples = std::min(
-                    preDelayLen - 1,
-                    (size_t)((currentPreDelayMs * 0.001f) * (float)sampleRate));
-
-                const size_t base = (size_t)i * (size_t)channels;
-                const float inL = static_cast<float>(interleaved[base]);
-                const float inR = static_cast<float>(interleaved[base + 1]);
-
-                preDelayBuf[0][preDelayWriteIdx[0]] = inL;
-                preDelayBuf[1][preDelayWriteIdx[1]] = inR;
-
-                scratch[base] = static_cast<T>(preDelayBuf[0]
-                    [(preDelayWriteIdx[0] + preDelayLen - delaySamples) % preDelayLen]);
-                scratch[base + 1] = static_cast<T>(preDelayBuf[1]
-                    [(preDelayWriteIdx[1] + preDelayLen - delaySamples) % preDelayLen]);
-
-                preDelayWriteIdx[0] = (preDelayWriteIdx[0] + 1) % preDelayLen;
-                preDelayWriteIdx[1] = (preDelayWriteIdx[1] + 1) % preDelayLen;
-            }
-
-            auto processWithPreDelay = [&](auto& dsp) {
-                const float savedDry = dsp.getDry();
-                dsp.setDry(0.0f);
-                dsp.process(scratch.data(), frames, channels);
-                dsp.setDry(savedDry);
                 for (uint32_t i = 0; i < frames; ++i)
                 {
-                    currentDry += alphaSmooth * (savedDry - currentDry);
+                    currentPreDelayMs += alphaSmooth * (activeTargetPreDelay - currentPreDelayMs);
                     const size_t base = (size_t)i * (size_t)channels;
-                    interleaved[base]     = static_cast<T>(static_cast<double>(interleaved[base])     * static_cast<double>(currentDry) + static_cast<double>(scratch[base]));
-                    interleaved[base + 1] = static_cast<T>(static_cast<double>(interleaved[base + 1]) * static_cast<double>(currentDry) + static_cast<double>(scratch[base + 1]));
+                    float pdL = 0.0f, pdR = 0.0f;
+                    readPreDelayLinear(
+                        static_cast<float>(interleaved[base]),
+                        static_cast<float>(interleaved[base + 1]),
+                        currentPreDelayMs, pdL, pdR);
+                    scratch[base] = static_cast<T>(pdL);
+                    scratch[base + 1] = static_cast<T>(pdR);
+                }
+            }
+            else
+            {
+                currentPreDelayMs = 0.0f;
+                for (uint32_t i = 0; i < frames; ++i)
+                {
+                    const size_t base = (size_t)i * (size_t)channels;
+                    scratch[base] = interleaved[base];
+                    scratch[base + 1] = interleaved[base + 1];
+                }
+            }
+
+            auto processWetWithFade = [&](auto &dsp) {
+                dsp.processWetOnly(scratch.data(), frames, channels);
+                for (uint32_t i = 0; i < frames; ++i)
+                {
+                    subCurrentDry += alphaSmooth * (activeTargetDry - subCurrentDry);
+                    switchFadeGain += fadeAlpha * (1.0f - switchFadeGain);
+                    const size_t base = (size_t)i * (size_t)channels;
+                    interleaved[base] = static_cast<T>(
+                        static_cast<double>(interleaved[base]) * static_cast<double>(subCurrentDry) +
+                        static_cast<double>(scratch[base]) * static_cast<double>(switchFadeGain));
+                    interleaved[base + 1] = static_cast<T>(
+                        static_cast<double>(interleaved[base + 1]) * static_cast<double>(subCurrentDry) +
+                        static_cast<double>(scratch[base + 1]) * static_cast<double>(switchFadeGain));
                 }
             };
 
             if (targetEngine == ReverbEngine::Lattice)
-                processWithPreDelay(latticeDsp);
+                processWetWithFade(latticeDsp);
             else if (targetEngine == ReverbEngine::Diffusion)
-                processWithPreDelay(diffusionDsp);
+                processWetWithFade(diffusionDsp);
             else if (targetEngine == ReverbEngine::HadamardFdn)
-                processWithPreDelay(hadamardDsp);
+                processWetWithFade(hadamardDsp);
             else if (targetEngine == ReverbEngine::BarrRing)
-                processWithPreDelay(barrDsp);
+                processWetWithFade(barrDsp);
             else if (targetEngine == ReverbEngine::Griesinger)
-                processWithPreDelay(griesingerDsp);
+                processWetWithFade(griesingerDsp);
+
+            if (switchFadeGain > 0.9999f)
+                switchFadeGain = 1.0f;
             return;
         }
 
         if (tank1_del1.empty())
             return;
 
-        // 15ms parameter smoothing time constant.
-        const float alphaSmooth =
-            1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
-
-        const size_t preDelayLen = preDelayBuf[0].size();
-
-        // LFO phase increments
         const float lfoInc1 = (float)(2.0 * M_PI * 0.73 / sampleRate);
         const float lfoInc2 = (float)(2.0 * M_PI * 0.91 / sampleRate);
-
-        // Pre-filter coefficients (80 Hz HPF + 15 kHz LPF to cut subsonic rumble & ultrasonic digital glare without choking presence)
-        const float wHp = (float)(2.0 * M_PI * 80.0 / sampleRate);
-        const float alphaHp = 1.0f / (1.0f + wHp);
-
-        const float wLp = (float)(2.0 * M_PI * 15000.0 / sampleRate);
-        const float alphaLp = wLp / (1.0f + wLp);
-
-        // Modulated allpass excursion in samples scaled by sample rate
         const float modDepth = (float)(8.0 * (sampleRate / 29761.0));
+        const float dattorroTargetPreDelay = enginePreDelayMs[0];
+        constexpr float crossFeedNorm = 1.0f / 1.20f;
 
         for (uint32_t i = 0; i < frames; ++i)
         {
-            // Smooth parameters toward targets
             currentWet += alphaSmooth * (targetWet - currentWet);
             currentDry += alphaSmooth * (targetDry - currentDry);
-            currentRoomSize += alphaSmooth * (targetRoomSize - currentRoomSize);
-            currentDamping += alphaSmooth * (targetDamping - currentDamping);
-            currentPreDelayMs += alphaSmooth * (targetPreDelayMs - currentPreDelayMs);
             currentWidth += alphaSmooth * (targetWidth - currentWidth);
+            currentPreDelayMs += alphaSmooth * (dattorroTargetPreDelay - currentPreDelayMs);
+            currentDecay += alphaSmooth * (targetDecay - currentDecay);
+            currentDampCoeff += alphaSmooth * (targetDampCoeff - currentDampCoeff);
+            switchFadeGain += fadeAlpha * (1.0f - switchFadeGain);
 
-            const float targetRT60 = 0.35f * std::pow(40.0f, currentRoomSize);
-            const float decay = std::min(0.985f, std::pow(10.0f, -1.0881f / targetRT60));
-
-            const float dampHz = 18000.0f * std::pow(0.0667f, currentDamping);
-            const float nyquistSafe = (float)(M_PI * 0.95);
-            const float wDamp = std::min(nyquistSafe, (float)(2.0 * M_PI * dampHz / sampleRate));
-            const float dampCoeff = 1.0f - std::exp(-wDamp);
+            const float ap2Gain = std::clamp(currentDecay + 0.15f, 0.25f, 0.50f);
 
             const size_t base = (size_t)i * (size_t)channels;
             const double rawInL = static_cast<double>(interleaved[base]);
@@ -453,44 +664,29 @@ private:
             const float inL = static_cast<float>(rawInL);
             const float inR = static_cast<float>(rawInR);
 
-            // 1. Pre-Delay
+            // 1. Pre-Delay with linear interpolation
             float pdL = inL;
             float pdR = inR;
-            if (preDelayLen > 0)
-            {
-                const size_t delaySamples = std::min(
-                    preDelayLen - 1,
-                    (size_t)((currentPreDelayMs * 0.001f) * (float)sampleRate));
+            readPreDelayLinear(inL, inR, currentPreDelayMs, pdL, pdR);
 
-                preDelayBuf[0][preDelayWriteIdx[0]] = inL;
-                preDelayBuf[1][preDelayWriteIdx[1]] = inR;
+            // 2. Matched-Z Pre-Filtering (80 Hz HPF + 15 kHz LPF)
+            hpState[0] += preHpAlpha * (pdL - hpState[0]);
+            hpState[0] = flushDenormal(hpState[0]);
+            const float hpOutL = pdL - hpState[0];
+            lpState[0] += preLpAlpha * (hpOutL - lpState[0]);
+            lpState[0] = flushDenormal(lpState[0]);
+            const float filtL = lpState[0];
 
-                pdL = preDelayBuf[0]
-                    [(preDelayWriteIdx[0] + preDelayLen - delaySamples) % preDelayLen];
-                pdR = preDelayBuf[1]
-                    [(preDelayWriteIdx[1] + preDelayLen - delaySamples) % preDelayLen];
+            hpState[1] += preHpAlpha * (pdR - hpState[1]);
+            hpState[1] = flushDenormal(hpState[1]);
+            const float hpOutR = pdR - hpState[1];
+            lpState[1] += preLpAlpha * (hpOutR - lpState[1]);
+            lpState[1] = flushDenormal(lpState[1]);
+            const float filtR = lpState[1];
 
-                preDelayWriteIdx[0] = (preDelayWriteIdx[0] + 1) % preDelayLen;
-                preDelayWriteIdx[1] = (preDelayWriteIdx[1] + 1) % preDelayLen;
-            }
-
-            // 2. Abbey Road Pre-Filtering (HPF + LPF)
-            // Channel Left
-            hpState[0] = alphaHp * (hpState[0] + pdL - hpPrevIn[0]);
-            hpPrevIn[0] = pdL;
-            lpState[0] += alphaLp * (hpState[0] - lpState[0]);
-            float filtL = lpState[0];
-
-            // Channel Right
-            hpState[1] = alphaHp * (hpState[1] + pdR - hpPrevIn[1]);
-            hpPrevIn[1] = pdR;
-            lpState[1] += alphaLp * (hpState[1] - lpState[1]);
-            float filtR = lpState[1];
-
-            // 3. Dual Cascaded Input Diffusers (4 Allpasses per channel)
-            // Subtle cross-feed gives 3D depth even from mono/panned sources
-            float diffIn1 = filtL + 0.20f * filtR;
-            float diffIn2 = filtR + 0.20f * filtL;
+            // 3. Dual Cascaded Input Diffusers (normalized stereo cross-feed)
+            float diffIn1 = (filtL + 0.20f * filtR) * crossFeedNorm;
+            float diffIn2 = (filtR + 0.20f * filtL) * crossFeedNorm;
 
             for (int d = 0; d < 4; ++d)
             {
@@ -499,15 +695,9 @@ private:
             }
 
             // 4. Figure-8 Coupled Tank Loops
-            // Tank 1 receives Diffuser 1 + Tank 2 cross-feedback
-            // Tank 2 receives Diffuser 2 + Tank 1 cross-feedback
-            float tank1In = diffIn1 + tank2_lastOut * decay;
-            float tank2In = diffIn2 + tank1_lastOut * decay;
+            float tank1In = flushDenormal(diffIn1 + tank2_lastOut * currentDecay);
+            float tank2In = flushDenormal(diffIn2 + tank1_lastOut * currentDecay);
 
-            tank1In = flushDenormal(tank1In);
-            tank2In = flushDenormal(tank2In);
-
-            // Advance LFOs
             const float mod1 = modDepth * std::sin(lfoPhase1);
             const float mod2 = modDepth * std::sin(lfoPhase2);
             lfoPhase1 += lfoInc1;
@@ -516,32 +706,23 @@ private:
             if (lfoPhase2 >= (float)(2.0 * M_PI)) lfoPhase2 -= (float)(2.0 * M_PI);
 
             // --- TANK 1 LOOP ---
-            // Modulated Allpass 1
-            float t1_node = tank1_modAp.processModulated(tank1In, mod1);
-            // Delay 1
+            // Canonical alternating-sign modulated allpass (g + z^-D)/(1 + g z^-D) with cubic interp
+            const float t1_node = tank1_modAp.processModulatedAlternating(tank1In, mod1);
             tank1_del1.write(t1_node);
-            float t1_del1_out = tank1_del1.readOldest();
-            // Lowpass Damping Filter
-            tank1_dampState += dampCoeff * (t1_del1_out - tank1_dampState);
+            const float t1_del1_out = tank1_del1.readOldest();
+            tank1_dampState += currentDampCoeff * (t1_del1_out - tank1_dampState);
             tank1_dampState = flushDenormal(tank1_dampState);
-            // Allpass 2
-            float t1_ap2_out = tank1_ap2.process(tank1_dampState);
-            // Delay 2
+            const float t1_ap2_out = tank1_ap2.processWithGain(tank1_dampState, ap2Gain);
             tank1_del2.write(t1_ap2_out);
             tank1_lastOut = tank1_del2.readOldest();
 
             // --- TANK 2 LOOP ---
-            // Modulated Allpass 1
-            float t2_node = tank2_modAp.processModulated(tank2In, mod2);
-            // Delay 1
+            const float t2_node = tank2_modAp.processModulatedAlternating(tank2In, mod2);
             tank2_del1.write(t2_node);
-            float t2_del1_out = tank2_del1.readOldest();
-            // Lowpass Damping Filter
-            tank2_dampState += dampCoeff * (t2_del1_out - tank2_dampState);
+            const float t2_del1_out = tank2_del1.readOldest();
+            tank2_dampState += currentDampCoeff * (t2_del1_out - tank2_dampState);
             tank2_dampState = flushDenormal(tank2_dampState);
-            // Allpass 2
-            float t2_ap2_out = tank2_ap2.process(tank2_dampState);
-            // Delay 2
+            const float t2_ap2_out = tank2_ap2.processWithGain(tank2_dampState, ap2Gain);
             tank2_del2.write(t2_ap2_out);
             tank2_lastOut = tank2_del2.readOldest();
 
@@ -562,22 +743,22 @@ private:
                        - tank2_ap2.read(tap_t2_ap2_2)
                        - tank2_del2.read(tap_t2_d2_2);
 
-            // Normalized tank output scaling
             outL *= 0.36f;
             outR *= 0.36f;
 
             // 6. Stereo Width Processing (Mid/Side Matrix)
             const float mid = (outL + outR) * 0.5f;
             const float side = (outL - outR) * 0.5f;
-            const float sideGain = currentWidth; // 1.0 = true neutral stereo; 0.0 = mono; > 1.0 = widened
-
-            const float wetL = mid + side * sideGain;
-            const float wetR = mid - side * sideGain;
+            const float wetL = (mid + side * currentWidth) * switchFadeGain;
+            const float wetR = (mid - side * currentWidth) * switchFadeGain;
 
             // 7. Final Wet/Dry Mix
             interleaved[base]     = static_cast<T>(rawInL * static_cast<double>(currentDry) + static_cast<double>(wetL) * static_cast<double>(currentWet));
             interleaved[base + 1] = static_cast<T>(rawInR * static_cast<double>(currentDry) + static_cast<double>(wetR) * static_cast<double>(currentWet));
         }
+
+        if (switchFadeGain > 0.9999f)
+            switchFadeGain = 1.0f;
     }
 
     static inline float flushDenormal(float val)
@@ -585,13 +766,12 @@ private:
         return (std::abs(val) < 1.0e-15f) ? 0.0f : val;
     }
 
-    // Delay Line with fractional linear-interpolated and indexed read
     class DelayLine
     {
     public:
         void resize(size_t len)
         {
-            buf.assign(std::max<size_t>(2, len), 0.0f);
+            buf.assign(std::max<size_t>(4, len), 0.0f);
             writeIdx = 0;
         }
 
@@ -625,20 +805,35 @@ private:
             return buf[rIdx];
         }
 
-        float readInterpolated(float delaySamples) const
+        float readCubic(float delaySamples) const
         {
             if (buf.empty()) return 0.0f;
             const size_t sz = buf.size();
-            if (delaySamples < 0.0f) delaySamples = 0.0f;
-            if (delaySamples > (float)(sz - 2)) delaySamples = (float)(sz - 2);
+            if (sz < 8) return buf[writeIdx];
+            const float maxD = (float)(sz - 4);
+            if (delaySamples < 3.0f) delaySamples = 3.0f;
+            if (delaySamples > maxD) delaySamples = maxD;
 
-            const size_t dFloor = (size_t)delaySamples;
-            const float frac = delaySamples - (float)dFloor;
+            float readPos = (float)writeIdx - delaySamples;
+            while (readPos < 0.0f) readPos += (float)sz;
+            while (readPos >= (float)sz) readPos -= (float)sz;
 
-            const size_t idx0 = (writeIdx + sz - 1 - dFloor) % sz;
-            const size_t idx1 = (writeIdx + sz - 2 - dFloor) % sz;
+            const size_t i0 = (size_t)readPos;
+            const size_t i1 = (i0 + 1 >= sz) ? 0 : i0 + 1;
+            const size_t im1 = (i0 == 0) ? (sz - 1) : (i0 - 1);
+            const size_t i2 = (i1 + 1 >= sz) ? 0 : i1 + 1;
+            const float frac = readPos - (float)i0;
 
-            return buf[idx0] * (1.0f - frac) + buf[idx1] * frac;
+            const float y0 = buf[im1];
+            const float y1 = buf[i0];
+            const float y2 = buf[i1];
+            const float y3 = buf[i2];
+
+            const float c0 = y1;
+            const float c1 = 0.5f * (y2 - y0);
+            const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+            const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+            return ((c3 * frac + c2) * frac + c1) * frac + c0;
         }
 
     private:
@@ -646,14 +841,13 @@ private:
         size_t writeIdx = 0;
     };
 
-    // Standard Canonical Allpass Filter: H(z) = (-g + z^-D) / (1 - g * z^-D)
     class AllpassFilter
     {
     public:
         void init(size_t delayLen, float feedbackGain, size_t maxModExcursion = 0)
         {
             nominalDelay = (float)delayLen;
-            delay.resize(delayLen + maxModExcursion + 4);
+            delay.resize(delayLen + (maxModExcursion > 0 ? (maxModExcursion + 12) : 0));
             gain = feedbackGain;
         }
 
@@ -664,9 +858,14 @@ private:
 
         float process(float input)
         {
+            return processWithGain(input, gain);
+        }
+
+        float processWithGain(float input, float g)
+        {
             const float bufOut = delay.readOldest();
-            const float output = -gain * input + bufOut;
-            delay.write(flushDenormal(input + gain * output));
+            const float output = -g * input + bufOut;
+            delay.write(flushDenormal(input + g * output));
             return output;
         }
 
@@ -675,14 +874,12 @@ private:
             return delay.read(tap);
         }
 
-        float processModulated(float input, float modSamples)
+        // Canonical alternating-sign modulated allpass: H(z) = (g + z^-D) / (1 + g z^-D)
+        float processModulatedAlternating(float input, float modSamples)
         {
-            // Smooth symmetric bidirectional modulation around nominal center delay D_nom
-            const float maxDelay = (float)(delay.size() - 2);
-            const float readPos = std::max(1.0f, std::min(nominalDelay + modSamples, maxDelay));
-            const float bufOut = delay.readInterpolated(readPos);
-            const float output = -gain * input + bufOut;
-            delay.write(flushDenormal(input + gain * output));
+            const float bufOut = delay.readCubic(nominalDelay + modSamples);
+            const float output = gain * input + bufOut;
+            delay.write(flushDenormal(input - gain * output));
             return output;
         }
 
@@ -702,16 +899,19 @@ private:
     {
         const double rate = sampleRate;
 
-        // 1. Pre-delay buffers (250 ms max)
-        const size_t preDelaySamples = (size_t)std::lround((MAX_PRE_DELAY_MS * 0.001) * rate);
+        // 1. Pre-delay buffers (250 ms max + interpolation headroom)
+        const size_t preDelaySamples = (size_t)std::lround((MAX_PRE_DELAY_MS * 0.001) * rate) + 4;
         for (int ch = 0; ch < 2; ++ch)
         {
-            preDelayBuf[ch].assign(std::max<size_t>(2, preDelaySamples), 0.0f);
+            preDelayBuf[ch].assign(std::max<size_t>(8, preDelaySamples), 0.0f);
             preDelayWriteIdx[ch] = 0;
         }
 
-        // 2. Input Diffusers (Dattorro tunings: 142, 107, 379, 277 @ 29.761 kHz)
-        // Ch 0 uses nominal prime lengths, Ch 1 uses slightly offset prime lengths
+        // Pre-allocate scratch buffers to avoid audio-thread heap allocation
+        scratchPreDelay.assign(4096 * 2, 0.0f);
+        scratchPreDelay64.assign(4096 * 2, 0.0);
+
+        // 2. Input Diffusers (Dattorro tunings @ 29.761 kHz)
         diffusers[0][0].init(scaleSamples(142.0f, rate), 0.75f);
         diffusers[0][1].init(scaleSamples(107.0f, rate), 0.75f);
         diffusers[0][2].init(scaleSamples(379.0f, rate), 0.625f);
@@ -722,21 +922,19 @@ private:
         diffusers[1][2].init(scaleSamples(389.0f, rate), 0.625f);
         diffusers[1][3].init(scaleSamples(283.0f, rate), 0.625f);
 
-        // 3. Tank 1 (Modulated AP 672, Delay 4453, AP 1800, Delay 3720)
-        // Extra margin allocated to modulated allpass for symmetric LFO excursion
-        const size_t maxExcursion = scaleSamples(32.0f, rate);
+        // 3. Tank 1 & 2 with sample-rate-scaled modulation headroom
+        const size_t maxExcursion = scaleSamples(24.0f, rate);
         tank1_modAp.init(scaleSamples(672.0f, rate), 0.70f, maxExcursion);
         tank1_del1.resize(scaleSamples(4453.0f, rate));
         tank1_ap2.init(scaleSamples(1800.0f, rate), 0.50f);
         tank1_del2.resize(scaleSamples(3720.0f, rate));
 
-        // 4. Tank 2 (Modulated AP 908, Delay 4217, AP 2656, Delay 3163)
         tank2_modAp.init(scaleSamples(908.0f, rate), 0.70f, maxExcursion);
         tank2_del1.resize(scaleSamples(4217.0f, rate));
         tank2_ap2.init(scaleSamples(2656.0f, rate), 0.50f);
         tank2_del2.resize(scaleSamples(3163.0f, rate));
 
-        // 5. Output Tap Positions
+        // 4. Output Tap Positions
         tap_t1_d1_1  = scaleSamples(1990.0f, rate);
         tap_t1_d1_2  = scaleSamples(353.0f, rate);
         tap_t1_d1_3  = scaleSamples(3627.0f, rate);
@@ -752,6 +950,8 @@ private:
         tap_t2_ap2_2 = scaleSamples(335.0f, rate);
         tap_t2_d2_1  = scaleSamples(1996.0f, rate);
         tap_t2_d2_2  = scaleSamples(121.0f, rate);
+
+        updateDattorroCoefficients();
     }
 
     double sampleRate = 48000.0;
@@ -766,32 +966,34 @@ private:
     float currentDry = 1.0f;
 
     float targetRoomSize = 0.5f;
-    float currentRoomSize = 0.5f;
-
     float targetDamping = 0.5f;
-    float currentDamping = 0.5f;
 
-    float targetPreDelayMs = 10.0f;
+    float enginePreDelayMs[6] = { 10.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     float currentPreDelayMs = 10.0f;
 
     float targetWidth = 1.0f;
     float currentWidth = 1.0f;
 
-    // Pre-delay
+    float targetDecay = 0.80f;
+    float currentDecay = 0.80f;
+    float targetDampCoeff = 0.55f;
+    float currentDampCoeff = 0.55f;
+    float preHpAlpha = 0.01f;
+    float preLpAlpha = 0.85f;
+
+    float subCurrentDry = 1.0f;
+    float switchFadeGain = 1.0f;
+
     std::vector<float> preDelayBuf[2];
     size_t preDelayWriteIdx[2] = {0, 0};
     std::vector<float> scratchPreDelay;
     std::vector<double> scratchPreDelay64;
 
-    // Abbey Road input filter states
-    float hpPrevIn[2] = {0.0f, 0.0f};
     float hpState[2]  = {0.0f, 0.0f};
     float lpState[2]  = {0.0f, 0.0f};
 
-    // Input diffusers (4 per channel)
     AllpassFilter diffusers[2][4];
 
-    // Figure-8 Tank 1
     AllpassFilter tank1_modAp;
     DelayLine tank1_del1;
     AllpassFilter tank1_ap2;
@@ -799,7 +1001,6 @@ private:
     float tank1_dampState = 0.0f;
     float tank1_lastOut = 0.0f;
 
-    // Figure-8 Tank 2
     AllpassFilter tank2_modAp;
     DelayLine tank2_del1;
     AllpassFilter tank2_ap2;
@@ -807,11 +1008,9 @@ private:
     float tank2_dampState = 0.0f;
     float tank2_lastOut = 0.0f;
 
-    // Quadrature Dual-Phase LFO
     float lfoPhase1 = 0.0f;
     float lfoPhase2 = 0.0f;
 
-    // Mutually prime tap points
     size_t tap_t1_d1_1 = 0, tap_t1_d1_2 = 0, tap_t1_d1_3 = 0;
     size_t tap_t1_ap2_1 = 0, tap_t1_ap2_2 = 0;
     size_t tap_t1_d2_1 = 0, tap_t1_d2_2 = 0;

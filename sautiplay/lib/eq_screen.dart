@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_m3shapes_extended/flutter_m3shapes_extended.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'widgets/m3e_modal_helpers.dart';
+import 'widgets/app_m3e_widgets.dart';
 import 'package:path/path.dart' as p;
 import 'package:sautiflow/sautiflow.dart';
 import 'database/preferences_store.dart';
@@ -1108,49 +1109,57 @@ class _EqScreenState extends State<EqScreen>
       })> _latticePresets = [
     (
       name: 'Custom',
-      wet: 0.35,
-      dry: 0.70,
-      roomSize: 0.75,
-      damping: 0.25,
-      width: 1.0,
-    ),
-    (
-      name: 'Natural Ambience',
-      wet: 0.20,
-      dry: 0.85,
-      roomSize: 0.40,
-      damping: 0.35,
-      width: 0.90,
-    ),
-    (
-      name: 'Acoustic Chamber',
-      wet: 0.30,
-      dry: 0.80,
-      roomSize: 0.60,
+      wet: 0.28,
+      dry: 0.90,
+      roomSize: 0.50,
       damping: 0.30,
       width: 1.0,
     ),
     (
+      name: 'Natural Ambience',
+      wet: 0.18,
+      dry: 0.95,
+      roomSize: 0.28,
+      damping: 0.35,
+      width: 0.95,
+    ),
+    (
+      name: 'Acoustic Chamber',
+      wet: 0.24,
+      dry: 0.90,
+      roomSize: 0.45,
+      damping: 0.30,
+      width: 1.0,
+    ),
+    (
+      name: 'Wood Studio',
+      wet: 0.22,
+      dry: 0.92,
+      roomSize: 0.35,
+      damping: 0.50,
+      width: 0.95,
+    ),
+    (
       name: 'Hall',
-      wet: 0.35,
-      dry: 0.75,
-      roomSize: 0.75,
-      damping: 0.40,
+      wet: 0.30,
+      dry: 0.85,
+      roomSize: 0.72,
+      damping: 0.32,
       width: 1.10,
     ),
     (
       name: 'Plate',
       wet: 0.25,
-      dry: 0.80,
-      roomSize: 0.50,
-      damping: 0.10,
-      width: 1.0,
+      dry: 0.90,
+      roomSize: 0.52,
+      damping: 0.12,
+      width: 1.05,
     ),
     (
       name: 'Infinite Space',
-      wet: 0.50,
-      dry: 0.60,
-      roomSize: 0.95,
+      wet: 0.42,
+      dry: 0.75,
+      roomSize: 0.94,
       damping: 0.15,
       width: 1.25,
     ),
@@ -1322,7 +1331,7 @@ class _EqScreenState extends State<EqScreen>
       width: 1.0,
     ),
     (
-      name: ' Space',
+      name: 'Deep Space',
       wet: 0.30,
       dry: 0.90,
       roomSize: 0.65,
@@ -1395,10 +1404,10 @@ class _EqScreenState extends State<EqScreen>
 
   // Lattice Reverb
   String _latticePreset = 'Custom';
-  double _latticeWet = 0.35;
-  double _latticeDry = 0.70;
-  double _latticeRoomSize = 0.75;
-  double _latticeDamping = 0.25;
+  double _latticeWet = 0.28;
+  double _latticeDry = 0.90;
+  double _latticeRoomSize = 0.50;
+  double _latticeDamping = 0.30;
   double _latticeWidth = 1.0;
 
   // Diffusion Reverb
@@ -4329,10 +4338,10 @@ class _EqScreenState extends State<EqScreen>
       _reverbWidth = 1.0;
 
       _latticePreset = 'Custom';
-      _latticeWet = 0.35;
-      _latticeDry = 0.70;
-      _latticeRoomSize = 0.75;
-      _latticeDamping = 0.25;
+      _latticeWet = 0.28;
+      _latticeDry = 0.90;
+      _latticeRoomSize = 0.50;
+      _latticeDamping = 0.30;
       _latticeWidth = 1.0;
 
       _diffusionPreset = 'Custom';
@@ -4365,16 +4374,6 @@ class _EqScreenState extends State<EqScreen>
       _griesingerDamping = 0.30;
       _griesingerWidth = 1.0;
 
-      widget.player.setReverbEngine(ReverbEngine.dattorro);
-      widget.player.setReverbEx(
-        enabled: false,
-        wet: _reverbWet,
-        dry: _reverbDry,
-        roomSize: _reverbRoomSize,
-        damping: _reverbDamping,
-        preDelayMs: _reverbPreDelayMs,
-        width: _reverbWidth,
-      );
       widget.player.setLatticeReverb(
         enabled: false,
         wet: _latticeWet,
@@ -4416,6 +4415,16 @@ class _EqScreenState extends State<EqScreen>
         roomSize: _griesingerRoomSize,
         damping: _griesingerDamping,
         width: _griesingerWidth,
+      );
+      widget.player.setReverbEngine(ReverbEngine.dattorro);
+      widget.player.setReverbEx(
+        enabled: false,
+        wet: _reverbWet,
+        dry: _reverbDry,
+        roomSize: _reverbRoomSize,
+        damping: _reverbDamping,
+        preDelayMs: _reverbPreDelayMs,
+        width: _reverbWidth,
       );
 
       _audioTuningEnabled = false;
@@ -6257,7 +6266,7 @@ class _EqScreenState extends State<EqScreen>
                         shape: Shapes.flower,
                         title: 'Reverb',
                         subtitle: _reverbEnabled
-                            ? '$_reverbPreset · Wet ${(_reverbWet * 100).toInt()}% / Dry ${(_reverbDry * 100).toInt()}%'
+                            ? _getActiveReverbSummary()
                             : 'Disabled',
                         isEnabled: _reverbEnabled,
                         onToggle: (v) {
@@ -6735,6 +6744,7 @@ class _EqScreenState extends State<EqScreen>
   }
 
   Widget _buildM3EDropdown<T>({
+    Key? key,
     required T value,
     required List<M3EDropdownItem<T>> items,
     required ValueChanged<T> onChanged,
@@ -6748,19 +6758,15 @@ class _EqScreenState extends State<EqScreen>
     double maxHeight = 300,
   }) {
     final effectiveAccent = accentColor ?? primaryColor;
-    final mappedItems = items.map((item) {
-      final isSelected = !item.disabled && item.value == value;
-      return item.selected == isSelected
-          ? item
-          : item.copyWith(selected: isSelected);
-    }).toList();
-
     return RepaintBoundary(
-      child: M3EDropdownMenu<T>(
+      child: ControlledM3EDropdown<T>(
+        key: key,
+        value: value,
+        items: items,
+        onChanged: onChanged,
         singleSelect: singleSelect,
         searchEnabled: searchEnabled,
         showChipAnimation: showChipAnimation,
-        items: mappedItems,
         fieldStyle: M3EDropdownFieldStyle(
           hintText: hintText,
           backgroundColor: surfaceDarkerColor,
@@ -6795,18 +6801,6 @@ class _EqScreenState extends State<EqScreen>
             fontWeight: FontWeight.bold,
           ),
         ),
-        onSelectionChanged: (selected) {
-          if (selected.isNotEmpty) {
-            final chosen = selected.first.value;
-            if (chosen != value) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  onChanged(chosen);
-                }
-              });
-            }
-          }
-        },
       ),
     );
   }
@@ -11534,8 +11528,8 @@ class _EqScreenState extends State<EqScreen>
   String _getReverbSubtitle() {
     return switch (_reverbEngine) {
       ReverbEngine.dattorro => 'Studio diffuse tank acoustic space',
-      ReverbEngine.lattice => 'Clean-room 4-Comb + 2-Allpass recursive lattice',
-      ReverbEngine.diffusion => 'Multi-tap high-density diffusion lattice',
+      ReverbEngine.lattice => 'Gardner nested stereo allpass lattice',
+      ReverbEngine.diffusion => 'Multi-stage Hadamard diffusion network',
       ReverbEngine.hadamardFdn =>
         '8-channel orthonormal Hadamard feedback delay network',
       ReverbEngine.barrRing =>
@@ -11543,6 +11537,30 @@ class _EqScreenState extends State<EqScreen>
       ReverbEngine.griesinger =>
         'Lexicon 224/480L figure-8 tank with spin & wander drift',
     };
+  }
+
+  String _getActiveReverbSummary() {
+    final (String preset, double wet, double dry) = switch (_reverbEngine) {
+      ReverbEngine.dattorro => (_reverbPreset, _reverbWet, _reverbDry),
+      ReverbEngine.lattice => (_latticePreset, _latticeWet, _latticeDry),
+      ReverbEngine.diffusion => (
+          _diffusionPreset,
+          _diffusionWet,
+          _diffusionDry
+        ),
+      ReverbEngine.hadamardFdn => (
+          _hadamardPreset,
+          _hadamardWet,
+          _hadamardDry
+        ),
+      ReverbEngine.barrRing => (_barrPreset, _barrWet, _barrDry),
+      ReverbEngine.griesinger => (
+          _griesingerPreset,
+          _griesingerWet,
+          _griesingerDry
+        ),
+    };
+    return '${_reverbEngine.label} · $preset · Wet ${(wet * 100).toInt()}% / Dry ${(dry * 100).toInt()}%';
   }
 
   Widget _buildReverbSection() {
@@ -11585,7 +11603,6 @@ class _EqScreenState extends State<EqScreen>
                       setState(() {
                         _reverbEngine = engine;
                       });
-                      _subScreenSetState?.call(() {});
                       _updateReverb();
                       _saveEqState();
                     },
@@ -11612,6 +11629,7 @@ class _EqScreenState extends State<EqScreen>
             Expanded(
               child: switch (_reverbEngine) {
                 ReverbEngine.dattorro => _buildM3EDropdown<String>(
+                    key: const ValueKey(ReverbEngine.dattorro),
                     value: _reverbPreset,
                     searchEnabled: true,
                     items: _reverbPresets
@@ -11623,6 +11641,7 @@ class _EqScreenState extends State<EqScreen>
                     onChanged: (val) => _applyReverbPreset(val),
                   ),
                 ReverbEngine.lattice => _buildM3EDropdown<String>(
+                    key: const ValueKey(ReverbEngine.lattice),
                     value: _latticePreset,
                     searchEnabled: true,
                     items: _latticePresets
@@ -11634,6 +11653,7 @@ class _EqScreenState extends State<EqScreen>
                     onChanged: (val) => _applyLatticePreset(val),
                   ),
                 ReverbEngine.diffusion => _buildM3EDropdown<String>(
+                    key: const ValueKey(ReverbEngine.diffusion),
                     value: _diffusionPreset,
                     searchEnabled: true,
                     items: _diffusionPresets
@@ -11645,6 +11665,7 @@ class _EqScreenState extends State<EqScreen>
                     onChanged: (val) => _applyDiffusionPreset(val),
                   ),
                 ReverbEngine.hadamardFdn => _buildM3EDropdown<String>(
+                    key: const ValueKey(ReverbEngine.hadamardFdn),
                     value: _hadamardPreset,
                     searchEnabled: true,
                     items: _hadamardPresets
@@ -11656,6 +11677,7 @@ class _EqScreenState extends State<EqScreen>
                     onChanged: (val) => _applyHadamardPreset(val),
                   ),
                 ReverbEngine.barrRing => _buildM3EDropdown<String>(
+                    key: const ValueKey(ReverbEngine.barrRing),
                     value: _barrPreset,
                     searchEnabled: true,
                     items: _barrPresets
@@ -11667,6 +11689,7 @@ class _EqScreenState extends State<EqScreen>
                     onChanged: (val) => _applyBarrPreset(val),
                   ),
                 ReverbEngine.griesinger => _buildM3EDropdown<String>(
+                    key: const ValueKey(ReverbEngine.griesinger),
                     value: _griesingerPreset,
                     searchEnabled: true,
                     items: _griesingerPresets
@@ -11769,7 +11792,7 @@ class _EqScreenState extends State<EqScreen>
                 label: 'WIDTH',
                 value: _reverbWidth,
                 min: 0.0,
-                max: 1.0,
+                max: 2.0,
                 flatValue: 1.0,
                 activeColor: _reverbEnabled ? primaryColor : Colors.white,
                 isPercentage: true,
@@ -11813,7 +11836,7 @@ class _EqScreenState extends State<EqScreen>
                 value: _latticeWet,
                 min: 0.0,
                 max: 2.0,
-                flatValue: 0.35,
+                flatValue: 0.28,
                 activeColor: _reverbEnabled ? primaryColor : Colors.white,
                 isPercentage: true,
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
@@ -11831,7 +11854,7 @@ class _EqScreenState extends State<EqScreen>
                 value: _latticeRoomSize,
                 min: 0.0,
                 max: 1.0,
-                flatValue: 0.75,
+                flatValue: 0.50,
                 activeColor: _reverbEnabled ? primaryColor : Colors.white,
                 isPercentage: true,
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
@@ -11849,7 +11872,7 @@ class _EqScreenState extends State<EqScreen>
                 value: _latticeDamping,
                 min: 0.0,
                 max: 1.0,
-                flatValue: 0.25,
+                flatValue: 0.30,
                 activeColor: _reverbEnabled ? primaryColor : Colors.white,
                 isPercentage: true,
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
@@ -11873,7 +11896,7 @@ class _EqScreenState extends State<EqScreen>
                 value: _latticeDry,
                 min: 0.0,
                 max: 2.0,
-                flatValue: 0.70,
+                flatValue: 0.90,
                 activeColor: _reverbEnabled ? primaryColor : Colors.white,
                 isPercentage: true,
                 valueFormatter: (v) => '${(v * 100).toInt()}%',
@@ -14168,117 +14191,226 @@ class _EqScreenState extends State<EqScreen>
         ),
         const SizedBox(height: 16),
 
-        // Knobs: Target LUFS, Max Boost, Lookahead Window, Ceiling, Bass Xover, Bass Release, Silence Gate
-        Center(
-          child: Wrap(
-            alignment: WrapAlignment.spaceEvenly,
-            spacing: 14,
-            runSpacing: 16,
+        // Group 1: AGC Leveling (aligned 3-column mobile grid)
+        const Text(
+          'AGC LEVELING',
+          style: TextStyle(
+            color: Colors.white54,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.0,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Center(
+                child: ModernAudioKnob(
+                  size: 56,
+                  label: 'TARGET',
+                  value: _lookaheadAgcTargetLufs,
+                  min: -30.0,
+                  max: -6.0,
+                  flatValue: -14.0,
+                  activeColor:
+                      _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                  valueFormatter: (v) => '${v.toStringAsFixed(1)} LUFS',
+                  onChanged: (v) {
+                    setState(() => _lookaheadAgcTargetLufs = v);
+                    _subScreenSetState?.call(() {});
+                    if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                    _saveEqState();
+                  },
+                ),
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: ModernAudioKnob(
+                  size: 56,
+                  label: 'MAX BOOST',
+                  value: _lookaheadAgcMaxBoostDb,
+                  min: 0.0,
+                  max: 18.0,
+                  flatValue: 9.0,
+                  activeColor:
+                      _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                  valueFormatter: (v) => '+${v.toStringAsFixed(1)} dB',
+                  onChanged: (v) {
+                    setState(() => _lookaheadAgcMaxBoostDb = v);
+                    _subScreenSetState?.call(() {});
+                    if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                    _saveEqState();
+                  },
+                ),
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: ModernAudioKnob(
+                  size: 56,
+                  label: 'SILENCE GATE',
+                  value: _lookaheadAgcSilenceGateLufs,
+                  min: -70.0,
+                  max: -24.0,
+                  flatValue: -45.0,
+                  activeColor:
+                      _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                  valueFormatter: (v) => '${v.toInt()} LUFS',
+                  onChanged: (v) {
+                    setState(() => _lookaheadAgcSilenceGateLufs = v);
+                    _subScreenSetState?.call(() {});
+                    if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                    _saveEqState();
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+
+        // Group 2: Lookahead & Bass Protection (aligned 3-column mobile grid)
+        const Text(
+          'LOOKAHEAD & BASS PROTECTION',
+          style: TextStyle(
+            color: Colors.white54,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.0,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Center(
+                child: ModernAudioKnob(
+                  size: 56,
+                  label: 'LOOKAHEAD',
+                  value: _lookaheadAgcLookaheadMs,
+                  min: 2.0,
+                  max: 25.0,
+                  flatValue: 10.0,
+                  activeColor:
+                      _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                  valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
+                  onChanged: (v) {
+                    setState(() => _lookaheadAgcLookaheadMs = v);
+                    _subScreenSetState?.call(() {});
+                    if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                    _saveEqState();
+                  },
+                ),
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: ModernAudioKnob(
+                  size: 56,
+                  label: 'BASS XOVER',
+                  value: _lookaheadAgcLowXoverHz,
+                  min: 80.0,
+                  max: 400.0,
+                  flatValue: 180.0,
+                  activeColor:
+                      _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                  valueFormatter: (v) => '${v.toInt()} Hz',
+                  onChanged: (v) {
+                    setState(() => _lookaheadAgcLowXoverHz = v);
+                    _subScreenSetState?.call(() {});
+                    if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                    _saveEqState();
+                  },
+                ),
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: ModernAudioKnob(
+                  size: 56,
+                  label: 'BASS REL',
+                  value: _lookaheadAgcBassReleaseMs,
+                  min: 60.0,
+                  max: 400.0,
+                  flatValue: 160.0,
+                  activeColor:
+                      _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                  valueFormatter: (v) => '${v.toInt()} ms',
+                  onChanged: (v) {
+                    setState(() => _lookaheadAgcBassReleaseMs = v);
+                    _subScreenSetState?.call(() {});
+                    if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                    _saveEqState();
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // True-Peak Ceiling Slider Card (replaces lone 7th knob)
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+          decoration: BoxDecoration(
+            color: surfaceDarkerColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ModernAudioKnob(
-                label: 'TARGET',
-                value: _lookaheadAgcTargetLufs,
-                min: -30.0,
-                max: -6.0,
-                flatValue: -14.0,
-                activeColor:
-                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
-                valueFormatter: (v) => '${v.toStringAsFixed(1)} LUFS',
-                onChanged: (v) {
-                  setState(() => _lookaheadAgcTargetLufs = v);
-                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                  _saveEqState();
-                },
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'TRUE-PEAK CEILING',
+                    style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  Text(
+                    '${_lookaheadAgcCeilingDb.toStringAsFixed(1)} dBFS',
+                    style: TextStyle(
+                      color:
+                          _lookaheadAgcEnabled ? primaryColor : Colors.white54,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
               ),
-              ModernAudioKnob(
-                label: 'MAX BOOST',
-                value: _lookaheadAgcMaxBoostDb,
-                min: 0.0,
-                max: 18.0,
-                flatValue: 9.0,
-                activeColor:
-                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
-                valueFormatter: (v) => '+${v.toStringAsFixed(1)} dB',
-                onChanged: (v) {
-                  setState(() => _lookaheadAgcMaxBoostDb = v);
-                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                  _saveEqState();
-                },
-              ),
-              ModernAudioKnob(
-                label: 'LOOKAHEAD',
-                value: _lookaheadAgcLookaheadMs,
-                min: 2.0,
-                max: 25.0,
-                flatValue: 10.0,
-                activeColor:
-                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
-                valueFormatter: (v) => '${v.toStringAsFixed(1)} ms',
-                onChanged: (v) {
-                  setState(() => _lookaheadAgcLookaheadMs = v);
-                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                  _saveEqState();
-                },
-              ),
-              ModernAudioKnob(
-                label: 'CEILING',
-                value: _lookaheadAgcCeilingDb,
-                min: -6.0,
-                max: -0.1,
-                flatValue: -0.1,
-                activeColor:
-                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
-                valueFormatter: (v) => '${v.toStringAsFixed(1)} dB',
-                onChanged: (v) {
-                  setState(() => _lookaheadAgcCeilingDb = v);
-                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                  _saveEqState();
-                },
-              ),
-              ModernAudioKnob(
-                label: 'BASS XOVER',
-                value: _lookaheadAgcLowXoverHz,
-                min: 80.0,
-                max: 400.0,
-                flatValue: 180.0,
-                activeColor:
-                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
-                valueFormatter: (v) => '${v.toInt()} Hz',
-                onChanged: (v) {
-                  setState(() => _lookaheadAgcLowXoverHz = v);
-                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                  _saveEqState();
-                },
-              ),
-              ModernAudioKnob(
-                label: 'BASS REL',
-                value: _lookaheadAgcBassReleaseMs,
-                min: 60.0,
-                max: 400.0,
-                flatValue: 160.0,
-                activeColor:
-                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
-                valueFormatter: (v) => '${v.toInt()} ms',
-                onChanged: (v) {
-                  setState(() => _lookaheadAgcBassReleaseMs = v);
-                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                  _saveEqState();
-                },
-              ),
-              ModernAudioKnob(
-                label: 'SILENCE GATE',
-                value: _lookaheadAgcSilenceGateLufs,
-                min: -70.0,
-                max: -24.0,
-                flatValue: -45.0,
-                activeColor:
-                    _lookaheadAgcEnabled ? primaryColor : Colors.white38,
-                valueFormatter: (v) => '${v.toInt()} LUFS',
-                onChanged: (v) {
-                  setState(() => _lookaheadAgcSilenceGateLufs = v);
-                  if (_lookaheadAgcEnabled) _updateLookaheadAgc();
-                  _saveEqState();
-                },
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 4,
+                  thumbShape:
+                      const RoundSliderThumbShape(enabledThumbRadius: 7),
+                  overlayShape:
+                      const RoundSliderOverlayShape(overlayRadius: 14),
+                ),
+                child: Slider(
+                  value: _lookaheadAgcCeilingDb.clamp(-6.0, -0.1),
+                  min: -6.0,
+                  max: -0.1,
+                  divisions: 59,
+                  activeColor:
+                      _lookaheadAgcEnabled ? primaryColor : Colors.white38,
+                  inactiveColor: Colors.white12,
+                  onChanged: (v) {
+                    setState(() => _lookaheadAgcCeilingDb = v);
+                    _subScreenSetState?.call(() {});
+                    if (_lookaheadAgcEnabled) _updateLookaheadAgc();
+                    _saveEqState();
+                  },
+                ),
               ),
             ],
           ),

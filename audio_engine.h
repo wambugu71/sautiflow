@@ -257,6 +257,10 @@ extern "C"
     AE_API void ae_set_reverb_engine(AudioEngineHandle *engine, int engine_type);
     AE_API int  ae_get_reverb_engine(AudioEngineHandle *engine);
 
+    // Dattorro Tank Controls (atomic wet/dry/room/damping/pre-delay/width)
+    AE_API void ae_set_dattorro_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float damping, float pre_delay_ms, float width);
+    AE_API void ae_get_dattorro_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_pre_delay_ms, float *out_width);
+
     // Lattice Reverb Controls
     AE_API void ae_set_lattice_reverb_params(AudioEngineHandle *engine, float wet, float dry, float room_size, float damping, float width);
     AE_API void ae_get_lattice_reverb_params(AudioEngineHandle *engine, float *out_wet, float *out_dry, float *out_room_size, float *out_damping, float *out_width);

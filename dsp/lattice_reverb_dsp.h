@@ -2,35 +2,43 @@
 
 /**
  * @file lattice_reverb_dsp.h
- * @brief Clean-room 4-Comb + 2-Allpass Recursive Lattice Reverberator DSP.
+ * @brief Clean-room Gardner Nested Stereo Allpass Lattice Reverberator DSP.
  *
- * Implements a low-coloration, natural reverberation algorithm utilizing
- * a bank of tuned mutually-prime parallel comb filters with one-pole damping
- * followed by cascaded allpass diffusers and Mid/Side stereo width balance.
- *
- * Designed for real-time low-latency audio pipelines with zero heap allocation
- * during processing, denormal flushing, and smooth click-free parameter updates.
+ * Implements a true nested allpass lattice topology (Gardner 1992/1997) with:
+ * - Zero parallel combs (eliminates hollow comb ringing & metallic flutter)
+ * - Matched-Z 90 Hz input highpass + subtle stereo cross-feed
+ * - Early outer/inner nested allpass diffusers per channel
+ * - Cross-coupled stereo nested allpass feedback lattice with quadrature
+ *   LFO modulation & 4-point Catmull-Rom cubic interpolation
+ * - Sample-rate-invariant matched-Z 1-pole damping + 45 Hz loop DC blocker
+ * - Steady-state wet RMS normalization & full F32/F64 precision without
+ *   per-sample pow/exp or audio-thread heap allocations
  */
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <vector>
-#include <algorithm>
 #include "denormals.h"
 
 namespace sauti::dsp {
 
 class LatticeReverbDSP {
 public:
-    static constexpr int NUM_COMBS = 4;
-    static constexpr int NUM_ALLPASS = 2;
+    static constexpr int BASE_EARLY_OUTER_L = 521;
+    static constexpr int BASE_EARLY_OUTER_R = 563;
+    static constexpr int BASE_EARLY_INNER_A_L = 173;
+    static constexpr int BASE_EARLY_INNER_A_R = 191;
+    static constexpr int BASE_EARLY_INNER_B_L = 257;
+    static constexpr int BASE_EARLY_INNER_B_R = 271;
 
-    // Base delay lengths tuned for 48 kHz (mutually prime to minimize flutter & modal ringing)
-    static constexpr int BASE_COMB_L[NUM_COMBS] = { 1116, 1188, 1277, 1356 };
-    static constexpr int COMB_STEREO_OFFSET = 23;
+    static constexpr int BASE_MAIN_OUTER_L = 1093;
+    static constexpr int BASE_MAIN_OUTER_R = 1151;
+    static constexpr int BASE_MAIN_INNER_L = 431;
+    static constexpr int BASE_MAIN_INNER_R = 461;
 
-    static constexpr int BASE_ALLPASS_L[NUM_ALLPASS] = { 225, 341 };
-    static constexpr int ALLPASS_STEREO_OFFSET = 13;
+    static constexpr int BASE_LOOP_DEL_L = 1607;
+    static constexpr int BASE_LOOP_DEL_R = 1693;
 
     LatticeReverbDSP() {
         setSampleRate(48000.0);
@@ -45,84 +53,220 @@ public:
         double scale = sampleRate / 48000.0;
         if (scale < 0.25) scale = 0.25;
 
-        for (int i = 0; i < NUM_COMBS; ++i) {
-            int lenL = std::max(16, (int)std::round(BASE_COMB_L[i] * scale));
-            int lenR = std::max(16, (int)std::round((BASE_COMB_L[i] + COMB_STEREO_OFFSET) * scale));
+        auto scaledLen = [scale](int base, int minVal) -> int {
+            return std::max(minVal, (int)std::lround((double)base * scale));
+        };
 
-            combBufL[i].assign(lenL, 0.0f);
-            combBufR[i].assign(lenR, 0.0f);
-            combIdxL[i] = 0;
-            combIdxR[i] = 0;
-            combFilterL[i] = 0.0f;
-            combFilterR[i] = 0.0f;
-        }
+        const int modHeadroom = (int)std::ceil(4.0 * scale) + 12;
 
-        for (int i = 0; i < NUM_ALLPASS; ++i) {
-            int lenL = std::max(8, (int)std::round(BASE_ALLPASS_L[i] * scale));
-            int lenR = std::max(8, (int)std::round((BASE_ALLPASS_L[i] + ALLPASS_STEREO_OFFSET) * scale));
+        earlyOuterL.resize(scaledLen(BASE_EARLY_OUTER_L, 16));
+        earlyOuterR.resize(scaledLen(BASE_EARLY_OUTER_R, 16));
+        earlyInnerAL.init(scaledLen(BASE_EARLY_INNER_A_L, 8), 0.55f);
+        earlyInnerAR.init(scaledLen(BASE_EARLY_INNER_A_R, 8), 0.55f);
+        earlyInnerBL.init(scaledLen(BASE_EARLY_INNER_B_L, 8), 0.45f);
+        earlyInnerBR.init(scaledLen(BASE_EARLY_INNER_B_R, 8), 0.45f);
 
-            allpassBufL[i].assign(lenL, 0.0f);
-            allpassBufR[i].assign(lenR, 0.0f);
-            allpassIdxL[i] = 0;
-            allpassIdxR[i] = 0;
-        }
+        mainOuterNomL = scaledLen(BASE_MAIN_OUTER_L, 32);
+        mainOuterNomR = scaledLen(BASE_MAIN_OUTER_R, 32);
+        mainOuterL.resize(mainOuterNomL + modHeadroom);
+        mainOuterR.resize(mainOuterNomR + modHeadroom);
+        mainInnerL.init(scaledLen(BASE_MAIN_INNER_L, 16), 0.55f);
+        mainInnerR.init(scaledLen(BASE_MAIN_INNER_R, 16), 0.55f);
+
+        loopDelL.resize(scaledLen(BASE_LOOP_DEL_L, 32));
+        loopDelR.resize(scaledLen(BASE_LOOP_DEL_R, 32));
 
         buffersAllocated = true;
+        updateCoefficients();
         reset();
     }
 
     void setEnabled(bool e) { targetEnabled = e; }
     bool isEnabled() const { return targetEnabled; }
 
-    void setWet(float w) { targetWet = std::max(0.0f, std::min(w, 2.0f)); }
+    void setWet(float w) { targetWet = std::clamp(w, 0.0f, 2.0f); }
     float getWet() const { return targetWet; }
 
-    void setDry(float d) { targetDry = std::max(0.0f, std::min(d, 2.0f)); }
+    void setDry(float d) { targetDry = std::clamp(d, 0.0f, 2.0f); }
     float getDry() const { return targetDry; }
 
-    void setRoomSize(float r) { targetRoomSize = std::max(0.0f, std::min(r, 1.0f)); }
+    void setRoomSize(float r) {
+        targetRoomSize = std::clamp(r, 0.0f, 1.0f);
+        updateCoefficients();
+    }
     float getRoomSize() const { return targetRoomSize; }
 
-    void setDamping(float d) { targetDamping = std::max(0.0f, std::min(d, 1.0f)); }
+    void setDamping(float d) {
+        targetDamping = std::clamp(d, 0.0f, 1.0f);
+        updateCoefficients();
+    }
     float getDamping() const { return targetDamping; }
 
-    void setWidth(float w) { targetWidth = std::max(0.0f, std::min(w, 2.0f)); }
+    void setWidth(float w) { targetWidth = std::clamp(w, 0.0f, 2.0f); }
     float getWidth() const { return targetWidth; }
 
     void setParams(float wet, float dry, float roomSize, float damping, float width = 1.0f) {
-        setWet(wet);
-        setDry(dry);
-        setRoomSize(roomSize);
-        setDamping(damping);
-        setWidth(width);
+        targetWet = std::clamp(wet, 0.0f, 2.0f);
+        targetDry = std::clamp(dry, 0.0f, 2.0f);
+        targetRoomSize = std::clamp(roomSize, 0.0f, 1.0f);
+        targetDamping = std::clamp(damping, 0.0f, 1.0f);
+        targetWidth = std::clamp(width, 0.0f, 2.0f);
+        updateCoefficients();
     }
 
     void reset() {
-        for (int i = 0; i < NUM_COMBS; ++i) {
-            std::fill(combBufL[i].begin(), combBufL[i].end(), 0.0f);
-            std::fill(combBufR[i].begin(), combBufR[i].end(), 0.0f);
-            combIdxL[i] = 0;
-            combIdxR[i] = 0;
-            combFilterL[i] = 0.0f;
-            combFilterR[i] = 0.0f;
-        }
-        for (int i = 0; i < NUM_ALLPASS; ++i) {
-            std::fill(allpassBufL[i].begin(), allpassBufL[i].end(), 0.0f);
-            std::fill(allpassBufR[i].begin(), allpassBufR[i].end(), 0.0f);
-            allpassIdxL[i] = 0;
-            allpassIdxR[i] = 0;
-        }
+        earlyOuterL.clear();
+        earlyOuterR.clear();
+        earlyInnerAL.clear();
+        earlyInnerAR.clear();
+        earlyInnerBL.clear();
+        earlyInnerBR.clear();
+
+        mainOuterL.clear();
+        mainOuterR.clear();
+        mainInnerL.clear();
+        mainInnerR.clear();
+
+        loopDelL.clear();
+        loopDelR.clear();
+
+        inHpfStateL = inHpfStateR = 0.0f;
+        dampLpfStateL = dampLpfStateR = 0.0f;
+        loopHpfStateL = loopHpfStateR = 0.0f;
+        fbStateL = fbStateR = 0.0f;
+
+        lfoPhaseL = 0.0f;
+        lfoPhaseR = 1.57079632679f;
 
         currentWet = targetWet;
         currentDry = targetDry;
-        currentRoomSize = targetRoomSize;
-        currentDamping = targetDamping;
         currentWidth = targetWidth;
+        currentDecay = targetDecay;
+        currentDampCoeff = targetDampCoeff;
         currentEnabled = targetEnabled;
     }
 
     void process(float* interleaved, uint32_t frames, int channels) {
-        if (!interleaved || frames == 0 || channels < 2) return;
+        processImpl(interleaved, frames, channels, true);
+    }
+
+    void process(double* interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels, true);
+    }
+
+    void processWetOnly(float* interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels, false);
+    }
+
+    void processWetOnly(double* interleaved, uint32_t frames, int channels) {
+        processImpl(interleaved, frames, channels, false);
+    }
+
+private:
+    struct RingLine {
+        std::vector<float> buf;
+        int writeIdx = 0;
+
+        void resize(int len) {
+            buf.assign(std::max(8, len), 0.0f);
+            writeIdx = 0;
+        }
+
+        void clear() {
+            std::fill(buf.begin(), buf.end(), 0.0f);
+            writeIdx = 0;
+        }
+
+        float readOldest() const {
+            return buf[writeIdx];
+        }
+
+        float readCubic(float delaySamples) const {
+            const int sz = (int)buf.size();
+            if (sz < 8) return buf[writeIdx];
+            const float maxD = (float)(sz - 4);
+            if (delaySamples < 3.0f) delaySamples = 3.0f;
+            if (delaySamples > maxD) delaySamples = maxD;
+
+            float readPos = (float)writeIdx - delaySamples;
+            while (readPos < 0.0f) readPos += (float)sz;
+            while (readPos >= (float)sz) readPos -= (float)sz;
+
+            const int i0 = (int)readPos;
+            const int i1 = (i0 + 1 >= sz) ? 0 : i0 + 1;
+            const int im1 = (i0 - 1 < 0) ? sz - 1 : i0 - 1;
+            const int i2 = (i1 + 1 >= sz) ? 0 : i1 + 1;
+            const float frac = readPos - (float)i0;
+
+            const float y0 = buf[im1];
+            const float y1 = buf[i0];
+            const float y2 = buf[i1];
+            const float y3 = buf[i2];
+
+            const float c0 = y1;
+            const float c1 = 0.5f * (y2 - y0);
+            const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
+            const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
+            return ((c3 * frac + c2) * frac + c1) * frac + c0;
+        }
+
+        void write(float v) {
+            buf[writeIdx] = v;
+            if (++writeIdx >= (int)buf.size()) writeIdx = 0;
+        }
+    };
+
+    struct SimpleAllpass {
+        std::vector<float> buf;
+        int idx = 0;
+        float gain = 0.5f;
+
+        void init(int len, float g) {
+            buf.assign(std::max(4, len), 0.0f);
+            idx = 0;
+            gain = g;
+        }
+
+        void clear() {
+            std::fill(buf.begin(), buf.end(), 0.0f);
+            idx = 0;
+        }
+
+        float process(float x) {
+            const float d = buf[idx];
+            const float y = -gain * x + d;
+            float next = x + gain * y;
+            flush_denormal(next);
+            buf[idx] = next;
+            if (++idx >= (int)buf.size()) idx = 0;
+            return y;
+        }
+    };
+
+    void updateCoefficients() {
+        if (sampleRate <= 0.0) return;
+        constexpr float twoPi = 6.28318530717958647692f;
+        // Room/chamber RT60 curve: 0.18s .. 5.04s (0.50 -> ~0.95s, 0.75 -> ~2.19s)
+        // Mean half-loop delay @ 48 kHz = ((431+1093+1607) + (461+1151+1693)) / (2*48000) = 0.0670417s
+        const float targetRT60 = 0.18f * std::pow(28.0f, targetRoomSize);
+        targetDecay = std::min(0.975f, std::pow(10.0f, -3.0f * 0.0670417f / targetRT60));
+
+        // Sample-rate-invariant matched-Z 1-pole damping
+        if (targetDamping <= 0.0001f) {
+            targetDampCoeff = 1.0f;
+        } else {
+            const float dampHz = 18000.0f * std::pow(0.0667f, targetDamping);
+            const float w = std::min(3.0f, twoPi * dampHz / (float)sampleRate);
+            targetDampCoeff = 1.0f - std::exp(-w);
+        }
+
+        inHpfCoeff = 1.0f - std::exp(-std::min(3.0f, twoPi * 90.0f / (float)sampleRate));
+        loopHpfCoeff = 1.0f - std::exp(-std::min(3.0f, twoPi * 45.0f / (float)sampleRate));
+    }
+
+    template <typename T>
+    void processImpl(T* interleaved, uint32_t frames, int channels, bool mixDry) {
+        if (!interleaved || frames == 0 || channels < 2 || !buffersAllocated) return;
 
         if (!targetEnabled && currentWet < 0.0001f) {
             currentEnabled = false;
@@ -132,140 +276,160 @@ public:
 
         ScopedDenormalsDisable ftz;
 
-        // 15ms smoothing factor for parameter updates
-        const float alpha = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
+        const float smoothAlpha = 1.0f - std::exp(-1.0f / (0.015f * (float)sampleRate));
+        constexpr float twoPi = 6.28318530717958647692f;
+        const float lfoIncL = (twoPi * 0.47f) / (float)sampleRate;
+        const float lfoIncR = (twoPi * 0.61f) / (float)sampleRate;
+        const float modDepth = 4.0f * (float)(sampleRate / 48000.0);
 
         for (uint32_t f = 0; f < frames; ++f) {
-            // Parameter smoothing
-            currentWet += alpha * (targetWet - currentWet);
-            currentDry += alpha * (targetDry - currentDry);
-            currentRoomSize += alpha * (targetRoomSize - currentRoomSize);
-            currentDamping += alpha * (targetDamping - currentDamping);
-            currentWidth += alpha * (targetWidth - currentWidth);
+            currentWet += (targetWet - currentWet) * smoothAlpha;
+            currentDry += (targetDry - currentDry) * smoothAlpha;
+            currentWidth += (targetWidth - currentWidth) * smoothAlpha;
+            currentDecay += (targetDecay - currentDecay) * smoothAlpha;
+            currentDampCoeff += (targetDampCoeff - currentDampCoeff) * smoothAlpha;
 
-            const float targetRT60 = 0.35f * std::pow(40.0f, currentRoomSize);
-            const float damp = currentDamping * 0.7f;
+            const size_t base = (size_t)f * (size_t)channels;
+            const double rawInL = static_cast<double>(interleaved[base]);
+            const double rawInR = static_cast<double>(interleaved[base + 1]);
+            const float inL = static_cast<float>(rawInL);
+            const float inR = static_cast<float>(rawInR);
 
-            float inL = interleaved[f * channels + 0];
-            float inR = interleaved[f * channels + 1];
+            // 1. Input 90 Hz HPF + subtle stereo cross-feed
+            inHpfStateL += inHpfCoeff * (inL - inHpfStateL);
+            inHpfStateR += inHpfCoeff * (inR - inHpfStateR);
+            flush_denormal(inHpfStateL);
+            flush_denormal(inHpfStateR);
+            const float hpL = inL - inHpfStateL;
+            const float hpR = inR - inHpfStateR;
 
-            // 1. Parallel Comb Filters
-            float combOutL = 0.0f;
-            float combOutR = 0.0f;
+            const float xL = 0.85f * hpL + 0.15f * hpR;
+            const float xR = 0.85f * hpR + 0.15f * hpL;
 
-            for (int i = 0; i < NUM_COMBS; ++i) {
-                // Left channel comb
-                const int szL = (int)combBufL[i].size();
-                const float fbL = std::min(0.985f, std::pow(10.0f, -3.0f * (float)szL / ((float)sampleRate * targetRT60)));
-                int idxL = combIdxL[i];
-                float outL = combBufL[i][idxL];
-                combFilterL[i] = outL * (1.0f - damp) + combFilterL[i] * damp;
-                combBufL[i][idxL] = inL + combFilterL[i] * fbL;
-                combIdxL[i] = (idxL + 1 < szL) ? idxL + 1 : 0;
-                combOutL += outL;
+            // 2. Early Outer Nested Allpass (outer g=0.50 enclosing 2 inner APs)
+            float dEarlyL = earlyOuterL.readOldest();
+            float aEarlyL = earlyInnerBL.process(earlyInnerAL.process(dEarlyL));
+            float vEarlyL = xL + 0.50f * aEarlyL;
+            flush_denormal(vEarlyL);
+            earlyOuterL.write(vEarlyL);
+            const float earlyOutL = aEarlyL - 0.50f * vEarlyL;
 
-                // Right channel comb
-                const int szR = (int)combBufR[i].size();
-                const float fbR = std::min(0.985f, std::pow(10.0f, -3.0f * (float)szR / ((float)sampleRate * targetRT60)));
-                int idxR = combIdxR[i];
-                float outR = combBufR[i][idxR];
-                combFilterR[i] = outR * (1.0f - damp) + combFilterR[i] * damp;
-                combBufR[i][idxR] = inR + combFilterR[i] * fbR;
-                combIdxR[i] = (idxR + 1 < szR) ? idxR + 1 : 0;
-                combOutR += outR;
+            float dEarlyR = earlyOuterR.readOldest();
+            float aEarlyR = earlyInnerBR.process(earlyInnerAR.process(dEarlyR));
+            float vEarlyR = xR + 0.50f * aEarlyR;
+            flush_denormal(vEarlyR);
+            earlyOuterR.write(vEarlyR);
+            const float earlyOutR = aEarlyR - 0.50f * vEarlyR;
+
+            // 3. Quadrature LFO Modulation
+            const float modL = std::sin(lfoPhaseL) * modDepth;
+            const float modR = std::sin(lfoPhaseR) * modDepth;
+            lfoPhaseL += lfoIncL;
+            if (lfoPhaseL >= twoPi) lfoPhaseL -= twoPi;
+            lfoPhaseR += lfoIncR;
+            if (lfoPhaseR >= twoPi) lfoPhaseR -= twoPi;
+
+            // 4. Cross-Coupled Stereo Nested Allpass Lattice Loop
+            const float loopInL = earlyOutL + fbStateR * currentDecay;
+            const float loopInR = earlyOutR + fbStateL * currentDecay;
+
+            float dMainL = mainOuterL.readCubic((float)mainOuterNomL + modL);
+            float aMainL = mainInnerL.process(dMainL);
+            float vMainL = loopInL + 0.50f * aMainL;
+            flush_denormal(vMainL);
+            mainOuterL.write(vMainL);
+            const float mainApOutL = aMainL - 0.50f * vMainL;
+
+            float dMainR = mainOuterR.readCubic((float)mainOuterNomR + modR);
+            float aMainR = mainInnerR.process(dMainR);
+            float vMainR = loopInR + 0.50f * aMainR;
+            flush_denormal(vMainR);
+            mainOuterR.write(vMainR);
+            const float mainApOutR = aMainR - 0.50f * vMainR;
+
+            // Loop delay + matched-Z LPF damping + 45 Hz loop DC blocker
+            const float loopDelOutL = loopDelL.readOldest();
+            loopDelL.write(mainApOutL);
+            dampLpfStateL += currentDampCoeff * (loopDelOutL - dampLpfStateL);
+            flush_denormal(dampLpfStateL);
+            loopHpfStateL += loopHpfCoeff * (dampLpfStateL - loopHpfStateL);
+            flush_denormal(loopHpfStateL);
+            fbStateL = dampLpfStateL - loopHpfStateL;
+
+            const float loopDelOutR = loopDelR.readOldest();
+            loopDelR.write(mainApOutR);
+            dampLpfStateR += currentDampCoeff * (loopDelOutR - dampLpfStateR);
+            flush_denormal(dampLpfStateR);
+            loopHpfStateR += loopHpfCoeff * (dampLpfStateR - loopHpfStateR);
+            flush_denormal(loopHpfStateR);
+            fbStateR = dampLpfStateR - loopHpfStateR;
+
+            // 5. Multi-Tap Lattice Output with Steady-State RMS Normalization
+            const float wetNorm = 0.55f * std::sqrt(std::max(0.08f, 1.0f - 0.80f * currentDecay * currentDecay));
+            const float wetL = (0.30f * earlyOutL + 0.45f * mainApOutL + 0.35f * loopDelOutL - 0.18f * loopDelOutR) * wetNorm;
+            const float wetR = (0.30f * earlyOutR + 0.45f * mainApOutR + 0.35f * loopDelOutR - 0.18f * loopDelOutL) * wetNorm;
+
+            // 6. Mid/Side Stereo Width Balance
+            const float mid = 0.5f * (wetL + wetR);
+            const float side = 0.5f * (wetL - wetR) * currentWidth;
+            const float outL = mid + side;
+            const float outR = mid - side;
+
+            if (mixDry) {
+                interleaved[base]     = static_cast<T>(rawInL * static_cast<double>(currentDry) + static_cast<double>(outL) * static_cast<double>(currentWet));
+                interleaved[base + 1] = static_cast<T>(rawInR * static_cast<double>(currentDry) + static_cast<double>(outR) * static_cast<double>(currentWet));
+            } else {
+                interleaved[base]     = static_cast<T>(static_cast<double>(outL) * static_cast<double>(currentWet));
+                interleaved[base + 1] = static_cast<T>(static_cast<double>(outR) * static_cast<double>(currentWet));
             }
-
-            // Normalization after parallel comb bank
-            float apInL = combOutL * 0.25f;
-            float apInR = combOutR * 0.25f;
-
-            // 2. Cascaded Canonical Schroeder Allpass Diffusers: H(z) = (-g + z^-D) / (1 - g * z^-D)
-            for (int i = 0; i < NUM_ALLPASS; ++i) {
-                // Left allpass (feedback g = 0.5f)
-                const int szL = (int)allpassBufL[i].size();
-                int idxL = allpassIdxL[i];
-                float bufOutL = allpassBufL[i][idxL];
-                float apOutL = -0.5f * apInL + bufOutL;
-                allpassBufL[i][idxL] = apInL + (apOutL * 0.5f);
-                allpassIdxL[i] = (idxL + 1 < szL) ? idxL + 1 : 0;
-                apInL = apOutL;
-
-                // Right allpass (feedback g = 0.5f)
-                const int szR = (int)allpassBufR[i].size();
-                int idxR = allpassIdxR[i];
-                float bufOutR = allpassBufR[i][idxR];
-                float apOutR = -0.5f * apInR + bufOutR;
-                allpassBufR[i][idxR] = apInR + (apOutR * 0.5f);
-                allpassIdxR[i] = (idxR + 1 < szR) ? idxR + 1 : 0;
-                apInR = apOutR;
-            }
-
-            // 3. Stereo Width Matrixing (Mid/Side) on Wet Signal
-            float wetL = apInL;
-            float wetR = apInR;
-            if (std::abs(currentWidth - 1.0f) > 0.001f) {
-                float mid = 0.5f * (wetL + wetR);
-                float side = 0.5f * (wetL - wetR) * currentWidth;
-                wetL = mid + side;
-                wetR = mid - side;
-            }
-
-            // 4. Wet / Dry Mix
-            float outL = inL * currentDry + wetL * currentWet;
-            float outR = inR * currentDry + wetR * currentWet;
-
-            interleaved[f * channels + 0] = std::max(-4.0f, std::min(outL, 4.0f));
-            interleaved[f * channels + 1] = std::max(-4.0f, std::min(outR, 4.0f));
         }
     }
 
-    void process(double* interleaved, uint32_t frames, int channels) {
-        if (!interleaved || frames == 0 || channels < 2) return;
-        std::vector<float> tmp(frames * channels);
-        for (size_t i = 0; i < tmp.size(); ++i) {
-            tmp[i] = static_cast<float>(interleaved[i]);
-        }
-        process(tmp.data(), frames, channels);
-        for (size_t i = 0; i < tmp.size(); ++i) {
-            interleaved[i] = static_cast<double>(tmp[i]);
-        }
-    }
-
-private:
     double sampleRate = 48000.0;
     bool buffersAllocated = false;
 
     bool targetEnabled = false;
     bool currentEnabled = false;
 
-    float targetWet = 0.35f;
-    float currentWet = 0.35f;
+    float targetWet = 0.28f;
+    float currentWet = 0.28f;
 
-    float targetDry = 0.70f;
-    float currentDry = 0.70f;
+    float targetDry = 0.90f;
+    float currentDry = 0.90f;
 
-    float targetRoomSize = 0.75f;
-    float currentRoomSize = 0.75f;
-
-    float targetDamping = 0.25f;
-    float currentDamping = 0.25f;
+    float targetRoomSize = 0.50f;
+    float targetDamping = 0.30f;
 
     float targetWidth = 1.0f;
     float currentWidth = 1.0f;
 
-    // Comb lines
-    std::vector<float> combBufL[NUM_COMBS];
-    std::vector<float> combBufR[NUM_COMBS];
-    int combIdxL[NUM_COMBS] = {0};
-    int combIdxR[NUM_COMBS] = {0};
-    float combFilterL[NUM_COMBS] = {0.0f};
-    float combFilterR[NUM_COMBS] = {0.0f};
+    float targetDecay = 0.615f;
+    float currentDecay = 0.615f;
+    float targetDampCoeff = 0.55f;
+    float currentDampCoeff = 0.55f;
+    float inHpfCoeff = 0.01f;
+    float loopHpfCoeff = 0.005f;
 
-    // Allpass lines
-    std::vector<float> allpassBufL[NUM_ALLPASS];
-    std::vector<float> allpassBufR[NUM_ALLPASS];
-    int allpassIdxL[NUM_ALLPASS] = {0};
-    int allpassIdxR[NUM_ALLPASS] = {0};
+    // Early nested allpass lines
+    RingLine earlyOuterL, earlyOuterR;
+    SimpleAllpass earlyInnerAL, earlyInnerAR;
+    SimpleAllpass earlyInnerBL, earlyInnerBR;
+
+    // Main cross-coupled nested allpass loop
+    RingLine mainOuterL, mainOuterR;
+    SimpleAllpass mainInnerL, mainInnerR;
+    int mainOuterNomL = 1093;
+    int mainOuterNomR = 1151;
+
+    RingLine loopDelL, loopDelR;
+
+    float inHpfStateL = 0.0f, inHpfStateR = 0.0f;
+    float dampLpfStateL = 0.0f, dampLpfStateR = 0.0f;
+    float loopHpfStateL = 0.0f, loopHpfStateR = 0.0f;
+    float fbStateL = 0.0f, fbStateR = 0.0f;
+
+    float lfoPhaseL = 0.0f;
+    float lfoPhaseR = 1.57079632679f;
 };
 
 } // namespace sauti::dsp
