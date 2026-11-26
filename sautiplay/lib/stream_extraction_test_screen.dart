@@ -9,13 +9,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import 'album_detail_screen.dart';
 import 'services/app_theme_service.dart';
-
-enum AudioQualityPreset {
-  low, // ~50 kbps (Data Saver)
-  medium, // ~70 kbps (Mobile)
-  high, // ~128 kbps (AAC Native)
-  audiophile, // ~160 kbps (Opus Max)
-}
+import 'streaming_service.dart';
 
 class StreamExtractionTestScreen extends StatefulWidget {
   final Future<void> Function(List<TrackInfo> tracks, {int initialIndex})?
@@ -152,47 +146,12 @@ class _StreamExtractionTestScreenState
   }
 
   void _updateSelectedStream() {
-    if (_manifest == null) return;
-    final streams = _manifest!.audioOnly.toList()
-      ..sort(
-          (a, b) => a.bitrate.bitsPerSecond.compareTo(b.bitrate.bitsPerSecond));
-
-    if (streams.isEmpty) return;
-
-    if (_preferAac) {
-      final aacStreams =
-          streams.where((s) => s.container == StreamContainer.mp4).toList();
-      if (aacStreams.isNotEmpty) {
-        _selectedStream = _qualityPreset == AudioQualityPreset.low
-            ? aacStreams.first
-            : aacStreams.last;
-        return;
-      }
-    }
-
-    switch (_qualityPreset) {
-      case AudioQualityPreset.low:
-        _selectedStream = streams.first;
-        break;
-      case AudioQualityPreset.medium:
-        final mid = streams
-            .where((s) =>
-                s.bitrate.kiloBitsPerSecond >= 60 &&
-                s.bitrate.kiloBitsPerSecond <= 100)
-            .toList();
-        _selectedStream =
-            mid.isNotEmpty ? mid.first : streams[streams.length ~/ 2];
-        break;
-      case AudioQualityPreset.high:
-        final high = streams
-            .where((s) => s.bitrate.kiloBitsPerSecond >= 120)
-            .toList();
-        _selectedStream = high.isNotEmpty ? high.first : streams.last;
-        break;
-      case AudioQualityPreset.audiophile:
-        _selectedStream = streams.last;
-        break;
-    }
+    if (_manifest == null || _manifest!.audioOnly.isEmpty) return;
+    _selectedStream = AudioStreamSelector.selectStream(
+      _manifest!,
+      quality: _qualityPreset,
+      preferAac: _preferAac,
+    );
   }
 
   Future<void> _testHttpReachability(String streamUrl) async {

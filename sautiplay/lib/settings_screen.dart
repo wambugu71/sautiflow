@@ -158,6 +158,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Local UI settings
   String _streamingQuality = 'High Fidelity';
   AudioQualityPreset _streamingQualityPreset = AudioQualityPreset.audiophile;
+  StreamBufferProfile _streamBufferProfile = StreamBufferProfile.balanced;
   bool _preferNativeAac = false;
   bool _enableHostedFallback = true;
   bool _gaplessPlayback = true;
@@ -447,6 +448,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final loudnessCf = engineSettings.loudnessCrossfadeEnabled;
     final streamingPreset =
         await AppStateService.instance.loadStreamingQualityPreset();
+    final bufferProfile =
+        await AppStateService.instance.loadStreamBufferProfile();
     final preferAac = await AppStateService.instance.loadPreferNativeAac();
     final fallback = await AppStateService.instance.loadEnableHostedFallback();
     final focusSaved = await AppStateService.instance.loadAudioFocusSettings();
@@ -467,6 +470,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoCheckUpdates = autoCheck;
       _proximitySettings = proxSaved;
       _streamingQualityPreset = streamingPreset;
+      _streamBufferProfile = bufferProfile;
       _preferNativeAac = preferAac;
       _enableHostedFallback = fallback;
       _streamingQuality = saved.streamingQuality;
@@ -5123,6 +5127,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 20),
 
+            // ── NETWORK BUFFER PROFILE ──────────────────────────────────────
+            _buildSectionHeader('STREAMING BUFFER PROFILE'),
+            const SizedBox(height: 8),
+            _buildCardContainer(
+              children: [
+                _buildBufferProfileTile(
+                  title: 'Fast Start',
+                  subtitle: '0.3s prebuffer · 8s ring — minimal startup delay on strong Wi-Fi',
+                  profile: StreamBufferProfile.fastStart,
+                  badge: '0.3s',
+                  setSubState: setSubState,
+                ),
+                const M3EDivider(),
+                _buildBufferProfileTile(
+                  title: 'Balanced',
+                  subtitle: '0.6s prebuffer · 12s ring — recommended default for mixed links',
+                  profile: StreamBufferProfile.balanced,
+                  badge: '0.6s',
+                  setSubState: setSubState,
+                ),
+                const M3EDivider(),
+                _buildBufferProfileTile(
+                  title: 'High Stability',
+                  subtitle: '2.0s prebuffer · 20s ring — best dropout protection on weak networks',
+                  profile: StreamBufferProfile.highStability,
+                  badge: '2.0s',
+                  setSubState: setSubState,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
             // ── HARDWARE & CONTAINER PREFERENCES ────────────────────────────
             _buildSectionHeader('STREAMING OPTIMIZATION'),
             const SizedBox(height: 8),
@@ -5131,7 +5167,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildM3ESwitchTile(
                   title: 'Prioritize Native AAC Audio',
                   subtitle:
-                      'Plays M4A streams directly for lower battery usage',
+                      'Prefer M4A/AAC container over WebM/Opus for broader compatibility',
                   secondary: _buildLeadingIcon(Icons.memory_rounded),
                   value: _preferNativeAac,
                   onChanged: (val) {
@@ -5209,6 +5245,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildBufferProfileTile({
+    required String title,
+    required String subtitle,
+    required StreamBufferProfile profile,
+    required String badge,
+    required StateSetter setSubState,
+  }) {
+    final isSelected = _streamBufferProfile == profile;
+    return InkWell(
+      onTap: () {
+        setState(() => _streamBufferProfile = profile);
+        setSubState(() {});
+        AppStateService.instance.saveStreamBufferProfile(profile);
+        widget.player.setStreamBufferProfile(profile);
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(
+              isSelected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_off_rounded,
+              color: isSelected ? _primary : _textDark,
+              size: 22,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          color: isSelected ? _primary : _textPrimary,
+                          fontWeight:
+                              isSelected ? FontWeight.w700 : FontWeight.w600,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      AppStatusBadge(
+                        text: badge,
+                        color: isSelected ? _primary : _textDark,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: _textDark,
+                      fontSize: 12.5,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

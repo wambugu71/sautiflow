@@ -2516,12 +2516,18 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
             ? widget.queue[status.currentIndex]
             : null;
         final rawTitle = widget.getTitle(status.currentIndex);
-        final title = _customTitle ?? rawTitle;
+        final icyTitle = _streamTelemetry.icyTitle.trim();
+        final title = _customTitle ??
+            (icyTitle.isNotEmpty ? icyTitle : rawTitle);
 
         final dynamicArtist = widget.getArtist != null
             ? widget.getArtist!(status.currentIndex)
             : (curTrack?.artist ?? widget.artist);
-        final subtitle = _customArtist ?? dynamicArtist;
+        final icyArtist = _streamTelemetry.icyArtist.trim();
+        final subtitle = _customArtist ??
+            (icyArtist.isNotEmpty ? icyArtist : dynamicArtist);
+        final isLiveStream =
+            _streamTelemetry.isLive && !_streamTelemetry.isSeekable;
 
         final dynamicArtistId = widget.getArtistId != null
             ? widget.getArtistId!(status.currentIndex)
@@ -3322,16 +3328,55 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                                     : widget.videoId),
                                                           ),
                                                         ),
-                                                        Text(
-                                                          _fmt(duration),
-                                                          style: const TextStyle(
-                                                              fontSize: 14,
-                                                              color:
-                                                                  Colors.white,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold),
-                                                        ),
+                                                        if (isLiveStream)
+                                                          Container(
+                                                            padding:
+                                                                const EdgeInsets
+                                                                    .symmetric(
+                                                                    horizontal:
+                                                                        8,
+                                                                    vertical:
+                                                                        3),
+                                                            decoration:
+                                                                BoxDecoration(
+                                                              color: Colors
+                                                                  .redAccent
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.22),
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          8),
+                                                              border: Border.all(
+                                                                  color: Colors
+                                                                      .redAccent),
+                                                            ),
+                                                            child: const Text(
+                                                              'LIVE',
+                                                              style: TextStyle(
+                                                                fontSize: 11,
+                                                                color: Colors
+                                                                    .redAccent,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                letterSpacing:
+                                                                    0.8,
+                                                              ),
+                                                            ),
+                                                          )
+                                                        else
+                                                          Text(
+                                                            _fmt(duration),
+                                                            style: const TextStyle(
+                                                                fontSize: 14,
+                                                                color:
+                                                                    Colors.white,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold),
+                                                          ),
                                                       ],
                                                     ),
                                                   ],
@@ -3816,12 +3861,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                             ? const SizedBox(
                                                 width: 32,
                                                 height: 32,
-                                                child:
-                                                    CircularProgressIndicator(
+                                                child: M3EProgressIndicator
+                                                    .circularWavy(
                                                   strokeWidth: 3.0,
-                                                  valueColor:
-                                                      AlwaysStoppedAnimation<
-                                                          Color>(Colors.white),
+                                                  trackColor: Colors.white,
                                                 ),
                                               )
                                             : Icon(
@@ -3936,13 +3979,38 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                                                 ),
                                               ),
                                             ),
-                                            Text(
-                                              _fmt(duration),
-                                              style: const TextStyle(
-                                                fontSize: 8,
-                                                color: Colors.white,
+                                            if (isLiveStream)
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 7,
+                                                        vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.redAccent
+                                                      .withValues(alpha: 0.22),
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                  border: Border.all(
+                                                      color: Colors.redAccent),
+                                                ),
+                                                child: const Text(
+                                                  'LIVE',
+                                                  style: TextStyle(
+                                                    fontSize: 9,
+                                                    color: Colors.redAccent,
+                                                    fontWeight: FontWeight.bold,
+                                                    letterSpacing: 0.8,
+                                                  ),
+                                                ),
+                                              )
+                                            else
+                                              Text(
+                                                _fmt(duration),
+                                                style: const TextStyle(
+                                                  fontSize: 8,
+                                                  color: Colors.white,
+                                                ),
                                               ),
-                                            ),
                                           ],
                                         ),
                                       ],
@@ -4699,6 +4767,25 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
     final appTheme = AppThemeProvider.of(context);
     final indicatorColor = appTheme.progressIndicator;
     final trackColor = appTheme.progressTrack;
+    final isLiveUnseekable =
+        _streamTelemetry.isLive && !_streamTelemetry.isSeekable;
+
+    if (isLiveUnseekable) {
+      return SizedBox(
+        height: isMobile ? 36.0 : 40.0,
+        child: Center(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: _streamTelemetry.isBuffering ? null : 1.0,
+              minHeight: isMobile ? 4.0 : 6.0,
+              backgroundColor: trackColor,
+              valueColor: AlwaysStoppedAnimation<Color>(indicatorColor),
+            ),
+          ),
+        ),
+      );
+    }
 
     if (_useWaveformSeekBar &&
         _currentWaveformPeaks != null &&

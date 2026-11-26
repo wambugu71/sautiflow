@@ -70,6 +70,8 @@ struct StreamTelemetry {
     char icyArtist[256]{0};
     bool isLiveStream{false};
     bool isSeekable{false};
+    double swrLatencyMs{0.0};
+    double swrPassbandRatio{0.95};
 };
 
 using StreamTelemetryCallback = std::function<void(const StreamTelemetry&)>;
@@ -78,6 +80,9 @@ struct FFmpegDecoderInitConfig {
     int targetSampleRate{48000};
     int targetChannels{2};
     bool forceFallback{false};
+    int prebufferMs{500};
+    int rebufferMs{1500};
+    int ringDurationSec{10};
 };
 
 class FFmpegStreamSource {
@@ -89,7 +94,12 @@ public:
     FFmpegStreamSource(const FFmpegStreamSource&) = delete;
     FFmpegStreamSource& operator=(const FFmpegStreamSource&) = delete;
 
-    bool open(const std::string& url, int targetSampleRate = 48000, int targetChannels = 2, int prebufferMs = 500);
+    bool open(const std::string& url,
+              int targetSampleRate = 48000,
+              int targetChannels = 2,
+              int prebufferMs = 500,
+              int rebufferMs = 1500,
+              int ringDurationSec = 10);
     void close();
 
     // Pull decoded PCM frames (float32 interleaved). Returns frames read.
@@ -120,8 +130,11 @@ private:
     std::string m_url;
     int m_targetSampleRate{48000};
     int m_targetChannels{2};
-    size_t m_prebufferBytes{0};
-    size_t m_rebufferBytes{0};
+    size_t m_prebufferFrames{0};
+    size_t m_rebufferFrames{0};
+    int m_rebufferMs{1500};
+    int m_ringDurationSec{10};
+    double m_swrPassbandRatio{0.95};
 
     std::atomic<bool> m_isOpen{false};
     std::atomic<bool> m_stopRequested{false};
@@ -210,6 +223,7 @@ private:
 
     std::vector<float> m_residualBuffer;
     size_t m_residualOffset{0};
+    std::vector<float> m_convertScratch;
 };
 
 // Global telemetry accessor for active engine streams
@@ -217,6 +231,9 @@ StreamTelemetry get_active_stream_telemetry();
 
 // Decoder-scoped telemetry accessor (per-decoder, thread-safe)
 StreamTelemetry get_stream_telemetry_from_decoder(ma_decoder* pDecoder);
+
+// Pause/resume helper for decoder-scoped network streams
+void set_stream_paused_from_decoder(ma_decoder* pDecoder, bool paused);
 
 // Extract tags & ReplayGain from a local audio file via FFmpeg libavformat.
 // Guaranteed to immediately return false if filePath is a network URL.

@@ -43,7 +43,7 @@ target_compile_definitions(audio_engine PRIVATE
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-  target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3 -ffast-math -ftree-vectorize>)
+  target_compile_options(audio_engine PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3 -fno-math-errno -fno-trapping-math -ftree-vectorize>)
   if(ANDROID_ABI STREQUAL "armeabi-v7a")
     target_compile_options(audio_engine PRIVATE -mfpu=neon)
   endif()

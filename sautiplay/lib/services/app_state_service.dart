@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:sautiflow/sautiflow.dart';
 import '../database/preferences_store.dart';
 
 import '../streaming_service.dart';
@@ -1855,9 +1856,26 @@ class AppStateService {
   static const _kStreamingQualityPreset = 'sp_streaming_quality_preset_v2';
   static const _kPreferNativeAac = 'sp_prefer_native_aac';
   static const _kEnableHostedFallback = 'sp_enable_hosted_fallback';
+  static const _kStreamBufferProfile = 'sp_stream_buffer_profile_v1';
 
   final StreamController<void> streamingSettingsChanged =
       StreamController<void>.broadcast();
+
+  Future<void> saveStreamBufferProfile(StreamBufferProfile profile) async {
+    final prefs = PreferencesStore.instance;
+    await prefs.setString(_kStreamBufferProfile, profile.name);
+    streamingSettingsChanged.add(null);
+  }
+
+  Future<StreamBufferProfile> loadStreamBufferProfile() async {
+    final prefs = PreferencesStore.instance;
+    final name = prefs.getString(_kStreamBufferProfile);
+    if (name == null) return StreamBufferProfile.balanced;
+    return StreamBufferProfile.values.firstWhere(
+      (e) => e.name == name,
+      orElse: () => StreamBufferProfile.balanced,
+    );
+  }
 
   Future<void> saveStreamingQualityPreset(AudioQualityPreset quality) async {
     final prefs = PreferencesStore.instance;

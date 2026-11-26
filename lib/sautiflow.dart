@@ -9,6 +9,7 @@ export 'audio_engine_ffi.dart'
         LoopMode,
         PlayerStatus,
         StreamPlaybackState,
+        StreamBufferProfile,
         StreamTelemetry,
         EqBandType,
         EqBandConfig,

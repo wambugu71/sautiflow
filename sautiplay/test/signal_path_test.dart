@@ -350,7 +350,8 @@ void main() {
         streamDecSrc.liveParams['Pipeline'],
         'FFmpeg Decoder + SwrContext',
       );
-      expect(streamDecSrc.liveParams.containsKey('Phase'), isFalse);
+      expect(streamDecSrc.liveParams['Phase'], 'Linear Phase (Kaiser)');
+      expect(streamDecSrc.liveParams['Passband'], '95.0%');
 
       final localResult = buildSignalPath(
         {

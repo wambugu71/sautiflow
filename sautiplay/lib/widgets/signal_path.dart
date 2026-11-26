@@ -579,9 +579,10 @@ SignalPathResult buildSignalPath(
         'Input Rate': '${_formatRateKhz(srcRate)} ($srcRate Hz)',
         'Target Rate': '${_formatRateKhz(dspRate)} ($dspRate Hz)',
         'Ratio': '${ratio.toStringAsFixed(4)}×',
-        if (!isNetworkStream)
-          'Phase': isLinearPhase ? 'Linear Phase' : 'Minimum Phase',
-        if (!isNetworkStream && passbandRatio != null && passbandRatio > 0)
+        'Phase': isNetworkStream ? 'Linear Phase (Kaiser)' : (isLinearPhase ? 'Linear Phase' : 'Minimum Phase'),
+        if (isNetworkStream)
+          'Passband': '95.0%'
+        else if (passbandRatio != null && passbandRatio > 0)
           'Passband': '${(passbandRatio * 100.0).toStringAsFixed(1)}%',
         if (measuredResampleMs != null && measuredResampleMs > 0)
           'Latency': '${measuredResampleMs.toStringAsFixed(2)} ms',

@@ -397,6 +397,16 @@ class _AudioEngineDiagnosticPanelState
         hw['periodSizeFrames'] as int? ?? specs.periodSizeFrames;
     final int periodCount = hw['periodCount'] as int? ?? specs.periodCount;
 
+    final bool isNetworkStream = t['isNetworkStream'] == true;
+    final String streamStateStr = (t['streamState'] as String?) ?? 'idle';
+    final int streamBufferedMs = t['streamBufferedDurationMs'] as int? ?? 0;
+    final double streamBufferPct =
+        (t['streamBufferPercent'] as num?)?.toDouble() ?? 0.0;
+    final bool streamIsLive = t['streamIsLive'] == true;
+    final String streamIcyTitle = (t['streamIcyTitle'] as String?) ?? '';
+    final String streamIcyArtist = (t['streamIcyArtist'] as String?) ?? '';
+    final String streamErrorMsg = (t['streamErrorMessage'] as String?) ?? '';
+
     final bool eqOn = t['eqEnabled'] == true;
     final bool reverbOn = t['reverbEnabled'] == true;
     final String reverbEngineName =
@@ -544,6 +554,39 @@ class _AudioEngineDiagnosticPanelState
                   isValueActive: true, context: context),
               _buildTelemetryRow('Bitrate', bitrateDisplay,
                   isValueActive: bitrateKbps > 0, context: context),
+              if (isNetworkStream) ...[
+                _buildTelemetryRow(
+                  'Stream State',
+                  streamIsLive
+                      ? '${streamStateStr.toUpperCase()} · LIVE'
+                      : streamStateStr.toUpperCase(),
+                  isValueActive: streamStateStr == 'playing',
+                  isWarning: streamStateStr == 'error',
+                  context: context,
+                ),
+                _buildTelemetryRow(
+                  'Stream Buffer',
+                  '${(streamBufferedMs / 1000.0).toStringAsFixed(2)}s (${streamBufferPct.toStringAsFixed(0)}%)',
+                  isValueActive: streamBufferPct >= 100.0,
+                  context: context,
+                ),
+                if (streamIcyTitle.isNotEmpty || streamIcyArtist.isNotEmpty)
+                  _buildTelemetryRow(
+                    'ICY Track',
+                    streamIcyArtist.isNotEmpty
+                        ? '$streamIcyArtist — $streamIcyTitle'
+                        : streamIcyTitle,
+                    isValueActive: true,
+                    context: context,
+                  ),
+                if (streamErrorMsg.isNotEmpty)
+                  _buildTelemetryRow(
+                    'Stream Error',
+                    streamErrorMsg,
+                    isWarning: true,
+                    context: context,
+                  ),
+              ],
               if (fileSizeBytes > 0)
                 _buildTelemetryRow('File Size',
                     '${(fileSizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB',

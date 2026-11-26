@@ -23,7 +23,7 @@ jobs:
 
       - name: Clone FFmpeg Source
         run: |
-          git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg_src
+          git clone --depth 1 --branch n7.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg_src
 
       - name: Build FFmpeg for iOS and macOS
         run: |
@@ -77,9 +77,9 @@ jobs:
               --disable-everything \
               --enable-version3 \
               --enable-securetransport \
-              --enable-protocol=file,pipe,http,https,tcp,tls,crypto,data,cache,subfile,concat,hls \
-              --enable-demuxer=aac,mp3,ogg,flac,wav,mov,matroska,hls,mpegts,concat,dsf,iff \
-              --enable-decoder=aac,aac_latm,mp3,mp3float,opus,vorbis,flac,alac,ac3,eac3,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar \
+              --enable-protocol=file,pipe,http,https,tcp,tls,crypto,data,cache,subfile,concat,hls,rtmp,rtp,udp \
+              --enable-demuxer=aac,mp3,ogg,flac,wav,mov,matroska,hls,mpegts,concat,dsf,iff,aiff,ape,wv,asf,rtsp \
+              --enable-decoder=aac,aac_latm,mp3,mp3float,opus,vorbis,flac,alac,ac3,eac3,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_s16be,pcm_s24be,pcm_u8,ape,wavpack,wmav2,mp2,dca \
               --enable-parser=aac,mpegaudio,opus,vorbis,flac \
               --enable-swresample \
               --enable-small \

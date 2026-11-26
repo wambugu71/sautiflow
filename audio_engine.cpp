@@ -129,7 +129,7 @@ namespace
 
     static bool is_network_url(const std::string &s)
     {
-        return s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0;
+        return sautiflow::FFmpegStreamSource::is_network_url(s.c_str());
     }
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -166,7 +166,8 @@ namespace
 
         *pBytesRead = 0;
 
-        // Non-blocking read from RB
+        // Non-blocking read from RB; wait in short slices on underrun so
+        // transient network jitter does not masquerade as EOF.
         size_t available = ma_rb_available_read(&ctx->rb);
         if (available == 0)
         {
@@ -174,21 +175,13 @@ namespace
             {
                 return MA_SUCCESS; // EOF
             }
-            // Buffer underrun - just return 0 bytes read, miniaudio might interpret as EOF or silence?
-            // If we return 0 bytes and not EOF, decoder might stop.
-            // We should block slightly or return silence?
-            // Standard behavior: if 0 bytes read, it assumes EOF.
-            // workaround: we need to block if not done.
-            // But blocking in audio thread is bad.
-            // However, this is the DECODING thread usually.
-            // If `ma_decoder_read` is called from the audio callback directly, blocking is bad.
-            // But we are in a custom `onRead`.
-
-            // For now, let's just wait a tiny bit to see if data arrives
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            available = ma_rb_available_read(&ctx->rb);
+            for (int waitedMs = 0; waitedMs < 2000 && available == 0 && !ctx->isDone; waitedMs += 5)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                available = ma_rb_available_read(&ctx->rb);
+            }
             if (available == 0)
-                return MA_SUCCESS; // Still empty
+                return MA_SUCCESS; // Timed out or EOF
         }
 
         size_t toRead = (bytesToRead < available) ? bytesToRead : available;
@@ -3806,6 +3799,9 @@ struct AudioEngineHandle
         castPcmRingBuffer.consume_all();
     }
     std::atomic<uint64_t> preloadGeneration{0};
+    std::atomic<int> streamPrebufferMs{500};
+    std::atomic<int> streamRebufferMs{1500};
+    std::atomic<int> streamRingDurationSec{10};
 
     std::mutex decodeProducerMutex;
     std::condition_variable decodeProducerCv;
@@ -6093,7 +6089,14 @@ static bool load_decoder_for_path(
         &g_ma_decoding_backend_vtable_ffmpeg
     };
 
-    sautiflow::FFmpegDecoderInitConfig ffmpegInitCfg{ (int)targetRate, (int)outCh };
+    sautiflow::FFmpegDecoderInitConfig ffmpegInitCfg{
+        (int)targetRate,
+        (int)outCh,
+        false,
+        e->streamPrebufferMs.load(std::memory_order_relaxed),
+        e->streamRebufferMs.load(std::memory_order_relaxed),
+        e->streamRingDurationSec.load(std::memory_order_relaxed)
+    };
     cfg.pCustomBackendUserData = &ffmpegInitCfg;
     cfg.ppCustomBackendVTables = pDecoders;
     cfg.customBackendCount = 2;
@@ -13446,6 +13449,15 @@ extern "C"
 
         set_playing_state(e, true);
         e->pendingAutoPlay.store(true, std::memory_order_relaxed);
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+        {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->hasCurrent && e->currentDecoder != nullptr)
+            {
+                sautiflow::set_stream_paused_from_decoder(e->currentDecoder, false);
+            }
+        }
+#endif
         e->decodeProducerCv.notify_one();
         engine_log("play requested (currentIndex=%d)", e->currentIndex);
         clear_last_error(e);
@@ -13456,11 +13468,20 @@ extern "C"
     {
         if (e == nullptr)
         {
-            set_last_error(e, "Engine is null in seek.");
+            set_last_error(e, "Engine is null in pause.");
             return false;
         }
         set_playing_state(e, false);
         e->pendingAutoPlay.store(false, std::memory_order_relaxed);
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+        {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->hasCurrent && e->currentDecoder != nullptr)
+            {
+                sautiflow::set_stream_paused_from_decoder(e->currentDecoder, true);
+            }
+        }
+#endif
         return true;
     }
 
@@ -14327,8 +14348,13 @@ extern "C"
                                        char *out_icy_artist, int icy_artist_len)
     {
         sautiflow::StreamTelemetry tel;
-        if (e != nullptr && e->currentDecoder != nullptr) {
-            tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+        if (e != nullptr) {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->currentDecoder != nullptr) {
+                tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+            } else {
+                tel = sautiflow::get_active_stream_telemetry();
+            }
         } else {
             tel = sautiflow::get_active_stream_telemetry();
         }
@@ -14361,8 +14387,13 @@ extern "C"
     {
 #if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
         sautiflow::StreamTelemetry tel;
-        if (e != nullptr && e->currentDecoder != nullptr) {
-            tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+        if (e != nullptr) {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->currentDecoder != nullptr) {
+                tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+            } else {
+                tel = sautiflow::get_active_stream_telemetry();
+            }
         } else {
             tel = sautiflow::get_active_stream_telemetry();
         }
@@ -14382,12 +14413,63 @@ extern "C"
     AE_API int ae_is_stream_live(AudioEngineHandle *e)
     {
         sautiflow::StreamTelemetry tel;
-        if (e != nullptr && e->currentDecoder != nullptr) {
-            tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+        if (e != nullptr) {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->currentDecoder != nullptr) {
+                tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+            } else {
+                tel = sautiflow::get_active_stream_telemetry();
+            }
         } else {
             tel = sautiflow::get_active_stream_telemetry();
         }
         return tel.isLiveStream ? 1 : 0;
+    }
+
+    AE_API int ae_get_stream_error_message(AudioEngineHandle *e, char *out_buf, int buf_len)
+    {
+        if (!out_buf || buf_len <= 0) {
+            return 0;
+        }
+        out_buf[0] = '\0';
+        sautiflow::StreamTelemetry tel;
+        if (e != nullptr) {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            if (e->currentDecoder != nullptr) {
+                tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+            } else {
+                tel = sautiflow::get_active_stream_telemetry();
+            }
+        } else {
+            tel = sautiflow::get_active_stream_telemetry();
+        }
+        if (tel.errorMessage[0] == '\0') {
+            return 0;
+        }
+        std::strncpy(out_buf, tel.errorMessage, static_cast<size_t>(buf_len - 1));
+        out_buf[buf_len - 1] = '\0';
+        return 1;
+    }
+
+    AE_API void ae_set_stream_buffer_config(AudioEngineHandle *e, int prebuffer_ms, int rebuffer_ms, int ring_duration_sec)
+    {
+        if (e == nullptr) return;
+        const int clampedPre = std::clamp(prebuffer_ms > 0 ? prebuffer_ms : 500, 150, 5000);
+        const int clampedRebuf = std::clamp(rebuffer_ms > 0 ? rebuffer_ms : 1500, clampedPre, 8000);
+        const int clampedRing = std::clamp(ring_duration_sec > 0 ? ring_duration_sec : 10, 6, 30);
+        e->streamPrebufferMs.store(clampedPre, std::memory_order_relaxed);
+        e->streamRebufferMs.store(clampedRebuf, std::memory_order_relaxed);
+        e->streamRingDurationSec.store(clampedRing, std::memory_order_relaxed);
+    }
+
+    AE_API void ae_get_stream_buffer_config(AudioEngineHandle *e, int *out_prebuffer_ms, int *out_rebuffer_ms, int *out_ring_duration_sec)
+    {
+        const int pre = e ? e->streamPrebufferMs.load(std::memory_order_relaxed) : 500;
+        const int rebuf = e ? e->streamRebufferMs.load(std::memory_order_relaxed) : 1500;
+        const int ring = e ? e->streamRingDurationSec.load(std::memory_order_relaxed) : 10;
+        if (out_prebuffer_ms) *out_prebuffer_ms = pre;
+        if (out_rebuffer_ms) *out_rebuffer_ms = rebuf;
+        if (out_ring_duration_sec) *out_ring_duration_sec = ring;
     }
 
     AE_API void ae_set_loop_mode(AudioEngineHandle *e, int loop_mode)

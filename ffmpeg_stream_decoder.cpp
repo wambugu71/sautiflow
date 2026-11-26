@@ -43,58 +43,102 @@ extern "C" {
 
 namespace sautiflow {
 
-static bool configure_native_swr_opts(SwrContext* swrCtx, int filterSize = 64) {
+static bool configure_native_swr_opts(
+    SwrContext* swrCtx,
+    int filterSize = 256,
+    double cutoff = 0.95,
+    double kaiserBeta = 10.0) {
     if (!swrCtx) return false;
     swr_close(swrCtx);
 
     // Native FFmpeg polyphase sinc resampling engine (linear-phase).
-    // filter_size >= 64 provides steep transition band roll-off, eliminating
-    // aliasing/imaging near Nyquist (20-22 kHz) when resampling 44.1k <-> 48k.
-    // cutoff ~0.97 preserves bandwidth up to 21.4 kHz @ 44.1k without high-frequency attenuation.
-    // phase_shift 10 sets 1024 polyphase filter phases (2^10) for high phase accuracy.
+    // filter_size >= 256 with cutoff=0.95 and kaiser_beta=10 provides ~100 dB
+    // stopband attenuation and keeps the transition skirt inside Nyquist for
+    // 44.1k <-> 48k conversion. linear_interp=1 removes phase-table quantization
+    // distortion, and rematrix_maxval=1.0 prevents multichannel downmix clipping.
     int rEngine = av_opt_set_int(swrCtx, "resampler", SWR_ENGINE_SWR, 0);
     int rFilter = av_opt_set_int(swrCtx, "filter_size", filterSize, 0);
-    int rCutoff = av_opt_set_double(swrCtx, "cutoff", 0.97, 0);
+    int rCutoff = av_opt_set_double(swrCtx, "cutoff", cutoff, 0);
     int rPhase  = av_opt_set_int(swrCtx, "phase_shift", 10, 0);
     if (rEngine < 0 || rFilter < 0 || rCutoff < 0 || rPhase < 0) {
         return false;
     }
-    int rType   = av_opt_set_int(swrCtx, "filter_type", SWR_FILTER_TYPE_KAISER, 0);
-    if (rType < 0) {
-        av_opt_set_int(swrCtx, "filter_type", SWR_FILTER_TYPE_BLACKMAN_NUTTALL, 0);
+    (void)av_opt_set_int(swrCtx, "linear_interp", 1, 0);
+    (void)av_opt_set_double(swrCtx, "rematrix_maxval", 1.0, 0);
+
+    int rType = av_opt_set_int(swrCtx, "filter_type", SWR_FILTER_TYPE_KAISER, 0);
+    if (rType >= 0) {
+        (void)av_opt_set_double(swrCtx, "kaiser_beta", kaiserBeta, 0);
+    } else {
+        (void)av_opt_set_int(swrCtx, "filter_type", SWR_FILTER_TYPE_BLACKMAN_NUTTALL, 0);
     }
 
     int ret = swr_init(swrCtx);
     return (ret >= 0 && swr_is_initialized(swrCtx));
 }
 
-static bool init_swr_context(SwrContext* swrCtx) {
+static bool init_swr_context(SwrContext* swrCtx, double* outPassbandRatio = nullptr) {
     if (!swrCtx) return false;
 
-    // 1. High-precision native SWR polyphase sinc filter (64 taps, cutoff=0.97, phase_shift=10)
-    // Pure native FFmpeg libswresample implementation - zero external libsoxr dependency.
-    if (configure_native_swr_opts(swrCtx, 64)) {
-        SF_LOG("[ffmpeg] SwrContext initialized with high-precision native SWR engine (64-tap sinc, cutoff=0.97, phase_shift=10)\n");
+    // 1. High-precision native SWR polyphase sinc filter (256 taps, cutoff=0.95, kaiser_beta=10)
+    if (configure_native_swr_opts(swrCtx, 256, 0.95, 10.0)) {
+        if (outPassbandRatio) *outPassbandRatio = 0.95;
+        SF_LOG("[ffmpeg] SwrContext initialized with high-precision native SWR engine (256-tap kaiser, cutoff=0.95, phase_shift=10)\n");
         return true;
     }
 
-    // 2. Fallback to standard 32-tap SWR engine if 64-tap is not accepted
-    if (configure_native_swr_opts(swrCtx, 32)) {
-        SF_LOG("[ffmpeg] SwrContext initialized with fallback 32-tap native SWR engine (cutoff=0.97)\n");
+    // 2. Fallback to balanced 64-tap SWR engine with matched cutoff=0.91
+    if (configure_native_swr_opts(swrCtx, 64, 0.91, 9.0)) {
+        if (outPassbandRatio) *outPassbandRatio = 0.91;
+        SF_LOG("[ffmpeg] SwrContext initialized with fallback 64-tap native SWR engine (cutoff=0.91)\n");
         return true;
     }
 
     // 3. Ultimate fallback to default swresample options
     swr_close(swrCtx);
-    av_opt_set_int(swrCtx, "resampler", SWR_ENGINE_SWR, 0);
+    (void)av_opt_set_int(swrCtx, "resampler", SWR_ENGINE_SWR, 0);
+    (void)av_opt_set_double(swrCtx, "rematrix_maxval", 1.0, 0);
     int ret = swr_init(swrCtx);
     if (ret >= 0 && swr_is_initialized(swrCtx)) {
+        if (outPassbandRatio) *outPassbandRatio = 0.88;
         SF_LOG("[ffmpeg] SwrContext initialized with default swresample engine\n");
         return true;
     }
 
     SF_LOGE("[ffmpeg] Failed to initialize SwrContext with any engine (ret=%d)\n", ret);
     return false;
+}
+
+static void flush_or_reset_swr(SwrContext* swrCtx, int outChannels, std::vector<float>& scratch) {
+    if (!swrCtx || !swr_is_initialized(swrCtx)) return;
+    const int ch = outChannels > 0 ? outChannels : 2;
+    const int delay = swr_get_out_samples(swrCtx, 0);
+    if (delay > 0) {
+        scratch.resize(static_cast<size_t>(delay) * static_cast<size_t>(ch));
+        uint8_t* outPtr[1] = { reinterpret_cast<uint8_t*>(scratch.data()) };
+        (void)swr_convert(swrCtx, outPtr, delay, nullptr, 0);
+    }
+    swr_close(swrCtx);
+    (void)swr_init(swrCtx);
+}
+
+static StreamErrorCode map_ffmpeg_error(int errnum, StreamErrorCode fallback) {
+    if (errnum == AVERROR_HTTP_FORBIDDEN || errnum == AVERROR_HTTP_UNAUTHORIZED) {
+        return StreamErrorCode::HttpForbidden;
+    }
+    if (errnum == AVERROR_HTTP_NOT_FOUND) {
+        return StreamErrorCode::HttpNotFound;
+    }
+    if (errnum == AVERROR(ETIMEDOUT)) {
+        return StreamErrorCode::NetworkTimeout;
+    }
+    if (errnum == AVERROR(ECONNRESET) ||
+        errnum == AVERROR(ECONNABORTED) ||
+        errnum == AVERROR(EPIPE) ||
+        errnum == AVERROR_EXIT) {
+        return StreamErrorCode::ConnectionAborted;
+    }
+    return fallback;
 }
 
 
@@ -198,8 +242,23 @@ struct YouTubeChunkedHttpReader : public CustomHttpReaderBase {
                     }
                 }
                 struct curl_slist* hdrs = nullptr;
-                hdrs = curl_slist_append(hdrs, "Referer: https://www.youtube.com/");
-                hdrs = curl_slist_append(hdrs, "Origin: https://www.youtube.com");
+                if (!baseHeaders.empty()) {
+                    size_t hPos = 0;
+                    while (hPos < baseHeaders.size()) {
+                        size_t next = baseHeaders.find('\n', hPos);
+                        std::string hLine = (next == std::string::npos)
+                            ? baseHeaders.substr(hPos)
+                            : baseHeaders.substr(hPos, next - hPos);
+                        if (!hLine.empty() && hLine.back() == '\r') hLine.pop_back();
+                        if (!hLine.empty()) {
+                            hdrs = curl_slist_append(hdrs, hLine.c_str());
+                        }
+                        hPos = (next == std::string::npos) ? baseHeaders.size() : next + 1;
+                    }
+                } else {
+                    hdrs = curl_slist_append(hdrs, "Referer: https://www.youtube.com/");
+                    hdrs = curl_slist_append(hdrs, "Origin: https://www.youtube.com");
+                }
                 hdrs = curl_slist_append(hdrs, "Connection: keep-alive");
 
                 std::vector<uint8_t> temp;
@@ -209,8 +268,14 @@ struct YouTubeChunkedHttpReader : public CustomHttpReaderBase {
                 curl_easy_setopt(curlHandle, CURLOPT_FOLLOWLOCATION, 1L);
                 curl_easy_setopt(curlHandle, CURLOPT_CONNECTTIMEOUT, 10L);
                 curl_easy_setopt(curlHandle, CURLOPT_TIMEOUT, 20L);
+#ifdef __ANDROID__
+                // Android NDK libcurl has no default CA bundle path unless configured.
                 curl_easy_setopt(curlHandle, CURLOPT_SSL_VERIFYPEER, 0L);
                 curl_easy_setopt(curlHandle, CURLOPT_SSL_VERIFYHOST, 0L);
+#else
+                curl_easy_setopt(curlHandle, CURLOPT_SSL_VERIFYPEER, 1L);
+                curl_easy_setopt(curlHandle, CURLOPT_SSL_VERIFYHOST, 2L);
+#endif
                 curl_easy_setopt(curlHandle, CURLOPT_TCP_KEEPALIVE, 1L);
                 curl_easy_setopt(curlHandle, CURLOPT_FRESH_CONNECT, (attempt > 0) ? 1L : 0L);
                 if (!userAgent.empty()) {
@@ -253,10 +318,19 @@ struct YouTubeChunkedHttpReader : public CustomHttpReaderBase {
             av_dict_set(&opts, "http_persistent", "0", 0);
             av_dict_set(&opts, "timeout", "10000000", 0);
             av_dict_set(&opts, "rw_timeout", "10000000", 0);
+#ifdef __ANDROID__
+            // Android mbedTLS builds lack a default /etc/ssl CA bundle path.
             av_dict_set(&opts, "tls_verify", "0", 0);
+#else
+            av_dict_set(&opts, "tls_verify", "1", 0);
+#endif
 
-            std::string rangedUrl = url + (url.find('?') == std::string::npos ? "?range=" : "&range=") +
-                std::to_string(startOffset) + "-" + std::to_string(reqEnd);
+            std::string rangedUrl = url;
+            if (rangedUrl.find("?range=") == std::string::npos &&
+                rangedUrl.find("&range=") == std::string::npos) {
+                rangedUrl += (rangedUrl.find('?') == std::string::npos ? "?range=" : "&range=") +
+                    std::to_string(startOffset) + "-" + std::to_string(reqEnd);
+            }
 
             AVIOContext* io = nullptr;
             int ret = avio_open2(&io, rangedUrl.c_str(), AVIO_FLAG_READ, &intCb, &opts);
@@ -454,10 +528,15 @@ struct YouTubeHlsHttpReader : public CustomHttpReaderBase {
                 curl_easy_setopt(hRef, CURLOPT_FOLLOWLOCATION, 1L);
                 curl_easy_setopt(hRef, CURLOPT_CONNECTTIMEOUT, 10L);
                 curl_easy_setopt(hRef, CURLOPT_TIMEOUT, 20L);
+#ifdef __ANDROID__
                 curl_easy_setopt(hRef, CURLOPT_SSL_VERIFYPEER, 0L);
                 curl_easy_setopt(hRef, CURLOPT_SSL_VERIFYHOST, 0L);
+#else
+                curl_easy_setopt(hRef, CURLOPT_SSL_VERIFYPEER, 1L);
+                curl_easy_setopt(hRef, CURLOPT_SSL_VERIFYHOST, 2L);
+#endif
                 curl_easy_setopt(hRef, CURLOPT_TCP_KEEPALIVE, 1L);
-        curl_easy_setopt(hRef, CURLOPT_FRESH_CONNECT, (attempt > 0) ? 1L : 0L);
+                curl_easy_setopt(hRef, CURLOPT_FRESH_CONNECT, (attempt > 0) ? 1L : 0L);
                 if (!userAgent.empty()) {
                     curl_easy_setopt(hRef, CURLOPT_USERAGENT, userAgent.c_str());
                 }
@@ -504,7 +583,11 @@ struct YouTubeHlsHttpReader : public CustomHttpReaderBase {
             av_dict_set(&opts, "http_persistent", "0", 0);
             av_dict_set(&opts, "timeout", "10000000", 0);
             av_dict_set(&opts, "rw_timeout", "10000000", 0);
+#ifdef __ANDROID__
             av_dict_set(&opts, "tls_verify", "0", 0);
+#else
+            av_dict_set(&opts, "tls_verify", "1", 0);
+#endif
 
             AVIOContext* io = nullptr;
             int ret = avio_open2(&io, targetUrl.c_str(), AVIO_FLAG_READ, &intCb, &opts);
@@ -630,8 +713,16 @@ struct YouTubeHlsHttpReader : public CustomHttpReaderBase {
         prefetchIdx = static_cast<size_t>(-1);
         prefetchBuf.clear();
         currentSegIdx = chosen;
-        segBuf.clear();
-        segOffset = 0;
+        if (isFmp4 && !initMapBytes.empty()) {
+            // Re-inject ftyp/moov init segment so the mov demuxer can parse
+            // post-seek moof/mdat fragments without failing.
+            segBuf = initMapBytes;
+            segOffset = 0;
+            start_prefetch(currentSegIdx);
+        } else {
+            segBuf.clear();
+            segOffset = 0;
+        }
         return true;
     }
 
@@ -759,39 +850,49 @@ StreamTelemetry FFmpegStreamSource::get_telemetry() const {
     return m_telemetry;
 }
 
-bool FFmpegStreamSource::open(const std::string& url, int targetSampleRate, int targetChannels, int prebufferMs) {
+bool FFmpegStreamSource::open(
+    const std::string& url,
+    int targetSampleRate,
+    int targetChannels,
+    int prebufferMs,
+    int rebufferMs,
+    int ringDurationSec) {
     close();
 
     m_url = url;
     m_targetSampleRate = (targetSampleRate > 0) ? targetSampleRate : 48000;
     m_targetChannels = (targetChannels > 0) ? targetChannels : 2;
-    
+    const int clampedPreMs = std::clamp(prebufferMs > 0 ? prebufferMs : 500, 150, 5000);
+    m_rebufferMs = std::clamp(rebufferMs > 0 ? rebufferMs : 1500, clampedPreMs, 8000);
+    m_ringDurationSec = std::clamp(ringDurationSec > 0 ? ringDurationSec : 10, 6, 30);
+    m_swrPassbandRatio = 0.95;
+
     bool isNetwork = is_network_url(m_url.c_str());
 
-    // Allocate 10-second circular PCM ring buffer
-    const size_t ringBufferDurationSec = 10;
-    m_rbCapacityFrames = m_targetSampleRate * ringBufferDurationSec;
-    m_pcmRingBuffer.assign(m_rbCapacityFrames * m_targetChannels, 0.0f);
+    // Allocate configurable circular PCM ring buffer (6-30 seconds)
+    const size_t ringBufferDurationSec = static_cast<size_t>(m_ringDurationSec);
+    m_rbCapacityFrames = static_cast<size_t>(m_targetSampleRate) * ringBufferDurationSec;
+    m_pcmRingBuffer.assign(m_rbCapacityFrames * static_cast<size_t>(m_targetChannels), 0.0f);
     m_rbReadPos.store(0, std::memory_order_relaxed);
     m_rbWritePos.store(0, std::memory_order_relaxed);
     m_rbAvailableFrames.store(0, std::memory_order_relaxed);
 
     if (isNetwork) {
-        // Initial prebuffer threshold (e.g. 1.5 seconds)
-        size_t prebufferFrames = (m_targetSampleRate * (prebufferMs > 0 ? prebufferMs : 500)) / 1000;
-        if (prebufferFrames == 0) prebufferFrames = m_targetSampleRate / 2; // minimum 500ms
-        m_prebufferBytes = prebufferFrames;
+        size_t prebufferFrames = (static_cast<size_t>(m_targetSampleRate) * static_cast<size_t>(clampedPreMs)) / 1000;
+        if (prebufferFrames == 0) prebufferFrames = static_cast<size_t>(m_targetSampleRate) / 2;
+        if (prebufferFrames > m_rbCapacityFrames / 2) prebufferFrames = m_rbCapacityFrames / 2;
+        m_prebufferFrames = prebufferFrames;
 
-        // Rebuffer threshold (e.g. 3.0 seconds for jitter recovery)
-        size_t rebufferFrames = (m_targetSampleRate * 1500) / 1000; // 1.5s jitter recovery after an underrun
-        if (rebufferFrames > m_rbCapacityFrames / 2) rebufferFrames = m_rbCapacityFrames / 2;
-        m_rebufferBytes = rebufferFrames;
+        size_t rebufferFrames = (static_cast<size_t>(m_targetSampleRate) * static_cast<size_t>(m_rebufferMs)) / 1000;
+        if (rebufferFrames < m_prebufferFrames) rebufferFrames = m_prebufferFrames;
+        if (rebufferFrames > (m_rbCapacityFrames * 3) / 4) rebufferFrames = (m_rbCapacityFrames * 3) / 4;
+        m_rebufferFrames = rebufferFrames;
 
         m_isBuffering.store(true, std::memory_order_release);
     } else {
         // Local file - instant playback from disk with zero prebuffering delay
-        m_prebufferBytes = 0;
-        m_rebufferBytes = 0;
+        m_prebufferFrames = 0;
+        m_rebufferFrames = 0;
         m_isBuffering.store(false, std::memory_order_release);
     }
 
@@ -911,10 +1012,16 @@ size_t FFmpegStreamSource::read_pcm(float* pOut, size_t frameCount) {
         return 0;
     }
 
+    // Do not serve pre-seek audio while a seek is queued on the worker thread.
+    if (m_seekRequested.load(std::memory_order_acquire)) {
+        std::fill(pOut, pOut + frameCount * m_targetChannels, 0.0f);
+        return 0;
+    }
+
     size_t available = m_rbAvailableFrames.load(std::memory_order_acquire);
     if (m_isBuffering.load(std::memory_order_relaxed)) {
         // Exit buffering once we have enough frames or reached stream end
-        const size_t requiredFrames = m_hasStartedPlayback.load(std::memory_order_relaxed) ? m_rebufferBytes : m_prebufferBytes;
+        const size_t requiredFrames = m_hasStartedPlayback.load(std::memory_order_relaxed) ? m_rebufferFrames : m_prebufferFrames;
         if (available >= requiredFrames || m_isEnded.load(std::memory_order_relaxed)) {
             m_isBuffering.store(false, std::memory_order_release);
             m_hasStartedPlayback.store(true, std::memory_order_relaxed);
@@ -948,7 +1055,9 @@ size_t FFmpegStreamSource::read_pcm(float* pOut, size_t frameCount) {
         m_isBuffering.store(true, std::memory_order_release);
         {
             std::lock_guard<std::mutex> lock(m_stateMutex);
-            m_telemetry.state = StreamState::Buffering;
+            if (m_telemetry.state != StreamState::Error && m_telemetry.errorCode == StreamErrorCode::None) {
+                m_telemetry.state = StreamState::Buffering;
+            }
         }
         notify_telemetry();
         std::fill(pOut, pOut + frameCount * m_targetChannels, 0.0f);
@@ -963,7 +1072,7 @@ size_t FFmpegStreamSource::read_pcm(float* pOut, size_t frameCount) {
         // permanently "full" of garbage) and tear old/new audio.
         std::lock_guard<std::mutex> rbLock(m_rbAccessMutex);
         const size_t availNow = m_rbAvailableFrames.load(std::memory_order_acquire);
-        if (availNow == 0) {
+        if (availNow == 0 || m_seekRequested.load(std::memory_order_acquire)) {
             toRead = 0;
         } else {
             toRead = std::min(frameCount, availNow);
@@ -986,7 +1095,11 @@ size_t FFmpegStreamSource::read_pcm(float* pOut, size_t frameCount) {
         std::fill(pOut + toRead * m_targetChannels, pOut + frameCount * m_targetChannels, 0.0f);
     }
 
-    // Wake decoder thread if buffer has room
+    // Acquire m_stateMutex briefly before notifying so write_to_ring cannot
+    // observe pre-decrement m_rbAvailableFrames and miss this wakeup.
+    {
+        std::lock_guard<std::mutex> cvLock(m_stateMutex);
+    }
     m_cv.notify_one();
     return toRead;
 }
@@ -1080,7 +1193,12 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         av_dict_set(&opts, "rw_timeout", "10000000", 0);   // 10s read/write timeout
         av_dict_set(&opts, "probesize", isHlsOrDash ? "262144" : "32768", 0);
         av_dict_set(&opts, "max_analyze_duration", isHlsOrDash ? "2000000" : "500000", 0);
-        av_dict_set(&opts, "tls_verify", "0", 0);          // Disable TLS verify for Android where CA bundles are not in /etc/ssl
+#ifdef __ANDROID__
+        // Android mbedTLS builds lack a default /etc/ssl CA bundle path.
+        av_dict_set(&opts, "tls_verify", "0", 0);
+#else
+        av_dict_set(&opts, "tls_verify", "1", 0);
+#endif
         if (isHlsOrDash) {
             av_dict_set(&opts, "allowed_extensions", "ALL", 0);
         }
@@ -1198,7 +1316,10 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                     av_err2str_cpp(ret).c_str(), m_url.c_str());
         }
         if (!m_stopRequested.load(std::memory_order_acquire)) {
-            set_error(StreamErrorCode::OpenFailed, "Failed to open " + std::string(isNetwork ? "online stream: " : "audio file: ") + av_err2str_cpp(ret));
+            set_error(
+                map_ffmpeg_error(ret, StreamErrorCode::OpenFailed),
+                "Failed to open " + std::string(isNetwork ? "online stream: " : "audio file: ") + av_err2str_cpp(ret)
+            );
         }
         m_isBuffering.store(false, std::memory_order_release);
         m_isEnded.store(true, std::memory_order_release);
@@ -1306,7 +1427,9 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         av_channel_layout_uninit(&outLayout);
 
         if (ret >= 0 && m_swrCtx) {
-            if (init_swr_context(m_swrCtx)) {
+            double passband = 0.95;
+            if (init_swr_context(m_swrCtx, &passband)) {
+                m_swrPassbandRatio = passband;
                 m_swrInSampleRate = m_codecCtx->sample_rate;
                 m_swrInSampleFmt = (int)m_codecCtx->sample_fmt;
                 if (!m_swrInChLayout) m_swrInChLayout = new AVChannelLayout();
@@ -1457,7 +1580,9 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                 );
                 av_channel_layout_uninit(&outLayout);
 
-                if (m_swrCtx && init_swr_context(m_swrCtx)) {
+                double passband = 0.95;
+                if (m_swrCtx && init_swr_context(m_swrCtx, &passband)) {
+                    m_swrPassbandRatio = passband;
                     m_swrInSampleRate = f->sample_rate;
                     m_swrInSampleFmt = f->format;
                     if (!m_swrInChLayout) m_swrInChLayout = new AVChannelLayout();
@@ -1496,6 +1621,7 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     };
 
     auto lastTelemetryUpdate = std::chrono::steady_clock::now();
+    int consecutiveReadErrors = 0;
 
     while (!m_stopRequested.load(std::memory_order_acquire)) {
         // Handle Seek Request
@@ -1515,7 +1641,8 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                     avformat_flush(m_fmtCtx);
                     seekRes = 0;
                 } else {
-                    int64_t targetTs = av_rescale_q(targetMs, AVRational{1, 1000}, audioStream->time_base);
+                    const int64_t basePts = (audioStream->start_time != AV_NOPTS_VALUE) ? audioStream->start_time : 0;
+                    const int64_t targetTs = basePts + av_rescale_q(targetMs, AVRational{1, 1000}, audioStream->time_base);
                     seekRes = avformat_seek_file(m_fmtCtx, m_audioStreamIndex, INT64_MIN, targetTs, targetTs, 0);
                     if (seekRes < 0) {
                         // Fallback to av_seek_frame with AVSEEK_FLAG_BACKWARD
@@ -1525,9 +1652,7 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
 
                 if (seekRes >= 0) {
                     avcodec_flush_buffers(m_codecCtx);
-                    if (m_swrCtx) {
-                        swr_init(m_swrCtx);
-                    }
+                    flush_or_reset_swr(m_swrCtx, m_targetChannels, resampleOutBuf);
                     {
                         // Reset ring under the access lock so a concurrent
                         // read_pcm can never fetch_sub into the reset values
@@ -1539,6 +1664,7 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                     }
                     m_isBuffering.store(true, std::memory_order_release);
                     m_isEnded.store(false, std::memory_order_release);
+                    consecutiveReadErrors = 0;
 
                     {
                         std::lock_guard<std::mutex> lock(m_stateMutex);
@@ -1549,23 +1675,26 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
             }
         }
 
-        // Wait if paused
+        // Wait cleanly if paused (wake immediately on resume, stop, or seek)
         if (m_isPaused.load(std::memory_order_acquire)) {
             std::unique_lock<std::mutex> lock(m_stateMutex);
-            m_cv.wait_for(lock, std::chrono::milliseconds(50), [this]() {
-                return !m_isPaused.load(std::memory_order_acquire) || m_stopRequested.load(std::memory_order_acquire);
+            m_cv.wait(lock, [this]() {
+                return !m_isPaused.load(std::memory_order_acquire) ||
+                       m_stopRequested.load(std::memory_order_acquire) ||
+                       m_seekRequested.load(std::memory_order_acquire);
             });
             continue;
         }
 
-        // Check if ring buffer is near full (prevent overflow)
+        // Check if ring buffer has sufficient headroom
         size_t available = m_rbAvailableFrames.load(std::memory_order_relaxed);
-        if (available >= m_rbCapacityFrames - (size_t)(m_targetSampleRate * 2)) {
-            // Buffer has plenty of headroom (> 8 seconds)
+        const size_t headroomFrames = std::min<size_t>(static_cast<size_t>(m_targetSampleRate) * 2, m_rbCapacityFrames / 4);
+        if (available >= m_rbCapacityFrames - headroomFrames) {
             std::unique_lock<std::mutex> lock(m_stateMutex);
-            m_cv.wait_for(lock, std::chrono::milliseconds(20), [this]() {
-                return m_stopRequested.load(std::memory_order_acquire) || 
+            m_cv.wait_for(lock, std::chrono::milliseconds(50), [this]() {
+                return m_stopRequested.load(std::memory_order_acquire) ||
                        m_seekRequested.load(std::memory_order_acquire) ||
+                       m_isPaused.load(std::memory_order_acquire) ||
                        m_rbAvailableFrames.load(std::memory_order_relaxed) < m_rbCapacityFrames / 2;
             });
             continue;
@@ -1575,14 +1704,26 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTelemetryUpdate).count() >= 250) {
             lastTelemetryUpdate = now;
-            update_icy_metadata();
+            if (isNetwork) {
+                update_icy_metadata();
+            }
 
-            double bufferedSec = (double)available / m_targetSampleRate;
-            double pct = std::min(100.0, (bufferedSec / ((double)m_prebufferBytes / m_targetSampleRate)) * 100.0);
+            const size_t activeThresholdFrames = m_hasStartedPlayback.load(std::memory_order_relaxed)
+                ? m_rebufferFrames
+                : m_prebufferFrames;
+            const double bufferedSec = (double)available / (double)m_targetSampleRate;
+            const double pct = (activeThresholdFrames > 0)
+                ? std::min(100.0, ((double)available / (double)activeThresholdFrames) * 100.0)
+                : 100.0;
+            const double swrDelayMs = (m_swrCtx && swr_is_initialized(m_swrCtx))
+                ? static_cast<double>(swr_get_delay(m_swrCtx, 1000))
+                : 0.0;
             {
                 std::lock_guard<std::mutex> lock(m_stateMutex);
                 m_telemetry.bufferedDurationSec = bufferedSec;
                 m_telemetry.bufferPercent = pct;
+                m_telemetry.swrLatencyMs = swrDelayMs;
+                m_telemetry.swrPassbandRatio = m_swrPassbandRatio;
             }
             notify_telemetry();
         }
@@ -1591,9 +1732,7 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
         if (ret < 0) {
             if (ret == AVERROR_EOF || (m_fmtCtx->pb && avio_feof(m_fmtCtx->pb))) {
                 // End of stream: drain the decoder (NULL packet) and flush the
-                // resampler tail (NULL input to swr_convert). Previously both
-                // were skipped, truncating ~one codec frame + filter delay of
-                // audio at the end of every track.
+                // resampler tail (NULL input to swr_convert).
                 if (m_codecCtx) {
                     avcodec_send_packet(m_codecCtx, nullptr);
                     while (avcodec_receive_frame(m_codecCtx, frame) >= 0) {
@@ -1613,10 +1752,24 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
             if (m_stopRequested.load(std::memory_order_acquire)) {
                 break;
             }
-            // Transient error: wait and retry
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            // Bounded retry on transient read/network errors to avoid infinite hang
+            ++consecutiveReadErrors;
+            if (consecutiveReadErrors >= 15) {
+                SF_LOGE("[ffmpeg] Aborting stream after %d consecutive read errors: %s\n",
+                        consecutiveReadErrors, av_err2str_cpp(ret).c_str());
+                set_error(
+                    map_ffmpeg_error(ret, StreamErrorCode::DecodeError),
+                    "Stream read failed: " + av_err2str_cpp(ret)
+                );
+                m_isBuffering.store(false, std::memory_order_release);
+                m_isEnded.store(true, std::memory_order_release);
+                m_cv.notify_all();
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(40));
             continue;
         }
+        consecutiveReadErrors = 0;
 
         if (packet->stream_index == m_audioStreamIndex) {
             int sendRes = avcodec_send_packet(m_codecCtx, packet);
@@ -1692,6 +1845,7 @@ void FFmpegLocalFileSource::close() {
     }
     m_residualBuffer.clear();
     m_residualOffset = 0;
+    m_convertScratch.clear();
     m_audioStreamIndex = -1;
     m_sampleRate = 0;
     m_channels = 0;
@@ -1725,6 +1879,12 @@ bool FFmpegLocalFileSource::open(const std::string& filePath) {
     if (m_audioStreamIndex < 0 || !decoder) {
         close();
         return false;
+    }
+
+    for (unsigned int i = 0; i < m_fmtCtx->nb_streams; ++i) {
+        if (static_cast<int>(i) != m_audioStreamIndex && m_fmtCtx->streams[i]) {
+            m_fmtCtx->streams[i]->discard = AVDISCARD_ALL;
+        }
     }
 
     AVStream* audioStream = m_fmtCtx->streams[m_audioStreamIndex];
@@ -1859,11 +2019,27 @@ size_t FFmpegLocalFileSource::read_pcm(float* pOut, size_t frameCount) {
                     // Flush residual audio from previous format
                     int delaySamples = swr_get_out_samples(m_swrCtx, 0);
                     if (delaySamples > 0) {
-                        std::vector<float> tailBuf(delaySamples * m_channels);
-                        uint8_t* outPtr = reinterpret_cast<uint8_t*>(tailBuf.data());
+                        m_convertScratch.resize(static_cast<size_t>(delaySamples) * static_cast<size_t>(m_channels));
+                        uint8_t* outPtr = reinterpret_cast<uint8_t*>(m_convertScratch.data());
                         int flushed = swr_convert(m_swrCtx, &outPtr, delaySamples, nullptr, 0);
                         if (flushed > 0) {
-                            m_residualBuffer.insert(m_residualBuffer.end(), tailBuf.data(), tailBuf.data() + flushed * m_channels);
+                            size_t needed = frameCount - framesRead;
+                            size_t directCopy = std::min(needed, static_cast<size_t>(flushed));
+                            if (directCopy > 0) {
+                                std::memcpy(pOut + (framesRead * m_channels), m_convertScratch.data(), directCopy * m_channels * sizeof(float));
+                                framesRead += directCopy;
+                            }
+                            if (static_cast<size_t>(flushed) > directCopy) {
+                                if (m_residualOffset > 0 && m_residualOffset <= m_residualBuffer.size() / m_channels) {
+                                    m_residualBuffer.erase(m_residualBuffer.begin(), m_residualBuffer.begin() + m_residualOffset * m_channels);
+                                    m_residualOffset = 0;
+                                }
+                                m_residualBuffer.insert(
+                                    m_residualBuffer.end(),
+                                    m_convertScratch.data() + (directCopy * m_channels),
+                                    m_convertScratch.data() + (flushed * m_channels)
+                                );
+                            }
                         }
                     }
                     swr_free(&m_swrCtx);
@@ -1904,8 +2080,8 @@ size_t FFmpegLocalFileSource::read_pcm(float* pOut, size_t frameCount) {
             int outMaxSamples = swr_get_out_samples(m_swrCtx, inSamples);
             if (outMaxSamples <= 0) outMaxSamples = inSamples;
 
-            std::vector<float> converted(outMaxSamples * m_channels);
-            uint8_t* outPtr = reinterpret_cast<uint8_t*>(converted.data());
+            m_convertScratch.resize(static_cast<size_t>(outMaxSamples) * static_cast<size_t>(m_channels));
+            uint8_t* outPtr = reinterpret_cast<uint8_t*>(m_convertScratch.data());
 
             int outSamples = swr_convert(
                 m_swrCtx,
@@ -1919,16 +2095,22 @@ size_t FFmpegLocalFileSource::read_pcm(float* pOut, size_t frameCount) {
                 size_t needed = frameCount - framesRead;
                 size_t directCopy = std::min(needed, static_cast<size_t>(outSamples));
 
-                std::memcpy(pOut + (framesRead * m_channels), converted.data(), directCopy * m_channels * sizeof(float));
-                framesRead += directCopy;
+                if (directCopy > 0) {
+                    std::memcpy(pOut + (framesRead * m_channels), m_convertScratch.data(), directCopy * m_channels * sizeof(float));
+                    framesRead += directCopy;
+                }
 
-                size_t leftover = outSamples - directCopy;
+                size_t leftover = static_cast<size_t>(outSamples) - directCopy;
                 if (leftover > 0) {
-                    m_residualBuffer.assign(
-                        converted.data() + (directCopy * m_channels),
-                        converted.data() + (outSamples * m_channels)
+                    if (m_residualOffset > 0 && m_residualOffset <= m_residualBuffer.size() / m_channels) {
+                        m_residualBuffer.erase(m_residualBuffer.begin(), m_residualBuffer.begin() + m_residualOffset * m_channels);
+                        m_residualOffset = 0;
+                    }
+                    m_residualBuffer.insert(
+                        m_residualBuffer.end(),
+                        m_convertScratch.data() + (directCopy * m_channels),
+                        m_convertScratch.data() + (outSamples * m_channels)
                     );
-                    m_residualOffset = 0;
                 }
             }
         } else if (recvRes == AVERROR(EAGAIN)) {
@@ -1937,6 +2119,33 @@ size_t FFmpegLocalFileSource::read_pcm(float* pOut, size_t frameCount) {
                 avcodec_send_packet(m_codecCtx, nullptr);
             }
         } else if (recvRes == AVERROR_EOF) {
+            if (m_swrCtx) {
+                int delaySamples = swr_get_out_samples(m_swrCtx, 0);
+                if (delaySamples > 0) {
+                    m_convertScratch.resize(static_cast<size_t>(delaySamples) * static_cast<size_t>(m_channels));
+                    uint8_t* outPtr = reinterpret_cast<uint8_t*>(m_convertScratch.data());
+                    int flushed = swr_convert(m_swrCtx, &outPtr, delaySamples, nullptr, 0);
+                    if (flushed > 0) {
+                        size_t needed = frameCount - framesRead;
+                        size_t directCopy = std::min(needed, static_cast<size_t>(flushed));
+                        if (directCopy > 0) {
+                            std::memcpy(pOut + (framesRead * m_channels), m_convertScratch.data(), directCopy * m_channels * sizeof(float));
+                            framesRead += directCopy;
+                        }
+                        if (static_cast<size_t>(flushed) > directCopy) {
+                            if (m_residualOffset > 0 && m_residualOffset <= m_residualBuffer.size() / m_channels) {
+                                m_residualBuffer.erase(m_residualBuffer.begin(), m_residualBuffer.begin() + m_residualOffset * m_channels);
+                                m_residualOffset = 0;
+                            }
+                            m_residualBuffer.insert(
+                                m_residualBuffer.end(),
+                                m_convertScratch.data() + (directCopy * m_channels),
+                                m_convertScratch.data() + (flushed * m_channels)
+                            );
+                        }
+                    }
+                }
+            }
             m_isEnded = true;
             break;
         } else {
@@ -1987,9 +2196,7 @@ bool FFmpegLocalFileSource::seek(ma_uint64 frameIndex) {
     }
 
     avcodec_flush_buffers(m_codecCtx);
-    if (m_swrCtx) {
-        swr_init(m_swrCtx);
-    }
+    flush_or_reset_swr(m_swrCtx, m_channels, m_convertScratch);
     m_residualBuffer.clear();
     m_residualOffset = 0;
     m_isEnded = false;
@@ -2073,8 +2280,8 @@ bool FFmpegLocalFileSource::seek(ma_uint64 frameIndex) {
             int outMaxSamples = swr_get_out_samples(m_swrCtx, inSamples);
             if (outMaxSamples <= 0) outMaxSamples = inSamples;
 
-            std::vector<float> converted(outMaxSamples * m_channels);
-            uint8_t* outPtr = reinterpret_cast<uint8_t*>(converted.data());
+            m_convertScratch.resize(static_cast<size_t>(outMaxSamples) * static_cast<size_t>(m_channels));
+            uint8_t* outPtr = reinterpret_cast<uint8_t*>(m_convertScratch.data());
 
             int outSamples = swr_convert(
                 m_swrCtx,
@@ -2093,8 +2300,8 @@ bool FFmpegLocalFileSource::seek(ma_uint64 frameIndex) {
                     size_t keepFrames = static_cast<size_t>(outSamples - discardFrames);
                     if (keepFrames > 0) {
                         m_residualBuffer.assign(
-                            converted.data() + (discardFrames * m_channels),
-                            converted.data() + (outSamples * m_channels)
+                            m_convertScratch.data() + (discardFrames * m_channels),
+                            m_convertScratch.data() + (outSamples * m_channels)
                         );
                         m_residualOffset = 0;
                     }
@@ -2109,8 +2316,8 @@ bool FFmpegLocalFileSource::seek(ma_uint64 frameIndex) {
                     m_residualBuffer.assign(padFrames * m_channels, 0.0f);
                     m_residualBuffer.insert(
                         m_residualBuffer.end(),
-                        converted.data(),
-                        converted.data() + (outSamples * m_channels)
+                        m_convertScratch.data(),
+                        m_convertScratch.data() + (outSamples * m_channels)
                     );
                     m_residualOffset = 0;
                 }
@@ -2194,10 +2401,13 @@ static ma_result ma_ffmpeg_ds_seek(ma_data_source* pDataSource, ma_uint64 frameI
         if (!ds->stream) return MA_INVALID_ARGS;
         if (ds->sampleRate > 0) {
             int64_t ms = (frameIndex * 1000) / ds->sampleRate;
-            ds->stream->seek(ms);
+            if (!ds->stream->seek(ms)) {
+                return MA_ERROR;
+            }
             ds->cursor = frameIndex;
+            return MA_SUCCESS;
         }
-        return MA_SUCCESS;
+        return MA_ERROR;
     } else {
         if (!ds->local) return MA_INVALID_ARGS;
         if (ds->local->seek(frameIndex)) {
@@ -2282,6 +2492,20 @@ StreamTelemetry get_stream_telemetry_from_decoder(ma_decoder* pDecoder) {
         }
     }
     return get_active_stream_telemetry();
+}
+
+void set_stream_paused_from_decoder(ma_decoder* pDecoder, bool paused) {
+    if (pDecoder == nullptr || pDecoder->pBackend == nullptr) {
+        return;
+    }
+    auto* ds = reinterpret_cast<ma_ffmpeg_data_source*>(pDecoder->pBackend);
+    if (ds && ds->base.vtable == &g_ma_ffmpeg_ds_vtable && ds->isNetwork && ds->stream) {
+        if (paused) {
+            ds->stream->pause();
+        } else {
+            ds->stream->resume();
+        }
+    }
 }
 
 bool read_file_metadata_ffmpeg(
@@ -2565,18 +2789,24 @@ static ma_result ma_decoding_backend_init_file__ffmpeg(void* pUserData, const ch
     if (isNetwork) {
         ma_uint32 outChannels = 2;
         ma_uint32 outSampleRate = 48000;
+        int prebufferMs = 500;
+        int rebufferMs = 1500;
+        int ringDurationSec = 10;
         if (pUserData != nullptr) {
             const auto* initCfg = static_cast<const sautiflow::FFmpegDecoderInitConfig*>(pUserData);
             if (initCfg->targetChannels > 0) outChannels = (ma_uint32)initCfg->targetChannels;
             if (initCfg->targetSampleRate > 0) outSampleRate = (ma_uint32)initCfg->targetSampleRate;
+            if (initCfg->prebufferMs > 0) prebufferMs = initCfg->prebufferMs;
+            if (initCfg->rebufferMs > 0) rebufferMs = initCfg->rebufferMs;
+            if (initCfg->ringDurationSec > 0) ringDurationSec = initCfg->ringDurationSec;
         }
-        int prebufferMs = 500;
 
-        std::printf("[ffmpeg_backend] Requesting online stream decoder\n");
+        std::printf("[ffmpeg_backend] Requesting online stream decoder (prebuffer=%dms, rebuffer=%dms, ring=%ds)\n",
+                    prebufferMs, rebufferMs, ringDurationSec);
         std::fflush(stdout);
 
         auto* stream = new sautiflow::FFmpegStreamSource();
-        if (!stream->open(pFilePath, outSampleRate, outChannels, prebufferMs)) {
+        if (!stream->open(pFilePath, outSampleRate, outChannels, prebufferMs, rebufferMs, ringDurationSec)) {
             std::printf("[ffmpeg_backend] Online stream decoder failed to open\n");
             std::fflush(stdout);
             delete stream;
@@ -2717,6 +2947,11 @@ StreamTelemetry get_stream_telemetry_from_decoder(ma_decoder* pDecoder) {
     return StreamTelemetry();
 }
 
+void set_stream_paused_from_decoder(ma_decoder* pDecoder, bool paused) {
+    (void)pDecoder;
+    (void)paused;
+}
+
 bool FFmpegStreamSource::is_network_url(const char* path) {
     if (path == nullptr) return false;
     std::string s(path);
@@ -2737,8 +2972,8 @@ bool FFmpegStreamSource::is_network_url(const char* path) {
 FFmpegStreamSource::FFmpegStreamSource() {}
 FFmpegStreamSource::~FFmpegStreamSource() {}
 
-bool FFmpegStreamSource::open(const std::string& url, int targetSampleRate, int targetChannels, int prebufferMs) {
-    (void)url; (void)targetSampleRate; (void)targetChannels; (void)prebufferMs;
+bool FFmpegStreamSource::open(const std::string& url, int targetSampleRate, int targetChannels, int prebufferMs, int rebufferMs, int ringDurationSec) {
+    (void)url; (void)targetSampleRate; (void)targetChannels; (void)prebufferMs; (void)rebufferMs; (void)ringDurationSec;
     set_error(StreamErrorCode::OpenFailed, "FFmpeg streaming not compiled in for this build target");
     return false;
 }

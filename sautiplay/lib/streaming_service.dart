@@ -22,8 +22,68 @@ enum AudioQualityPreset {
   audiophile,
 }
 
+/// Pure descriptor for stream selection so selection math can be unit-tested
+/// without instantiating YouTube's manifest internals.
+class StreamCandidate {
+  final int index;
+  final double bitrateKbps;
+  final bool isMp4OrAac;
+
+  const StreamCandidate({
+    required this.index,
+    required this.bitrateKbps,
+    required this.isMp4OrAac,
+  });
+}
+
 /// Selector utility for filtering and sorting audio streams by quality preset and container.
 class AudioStreamSelector {
+  /// Selects the best candidate index (into the caller's unsorted list) for
+  /// [quality] and [preferAac].
+  static int selectCandidateIndex(
+    List<StreamCandidate> candidates, {
+    AudioQualityPreset quality = AudioQualityPreset.audiophile,
+    bool preferAac = false,
+  }) {
+    if (candidates.isEmpty) {
+      throw Exception('No audio-only streams found in manifest.');
+    }
+
+    final sorted = List<StreamCandidate>.from(candidates)
+      ..sort((a, b) => a.bitrateKbps.compareTo(b.bitrateKbps));
+
+    List<StreamCandidate> pool = sorted;
+    if (preferAac) {
+      final aac = sorted.where((c) => c.isMp4OrAac).toList();
+      if (aac.isNotEmpty) {
+        pool = aac;
+      }
+    }
+
+    switch (quality) {
+      case AudioQualityPreset.low:
+        return pool.first.index;
+
+      case AudioQualityPreset.medium:
+        final mid = pool
+            .where((s) => s.bitrateKbps >= 55 && s.bitrateKbps <= 110)
+            .toList();
+        return (mid.isNotEmpty ? mid.first : pool[pool.length ~/ 2]).index;
+
+      case AudioQualityPreset.high:
+        final highAac = pool
+            .where((s) => s.isMp4OrAac && s.bitrateKbps >= 100)
+            .toList();
+        if (highAac.isNotEmpty) return highAac.last.index;
+        final highStreams =
+            pool.where((s) => s.bitrateKbps >= 110).toList();
+        return (highStreams.isNotEmpty ? highStreams.first : pool.last).index;
+
+      case AudioQualityPreset.audiophile:
+        return pool.last.index;
+    }
+  }
+
   static AudioOnlyStreamInfo selectStream(
     StreamManifest manifest, {
     AudioQualityPreset quality = AudioQualityPreset.audiophile,
@@ -34,59 +94,21 @@ class AudioStreamSelector {
       throw Exception('No audio-only streams found in manifest.');
     }
 
-    // Sort ascending by bitrate
-    audioStreams.sort(
-        (a, b) => a.bitrate.bitsPerSecond.compareTo(b.bitrate.bitsPerSecond));
-
-    if (preferAac) {
-      final aacStreams = audioStreams
-          .where((s) =>
-              s.container == StreamContainer.mp4 ||
-              s.audioCodec.toLowerCase().contains('mp4a'))
-          .toList();
-      if (aacStreams.isNotEmpty) {
-        switch (quality) {
-          case AudioQualityPreset.low:
-            return aacStreams.first;
-          case AudioQualityPreset.medium:
-          case AudioQualityPreset.high:
-          case AudioQualityPreset.audiophile:
-            return aacStreams.last;
-        }
-      }
-    }
-
-    switch (quality) {
-      case AudioQualityPreset.low:
-        // Lowest bitrate stream (~50 kbps Opus Tag 249 or AAC Tag 139)
-        return audioStreams.first;
-
-      case AudioQualityPreset.medium:
-        // Stream around 60 - 100 kbps (Tag 250 Opus)
-        final midStreams = audioStreams
-            .where((s) =>
-                s.bitrate.kiloBitsPerSecond >= 55 &&
-                s.bitrate.kiloBitsPerSecond <= 110)
-            .toList();
-        return midStreams.isNotEmpty
-            ? midStreams.first
-            : audioStreams[audioStreams.length ~/ 2];
-
-      case AudioQualityPreset.high:
-        // High stream (prefer AAC Tag 140 or ~128 kbps)
-        final aac140 = audioStreams
-            .where((s) => s.container == StreamContainer.mp4)
-            .toList();
-        if (aac140.isNotEmpty) return aac140.last;
-        final highStreams = audioStreams
-            .where((s) => s.bitrate.kiloBitsPerSecond >= 110)
-            .toList();
-        return highStreams.isNotEmpty ? highStreams.first : audioStreams.last;
-
-      case AudioQualityPreset.audiophile:
-        // Highest available bitrate stream (usually Tag 251 Opus ~160 kbps)
-        return audioStreams.last;
-    }
+    final candidates = [
+      for (int i = 0; i < audioStreams.length; i++)
+        StreamCandidate(
+          index: i,
+          bitrateKbps: audioStreams[i].bitrate.kiloBitsPerSecond,
+          isMp4OrAac: audioStreams[i].container == StreamContainer.mp4 ||
+              audioStreams[i].audioCodec.toLowerCase().contains('mp4a'),
+        ),
+    ];
+    final chosenIdx = selectCandidateIndex(
+      candidates,
+      quality: quality,
+      preferAac: preferAac,
+    );
+    return audioStreams[chosenIdx];
   }
 }
 
@@ -128,7 +150,7 @@ class StreamResolutionResult {
 /// 4. In-memory cache with ~5.5-hour TTL to prevent expired URL playback errors.
 /// 5. Concurrency-limited batch lookahead resolution for smooth queueing.
 class StreamingService {
-  static YoutubeExplode _ytExplode = YoutubeExplode();
+  static final YoutubeExplode _ytExplode = YoutubeExplode();
 
   static const _hostedUrl1 = String.fromEnvironment(
     'STREAM_URL_1',
@@ -195,58 +217,70 @@ class StreamingService {
     }
 
     // 2. Primary: Direct on-device extraction via youtube_explode_dart (with transient retry)
-    for (int attempt = 1; attempt <= 2; attempt++) {
-      try {
-        final targetVideoId = VideoId(videoId);
-        final manifest = await _ytExplode.videos.streams
-            .getManifest(targetVideoId)
-            .timeout(const Duration(seconds: 25));
-        final streamInfo = AudioStreamSelector.selectStream(
-          manifest,
-          quality: activeQuality,
-          preferAac: activePreferAac,
-        );
-
-        final now = DateTime.now();
-        // Direct YouTube URLs typically expire after 6 hours; set safety TTL to 5.5 hours
-        final expiresAt = now.add(const Duration(hours: 5, minutes: 30));
-
-        final result = StreamResolutionResult(
-          videoId: videoId,
-          url: streamInfo.url.toString(),
-          bitrateKbps: streamInfo.bitrate.kiloBitsPerSecond,
-          container: streamInfo.container.name,
-          audioCodec: streamInfo.audioCodec,
-          itag: streamInfo.tag,
-          fromCache: false,
-          isFallback: false,
-          resolvedAt: now,
-          expiresAt: expiresAt,
-        );
-
-        _cache[key] = result;
-        debugPrint(
-            '[StreamingService] ✓ Resolved $videoId (${streamInfo.bitrate.kiloBitsPerSecond.toStringAsFixed(1)} kbps)');
-        return result;
-      } catch (e) {
-        debugPrint(
-            '[StreamingService] Direct extraction attempt $attempt failed for $videoId: $e');
-
-        // Re-instantiate client safely if connection or state error occurred
+    YoutubeExplode client = _ytExplode;
+    bool ownsClient = false;
+    try {
+      for (int attempt = 1; attempt <= 2; attempt++) {
         try {
-          _ytExplode.close();
-        } catch (_) {}
-        _ytExplode = YoutubeExplode();
+          final targetVideoId = VideoId(videoId);
+          final manifest = await client.videos.streams
+              .getManifest(targetVideoId)
+              .timeout(const Duration(seconds: 25));
+          final streamInfo = AudioStreamSelector.selectStream(
+            manifest,
+            quality: activeQuality,
+            preferAac: activePreferAac,
+          );
 
-        // If it's the first attempt and looks like a transient network hitch, wait 1.2s and retry
-        if (attempt == 1 &&
-            (e is SocketException ||
-                e is HandshakeException ||
-                e is TimeoutException)) {
-          await Future.delayed(const Duration(milliseconds: 1200));
-        } else {
-          break;
+          final now = DateTime.now();
+          // Direct YouTube URLs typically expire after 6 hours; set safety TTL to 5.5 hours
+          final expiresAt = now.add(const Duration(hours: 5, minutes: 30));
+
+          final result = StreamResolutionResult(
+            videoId: videoId,
+            url: streamInfo.url.toString(),
+            bitrateKbps: streamInfo.bitrate.kiloBitsPerSecond,
+            container: streamInfo.container.name,
+            audioCodec: streamInfo.audioCodec,
+            itag: streamInfo.tag,
+            fromCache: false,
+            isFallback: false,
+            resolvedAt: now,
+            expiresAt: expiresAt,
+          );
+
+          _cache[key] = result;
+          debugPrint(
+              '[StreamingService] ✓ Resolved $videoId (${streamInfo.bitrate.kiloBitsPerSecond.toStringAsFixed(1)} kbps)');
+          return result;
+        } catch (e) {
+          debugPrint(
+              '[StreamingService] Direct extraction attempt $attempt failed for $videoId: $e');
+
+          // Retry with an isolated fresh client instead of closing the shared
+          // static _ytExplode underneath concurrent batch lookahead futures.
+          if (attempt == 1 &&
+              (e is SocketException ||
+                  e is HandshakeException ||
+                  e is TimeoutException)) {
+            if (ownsClient) {
+              try {
+                client.close();
+              } catch (_) {}
+            }
+            client = YoutubeExplode();
+            ownsClient = true;
+            await Future.delayed(const Duration(milliseconds: 1200));
+          } else {
+            break;
+          }
         }
+      }
+    } finally {
+      if (ownsClient) {
+        try {
+          client.close();
+        } catch (_) {}
       }
     }
 
@@ -298,43 +332,55 @@ class StreamingService {
     final activePreferAac =
         preferAac ?? await AppStateService.instance.loadPreferNativeAac();
 
-    for (int attempt = 1; attempt <= 2; attempt++) {
-      try {
-        final targetVideoId = VideoId(videoId);
-        final manifest = await _ytExplode.videos.streams
-            .getManifest(targetVideoId)
-            .timeout(const Duration(seconds: 25));
-        final streamInfo = AudioStreamSelector.selectStream(
-          manifest,
-          quality: activeQuality,
-          preferAac: activePreferAac,
-        );
-
-        final sink = targetFile.openWrite();
-        await _ytExplode.videos.streamsClient.get(streamInfo).pipe(sink);
-        await sink.flush();
-        await sink.close();
-
-        if (targetFile.existsSync() && targetFile.lengthSync() > 1024) {
-          final container = streamInfo.container.name;
-          return container == 'mp4' ? 'm4a' : container;
-        }
-      } catch (e) {
-        debugPrint(
-            '[StreamingService] Direct download attempt $attempt failed for $videoId: $e');
+    YoutubeExplode client = _ytExplode;
+    bool ownsClient = false;
+    try {
+      for (int attempt = 1; attempt <= 2; attempt++) {
         try {
-          _ytExplode.close();
-        } catch (_) {}
-        _ytExplode = YoutubeExplode();
+          final targetVideoId = VideoId(videoId);
+          final manifest = await client.videos.streams
+              .getManifest(targetVideoId)
+              .timeout(const Duration(seconds: 25));
+          final streamInfo = AudioStreamSelector.selectStream(
+            manifest,
+            quality: activeQuality,
+            preferAac: activePreferAac,
+          );
 
-        if (attempt == 1 &&
-            (e is SocketException ||
-                e is HandshakeException ||
-                e is TimeoutException)) {
-          await Future.delayed(const Duration(milliseconds: 1200));
-        } else {
-          break;
+          final sink = targetFile.openWrite();
+          await client.videos.streamsClient.get(streamInfo).pipe(sink);
+          await sink.flush();
+          await sink.close();
+
+          if (targetFile.existsSync() && targetFile.lengthSync() > 1024) {
+            final container = streamInfo.container.name;
+            return container == 'mp4' ? 'm4a' : container;
+          }
+        } catch (e) {
+          debugPrint(
+              '[StreamingService] Direct download attempt $attempt failed for $videoId: $e');
+          if (attempt == 1 &&
+              (e is SocketException ||
+                  e is HandshakeException ||
+                  e is TimeoutException)) {
+            if (ownsClient) {
+              try {
+                client.close();
+              } catch (_) {}
+            }
+            client = YoutubeExplode();
+            ownsClient = true;
+            await Future.delayed(const Duration(milliseconds: 1200));
+          } else {
+            break;
+          }
         }
+      }
+    } finally {
+      if (ownsClient) {
+        try {
+          client.close();
+        } catch (_) {}
       }
     }
     return null;

@@ -1870,6 +1870,38 @@ class IsolateAudioPlayer {
         'periodCount': periodCount,
       });
 
+  void setStreamBufferConfig({
+    int prebufferMs = 500,
+    int rebufferMs = 1500,
+    int ringDurationSec = 10,
+  }) =>
+      _send({
+        'cmd': 'setStreamBufferConfig',
+        'prebufferMs': prebufferMs,
+        'rebufferMs': rebufferMs,
+        'ringDurationSec': ringDurationSec,
+      });
+
+  void setStreamBufferProfile(StreamBufferProfile profile) =>
+      setStreamBufferConfig(
+        prebufferMs: profile.prebufferMs,
+        rebufferMs: profile.rebufferMs,
+        ringDurationSec: profile.ringDurationSec,
+      );
+
+  Future<({int prebufferMs, int rebufferMs, int ringDurationSec})>
+      getStreamBufferConfig() async {
+    final response = await _request('getStreamBufferConfig');
+    if (response is Map) {
+      return (
+        prebufferMs: (response['prebufferMs'] as int?) ?? 500,
+        rebufferMs: (response['rebufferMs'] as int?) ?? 1500,
+        ringDurationSec: (response['ringDurationSec'] as int?) ?? 10,
+      );
+    }
+    return (prebufferMs: 500, rebufferMs: 1500, ringDurationSec: 10);
+  }
+
   Future<({int periodFrames, int periodCount})> getOutputBuffer() async {
     final response = await _request('getOutputBuffer');
     if (response is Map) {
@@ -3084,6 +3116,13 @@ void _isolateEntry(_IsolateInitData initData) {
             periodCount: message['periodCount'] ?? 0,
           );
           break;
+        case 'setStreamBufferConfig':
+          player.setStreamBufferConfig(
+            prebufferMs: message['prebufferMs'] ?? 500,
+            rebufferMs: message['rebufferMs'] ?? 1500,
+            ringDurationSec: message['ringDurationSec'] ?? 10,
+          );
+          break;
         case 'setPhaseInversion':
           player.setPhaseInversion(
             invertLeft: message['invertLeft'] == true,
@@ -3384,6 +3423,18 @@ void _isolateEntry(_IsolateInitData initData) {
             sendResponse(message, null, e);
           }
           break;
+        case 'getStreamBufferConfig':
+          try {
+            final buf = player.getStreamBufferConfig();
+            sendResponse(message, {
+              'prebufferMs': buf.prebufferMs,
+              'rebufferMs': buf.rebufferMs,
+              'ringDurationSec': buf.ringDurationSec,
+            });
+          } catch (e) {
+            sendResponse(message, null, e);
+          }
+          break;
         case 'getEngineTelemetry':
           try {
             final hw = player.hardwareInfo;
@@ -3478,7 +3529,8 @@ void _isolateEntry(_IsolateInitData initData) {
                 fileType = st.codecName.isNotEmpty
                     ? st.codecName.toUpperCase()
                     : 'STREAM';
-                bitrateKbps = st.bitrate;
+                // st.bitrate from FFmpeg AVFormatContext/AVCodecParameters is in bps.
+                bitrateKbps = st.bitrate > 0 ? (st.bitrate / 1000).round() : 0;
                 final streamFmt = player.getStreamAudioFormat();
                 if (streamFmt.sampleRate > 0) inputRate = streamFmt.sampleRate;
                 if (streamFmt.channels > 0) inputChannels = streamFmt.channels;
@@ -3505,8 +3557,7 @@ void _isolateEntry(_IsolateInitData initData) {
                       inputRate > 0 &&
                       inputChannels > 0) {
                     final inferred =
-                        ((st.bitrate * 1000) / (inputRate * inputChannels))
-                            .round();
+                        (st.bitrate / (inputRate * inputChannels)).round();
                     if (inferred == 16 || inferred == 24 || inferred == 32) {
                       inputBitDepth = inferred;
                       inputBitDepthInferred = true;
@@ -3605,6 +3656,8 @@ void _isolateEntry(_IsolateInitData initData) {
               'loudnessNormalizerTarget': player.getLoudnessNormalizerTarget(),
               'loudnessNormalizerGainDb': player.getLoudnessNormalizerGainDb(),
               'streamState': st.state.name,
+              'streamErrorCode': st.errorCode,
+              'streamErrorMessage': st.errorMessage,
               'streamBufferedDurationMs': st.bufferedDuration.inMilliseconds,
               'streamTotalDurationMs': st.totalDuration.inMilliseconds,
               'streamBufferPercent': st.bufferPercent,

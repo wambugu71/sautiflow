@@ -940,6 +940,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
       } else if (tel.state == StreamPlaybackState.playing ||
           tel.state == StreamPlaybackState.ready) {
         _lastLoggedStreamError = '';
+        _retriedStreamVideoIds.clear();
       }
     });
 
@@ -1194,6 +1195,8 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         await AppStateService.instance.loadLoudnessNormalizer();
     final lookaheadSaved =
         await AppStateService.instance.loadLookaheadLimiter();
+    final bufferProfile =
+        await AppStateService.instance.loadStreamBufferProfile();
     final ui = await AppStateService.instance.loadUiSettings();
 
     if (Platform.isAndroid) {
@@ -1232,6 +1235,7 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
 
     _player.setCrossfadeEnabled(_crossfadeEnabled);
     _player.setCrossfadeDurationMs(_crossfadeDurationMs);
+    _player.setStreamBufferProfile(bufferProfile);
     _player.setAnalyzerEnabled(_analyzerEnabled);
     _player.configureAnalyzer(
       frameSize: _analyzerSampleSize,
@@ -2779,10 +2783,9 @@ class _PlayerShellState extends State<PlayerShell> with WidgetsBindingObserver {
         initialPosition: Duration.zero,
         useLazyPreparation: true,
       );
-      _retriedStreamVideoIds.remove(videoId);
       _logs.insert(
         0,
-        '[stream-recovery] ✓ Recovered stream for "${track.title}"',
+        '[stream-recovery] ✓ Re-queued stream for "${track.title}"',
       );
     } catch (e) {
       _logs.insert(0, '[stream-recovery] Failed to recover "${track.title}": $e');

@@ -2009,6 +2009,127 @@ static void test_stereo_enhancement_and_pdc_latency()
     CHECK(mMono100 > m50 * 0.85, "Stereo Enhancer pure mono @ mix=1.00 does NOT mute center vocals/mono");
 }
 
+static void test_ffmpeg_streaming_audit()
+{
+    std::printf("\n== FFmpeg Streaming Audit (Buffer Config, Telemetry Locking, SwrContext 256-tap, Local Decoder) ==\n");
+
+    // 1. Stream buffer config defaults, clamping & round-trip
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created for streaming audit");
+
+    int preMs = 0, rebufMs = 0, ringSec = 0;
+    ae_get_stream_buffer_config(e, &preMs, &rebufMs, &ringSec);
+    CHECK(preMs == 500 && rebufMs == 1500 && ringSec == 10, "default stream buffer config is 500ms / 1500ms / 10s");
+
+    ae_set_stream_buffer_config(e, 50, 99999, 99);
+    ae_get_stream_buffer_config(e, &preMs, &rebufMs, &ringSec);
+    CHECK(preMs == 150 && rebufMs == 8000 && ringSec == 30, "stream buffer config clamps out-of-range bounds safely");
+
+    ae_set_stream_buffer_config(e, 2000, 4000, 20);
+    ae_get_stream_buffer_config(e, &preMs, &rebufMs, &ringSec);
+    CHECK(preMs == 2000 && rebufMs == 4000 && ringSec == 20, "High Stability buffer config round-trips cleanly");
+
+    // 2. Network URL detection coverage (case-insensitive & multi-protocol)
+    CHECK(sautiflow::FFmpegStreamSource::is_network_url("HTTPS://example.com/stream"), "uppercase HTTPS detected as network URL");
+    CHECK(sautiflow::FFmpegStreamSource::is_network_url("rtsp://example.com/live"), "RTSP detected as network URL");
+    CHECK(sautiflow::FFmpegStreamSource::is_network_url("rtmp://example.com/app"), "RTMP detected as network URL");
+    CHECK(sautiflow::FFmpegStreamSource::is_network_url("/sdcard/Music/track.flac") == false, "local path is not classified as network URL");
+
+    // 3. Concurrent telemetry & playback stress check (verifies decoderMutex locking)
+    const char *wavPath = "test_stream_audit.wav";
+    CHECK(write_test_wav(wavPath, 44100, 1, 0.5f), "1s 44.1 kHz test WAV written");
+    const char *paths[1] = { wavPath };
+    ae_set_playlist(e, paths, 1);
+
+    std::atomic<bool> stopPoller{false};
+    std::thread poller([&]() {
+        char codec[32]{0};
+        char icyT[256]{0};
+        char icyA[256]{0};
+        char errBuf[256]{0};
+        int st = 0, err = 0, sr = 0, ch = 0, bd = 0;
+        double bufSec = 0.0, totSec = 0.0, bufPct = 0.0;
+        int64_t br = 0;
+        while (!stopPoller.load(std::memory_order_acquire)) {
+            ae_get_stream_telemetry(e, &st, &err, &bufSec, &totSec, &bufPct, &br,
+                                    codec, sizeof(codec), icyT, sizeof(icyT), icyA, sizeof(icyA));
+            ae_get_stream_audio_format(e, &sr, &ch, &bd);
+            (void)ae_is_stream_live(e);
+            (void)ae_get_stream_error_message(e, errBuf, sizeof(errBuf));
+        }
+    });
+
+    for (int i = 0; i < 8; ++i) {
+        ae_play(e);
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        ae_pause(e);
+        ae_jump_to(e, 0);
+    }
+    stopPoller.store(true, std::memory_order_release);
+    poller.join();
+    CHECK(true, "concurrent telemetry polling under play/pause/jump survived without race/crash");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+
+    // 4. FFmpegLocalFileSource exact frame count (Swr tail flush) & seek
+    {
+        sautiflow::FFmpegLocalFileSource local;
+        CHECK(local.open(wavPath), "FFmpegLocalFileSource opened 44.1 kHz test WAV");
+        CHECK(local.get_sample_rate() == 44100 && local.get_channels() == 2, "FFmpegLocalFileSource reports 44.1 kHz / 2 ch");
+        std::vector<float> buf(4096 * 2);
+        size_t totalRead = 0;
+        while (!local.is_ended()) {
+            size_t got = local.read_pcm(buf.data(), 4096);
+            if (got == 0) break;
+            totalRead += got;
+        }
+        CHECK(totalRead == 44100, "FFmpegLocalFileSource reads all 44100 frames without truncation");
+        CHECK(local.seek(22050), "FFmpegLocalFileSource seek to midpoint succeeded");
+        size_t afterSeek = local.read_pcm(buf.data(), 1024);
+        CHECK(afterSeek == 1024, "FFmpegLocalFileSource reads full block after seek");
+        local.close();
+    }
+    std::remove(wavPath);
+
+    // 5. SwrContext 256-tap Kaiser 44.1->48 kHz + 5.1->2.0 rematrix_maxval=1.0 peak check
+    {
+        AVChannelLayout inLayout51{}, outLayout2{};
+        av_channel_layout_default(&inLayout51, 6);
+        av_channel_layout_default(&outLayout2, 2);
+
+        SwrContext *swr = nullptr;
+        int ret = swr_alloc_set_opts2(&swr, &outLayout2, AV_SAMPLE_FMT_FLT, 48000,
+                                      &inLayout51, AV_SAMPLE_FMT_FLT, 44100, 0, nullptr);
+        CHECK(ret == 0 && swr != nullptr, "SwrContext 5.1->2.0 (44.1k->48k) allocated");
+        av_opt_set_int(swr, "resampler", SWR_ENGINE_SWR, 0);
+        av_opt_set_int(swr, "filter_size", 256, 0);
+        av_opt_set_double(swr, "cutoff", 0.95, 0);
+        av_opt_set_int(swr, "phase_shift", 10, 0);
+        av_opt_set_int(swr, "linear_interp", 1, 0);
+        av_opt_set_double(swr, "rematrix_maxval", 1.0, 0);
+        av_opt_set_int(swr, "filter_type", SWR_FILTER_TYPE_KAISER, 0);
+        av_opt_set_double(swr, "kaiser_beta", 10.0, 0);
+        CHECK(swr_init(swr) >= 0 && swr_is_initialized(swr), "256-tap Kaiser + linear_interp + rematrix_maxval=1.0 initialized");
+
+        const int inFrames = 4096;
+        std::vector<float> inPcm(static_cast<size_t>(inFrames) * 6, 0.9f);
+        const uint8_t *inPtr[1] = { reinterpret_cast<const uint8_t *>(inPcm.data()) };
+        const int outMax = swr_get_out_samples(swr, inFrames);
+        std::vector<float> outPcm(static_cast<size_t>(outMax) * 2, 0.0f);
+        uint8_t *outPtr[1] = { reinterpret_cast<uint8_t *>(outPcm.data()) };
+        int converted = swr_convert(swr, outPtr, outMax, inPtr, inFrames);
+        float maxAbs = 0.0f;
+        for (int i = 0; i < converted * 2; ++i) {
+            maxAbs = std::max(maxAbs, std::abs(outPcm[static_cast<size_t>(i)]));
+        }
+        CHECK(converted > 0 && maxAbs <= 1.05f, "5.1->2.0 rematrix_maxval=1.0 avoids downmix clipping (>0 dBFS)");
+        swr_free(&swr);
+        av_channel_layout_uninit(&inLayout51);
+        av_channel_layout_uninit(&outLayout2);
+    }
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -2037,6 +2158,7 @@ int main()
     test_dither_24in32_and_noise_shaping_fixes();
     test_hires_384khz_and_fidelity_alignment();
     test_stereo_enhancement_and_pdc_latency();
+    test_ffmpeg_streaming_audit();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

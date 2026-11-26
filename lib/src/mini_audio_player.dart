@@ -330,6 +330,20 @@ class MiniAudioPlayer {
   bool isCurrentStreamLive() => _engine.isCurrentStreamLive();
   bool get isBuffering => _engine.getStreamTelemetry().isBuffering;
   bool get isLive => _engine.isCurrentStreamLive();
+  void setStreamBufferConfig({
+    int prebufferMs = 500,
+    int rebufferMs = 1500,
+    int ringDurationSec = 10,
+  }) =>
+      _engine.setStreamBufferConfig(
+        prebufferMs: prebufferMs,
+        rebufferMs: rebufferMs,
+        ringDurationSec: ringDurationSec,
+      );
+  void setStreamBufferProfile(StreamBufferProfile profile) =>
+      _engine.setStreamBufferProfile(profile);
+  ({int prebufferMs, int rebufferMs, int ringDurationSec})
+      getStreamBufferConfig() => _engine.getStreamBufferConfig();
   int getPushStreamBufferedBytes() => _engine.getPushStreamBufferedBytes();
   int getAnalyzerFrameSize() => _engine.getAnalyzerFrameSize();
   int getAnalyzerDroppedFrames() => _engine.getAnalyzerDroppedFrames();

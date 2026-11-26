@@ -660,9 +660,49 @@ enum StreamPlaybackState {
   error,
 }
 
+/// Configurable network streaming buffer presets.
+enum StreamBufferProfile {
+  /// Low-latency startup (300 ms prebuffer / 1000 ms rebuffer / 8 s ring).
+  fastStart(
+    prebufferMs: 300,
+    rebufferMs: 1000,
+    ringDurationSec: 8,
+    label: 'Fast Start',
+  ),
+
+  /// Default balanced profile (600 ms prebuffer / 1500 ms rebuffer / 12 s ring).
+  balanced(
+    prebufferMs: 600,
+    rebufferMs: 1500,
+    ringDurationSec: 12,
+    label: 'Balanced',
+  ),
+
+  /// High-jitter stability for mobile/weak links (2000 ms prebuffer / 4000 ms rebuffer / 20 s ring).
+  highStability(
+    prebufferMs: 2000,
+    rebufferMs: 4000,
+    ringDurationSec: 20,
+    label: 'High Stability',
+  );
+
+  const StreamBufferProfile({
+    required this.prebufferMs,
+    required this.rebufferMs,
+    required this.ringDurationSec,
+    required this.label,
+  });
+
+  final int prebufferMs;
+  final int rebufferMs;
+  final int ringDurationSec;
+  final String label;
+}
+
 class StreamTelemetry {
   final StreamPlaybackState state;
   final int errorCode;
+  final String errorMessage;
   final Duration bufferedDuration;
   final Duration totalDuration;
   final double bufferPercent;
@@ -676,6 +716,7 @@ class StreamTelemetry {
   const StreamTelemetry({
     this.state = StreamPlaybackState.idle,
     this.errorCode = 0,
+    this.errorMessage = '',
     this.bufferedDuration = Duration.zero,
     this.totalDuration = Duration.zero,
     this.bufferPercent = 0.0,
@@ -687,18 +728,34 @@ class StreamTelemetry {
     this.isSeekable = true,
   });
 
+  /// Maps native `sautiflow::StreamState` integers (including `Error = -1`)
+  /// into [StreamPlaybackState].
+  static StreamPlaybackState parseNativeState(int rawState) {
+    return switch (rawState) {
+      -1 => StreamPlaybackState.error,
+      0 => StreamPlaybackState.idle,
+      1 => StreamPlaybackState.connecting,
+      2 => StreamPlaybackState.buffering,
+      3 => StreamPlaybackState.ready,
+      4 => StreamPlaybackState.playing,
+      5 => StreamPlaybackState.ended,
+      _ => StreamPlaybackState.idle,
+    };
+  }
+
   bool get isBuffering =>
       state == StreamPlaybackState.buffering ||
       state == StreamPlaybackState.connecting;
   bool get isPlaying => state == StreamPlaybackState.playing;
   bool get isEnded => state == StreamPlaybackState.ended;
-  bool get hasError => state == StreamPlaybackState.error;
+  bool get hasError => state == StreamPlaybackState.error || errorCode != 0;
 
   @override
   String toString() =>
       'StreamTelemetry(state: $state, buffered: ${bufferedDuration.inSeconds}s, '
       'total: ${totalDuration.inSeconds}s, bufferPct: ${bufferPercent.toStringAsFixed(1)}%, '
-      'bitrate: ${bitrate ~/ 1000}kbps, codec: $codecName, icy: "$icyArtist - $icyTitle", isLive: $isLive, isSeekable: $isSeekable)';
+      'bitrate: ${bitrate ~/ 1000}kbps, codec: $codecName, icy: "$icyArtist - $icyTitle", '
+      'isLive: $isLive, isSeekable: $isSeekable, error: $errorCode/$errorMessage)';
 }
 
 class AudioSource {
@@ -3005,6 +3062,33 @@ typedef _GetStreamAudioFormatDart = int Function(
     ffi.Pointer<ffi.Int32> outBitDepth);
 typedef _IsStreamLiveDart = int Function(ffi.Pointer<ffi.Void> engine);
 
+typedef _GetStreamErrorMessageNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void> engine, ffi.Pointer<ffi.Char> outBuf, ffi.Int32 bufLen);
+typedef _GetStreamErrorMessageDart = int Function(
+    ffi.Pointer<ffi.Void> engine, ffi.Pointer<ffi.Char> outBuf, int bufLen);
+
+typedef _SetStreamBufferConfigNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void> engine,
+    ffi.Int32 prebufferMs,
+    ffi.Int32 rebufferMs,
+    ffi.Int32 ringDurationSec);
+typedef _SetStreamBufferConfigDart = void Function(
+    ffi.Pointer<ffi.Void> engine,
+    int prebufferMs,
+    int rebufferMs,
+    int ringDurationSec);
+
+typedef _GetStreamBufferConfigNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void> engine,
+    ffi.Pointer<ffi.Int32> outPrebufferMs,
+    ffi.Pointer<ffi.Int32> outRebufferMs,
+    ffi.Pointer<ffi.Int32> outRingDurationSec);
+typedef _GetStreamBufferConfigDart = void Function(
+    ffi.Pointer<ffi.Void> engine,
+    ffi.Pointer<ffi.Int32> outPrebufferMs,
+    ffi.Pointer<ffi.Int32> outRebufferMs,
+    ffi.Pointer<ffi.Int32> outRingDurationSec);
+
 typedef _SetAnalyzerEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
 typedef _SetAnalyzerEnabledDart = void Function(ffi.Pointer<ffi.Void>, int);
@@ -4442,6 +4526,27 @@ class AudioEngineFFI {
     }
 
     try {
+      _getStreamErrorMessage = _lib.lookupFunction<_GetStreamErrorMessageNative,
+          _GetStreamErrorMessageDart>('ae_get_stream_error_message');
+    } catch (_) {
+      _getStreamErrorMessage = null;
+    }
+
+    try {
+      _setStreamBufferConfig = _lib.lookupFunction<_SetStreamBufferConfigNative,
+          _SetStreamBufferConfigDart>('ae_set_stream_buffer_config');
+    } catch (_) {
+      _setStreamBufferConfig = null;
+    }
+
+    try {
+      _getStreamBufferConfig = _lib.lookupFunction<_GetStreamBufferConfigNative,
+          _GetStreamBufferConfigDart>('ae_get_stream_buffer_config');
+    } catch (_) {
+      _getStreamBufferConfig = null;
+    }
+
+    try {
       _inspectFile = _lib.lookupFunction<_InspectFileNative, _InspectFileDart>(
         'ae_inspect_file',
       );
@@ -4790,6 +4895,9 @@ class AudioEngineFFI {
   _GetStreamTelemetryDart? _getStreamTelemetry;
   _IsStreamLiveDart? _isStreamLive;
   _GetStreamAudioFormatDart? _getStreamAudioFormat;
+  _GetStreamErrorMessageDart? _getStreamErrorMessage;
+  _SetStreamBufferConfigDart? _setStreamBufferConfig;
+  _GetStreamBufferConfigDart? _getStreamBufferConfig;
   _InspectFileDart? _inspectFile;
   _GetHardwareInfoDart? _getHardwareInfo;
   _GetDapInfoDart? _getDapInfo;
@@ -4927,6 +5035,7 @@ class AudioEngineFFI {
   ffi.Pointer<ffi.Char>? _telCodecPtr;
   ffi.Pointer<ffi.Char>? _telIcyTitlePtr;
   ffi.Pointer<ffi.Char>? _telIcyArtistPtr;
+  ffi.Pointer<ffi.Char>? _telErrorMsgPtr;
   ffi.Pointer<ffi.Int32>? _pAbEnabled;
   ffi.Pointer<ffi.Double>? _pAbStart;
   ffi.Pointer<ffi.Double>? _pAbEnd;
@@ -4967,6 +5076,9 @@ class AudioEngineFFI {
       _freePtr(_telCodecPtr!.cast<ffi.Void>());
       _freePtr(_telIcyTitlePtr!.cast<ffi.Void>());
       _freePtr(_telIcyArtistPtr!.cast<ffi.Void>());
+      if (_telErrorMsgPtr != null) {
+        _freePtr(_telErrorMsgPtr!.cast<ffi.Void>());
+      }
       _telStatePtr = null;
       _telErrorCodePtr = null;
       _telBufferedPtr = null;
@@ -4976,6 +5088,7 @@ class AudioEngineFFI {
       _telCodecPtr = null;
       _telIcyTitlePtr = null;
       _telIcyArtistPtr = null;
+      _telErrorMsgPtr = null;
     }
     if (_engine != ffi.nullptr) {
       _destroyEngine(_engine);
@@ -5028,6 +5141,7 @@ class AudioEngineFFI {
 
     const codecLen = 32;
     const icyLen = 256;
+    const errMsgLen = 256;
 
     if (_telStatePtr == null) {
       _telStatePtr = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
@@ -5039,6 +5153,7 @@ class AudioEngineFFI {
       _telCodecPtr = _malloc(codecLen).cast<ffi.Char>();
       _telIcyTitlePtr = _malloc(icyLen).cast<ffi.Char>();
       _telIcyArtistPtr = _malloc(icyLen).cast<ffi.Char>();
+      _telErrorMsgPtr = _malloc(errMsgLen).cast<ffi.Char>();
     }
 
     final outState = _telStatePtr!;
@@ -5050,6 +5165,7 @@ class AudioEngineFFI {
     final outCodec = _telCodecPtr!;
     final outIcyTitle = _telIcyTitlePtr!;
     final outIcyArtist = _telIcyArtistPtr!;
+    final outErrorMsg = _telErrorMsgPtr!;
 
     getter(
       _engine,
@@ -5067,19 +5183,24 @@ class AudioEngineFFI {
       icyLen,
     );
 
-    final stateIdx = outState.value;
-    final state = (stateIdx >= 0 && stateIdx < StreamPlaybackState.values.length)
-        ? StreamPlaybackState.values[stateIdx]
-        : StreamPlaybackState.idle;
+    final state = StreamTelemetry.parseNativeState(outState.value);
 
     final codecStr = outCodec.cast<Utf8>().toDartString();
     final icyTitleStr = outIcyTitle.cast<Utf8>().toDartString();
     final icyArtistStr = outIcyArtist.cast<Utf8>().toDartString();
+    String errorMsgStr = '';
+    final errGetter = _getStreamErrorMessage;
+    if (errGetter != null) {
+      if (errGetter(_engine, outErrorMsg, errMsgLen) != 0) {
+        errorMsgStr = outErrorMsg.cast<Utf8>().toDartString();
+      }
+    }
     final isLive = isCurrentStreamLive();
 
     return StreamTelemetry(
       state: state,
       errorCode: outErrorCode.value,
+      errorMessage: errorMsgStr,
       bufferedDuration: Duration(
         milliseconds: (outBuffered.value * 1000).round(),
       ),
@@ -5094,6 +5215,47 @@ class AudioEngineFFI {
       isLive: isLive,
       isSeekable: !isLive && outTotal.value > 0,
     );
+  }
+
+  void setStreamBufferConfig({
+    int prebufferMs = 500,
+    int rebufferMs = 1500,
+    int ringDurationSec = 10,
+  }) {
+    final setter = _setStreamBufferConfig;
+    if (setter == null || _engine == ffi.nullptr) return;
+    setter(_engine, prebufferMs, rebufferMs, ringDurationSec);
+  }
+
+  void setStreamBufferProfile(StreamBufferProfile profile) {
+    setStreamBufferConfig(
+      prebufferMs: profile.prebufferMs,
+      rebufferMs: profile.rebufferMs,
+      ringDurationSec: profile.ringDurationSec,
+    );
+  }
+
+  ({int prebufferMs, int rebufferMs, int ringDurationSec})
+      getStreamBufferConfig() {
+    final getter = _getStreamBufferConfig;
+    if (getter == null || _engine == ffi.nullptr) {
+      return (prebufferMs: 500, rebufferMs: 1500, ringDurationSec: 10);
+    }
+    final prePtr = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    final rebufPtr = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    final ringPtr = _malloc(ffi.sizeOf<ffi.Int32>()).cast<ffi.Int32>();
+    try {
+      getter(_engine, prePtr, rebufPtr, ringPtr);
+      return (
+        prebufferMs: prePtr.value,
+        rebufferMs: rebufPtr.value,
+        ringDurationSec: ringPtr.value,
+      );
+    } finally {
+      _free(prePtr.cast<ffi.Void>());
+      _free(rebufPtr.cast<ffi.Void>());
+      _free(ringPtr.cast<ffi.Void>());
+    }
   }
 
   bool isCurrentStreamLive() {

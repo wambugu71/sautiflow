@@ -172,6 +172,9 @@ extern "C"
                                           int *out_sample_rate,
                                           int *out_channels,
                                           int *out_bit_depth);
+    AE_API int ae_get_stream_error_message(AudioEngineHandle *engine, char *out_buf, int buf_len);
+    AE_API void ae_set_stream_buffer_config(AudioEngineHandle *engine, int prebuffer_ms, int rebuffer_ms, int ring_duration_sec);
+    AE_API void ae_get_stream_buffer_config(AudioEngineHandle *engine, int *out_prebuffer_ms, int *out_rebuffer_ms, int *out_ring_duration_sec);
 
     AE_API void ae_set_loop_mode(AudioEngineHandle *engine, int loop_mode);
     AE_API void ae_set_shuffle_enabled(AudioEngineHandle *engine, int enabled);

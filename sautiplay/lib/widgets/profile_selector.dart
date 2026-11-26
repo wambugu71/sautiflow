@@ -228,10 +228,10 @@ class AudioProfileSelector extends StatefulWidget {
                     children: [
                       TextField(
                         controller: nameController,
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        style: TextStyle(color: context.textPrimary, fontSize: 14),
                         decoration: InputDecoration(
                           labelText: 'Profile Name',
-                          labelStyle: const TextStyle(color: Colors.white70),
+                          labelStyle: TextStyle(color: context.textMuted),
                           filled: true,
                           fillColor: surfaceDarkColor,
                           border: OutlineInputBorder(
@@ -261,7 +261,7 @@ class AudioProfileSelector extends StatefulWidget {
                             dropdownColor: bgDarkColor,
                             isExpanded: true,
                             style:
-                                const TextStyle(color: Colors.white, fontSize: 14),
+                                TextStyle(color: context.textPrimary, fontSize: 14),
                             items: [
                               'Headphones',
                               'Speakers',
@@ -282,10 +282,10 @@ class AudioProfileSelector extends StatefulWidget {
                       const SizedBox(height: 14),
                       TextField(
                         controller: descController,
-                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        style: TextStyle(color: context.textPrimary, fontSize: 14),
                         decoration: InputDecoration(
                           labelText: 'Description (Optional)',
-                          labelStyle: const TextStyle(color: Colors.white70),
+                          labelStyle: TextStyle(color: context.textMuted),
                           filled: true,
                           fillColor: surfaceDarkColor,
                           border: OutlineInputBorder(
@@ -319,11 +319,11 @@ class AudioProfileSelector extends StatefulWidget {
                             children: [
                               Row(
                                 children: [
-                                  const Expanded(
+                                  Expanded(
                                     child: Text(
                                       'Graphic EQ & DSP Effects',
                                       style: TextStyle(
-                                          color: Colors.white, fontSize: 13),
+                                          color: context.textPrimary, fontSize: 13),
                                     ),
                                   ),
                                   M3ESwitch(
@@ -333,14 +333,14 @@ class AudioProfileSelector extends StatefulWidget {
                                   ),
                                 ],
                               ),
-                              const Divider(color: Colors.white12, height: 12),
+                              Divider(color: context.outlineColor, height: 12),
                               Row(
                                 children: [
-                                  const Expanded(
+                                  Expanded(
                                     child: Text(
                                       'Sauti DSP Suite Settings',
                                       style: TextStyle(
-                                          color: Colors.white, fontSize: 13),
+                                          color: context.textPrimary, fontSize: 13),
                                     ),
                                   ),
                                   M3ESwitch(
