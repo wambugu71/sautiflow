@@ -97,7 +97,7 @@
           <h3>// ENGINE CARD</h3>
           <ul>
             <li><span>ENGINE</span><b>Sautiflow <a class="ver-link" href="https://docs.sautiflow.us.ci" target="_blank"
-                  rel="noopener" title="Read the Sautiflow docs">v1.0.0</a></b></li>
+                  rel="noopener" title="Read the Sautiflow docs">v1.1.0</a></b></li>
             <li><span>FRAMEWORK</span><b>Flutter / Dart + FFI</b></li>
             <li><span>INTERFACE</span><b>Material 3 Expressive</b></li>
             <li><span>CORE</span><b>C++ · miniaudio</b></li>
@@ -227,7 +227,7 @@
           <ul>
             <li>Parametric EQs (Bell, Tilt, Shelf, Notch) &amp; 6-band Dynamic Parametric EQ</li>
             <li>OpenStage acoustic crossfeed (ITD/shelving model) &amp; Ambiophonics R.A.C.E.</li>
-            <li>Broadcast Leveller (EBU R128 AGC), Studio Noise Gate &amp; ISO 226 Dynamic Loudness</li>
+            <li>Broadcast Leveller (EBU R128 AGC), 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter, Studio Noise Gate &amp; ISO 226 Dynamic Loudness</li>
             <li>Studio Dattorro diffuse tank reverb with quadrature LFO modulation</li>
             <li>Vintage Tape Drift, Convolver (impulse responses), DDC, delay &amp; dynamic bass</li>
             <li>Polarity invert, L/R swap, per-channel gain; M3E AutoEQ import</li>
@@ -247,10 +247,10 @@
           <h3 class="mono">F/04 — LIBRARY &amp; UX</h3>
           <ul>
             <li>High-refresh waveform seek bar (60–120 Hz) with batched point rendering</li>
-            <li>Material 3 Expressive interface with dynamic theming &amp; AutoEQ manager</li>
+            <li>Material 3 Expressive interface with adaptive perceptual album-art theming (cached SQLite palettes) &amp; AutoEQ manager</li>
             <li>Gapless playback, loudness-aware crossfade, A-B repeat loop</li>
             <li>Lyrics view, M3U playlists, dedupe by file-content hash</li>
-            <li>Desktop system tray, native notifications, background isolate extraction</li>
+            <li>Reliable Android foreground media controls &amp; AudioSession focus, desktop system tray, background isolate extraction</li>
           </ul>
         </article>
         <article class="feat feat-wide">
@@ -639,6 +639,10 @@
         &lt;/receiver&gt;
     &lt;/application&gt;
 &lt;/manifest&gt;</code></pre>
+          <p style="margin-top: 14px;">For R8-minified release builds, add <code>android/app/src/main/res/raw/keep.xml</code> so resource shrinking preserves dynamically resolved notification and media-control icons:</p>
+          <pre class="code-block"><code>&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notification,@drawable/audio_service_*" /&gt;</code></pre>
         </article>
 
         <article class="feat">

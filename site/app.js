@@ -102,8 +102,8 @@ async function loadLatestRelease() {
         Check <a href="${RELEASES_URL}" target="_blank" rel="noopener">GitHub Releases ↗</a></div>`;
     }
   } catch (err) {
-    badge.textContent = "v1.0.0";
-    badge.title = "v1.0.0 — read the Sautiflow docs";
+    badge.textContent = "v1.1.0";
+    badge.title = "v1.1.0 — read the Sautiflow docs";
     list.innerHTML = `
       <div class="empty-state mono">NO PUBLIC RELEASE PUBLISHED YET.<br><br>
       The moment the first tag lands on GitHub, download links appear here automatically.<br><br>

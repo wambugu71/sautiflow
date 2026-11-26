@@ -1,3 +1,9 @@
+## v1.1.0 — 2026-11-26
+- Android Background Playback & Media Notification Fix: Preserved notification/media control icons in release builds via R8 keep rules and hardened foreground service & AudioSession focus recovery
+- 3-Band Lookahead AGC + Bass-Safe Limiter DSP: Added 3-band lookahead AGC and brickwall peak limiter with real-time telemetry and EQ controls
+- Adaptive Perceptual Artwork Theme: Added perceptual color extraction, palette personality analysis, background isolate worker, and SQLite palette caching
+- Startup & Build Reliability: Non-blocking isolate/AudioService initialization, playback-time notification permission recheck, and AGP 9.1.1 / Gradle 9.5.0 CI updates
+
 ## v1.0.0 — 2026-11-22
 - Android Oboe & DAP Hi-Res Driver: Native AAudio/OpenSLES Oboe sink and dedicated Hi-Res audio driver support for selected DAPs
 - Direct USB DAC Driver: Direct libusb UAC 1.0/2.0 output with Hi-Res USB DAC controls bypassing OS resampling

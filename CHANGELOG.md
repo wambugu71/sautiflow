@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.0 — 2026-11-26
+
+- **[Android Media Notification & Foreground Service Fix]** Added `res/raw/keep.xml` in `sautiplay` and `dependencies/audio_service` so R8 resource shrinking preserves `drawable/ic_notification` and `drawable/audio_service_*` drawables in release APKs (preventing `CustomAction.Builder` crashes in `AudioService.setState()` that blocked foreground-service promotion and caused Android to kill backgrounded playback); hardened `AudioService.java` with separate `isForeground` tracking, `iconId == 0` custom-action guards, and foreground promotion retry.
+- **[Android AudioSession & Startup Hardening]** Reset `_audioSessionActive` on permanent/transient focus loss, explicitly re-acquired focus on interruption resume, mirrored `AudioService.asyncError` and system-audio diagnostics to `debugPrint`, added `onTaskRemoved()` cleanup when paused/idle, decoupled `IsolateAudioPlayer` IPC from `AudioService` binding, cached/replayed early now-playing metadata & favorite state, eagerly activated `AudioSession` on `load()` and `setAudioSources(autoPlay: true)`, and added playback-time notification permission rechecks.
+- **[3-Band Lookahead AGC + Bass-Safe Brickwall Limiter DSP]** Added `LookaheadAgcLimiterDSP` (`dsp/lookahead_agc_limiter_dsp.h`) with C ABI, Dart FFI bindings (`lib/sauti_dsp.dart`), isolate dispatch, SautiPlay EQ controls, and C++ verification tests (`tests/test_lookahead_agc_limiter.cpp`).
+- **[Adaptive Perceptual Artwork Theme Engine]** Added perceptual color analysis, palette personality analyzer, adaptive theme generator, background isolate worker, Drift SQLite `ArtworkPalettes` caching, and unit/lifecycle tests.
+- **[CI & Android Build Toolchain]** Upgraded to AGP 9.1.1 / Gradle 9.5.0, registered `third_party/oboe` submodule, fixed `file_picker` Kotlin plugin compatibility and `projectm_visualizer` Windows/Linux CMake builds, and removed unused `metadata_god` dev dependency.
+
 ## v1.0.0 — 2026-11-22
 
 - **[Android Oboe Sink & DAP Hi-Res Driver]** Added `OboeAudioSink` (`android_oboe_sink.h`) with AAudio/OpenSLES output (`MA_NO_DEVICE_IO`) and dedicated Hi-Res audio driver support for selected DAPs, resolving JNI crashes when enabling the DAP Hi-Res driver.

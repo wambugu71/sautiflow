@@ -191,6 +191,7 @@
                     <li><strong>New:</strong> Integrated the legendary <a href="#viper-dsp" style="color: #c084fc;">ViPER DSP Engine</a> with 25+ real-time algorithms (Headphone Surround, Tube Simulator, Psychoacoustic Bass, Multiband Dynamics).</li>
                     <li><strong>Fixes:</strong> Fixed bugs and fixed crossfade in the native sautiflow audio engine.</li>
                     <li><strong>Sautiplay:</strong> Added ViPER FX effects, UI improvements, performance boosts, and bug fixes to the Sautiplay app.</li>
+                    <li><strong>v1.1.0:</strong> Hardened Android <code>AudioService</code> foreground media notifications and <code>AudioSession</code> focus recovery with R8 <code>res/raw/keep.xml</code> icon preservation, added the 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter DSP, and introduced adaptive perceptual artwork theming.</li>
                 </ul>
             </section>
 
@@ -200,7 +201,7 @@
                 <pre><code class="language-bash">flutter pub add sautiflow</code></pre>
                 <p>Or manually:</p>
                 <pre><code class="language-yaml">dependencies:
-    sautiflow: ^0.2.0</code></pre>
+    sautiflow: ^1.1.0</code></pre>
 
                 <div
                     style="background: rgba(255, 165, 0, 0.1); border-left: 4px solid orange; padding: 1rem; margin-top: 1rem; border-radius: 4px;">
@@ -796,9 +797,9 @@ player.setEngineDitherMode(2);
                 <h3>1. Dependencies</h3>
                 <p>Ensure your <code>pubspec.yaml</code> includes:</p>
                 <pre><code class="language-yaml">dependencies:
-    sautiflow: ^0.2.0
-  audio_session: ^0.1.21
-  audio_service: ^0.18.18</code></pre>
+  sautiflow: ^1.1.0
+  audio_session: ^0.2.2
+  audio_service: ^0.18.19</code></pre>
 
                 <h3>2. AndroidManifest.xml</h3>
                 <p>Add the following permissions and components to
@@ -880,6 +881,12 @@ player.setEngineDitherMode(2);
   duration: Duration(minutes: 3, seconds: 45),
   // id, artwork can also be added if supported
 );</code></pre>
+
+                <h3>5. Release Build R8 Keep Rules (keep.xml)</h3>
+                <p>Add <code>android/app/src/main/res/raw/keep.xml</code> so R8 resource shrinking does not strip dynamically resolved notification and media-control drawables in release APKs:</p>
+                <pre><code class="language-xml">&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notification,@drawable/audio_service_*" /&gt;</code></pre>
             </section>
 
             <section id="platform-specifics">
@@ -1016,6 +1023,20 @@ MINIAUDIODART_CURL_LIBRARY=/path/to/libcurl.so</code></pre>
                         <ul>
                             <li><code>setMasterLimiter({required bool enabled, double ceilingDb, double outputGainDb, double releaseMs})</code></li>
                             <li><code>limiterGainReductionDb</code> (getter for real-time gain reduction monitoring)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="api-method">
+                    <div class="api-header">
+                        <h4>7. 3-Band Lookahead AGC + Brickwall Limiter</h4>
+                    </div>
+                    <div class="api-body">
+                        <ul>
+                            <li><code>setLookaheadAgcEnabled(bool enabled)</code> / <code>isLookaheadAgcEnabled()</code></li>
+                            <li><code>setLookaheadAgcParams({double targetLufs, double maxBoostDb, double maxAttenuationDb, double agcRiseDbSec, double agcFallDbSec, double silenceGateLufs, double lookaheadMs, double ceilingDb, double lowXoverHz, double highXoverHz, double bassReleaseMs})</code></li>
+                            <li><code>getLookaheadAgcParams()</code></li>
+                            <li><code>getLookaheadAgcTelemetry()</code> (returns <code>agcGainDb</code>, <code>lowGrDb</code>, <code>midGrDb</code>, <code>highGrDb</code>, <code>peakGrDb</code>)</li>
                         </ul>
                     </div>
                 </div>
