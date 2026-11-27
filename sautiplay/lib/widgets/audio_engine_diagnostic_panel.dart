@@ -11,6 +11,7 @@ import 'package:sautiplay/services/chromecast_service.dart';
 import 'package:sautiplay/services/dlna_renderer_service.dart';
 import 'package:sautiplay/services/dlna_service.dart';
 import 'package:sautiplay/widgets/adaptive_marquee_text.dart';
+import 'package:sautiplay/widgets/dsp_chain_order_sheet.dart';
 import 'package:sautiplay/widgets/signal_path.dart';
 import 'package:sautiplay/widgets/signal_path_card.dart';
 
@@ -118,6 +119,53 @@ class _AudioEngineDiagnosticPanelState
         });
       }
     }
+  }
+
+  Future<void> _openChainOrderEditor(BuildContext context) async {
+    final currentOrder = await AppStateService.instance.loadDspChainOrder();
+    if (!context.mounted) return;
+
+    final rawActive = _telemetry?['activeDspNodes'];
+    final activeSummaries = <String, String>{};
+    if (rawActive is List) {
+      for (final item in rawActive) {
+        if (item is Map) {
+          final id = item['id']?.toString();
+          final summary = item['summary']?.toString();
+          if (id != null && id.isNotEmpty) {
+            activeSummaries[id] = summary ?? 'Active';
+          }
+        }
+      }
+    }
+
+    final nodes = DspNodeId.values.map((id) {
+      final meta = dspChainNodeMetaFor(id);
+      final activeSummary = activeSummaries[id.key];
+      return DspChainNodeInfo(
+        id: id,
+        title: meta.title,
+        subtitle: activeSummary ?? meta.defaultSubtitle,
+        icon: meta.icon,
+        isEnabled: activeSummary != null,
+      );
+    }).toList(growable: false);
+
+    await showDspChainOrderSheet(
+      context: context,
+      initialOrder: currentOrder,
+      nodes: nodes,
+      onOrderChanged: (newOrder) {
+        widget.player.setDspChainOrder(newOrder);
+        AppStateService.instance.saveDspChainOrder(newOrder);
+        _fetchTelemetry();
+      },
+      onResetOrder: () {
+        widget.player.resetDspChainOrder();
+        AppStateService.instance.saveDspChainOrder(DspNodeId.defaultOrder);
+        _fetchTelemetry();
+      },
+    );
   }
 
   @override
@@ -488,6 +536,7 @@ class _AudioEngineDiagnosticPanelState
       isDark: isDark,
       textPrimary: textPrimary,
       textMuted: textMuted,
+      onEditChainOrder: () => _openChainOrderEditor(context),
     );
 
     final dspTelemetryCard = Container(

@@ -4142,6 +4142,19 @@ struct AudioEngineHandle
     sauti::dsp::ToneCrossoverDSP toneCrossoverDsp;
     std::mutex dspMutex;
 
+    // Reorderable DSP Rack Chain Order (seqlock-protected atomic array for wait-free, tear-free audio snapshots)
+    std::array<std::atomic<int>, AE_DSP_NODE_COUNT> dspChainOrder{};
+    std::atomic<uint64_t> dspChainSeq{0}; // even = stable, odd = write in progress; (seq >> 1) = generation
+    std::mutex dspChainOrderMutex;
+    std::array<int, AE_DSP_NODE_COUNT> lastAudioChainOrder{};
+    uint64_t lastAudioChainGeneration = 0;
+    uint64_t lastActiveRackTopologyHash = 0;
+    double lastRackOutSample[8]{};
+    bool hasLastRackOutSample = false;
+    double rackDeclickOffset[8]{};
+    int rackDeclickSamplesLeft = 0;
+    int rackDeclickTotalSamples = 0;
+
     std::atomic<bool> analyzerEnabled{false};
     int analyzerFrameSize = 512;
     std::atomic<int> analyzerWindowType{0};
@@ -8737,6 +8750,37 @@ static void decode_producer_loop(AudioEngineHandle *e)
         return e->use64BitProcessing.load(std::memory_order_relaxed) ? AE_P64_USER : 0;
     }
 
+    static bool snapshot_dsp_chain_order(const AudioEngineHandle *e,
+                                         std::array<int, AE_DSP_NODE_COUNT> &out,
+                                         uint64_t &outGen,
+                                         bool nonBlocking)
+    {
+        if (!e) return false;
+        const int maxAttempts = nonBlocking ? 4 : 1024;
+        for (int attempt = 0; attempt < maxAttempts; ++attempt)
+        {
+            const uint64_t s1 = e->dspChainSeq.load(std::memory_order_acquire);
+            if ((s1 & 1ULL) != 0ULL)
+            {
+                if (!nonBlocking) std::this_thread::yield();
+                continue;
+            }
+            for (size_t i = 0; i < (size_t)AE_DSP_NODE_COUNT; ++i)
+            {
+                out[i] = e->dspChainOrder[i].load(std::memory_order_relaxed);
+            }
+            std::atomic_thread_fence(std::memory_order_acquire);
+            const uint64_t s2 = e->dspChainSeq.load(std::memory_order_acquire);
+            if (s1 == s2)
+            {
+                outGen = s2 >> 1;
+                return true;
+            }
+            if (!nonBlocking) std::this_thread::yield();
+        }
+        return false;
+    }
+
     static void render_output_frames_chunk(AudioEngineHandle *e, void *pOutput, ma_uint32 frameCount)
     {
     if (e == nullptr || pOutput == nullptr || frameCount == 0)
@@ -9630,313 +9674,356 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->ultrasonicFilter.process(processBuffer, produced, e->channels);
             }
 
-            // Dedicated Pre-EQ Input Preamp (attenuates headroom BEFORE Dynamic EQ / EQ / Tone)
-            {
-                const float preampDb = e->eqPreampDb.load(std::memory_order_relaxed);
-                const float targetLin = (std::abs(preampDb) < 1.0e-4f) ? 1.0f : std::pow(10.0f, preampDb / 20.0f);
-                e->paramEqPreamp.setTarget(targetLin);
-                e->paramEqPreamp.prepareBlock((ma_uint32)producedSamples,
-                                              e->parameterSmoothingMs.load(std::memory_order_relaxed),
-                                              e->sampleRate,
-                                              e->channels);
-                const bool preampActive = std::fabs(e->paramEqPreamp.current - targetLin) > 1e-6f ||
-                                          std::fabs(targetLin - 1.0f) > 1e-6f;
-                if (preampActive)
-                {
-                    if (use64)
-                    {
-                        for (size_t i = 0; i < producedSamples; ++i)
-                            buf64[i] *= static_cast<double>(e->paramEqPreamp.next());
-                    }
-                    else
-                    {
-                        for (size_t i = 0; i < producedSamples; ++i)
-                            processBuffer[i] *= e->paramEqPreamp.next();
-                    }
-                }
-            }
-
             // =================================================================
-            // ZONE 1: RESTORATIVE PRE-PROCESSING (SOURCE CLEAN-ROOM) &
-            // ZONE 2: CORRECTIVE TONE & RESONANCE CONTROL &
-            // ZONE 3: HARMONIC GENERATION & NON-LINEAR CHARACTER
-            // =================================================================
+            // REORDERABLE DSP RACK (Preamp, Zones 1-6: Restoration, Harmonics,
+            // Dynamics, EQs, Spatial, Convolver, Broadcast/Lookahead AGC)
             // Uniform native precision: 100% F64 when use64 is enabled, 100% F32
-            // otherwise — zero F64<->F32 hopping, identical canonical order for
-            // stereo and multichannel.
-            if (e->channels >= 1)
-            {
-                const bool isStereo = (e->channels == 2);
-                const bool isMono   = (e->channels == 1);
-                const bool hasStereoOnlyPre = e->downwardExpanderDsp.isEnabled() ||
-                                              e->deEsserDsp.isEnabled() ||
-                                              e->harmonicBassDsp.isActive() ||
-                                              e->dynamicSystemDsp.isActive() ||
-                                              e->analogWarmthDsp.isEnabled() ||
-                                              e->dialogEnhancerDsp.isActive() ||
-                                              e->clarityDsp.isEnabled();
-                const bool hasMultiChPre = e->noiseGateDsp.isEnabled() ||
-                                           e->dynamicEqDsp.isEnabled() ||
-                                           e->tapeDriftDsp.isEnabled() ||
-                                           e->crystalizerEnabled;
-
-                if (hasStereoOnlyPre || hasMultiChPre)
-                {
-                    std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
-                    if (dspLock.owns_lock())
-                    {
-                        auto runZone1To3 = [&](auto *buf, auto *stScratch) {
-                            using SampleT = std::remove_pointer_t<decltype(buf)>;
-                            const size_t ch = (size_t)e->channels;
-
-                            auto runStereoOp = [&](auto &&fn) {
-                                if (isStereo)
-                                {
-                                    fn(buf);
-                                }
-                                else if (isMono)
-                                {
-                                    for (ma_uint32 i = 0; i < produced; ++i)
-                                    {
-                                        stScratch[i * 2 + 0] = buf[i];
-                                        stScratch[i * 2 + 1] = buf[i];
-                                    }
-                                    fn(stScratch);
-                                    for (ma_uint32 i = 0; i < produced; ++i)
-                                    {
-                                        buf[i] = stScratch[i * 2 + 0];
-                                    }
-                                }
-                                else
-                                {
-                                    for (ma_uint32 i = 0; i < produced; ++i)
-                                    {
-                                        stScratch[i * 2 + 0] = buf[i * ch + 0];
-                                        stScratch[i * 2 + 1] = buf[i * ch + 1];
-                                    }
-                                    fn(stScratch);
-                                    for (ma_uint32 i = 0; i < produced; ++i)
-                                    {
-                                        buf[i * ch + 0] = stScratch[i * 2 + 0];
-                                        buf[i * ch + 1] = stScratch[i * 2 + 1];
-                                    }
-                                }
-                            };
-                            (void)sizeof(SampleT);
-
-                            // Zone 1.2: Studio Noise Gate (Dual-Threshold Hysteresis)
-                            if (e->noiseGateDsp.isEnabled())
-                                e->noiseGateDsp.process(buf, produced, e->channels);
-
-                            // Zone 1.3: Downward Expander (Vinyl Clean / Tape De-Hiss)
-                            if (e->downwardExpanderDsp.isEnabled())
-                                runStereoOp([&](auto *s) { e->downwardExpanderDsp.process(s, produced); });
-
-                            // Zone 2.1: Dynamic EQ (Frequency-Specific Resonance Taming)
-                            if (e->dynamicEqDsp.isEnabled())
-                                e->dynamicEqDsp.process(buf, produced, e->channels);
-
-                            // Zone 2.2: Split-Band De-Esser (4-9 kHz Sibilance Clamping)
-                            if (e->deEsserDsp.isEnabled())
-                                runStereoOp([&](auto *s) { e->deEsserDsp.process(s, produced); });
-
-                            // Zone 3.1: Harmonic Bass Synthesizer (Sub-120 Hz Fundamental Injection)
-                            if (e->harmonicBassDsp.isActive())
-                                runStereoOp([&](auto *s) { e->harmonicBassDsp.process(s, produced); });
-
-                            // Zone 3.2: Dynamic System (Multiband LR4 Dynamics)
-                            if (e->dynamicSystemDsp.isActive())
-                                runStereoOp([&](auto *s) { e->dynamicSystemDsp.process(s, produced); });
-
-                            // Zone 3.3: Analog Warmth (Oversampled Triode/Tape Saturation)
-                            if (e->analogWarmthDsp.isEnabled())
-                                runStereoOp([&](auto *s) { e->analogWarmthDsp.process(s, produced); });
-
-                            // Zone 3.4: Vintage Tape Drift (Wow/Flutter Modulation)
-                            if (e->tapeDriftDsp.isEnabled())
-                                e->tapeDriftDsp.process(buf, produced, e->channels);
-
-                            // Zone 3.5: Dialog Enhancer (Vocal Formant Clarity)
-                            if (e->dialogEnhancerDsp.isActive())
-                                runStereoOp([&](auto *s) { e->dialogEnhancerDsp.process(s, produced); });
-
-                            // Zone 3.6: Audio Clarity (Air Shelf & Harmonic Brilliance)
-                            if (e->clarityDsp.isEnabled())
-                                runStereoOp([&](auto *s) { e->clarityDsp.process(s, produced); });
-
-                            // Zone 3.7: Crystalizer (Transient Reconstruction & Air Enhancement)
-                            if (e->crystalizerEnabled)
-                                e->crystalizer.process(buf, produced, e->channels);
-                        };
-
-                        if (use64)
-                            runZone1To3(buf64, e->dspStereoBuffer64.data());
-                        else
-                            runZone1To3(processBuffer, e->dspStereoBuffer.data());
-                    }
-                }
-            }
-
+            // otherwise — zero F64<->F32 hopping, identical order for stereo
+            // and multichannel.
             // =================================================================
-            // ZONE 4: MACRO-DYNAMICS & TONAL BALANCE
-            // =================================================================
-            // 4.1 Dynamic Range Compressor (Runs at nominal track level BEFORE EQ & Space)
-            if (e->compressorEnabled)
+            if (e->channels >= 1 && produced > 0)
             {
-                if (use64)
-                    e->compressor.process(buf64, produced, e->channels, e->engineSampleRate);
-                else
-                    e->compressor.process(processBuffer, produced, e->channels, e->engineSampleRate);
-            }
+                const int chCount = e->channels;
+                const bool isStereo = (chCount == 2);
+                const bool isMono   = (chCount == 1);
 
-            // 4.2 Multiband Parametric / Graphic EQ & 3-Band Tone Stack
-            {
+                // Acquire try-locks once upfront in canonical lock order:
+                // eqMutex -> fxMutex -> dspMutex (never inverted).
                 std::unique_lock<std::mutex> eqLock(e->eqMutex, std::try_to_lock);
-                if (eqLock.owns_lock())
-                {
-                    if (e->multibandEqEnabled)
-                    {
-                        if (use64)
-                            e->process_multiband_eq_64(buf64, produced, e->channels);
-                        else
-                            e->process_multiband_eq(processBuffer, produced, e->channels);
-                    }
-                    if (e->multibandFxEnabled && e->has_active_multiband_fx())
-                    {
-                        if (use64)
-                            e->process_multiband_fx(buf64, produced, e->channels);
-                        else
-                            e->process_multiband_fx(processBuffer, produced, e->channels);
-                    }
-
-                    // 3-band EQ
-                    if (e->eqEnabled)
-                    {
-                        if (use64)
-                            e->eq.process(buf64, produced, e->channels);
-                        else
-                            e->eq.process(processBuffer, produced, e->channels);
-                    }
-
-                    // Audiophile 3-Band Phase-Compensated Tone Crossover
-                    if (e->toneCrossoverDsp.isEnabled())
-                    {
-                        if (use64)
-                            e->toneCrossoverDsp.process(buf64, produced, e->channels);
-                        else
-                            e->toneCrossoverDsp.process(processBuffer, produced, e->channels);
-                    }
-                }
-            }
-
-            // =================================================================
-            // ZONE 5: SPATIALIZATION, VIRTUALIZATION & ACOUSTIC ENVIRONMENT
-            // =================================================================
-            // Uniform native precision: 100% F64 when use64 is enabled, 100% F32
-            // otherwise — zero F64<->F32 hopping.
-            const bool isStereoSpatial = (e->channels == 2);
-            const bool crossfeedActive = e->crossfeedEnabled || e->crossfeedNode.isActive();
-            const bool hasSpatialFx = crossfeedActive ||
-                                      e->stereoWidenEnabled ||
-                                      e->stereoEnhancementEnabled ||
-                                      (isStereoSpatial && e->surroundDsp.isEnabled()) ||
-                                      e->reverbEnabled;
-            if (hasSpatialFx)
-            {
                 std::unique_lock<std::mutex> fxLock(e->fxMutex, std::try_to_lock);
-                if (fxLock.owns_lock())
+                std::unique_lock<std::mutex> dspLock(e->dspMutex, std::try_to_lock);
+
+                std::array<int, AE_DSP_NODE_COUNT> chainOrder{};
+                uint64_t chainGen = e->lastAudioChainGeneration;
+                if (snapshot_dsp_chain_order(e, chainOrder, chainGen, true))
                 {
-                    auto runZone5 = [&](auto *buf) {
-                        // 5.1 Binaural Headphone Crossfeed / OpenStage
-                        if (crossfeedActive)
-                            e->crossfeedNode.process(buf, produced, e->channels);
+                    e->lastAudioChainOrder = chainOrder;
+                }
+                else
+                {
+                    chainOrder = e->lastAudioChainOrder;
+                    chainGen = e->lastAudioChainGeneration;
+                }
 
-                        // 5.2 3D Surround & HRTF Virtualizer (Stereo only)
-                        if (isStereoSpatial && e->surroundDsp.isEnabled())
-                            e->surroundDsp.process(buf, produced);
-
-                        // 5.3 Stereo Soundstage Widening & M/S Enhancement
-                        if (e->stereoWidenEnabled)
-                            e->stereoWiden.process(buf, produced, e->channels);
-                        if (e->stereoEnhancementEnabled)
-                            e->stereoEnhancement.process(buf, produced, e->channels);
-
-                        // 5.4 Studio-Grade Multi-Engine Reverb
-                        if (e->reverbEnabled)
-                            e->reverbNode.process(buf, produced, e->channels);
+                auto runRack = [&](auto *buf, auto *stScratch) {
+                    using SampleT = std::remove_pointer_t<decltype(buf)>;
+                    const size_t ch = (size_t)chCount;
+                    uint64_t activeTopologyHash = 14695981039346656037ULL;
+                    auto recordActiveNode = [&](int nodeId) {
+                        activeTopologyHash ^= static_cast<uint64_t>(nodeId + 1);
+                        activeTopologyHash *= 1099511628211ULL;
                     };
 
-                    if (use64)
-                        runZone5(buf64);
-                    else
-                        runZone5(processBuffer);
-                }
-            }
+                    auto runStereoOp = [&](auto &&fn) {
+                        if (isStereo)
+                        {
+                            fn(buf);
+                        }
+                        else if (isMono)
+                        {
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                stScratch[i * 2 + 0] = buf[i];
+                                stScratch[i * 2 + 1] = buf[i];
+                            }
+                            fn(stScratch);
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                buf[i] = stScratch[i * 2 + 0];
+                            }
+                        }
+                        else
+                        {
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                stScratch[i * 2 + 0] = buf[i * ch + 0];
+                                stScratch[i * 2 + 1] = buf[i * ch + 1];
+                            }
+                            fn(stScratch);
+                            for (ma_uint32 i = 0; i < produced; ++i)
+                            {
+                                buf[i * ch + 0] = stScratch[i * 2 + 0];
+                                buf[i * ch + 1] = stScratch[i * 2 + 1];
+                            }
+                        }
+                    };
 
-            // =================================================================
-            // ZONE 6: TRANSDUCER CALIBRATION & DELIVERY STAGE
-            // =================================================================
-            // 6.1 Headphone AutoEQ FIR Correction (FFT Convolver)
-            // Runs natively in F64 when use64 is enabled, F32 otherwise — zero hopping.
-            if (e->channels >= 2 && e->fftConvolverDsp.isEnabled())
-            {
-                const bool isStereo = (e->channels == 2);
-                auto runConvolver = [&](auto *buf, auto *stScratch) {
-                    if (isStereo)
+                    for (int slotIdx = 0; slotIdx < AE_DSP_NODE_COUNT; ++slotIdx)
                     {
-                        e->fftConvolverDsp.process(buf, produced);
+                        const int nodeId = chainOrder[(size_t)slotIdx];
+                        switch (nodeId)
+                        {
+                            case AE_DSP_NODE_PREAMP:
+                            {
+                                const float preampDb = e->eqPreampDb.load(std::memory_order_relaxed);
+                                const float targetLin = (std::abs(preampDb) < 1.0e-4f) ? 1.0f : std::pow(10.0f, preampDb / 20.0f);
+                                e->paramEqPreamp.setTarget(targetLin);
+                                e->paramEqPreamp.prepareBlock((ma_uint32)producedSamples,
+                                                              e->parameterSmoothingMs.load(std::memory_order_relaxed),
+                                                              e->sampleRate,
+                                                              chCount);
+                                const bool preampActive = std::fabs(e->paramEqPreamp.current - targetLin) > 1e-6f ||
+                                                          std::fabs(targetLin - 1.0f) > 1e-6f;
+                                if (preampActive)
+                                {
+                                    recordActiveNode(nodeId);
+                                    for (size_t i = 0; i < producedSamples; ++i)
+                                        buf[i] *= static_cast<SampleT>(e->paramEqPreamp.next());
+                                }
+                                break;
+                            }
+                            case AE_DSP_NODE_NOISE_GATE:
+                                if (dspLock.owns_lock() && e->noiseGateDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->noiseGateDsp.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_DOWNWARD_EXPANDER:
+                                if (dspLock.owns_lock() && e->downwardExpanderDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    runStereoOp([&](auto *s) { e->downwardExpanderDsp.process(s, produced); });
+                                }
+                                break;
+                            case AE_DSP_NODE_DYNAMIC_EQ:
+                                if (dspLock.owns_lock() && e->dynamicEqDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->dynamicEqDsp.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_DE_ESSER:
+                                if (dspLock.owns_lock() && e->deEsserDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    runStereoOp([&](auto *s) { e->deEsserDsp.process(s, produced); });
+                                }
+                                break;
+                            case AE_DSP_NODE_HARMONIC_BASS:
+                                if (dspLock.owns_lock() && e->harmonicBassDsp.isActive())
+                                {
+                                    recordActiveNode(nodeId);
+                                    runStereoOp([&](auto *s) { e->harmonicBassDsp.process(s, produced); });
+                                }
+                                break;
+                            case AE_DSP_NODE_DYNAMIC_SYSTEM:
+                                if (dspLock.owns_lock() && e->dynamicSystemDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    runStereoOp([&](auto *s) { e->dynamicSystemDsp.process(s, produced); });
+                                }
+                                break;
+                            case AE_DSP_NODE_ANALOG_WARMTH:
+                                if (dspLock.owns_lock() && e->analogWarmthDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    runStereoOp([&](auto *s) { e->analogWarmthDsp.process(s, produced); });
+                                }
+                                break;
+                            case AE_DSP_NODE_TAPE_DRIFT:
+                                if (dspLock.owns_lock() && e->tapeDriftDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->tapeDriftDsp.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_DIALOG_ENHANCER:
+                                if (dspLock.owns_lock() && e->dialogEnhancerDsp.isActive())
+                                {
+                                    recordActiveNode(nodeId);
+                                    runStereoOp([&](auto *s) { e->dialogEnhancerDsp.process(s, produced); });
+                                }
+                                break;
+                            case AE_DSP_NODE_CLARITY:
+                                if (dspLock.owns_lock() && e->clarityDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    runStereoOp([&](auto *s) { e->clarityDsp.process(s, produced); });
+                                }
+                                break;
+                            case AE_DSP_NODE_CRYSTALIZER:
+                                if (dspLock.owns_lock() && e->crystalizerEnabled)
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->crystalizer.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_COMPRESSOR:
+                                if (fxLock.owns_lock() && e->compressorEnabled)
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->compressor.process(buf, produced, chCount, e->engineSampleRate);
+                                }
+                                break;
+                            case AE_DSP_NODE_MULTIBAND_EQ:
+                                if (eqLock.owns_lock() && e->multibandEqEnabled)
+                                {
+                                    recordActiveNode(nodeId);
+                                    if constexpr (std::is_same_v<SampleT, double>)
+                                        e->process_multiband_eq_64(buf, produced, chCount);
+                                    else
+                                        e->process_multiband_eq(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_MULTIBAND_FX:
+                                if (eqLock.owns_lock() && e->multibandFxEnabled && e->has_active_multiband_fx())
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->process_multiband_fx(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_THREE_BAND_EQ:
+                                if (eqLock.owns_lock() && e->eqEnabled)
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->eq.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_TONE_CROSSOVER:
+                                if (eqLock.owns_lock() && e->toneCrossoverDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->toneCrossoverDsp.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_CROSSFEED:
+                                if (fxLock.owns_lock() && (e->crossfeedEnabled || e->crossfeedNode.isActive()))
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->crossfeedNode.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_SURROUND:
+                                if (fxLock.owns_lock() && isStereo && e->surroundDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->surroundDsp.process(buf, produced);
+                                }
+                                break;
+                            case AE_DSP_NODE_STEREO_WIDEN:
+                                if (fxLock.owns_lock() && e->stereoWidenEnabled)
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->stereoWiden.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_STEREO_ENHANCEMENT:
+                                if (fxLock.owns_lock() && e->stereoEnhancementEnabled)
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->stereoEnhancement.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_REVERB:
+                                if (fxLock.owns_lock() && e->reverbEnabled)
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->reverbNode.process(buf, produced, chCount);
+                                }
+                                break;
+                            case AE_DSP_NODE_CONVOLVER:
+                                if (chCount >= 2 && e->fftConvolverDsp.isActive())
+                                {
+                                    recordActiveNode(nodeId);
+                                    if (isStereo)
+                                    {
+                                        e->fftConvolverDsp.process(buf, produced);
+                                    }
+                                    else
+                                    {
+                                        for (ma_uint32 i = 0; i < produced; ++i)
+                                        {
+                                            stScratch[i * 2 + 0] = buf[i * ch + 0];
+                                            stScratch[i * 2 + 1] = buf[i * ch + 1];
+                                        }
+                                        e->fftConvolverDsp.process(stScratch, produced);
+                                        for (ma_uint32 i = 0; i < produced; ++i)
+                                        {
+                                            buf[i * ch + 0] = stScratch[i * 2 + 0];
+                                            buf[i * ch + 1] = stScratch[i * 2 + 1];
+                                        }
+                                    }
+                                }
+                                break;
+                            case AE_DSP_NODE_BROADCAST_LEVELLER:
+                                if (dspLock.owns_lock() && e->levellerDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->levellerDsp.process(buf, produced, chCount, -100.0f);
+                                }
+                                break;
+                            case AE_DSP_NODE_LOOKAHEAD_AGC:
+                                if (dspLock.owns_lock() && e->lookaheadAgcDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->lookaheadAgcDsp.process(buf, produced, chCount);
+                                }
+                                break;
+                            default:
+                                break;
+                        }
                     }
-                    else
+
+                    // C1-smooth raised-cosine waveform continuity across active rack topology changes
+                    const int trackedCh = std::min(chCount, 8);
+                    e->lastAudioChainGeneration = chainGen;
+                    if (activeTopologyHash != e->lastActiveRackTopologyHash)
                     {
-                        const size_t ch = (size_t)e->channels;
-                        for (ma_uint32 i = 0; i < produced; ++i)
+                        e->lastActiveRackTopologyHash = activeTopologyHash;
+                        if (e->hasLastRackOutSample)
                         {
-                            stScratch[i * 2 + 0] = buf[i * ch + 0];
-                            stScratch[i * 2 + 1] = buf[i * ch + 1];
-                        }
-                        e->fftConvolverDsp.process(stScratch, produced);
-                        for (ma_uint32 i = 0; i < produced; ++i)
-                        {
-                            buf[i * ch + 0] = stScratch[i * 2 + 0];
-                            buf[i * ch + 1] = stScratch[i * 2 + 1];
+                            const int srRack = (e->engineSampleRate > 0) ? e->engineSampleRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
+                            e->rackDeclickTotalSamples = std::max(96, std::min(1536, (int)(0.006 * (double)srRack)));
+                            e->rackDeclickSamplesLeft = e->rackDeclickTotalSamples;
+                            for (int c = 0; c < trackedCh; ++c)
+                            {
+                                e->rackDeclickOffset[c] = clampd(e->lastRackOutSample[c] - static_cast<double>(buf[c]), -2.0, 2.0);
+                            }
                         }
                     }
+
+                    if (e->rackDeclickSamplesLeft > 0)
+                    {
+                        const int total = std::max(1, e->rackDeclickTotalSamples);
+                        for (ma_uint32 i = 0; i < produced && e->rackDeclickSamplesLeft > 0; ++i)
+                        {
+                            const int elapsed = total - e->rackDeclickSamplesLeft;
+                            const double progress = static_cast<double>(elapsed) / static_cast<double>(total);
+                            const double env = 0.5 * (1.0 + std::cos(M_PI * progress));
+                            const size_t base = (size_t)i * ch;
+                            for (int c = 0; c < trackedCh; ++c)
+                            {
+                                buf[base + (size_t)c] += static_cast<SampleT>(e->rackDeclickOffset[c] * env);
+                            }
+                            e->rackDeclickSamplesLeft -= 1;
+                        }
+                        if (e->rackDeclickSamplesLeft <= 0)
+                        {
+                            std::memset(e->rackDeclickOffset, 0, sizeof(e->rackDeclickOffset));
+                        }
+                    }
+
+                    const size_t lastBase = (size_t)(produced - 1) * ch;
+                    for (int c = 0; c < trackedCh; ++c)
+                    {
+                        e->lastRackOutSample[c] = static_cast<double>(buf[lastBase + (size_t)c]);
+                    }
+                    e->hasLastRackOutSample = true;
                 };
 
                 if (use64)
-                    runConvolver(buf64, e->dspStereoBuffer64.data());
+                    runRack(buf64, e->dspStereoBuffer64.data());
                 else
-                    runConvolver(processBuffer, e->dspStereoBuffer.data());
-            }
-
-            // 6.2 Broadcast Leveller (Real-Time EBU R128 / BS.1770 Slow-Window AGC)
-            // Placed BEFORE read-only metering so meters measure the true levelled programme.
-            if (e->levellerDsp.isEnabled())
-            {
-                if (use64)
-                {
-                    e->levellerDsp.process(buf64, produced, e->channels, -100.0f);
-                }
-                else
-                {
-                    e->levellerDsp.process(processBuffer, produced, e->channels, -100.0f);
-                }
-            }
-
-            // 6.3 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter
-            // Placed BEFORE read-only metering so meters reflect levelled, peak-protected output.
-            if (e->lookaheadAgcDsp.isEnabled())
-            {
-                if (use64)
-                {
-                    e->lookaheadAgcDsp.process(buf64, produced, e->channels);
-                }
-                else
-                {
-                    e->lookaheadAgcDsp.process(processBuffer, produced, e->channels);
-                }
+                    runRack(processBuffer, e->dspStereoBuffer.data());
             }
         } // End of !bypassAppDsp block
+        else
+        {
+            e->hasLastRackOutSample = false;
+            e->rackDeclickSamplesLeft = 0;
+            e->lastActiveRackTopologyHash = 0;
+        }
 
         // =====================================================================
         // Stage 2: Read-only Metering Subsystems & Visualizer Snapshots (Post-DSP / Pre-Master Volume)
@@ -10345,7 +10432,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                e->toneCrossoverDsp.isEnabled() || e->subsonicFilter.isEnabled() || e->ultrasonicFilter.isEnabled() ||
                                e->noiseGateDsp.isEnabled() || e->downwardExpanderDsp.isEnabled() ||
                                e->dynamicEqDsp.isEnabled() || e->deEsserDsp.isEnabled() ||
-                               e->harmonicBassDsp.isActive() || e->dynamicSystemDsp.isActive() ||
+                               e->harmonicBassDsp.isActive() || e->dynamicSystemDsp.isEnabled() ||
                                e->analogWarmthDsp.isEnabled() || e->tapeDriftDsp.isEnabled() ||
                                e->dialogEnhancerDsp.isActive() || e->clarityDsp.isEnabled() ||
                                e->compressorEnabled || e->crossfeedEnabled || e->stereoWidenEnabled ||
@@ -12795,6 +12882,14 @@ extern "C"
         AudioEngineHandle *e = new AudioEngineHandle();
         e->sampleRate = sample_rate;
         e->channels = channels;
+        for (int i = 0; i < AE_DSP_NODE_COUNT; ++i)
+        {
+            e->dspChainOrder[(size_t)i].store(i, std::memory_order_relaxed);
+            e->lastAudioChainOrder[(size_t)i] = i;
+        }
+        e->dspChainSeq.store(0, std::memory_order_relaxed);
+        e->lastAudioChainGeneration = 0;
+        e->lastActiveRackTopologyHash = 0;
 
         e->eq.updateCoefficients(sample_rate);
         reinit_advanced_fx_filters(e);
@@ -15191,8 +15286,9 @@ extern "C"
 
         if (!bypassAppDsp)
         {
-            std::lock_guard<std::mutex> fx(e->fxMutex);
+            std::scoped_lock<std::mutex, std::mutex, std::mutex> allLocks(e->eqMutex, e->fxMutex, e->dspMutex);
 
+            // Pinned Pre-Rack Filters
             // 1. Subsonic Filter
             if (e->subsonicFilter.isEnabled())
             {
@@ -15211,466 +15307,500 @@ extern "C"
                            {{"Type", "Butterworth LPF"}, {"Cutoff", fmtFloat(cutoff / 1000.0, 2) + " kHz"}, {"Precision", nativePrec}});
             }
 
-            if (e->channels >= 2)
+            // Reorderable DSP Rack Nodes in exact live execution order
+            std::array<int, AE_DSP_NODE_COUNT> chainOrder{};
+            uint64_t snapGen = 0;
+            if (!snapshot_dsp_chain_order(e, chainOrder, snapGen, false))
             {
-                // 3. Noise Gate
-                if (e->noiseGateDsp.isEnabled())
+                std::lock_guard<std::mutex> orderLock(e->dspChainOrderMutex);
+                for (size_t i = 0; i < (size_t)AE_DSP_NODE_COUNT; ++i)
                 {
-                    float openDb = -50.0f, closeDb = -55.0f, holdMs = 50.0f, attMs = 5.0f, relMs = 100.0f, hpfHz = 80.0f, floorDb = -80.0f;
-                    e->noiseGateDsp.getParams(&openDb, &closeDb, &holdMs, &attMs, &relMs, &hpfHz, &floorDb);
-                    const float gr = e->noiseGateDsp.getGainReductionDb();
-                    appendNode("noise_gate", "Noise Gate", nativePrec,
-                               "Open " + fmtFloat(openDb, 1) + " dB · GR " + fmtFloat(gr, 1) + " dB", 0.0,
-                               {{"Open Thresh", fmtFloat(openDb, 1) + " dB"},
-                                {"Close Thresh", fmtFloat(closeDb, 1) + " dB"},
-                                {"Hold", fmtFloat(holdMs, 0) + " ms"},
-                                {"Attack / Release", fmtFloat(attMs, 1) + " / " + fmtFloat(relMs, 0) + " ms"},
-                                {"Sidechain HPF", fmtFloat(hpfHz, 0) + " Hz"},
-                                {"Floor", fmtFloat(floorDb, 1) + " dB"},
-                                {"Live GR", fmtFloat(gr, 1) + " dB"}});
-                }
-
-                // 4. Downward Expander
-                if (e->downwardExpanderDsp.isEnabled())
-                {
-                    const float th = e->downwardExpanderDsp.getThresholdDb();
-                    const float ratio = e->downwardExpanderDsp.getRatio();
-                    const float range = e->downwardExpanderDsp.getRangeDb();
-                    const float gr = e->downwardExpanderDsp.getCurrentGainReductionDb();
-                    appendNode("downward_expander", "Downward Expander", nativePrec,
-                               fmtFloat(th, 1) + " dB · " + fmtFloat(ratio, 1) + ":1 · GR " + fmtFloat(gr, 1) + " dB", 0.0,
-                               {{"Threshold", fmtFloat(th, 1) + " dB"},
-                                {"Ratio", fmtFloat(ratio, 2) + ":1"},
-                                {"Max Range", fmtFloat(range, 1) + " dB"},
-                                {"Attack / Release", fmtFloat(e->downwardExpanderDsp.getAttackMs(), 1) + " / " + fmtFloat(e->downwardExpanderDsp.getReleaseMs(), 0) + " ms"},
-                                {"Knee", fmtFloat(e->downwardExpanderDsp.getKneeDb(), 1) + " dB"},
-                                {"Sidechain HPF", fmtFloat(e->downwardExpanderDsp.getSidechainHpfHz(), 0) + " Hz"},
-                                {"Live GR", fmtFloat(gr, 1) + " dB"}});
-                }
-
-                // 5. Dynamic EQ
-                if (e->dynamicEqDsp.isEnabled())
-                {
-                    int activeBands = 0;
-                    float maxOffset = 0.0f;
-                    for (size_t b = 0; b < 8; ++b)
-                    {
-                        if (e->dynamicEqDsp.isBandEnabled(b))
-                        {
-                            activeBands++;
-                            const float off = e->dynamicEqDsp.getBandGainOffsetDb(b);
-                            if (std::fabs(off) > std::fabs(maxOffset))
-                                maxOffset = off;
-                        }
-                    }
-                    appendNode("dynamic_eq", "Dynamic EQ", nativePrec,
-                               std::to_string(activeBands) + " active bands · Peak " + fmtSignedDb(maxOffset, 1), 0.0,
-                               {{"Active Bands", std::to_string(activeBands)},
-                                {"Peak Dynamic Offset", fmtSignedDb(maxOffset, 2)},
-                                {"Sample Rate", fmtFloat(e->dynamicEqDsp.getSampleRate() / 1000.0, 1) + " kHz"}});
-                }
-
-                // 6. De-Esser
-                if (e->deEsserDsp.isEnabled())
-                {
-                    const float freq = e->deEsserDsp.getFrequencyHz();
-                    const float th = e->deEsserDsp.getThresholdDb();
-                    const float gr = e->deEsserDsp.getGainReductionDb();
-                    appendNode("de_esser", "De-Esser", nativePrec,
-                               fmtFloat(freq / 1000.0, 1) + " kHz · Thresh " + fmtFloat(th, 1) + " dB · GR " + fmtFloat(gr, 1) + " dB", 0.0,
-                               {{"Center Freq", fmtFloat(freq, 0) + " Hz"},
-                                {"Intensity", fmtFloat(e->deEsserDsp.getIntensity() * 100.0, 0) + "%"},
-                                {"Threshold", fmtFloat(th, 1) + " dB"},
-                                {"Ratio", fmtFloat(e->deEsserDsp.getRatio(), 1) + ":1"},
-                                {"Max Reduction", fmtFloat(e->deEsserDsp.getMaxReductionDb(), 1) + " dB"},
-                                {"Live GR", fmtFloat(gr, 1) + " dB"}});
-                }
-
-                // 7. Harmonic Bass
-                if (e->harmonicBassDsp.isEnabled())
-                {
-                    const float cutoff = e->harmonicBassDsp.getCutoffFrequency();
-                    const float boost = e->harmonicBassDsp.getBoost();
-                    const float gainDb = e->harmonicBassDsp.getGainDb();
-                    appendNode("harmonic_bass", "Harmonic Bass", nativePrec,
-                               fmtFloat(cutoff, 0) + " Hz · " + fmtSignedDb(gainDb, 1) + " · Boost " + fmtFloat(boost * 100.0, 0) + "%", 0.0,
-                               {{"Cutoff", fmtFloat(cutoff, 0) + " Hz"},
-                                {"Gain", fmtSignedDb(gainDb, 1)},
-                                {"Harmonic Boost", fmtFloat(boost * 100.0, 0) + "%"},
-                                {"Preset", std::to_string(e->harmonicBassDsp.getPreset())},
-                                {"Mono Sub", e->harmonicBassDsp.isMonoMode() ? "ON" : "OFF"},
-                                {"Anti-Pop", e->harmonicBassDsp.isAntiPopEnabled() ? "ON" : "OFF"}});
-                }
-
-                // 8. Dynamic System
-                if (e->dynamicSystemDsp.isEnabled())
-                {
-                    const float strength = e->dynamicSystemDsp.getStrength();
-                    const int preset = e->dynamicSystemDsp.getPreset();
-                    appendNode("dynamic_system", "Dynamic System", nativePrec,
-                               "Strength " + fmtFloat(strength * 100.0, 0) + "% · Preset #" + std::to_string(preset), 0.0,
-                               {{"Strength", fmtFloat(strength * 100.0, 0) + "%"},
-                                {"Preset", std::to_string(preset)}});
-                }
-
-                // 9. Analog Warmth
-                if (e->analogWarmthDsp.isEnabled())
-                {
-                    const float drive = e->analogWarmthDsp.getDrive();
-                    const int os = e->analogWarmthDsp.getOversampling();
-                    const float damp = e->analogWarmthDsp.getTapeDamping();
-                    const double warmLatMs = (sr > 0.0) ? (e->analogWarmthDsp.getLatencySamples() * 1000.0 / sr) : 0.0;
-                    appendNode("analog_warmth", "Analog Warmth", nativePrec,
-                               "Drive " + fmtFloat(drive * 100.0, 0) + "% · " + std::to_string(os) + "x OS", warmLatMs,
-                               {{"Drive", fmtFloat(drive * 100.0, 0) + "%"},
-                                {"Oversampling", std::to_string(os) + "x"},
-                                {"Tape Damping", fmtFloat(damp * 100.0, 0) + "%"}});
-                }
-
-                // 10. Vintage Tape Drift
-                if (e->tapeDriftDsp.isEnabled())
-                {
-                    float wowRate = 0.0f, wowDepth = 0.0f, flutRate = 0.0f, flutDepth = 0.0f, driftDepth = 0.0f, phaseDeg = 0.0f, hfDamp = 0.0f;
-                    e->tapeDriftDsp.getParams(&wowRate, &wowDepth, &flutRate, &flutDepth, &driftDepth, &phaseDeg, &hfDamp);
-                    const double driftLatMs = (sr > 0.0) ? (e->tapeDriftDsp.getLatencySamples() * 1000.0 / sr) : 0.0;
-                    appendNode("tape_drift", "Vintage Tape Drift", nativePrec,
-                               "Wow " + fmtFloat(wowDepth, 2) + " ms · Flutter " + fmtFloat(flutDepth, 3) + " ms", driftLatMs,
-                               {{"Wow Rate / Depth", fmtFloat(wowRate, 2) + " Hz / " + fmtFloat(wowDepth, 2) + " ms"},
-                                {"Flutter Rate / Depth", fmtFloat(flutRate, 1) + " Hz / " + fmtFloat(flutDepth, 3) + " ms"},
-                                {"Drift Depth", fmtFloat(driftDepth, 2) + " ms"},
-                                {"HF Damping", fmtFloat(hfDamp / 1000.0, 1) + " kHz"}});
-                }
-
-                // 11. Dialog Enhancer
-                if (e->dialogEnhancerDsp.isEnabled())
-                {
-                    const float amt = e->dialogEnhancerDsp.getAmount();
-                    const float gr = e->dialogEnhancerDsp.getGainReductionDb();
-                    appendNode("dialog_enhancer", "Dialog Enhancer", nativePrec,
-                               "Amount " + fmtFloat(amt * 100.0, 0) + "% · Ducking " + fmtFloat(e->dialogEnhancerDsp.getDucking() * 100.0, 0) + "%", 0.0,
-                               {{"Amount", fmtFloat(amt * 100.0, 0) + "%"},
-                                {"Ducking", fmtFloat(e->dialogEnhancerDsp.getDucking() * 100.0, 0) + "%"},
-                                {"Vocal Clarity", fmtFloat(e->dialogEnhancerDsp.getClarity() * 100.0, 0) + "%"},
-                                {"Center Focus", fmtFloat(e->dialogEnhancerDsp.getCenterFocus() * 100.0, 0) + "%"},
-                                {"Live GR", fmtFloat(gr, 1) + " dB"}});
-                }
-
-                // 12. Audio Clarity
-                if (e->clarityDsp.isEnabled())
-                {
-                    const float intensity = e->clarityDsp.getIntensity();
-                    const int os = e->clarityDsp.getOversampling();
-                    appendNode("clarity", "Audio Clarity", nativePrec,
-                               "Intensity " + fmtFloat(intensity * 100.0, 0) + "% · " + std::to_string(os) + "x OS", 0.0,
-                               {{"Intensity", fmtFloat(intensity * 100.0, 0) + "%"},
-                                {"Oversampling", std::to_string(os) + "x"},
-                                {"Warmth Density", fmtFloat(e->clarityDsp.getWarmthDensity() * 100.0, 0) + "%"},
-                                {"Presence Sheen", fmtFloat(e->clarityDsp.getPresenceSheen() * 100.0, 0) + "%"},
-                                {"Transient Snap", fmtFloat(e->clarityDsp.getTransientSnap() * 100.0, 0) + "%"},
-                                {"De-Mask", fmtFloat(e->clarityDsp.getDeMaskAmount() * 100.0, 0) + "%"}});
+                    chainOrder[i] = e->dspChainOrder[i].load(std::memory_order_relaxed);
                 }
             }
-
-            // 13. Compressor
-            if (e->compressorEnabled)
-            {
-                const float gr = e->compressor.currentGainReductionDB.load(std::memory_order_relaxed);
-                appendNode("compressor", "Compressor", nativePrec,
-                           fmtFloat(e->compressor.thresholdDb, 1) + " dB · " + fmtFloat(e->compressor.ratio, 1) + ":1 · GR " + fmtFloat(gr, 1) + " dB", 0.0,
-                           {{"Threshold", fmtFloat(e->compressor.thresholdDb, 1) + " dB"},
-                            {"Ratio", fmtFloat(e->compressor.ratio, 1) + ":1"},
-                            {"Knee", fmtFloat(e->compressor.kneeDb, 1) + " dB"},
-                            {"Attack / Release", fmtFloat(e->compressor.attackMs, 1) + " / " + fmtFloat(e->compressor.releaseMs, 0) + " ms"},
-                            {"Makeup", e->compressor.autoMakeup ? "Auto" : fmtSignedDb(e->compressor.makeupGainDb, 1)},
-                            {"Mix", fmtFloat(e->compressor.mix * 100.0, 0) + "%"},
-                            {"Live GR", fmtFloat(gr, 1) + " dB"}});
-            }
-
-            // 14..17 EQ block (under eqMutex)
-            {
-                std::lock_guard<std::mutex> eqLock(e->eqMutex);
-                if (e->multibandEqEnabled)
-                {
-                    int nonZeroBands = 0;
-                    float peakGain = 0.0f;
-                    for (float g : e->eqGains)
-                    {
-                        if (std::fabs(g) > 0.05f)
-                            nonZeroBands++;
-                        if (std::fabs(g) > std::fabs(peakGain))
-                            peakGain = g;
-                    }
-                    appendNode("multiband_eq", "Multiband EQ", nativePrec,
-                               std::to_string(e->eqBandCount) + " bands (" + std::to_string(nonZeroBands) + " active) · Peak " + fmtSignedDb(peakGain, 1), 0.0,
-                               {{"Band Count", std::to_string(e->eqBandCount)},
-                                {"Modified Bands", std::to_string(nonZeroBands)},
-                                {"Peak Band Gain", fmtSignedDb(peakGain, 1)},
-                                {"Precision", nativePrec}});
-                }
-
-                if (e->multibandFxEnabled && e->has_active_multiband_fx())
-                {
-                    appendNode("multiband_fx", "Multiband FX", nativePrec,
-                               "Active", 0.0,
-                               {{"Precision", nativePrec}});
-                }
-
-                if (e->eqEnabled)
-                {
-                    const double lowDb = (e->eq.lowGain > 1e-6f) ? 20.0 * std::log10(e->eq.lowGain) : -60.0;
-                    const double midDb = (e->eq.midGain > 1e-6f) ? 20.0 * std::log10(e->eq.midGain) : -60.0;
-                    const double highDb = (e->eq.highGain > 1e-6f) ? 20.0 * std::log10(e->eq.highGain) : -60.0;
-                    appendNode("three_band_eq", "3-Band EQ", nativePrec,
-                               "L " + fmtSignedDb(lowDb, 1) + " · M " + fmtSignedDb(midDb, 1) + " · H " + fmtSignedDb(highDb, 1), 0.0,
-                               {{"Low", fmtSignedDb(lowDb, 1)},
-                                {"Mid", fmtSignedDb(midDb, 1)},
-                                {"High", fmtSignedDb(highDb, 1)},
-                                {"Precision", nativePrec}});
-                }
-
-                if (e->toneCrossoverDsp.isEnabled())
-                {
-                    const float bass = e->toneCrossoverDsp.getBassGainDb();
-                    const float mid = e->toneCrossoverDsp.getMidGainDb();
-                    const float treb = e->toneCrossoverDsp.getTrebleGainDb();
-                    const float tilt = e->toneCrossoverDsp.getTiltDb();
-                    appendNode("tone_crossover", "Tone Crossover", nativePrec,
-                               "B " + fmtSignedDb(bass, 1) + " · M " + fmtSignedDb(mid, 1) + " · T " + fmtSignedDb(treb, 1), 0.0,
-                               {{"Bass", fmtSignedDb(bass, 1)},
-                                {"Mid", fmtSignedDb(mid, 1)},
-                                {"Treble", fmtSignedDb(treb, 1)},
-                                {"Tilt", fmtSignedDb(tilt, 1)},
-                                {"Crossovers", fmtFloat(e->toneCrossoverDsp.getLowCrossoverHz(), 0) + " Hz / " + fmtFloat(e->toneCrossoverDsp.getHighCrossoverHz(), 0) + " Hz"}});
-                }
-            }
-
-            // 18..23 Spatial & Environment
             const bool isStereoSpatial = (e->channels == 2);
+            const bool crossfeedActive = e->crossfeedEnabled || e->crossfeedNode.isActive();
 
-            if (e->crossfeedEnabled)
+            for (int slotIdx = 0; slotIdx < AE_DSP_NODE_COUNT; ++slotIdx)
             {
-                const int algoInt = static_cast<int>(e->crossfeedNode.getAlgorithm());
-                const char *algoName = "Crossfeed";
-                switch (algoInt)
+                switch (chainOrder[(size_t)slotIdx])
                 {
-                    case 1: algoName = "Simple ITD"; break;
-                    case 2: algoName = "Bauer BS2B"; break;
-                    case 3: algoName = "Jan Meier"; break;
-                    case 4: algoName = "Natural"; break;
-                    case 5: algoName = "Ambiophonics RACE"; break;
-                    case 6: algoName = "OpenStage"; break;
-                    default: algoName = "Crossfeed"; break;
-                }
-                const float mix = e->crossfeedNode.getMix();
-                const double latMs = (sr > 0.0) ? (e->crossfeedNode.getLatencySamples() * 1000.0 / sr) : 0.0;
-                if (algoInt == 6)
-                {
-                    appendNode("crossfeed", "Crossfeed", nativePrec,
-                               std::string(algoName) + " · " + fmtFloat(e->crossfeedNode.getAngle(), 0) + " deg · Mix " + fmtFloat(mix * 100.0, 0) + "%", latMs,
-                               {{"Algorithm", algoName},
-                                {"Angle", fmtFloat(e->crossfeedNode.getAngle(), 0) + " deg"},
-                                {"Gain Comp", fmtFloat(e->crossfeedNode.getGainDb(), 1) + " dB"},
-                                {"ITD", fmtFloat(e->crossfeedNode.getOpenStageItdMs() * 1000.0, 0) + " us"},
-                                {"Head Shadow", fmtFloat(e->crossfeedNode.getOpenStageCutoffHz(), 0) + " Hz"},
-                                {"Mix", fmtFloat(mix * 100.0, 0) + "%"}});
-                }
-                else if (algoInt == 5)
-                {
-                    appendNode("crossfeed", "Crossfeed", nativePrec,
-                               std::string(algoName) + " · Alpha " + fmtFloat(mix * 100.0, 0) + "%", latMs,
-                               {{"Algorithm", algoName},
-                                {"Attenuation", fmtFloat(mix * 100.0, 0) + "%"},
-                                {"Delay", fmtFloat(e->crossfeedNode.getDelayMs() * 1000.0, 0) + " us"},
-                                {"Head LPF", fmtFloat(e->crossfeedNode.getCutoffHz(), 0) + " Hz"},
-                                {"Compensation", e->crossfeedNode.getOutputCompensation() ? "ON" : "OFF"}});
-                }
-                else
-                {
-                    appendNode("crossfeed", "Crossfeed", nativePrec,
-                               std::string(algoName) + " · Mix " + fmtFloat(mix * 100.0, 0) + "%", latMs,
-                               {{"Algorithm", algoName},
-                                {"Mix", fmtFloat(mix * 100.0, 0) + "%"},
-                                {"Cutoff", fmtFloat(e->crossfeedNode.getCutoffHz(), 0) + " Hz"},
-                                {"Delay", fmtFloat(e->crossfeedNode.getDelayMs(), 2) + " ms"},
-                                {"Compensation", e->crossfeedNode.getOutputCompensation() ? "ON" : "OFF"}});
-                }
-            }
-
-            if (isStereoSpatial && e->surroundDsp.isEnabled() &&
-                e->surroundDsp.getMode() != sauti::dsp::SurroundMode::Off)
-            {
-                const auto sMode = e->surroundDsp.getMode();
-                switch (sMode)
-                {
-                    case sauti::dsp::SurroundMode::MatrixSurround:
-                        appendNode("surround_3d", "Spatial Surround", nativePrec,
-                                   "Matrix 5.1 · Focus " + fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "% · Boost " + fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%", 0.0,
-                                   {{"Mode", "Matrix 5.1"},
-                                    {"Center Focus", fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "%"},
-                                    {"Surround Boost", fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%"},
-                                    {"Rear Delay", fmtFloat(e->surroundDsp.getSurroundDelayMs(), 1) + " ms"},
-                                    {"Head Radius", fmtFloat(e->surroundDsp.getHeadRadiusCm(), 2) + " cm"}});
-                        break;
-                    case sauti::dsp::SurroundMode::BinauralVirtualizer:
+                    case AE_DSP_NODE_PREAMP:
                     {
-                        const bool isSpeaker = (e->surroundDsp.getBinauralMode() == 1);
-                        const char *targetName = isSpeaker ? "Speaker Field" : "Headphone HRTF";
-                        const int roomP = e->surroundDsp.getBinauralRoomPreset();
-                        const char *roomName = (roomP == 1) ? "Studio" : (roomP == 3 ? "Concert Hall" : "Cinema");
-                        const int ang = e->surroundDsp.getBinauralSpeakerAngle();
-                        const char *angName = (ang == 0) ? "Narrow (10°)" : (ang == 2 ? "Wide (45°)" : "Standard (30°)");
-                        std::vector<std::pair<std::string, std::string>> bParams = {
-                            {"Mode", targetName},
-                            {"Intensity", fmtFloat(e->surroundDsp.getBinauralBoost() * 100.0, 0) + "%"},
-                            {"Shadow Cutoff", fmtFloat(e->surroundDsp.getBinauralShadowCutoff(), 0) + " Hz"},
-                        };
-                        if (isSpeaker)
+                        const float preampDb = e->eqPreampDb.load(std::memory_order_relaxed);
+                        if (std::fabs(preampDb) > 0.05f)
                         {
-                            bParams.push_back({"Speaker Angle", angName});
+                            appendNode("preamp", "Preamp Gain", nativePrec,
+                                       fmtSignedDb(preampDb, 1), 0.0,
+                                       {{"Gain", fmtSignedDb(preampDb, 1)}, {"Precision", nativePrec}});
                         }
-                        else
-                        {
-                            bParams.push_back({"Room Preset", roomName});
-                            bParams.push_back({"Room Mix", fmtFloat(e->surroundDsp.getBinauralRoomMix() * 100.0, 0) + "%"});
-                        }
-                        appendNode("surround_3d", "Spatial Surround", nativePrec,
-                                   std::string("Binaural · ") + targetName + " · " + fmtFloat(e->surroundDsp.getBinauralBoost() * 100.0, 0) + "%", 0.0,
-                                   std::move(bParams));
                         break;
                     }
-                    case sauti::dsp::SurroundMode::AcousticStage:
-                    {
-                        const char *profName = (e->surroundDsp.getStageProfile() == 1) ? "Speaker" : "Headset";
-                        const char *spreadName = (e->surroundDsp.getStageMode() == 1) ? "Panoramic" : "Studio";
-                        appendNode("surround_3d", "Spatial Surround", nativePrec,
-                                   std::string("Acoustic Stage · ") + profName + " · " + spreadName + " · Width " + fmtFloat(e->surroundDsp.getStageWidth(), 1) + "x", 0.0,
-                                   {{"Profile", profName},
-                                    {"Spread", spreadName},
-                                    {"Stage Width", fmtFloat(e->surroundDsp.getStageWidth() * 100.0, 0) + "%"},
-                                    {"Stage Depth", fmtFloat(e->surroundDsp.getStageDepth() * 100.0, 0) + "%"},
-                                    {"Crosstalk Cancel", fmtFloat(e->surroundDsp.getStageCancellation() * 100.0, 0) + "%"},
-                                    {"Air Contour", fmtFloat(e->surroundDsp.getStageAirPresence() * 100.0, 0) + "%"},
-                                    {"Bass Anchor", fmtFloat(e->surroundDsp.getStageBassAnchorHz(), 0) + " Hz"}});
+                    case AE_DSP_NODE_NOISE_GATE:
+                        if (e->channels >= 1 && e->noiseGateDsp.isEnabled())
+                        {
+                            float openDb = -50.0f, closeDb = -55.0f, holdMs = 50.0f, attMs = 5.0f, relMs = 100.0f, hpfHz = 80.0f, floorDb = -80.0f;
+                            e->noiseGateDsp.getParams(&openDb, &closeDb, &holdMs, &attMs, &relMs, &hpfHz, &floorDb);
+                            const float gr = e->noiseGateDsp.getGainReductionDb();
+                            appendNode("noise_gate", "Noise Gate", nativePrec,
+                                       "Open " + fmtFloat(openDb, 1) + " dB · GR " + fmtFloat(gr, 1) + " dB", 0.0,
+                                       {{"Open Thresh", fmtFloat(openDb, 1) + " dB"},
+                                        {"Close Thresh", fmtFloat(closeDb, 1) + " dB"},
+                                        {"Hold", fmtFloat(holdMs, 0) + " ms"},
+                                        {"Attack / Release", fmtFloat(attMs, 1) + " / " + fmtFloat(relMs, 0) + " ms"},
+                                        {"Sidechain HPF", fmtFloat(hpfHz, 0) + " Hz"},
+                                        {"Floor", fmtFloat(floorDb, 1) + " dB"},
+                                        {"Live GR", fmtFloat(gr, 1) + " dB"}});
+                        }
                         break;
-                    }
+                    case AE_DSP_NODE_DOWNWARD_EXPANDER:
+                        if (e->channels >= 1 && e->downwardExpanderDsp.isEnabled())
+                        {
+                            const float th = e->downwardExpanderDsp.getThresholdDb();
+                            const float ratio = e->downwardExpanderDsp.getRatio();
+                            const float range = e->downwardExpanderDsp.getRangeDb();
+                            const float gr = e->downwardExpanderDsp.getCurrentGainReductionDb();
+                            appendNode("downward_expander", "Downward Expander", nativePrec,
+                                       fmtFloat(th, 1) + " dB · " + fmtFloat(ratio, 1) + ":1 · GR " + fmtFloat(gr, 1) + " dB", 0.0,
+                                       {{"Threshold", fmtFloat(th, 1) + " dB"},
+                                        {"Ratio", fmtFloat(ratio, 2) + ":1"},
+                                        {"Max Range", fmtFloat(range, 1) + " dB"},
+                                        {"Attack / Release", fmtFloat(e->downwardExpanderDsp.getAttackMs(), 1) + " / " + fmtFloat(e->downwardExpanderDsp.getReleaseMs(), 0) + " ms"},
+                                        {"Knee", fmtFloat(e->downwardExpanderDsp.getKneeDb(), 1) + " dB"},
+                                        {"Sidechain HPF", fmtFloat(e->downwardExpanderDsp.getSidechainHpfHz(), 0) + " Hz"},
+                                        {"Live GR", fmtFloat(gr, 1) + " dB"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_DYNAMIC_EQ:
+                        if (e->channels >= 1 && e->dynamicEqDsp.isEnabled())
+                        {
+                            int activeBands = 0;
+                            float maxOffset = 0.0f;
+                            for (size_t b = 0; b < 8; ++b)
+                            {
+                                if (e->dynamicEqDsp.isBandEnabled(b))
+                                {
+                                    activeBands++;
+                                    const float off = e->dynamicEqDsp.getBandGainOffsetDb(b);
+                                    if (std::fabs(off) > std::fabs(maxOffset))
+                                        maxOffset = off;
+                                }
+                            }
+                            appendNode("dynamic_eq", "Dynamic EQ", nativePrec,
+                                       std::to_string(activeBands) + " active bands · Peak " + fmtSignedDb(maxOffset, 1), 0.0,
+                                       {{"Active Bands", std::to_string(activeBands)},
+                                        {"Peak Dynamic Offset", fmtSignedDb(maxOffset, 2)},
+                                        {"Sample Rate", fmtFloat(e->dynamicEqDsp.getSampleRate() / 1000.0, 1) + " kHz"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_DE_ESSER:
+                        if (e->channels >= 1 && e->deEsserDsp.isEnabled())
+                        {
+                            const float freq = e->deEsserDsp.getFrequencyHz();
+                            const float th = e->deEsserDsp.getThresholdDb();
+                            const float gr = e->deEsserDsp.getGainReductionDb();
+                            appendNode("de_esser", "De-Esser", nativePrec,
+                                       fmtFloat(freq / 1000.0, 1) + " kHz · Thresh " + fmtFloat(th, 1) + " dB · GR " + fmtFloat(gr, 1) + " dB", 0.0,
+                                       {{"Center Freq", fmtFloat(freq, 0) + " Hz"},
+                                        {"Intensity", fmtFloat(e->deEsserDsp.getIntensity() * 100.0, 0) + "%"},
+                                        {"Threshold", fmtFloat(th, 1) + " dB"},
+                                        {"Ratio", fmtFloat(e->deEsserDsp.getRatio(), 1) + ":1"},
+                                        {"Max Reduction", fmtFloat(e->deEsserDsp.getMaxReductionDb(), 1) + " dB"},
+                                        {"Live GR", fmtFloat(gr, 1) + " dB"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_HARMONIC_BASS:
+                        if (e->channels >= 1 && e->harmonicBassDsp.isEnabled())
+                        {
+                            const float cutoff = e->harmonicBassDsp.getCutoffFrequency();
+                            const float boost = e->harmonicBassDsp.getBoost();
+                            const float gainDb = e->harmonicBassDsp.getGainDb();
+                            appendNode("harmonic_bass", "Harmonic Bass", nativePrec,
+                                       fmtFloat(cutoff, 0) + " Hz · " + fmtSignedDb(gainDb, 1) + " · Boost " + fmtFloat(boost * 100.0, 0) + "%", 0.0,
+                                       {{"Cutoff", fmtFloat(cutoff, 0) + " Hz"},
+                                        {"Gain", fmtSignedDb(gainDb, 1)},
+                                        {"Harmonic Boost", fmtFloat(boost * 100.0, 0) + "%"},
+                                        {"Preset", std::to_string(e->harmonicBassDsp.getPreset())},
+                                        {"Mono Sub", e->harmonicBassDsp.isMonoMode() ? "ON" : "OFF"},
+                                        {"Anti-Pop", e->harmonicBassDsp.isAntiPopEnabled() ? "ON" : "OFF"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_DYNAMIC_SYSTEM:
+                        if (e->channels >= 1 && e->dynamicSystemDsp.isEnabled())
+                        {
+                            const float strength = e->dynamicSystemDsp.getStrength();
+                            const int preset = e->dynamicSystemDsp.getPreset();
+                            appendNode("dynamic_system", "Dynamic System", nativePrec,
+                                       "Strength " + fmtFloat(strength * 100.0, 0) + "% · Preset #" + std::to_string(preset), 0.0,
+                                       {{"Strength", fmtFloat(strength * 100.0, 0) + "%"},
+                                        {"Preset", std::to_string(preset)}});
+                        }
+                        break;
+                    case AE_DSP_NODE_ANALOG_WARMTH:
+                        if (e->channels >= 1 && e->analogWarmthDsp.isEnabled())
+                        {
+                            const float drive = e->analogWarmthDsp.getDrive();
+                            const int os = e->analogWarmthDsp.getOversampling();
+                            const float damp = e->analogWarmthDsp.getTapeDamping();
+                            const double warmLatMs = (sr > 0.0) ? (e->analogWarmthDsp.getLatencySamples() * 1000.0 / sr) : 0.0;
+                            appendNode("analog_warmth", "Analog Warmth", nativePrec,
+                                       "Drive " + fmtFloat(drive * 100.0, 0) + "% · " + std::to_string(os) + "x OS", warmLatMs,
+                                       {{"Drive", fmtFloat(drive * 100.0, 0) + "%"},
+                                        {"Oversampling", std::to_string(os) + "x"},
+                                        {"Tape Damping", fmtFloat(damp * 100.0, 0) + "%"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_TAPE_DRIFT:
+                        if (e->channels >= 1 && e->tapeDriftDsp.isEnabled())
+                        {
+                            float wowRate = 0.0f, wowDepth = 0.0f, flutRate = 0.0f, flutDepth = 0.0f, driftDepth = 0.0f, phaseDeg = 0.0f, hfDamp = 0.0f;
+                            e->tapeDriftDsp.getParams(&wowRate, &wowDepth, &flutRate, &flutDepth, &driftDepth, &phaseDeg, &hfDamp);
+                            const double driftLatMs = (sr > 0.0) ? (e->tapeDriftDsp.getLatencySamples() * 1000.0 / sr) : 0.0;
+                            appendNode("tape_drift", "Vintage Tape Drift", nativePrec,
+                                       "Wow " + fmtFloat(wowDepth, 2) + " ms · Flutter " + fmtFloat(flutDepth, 3) + " ms", driftLatMs,
+                                       {{"Wow Rate / Depth", fmtFloat(wowRate, 2) + " Hz / " + fmtFloat(wowDepth, 2) + " ms"},
+                                        {"Flutter Rate / Depth", fmtFloat(flutRate, 1) + " Hz / " + fmtFloat(flutDepth, 3) + " ms"},
+                                        {"Drift Depth", fmtFloat(driftDepth, 2) + " ms"},
+                                        {"HF Damping", fmtFloat(hfDamp / 1000.0, 1) + " kHz"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_DIALOG_ENHANCER:
+                        if (e->channels >= 1 && e->dialogEnhancerDsp.isEnabled())
+                        {
+                            const float amt = e->dialogEnhancerDsp.getAmount();
+                            const float gr = e->dialogEnhancerDsp.getGainReductionDb();
+                            appendNode("dialog_enhancer", "Dialog Enhancer", nativePrec,
+                                       "Amount " + fmtFloat(amt * 100.0, 0) + "% · Ducking " + fmtFloat(e->dialogEnhancerDsp.getDucking() * 100.0, 0) + "%", 0.0,
+                                       {{"Amount", fmtFloat(amt * 100.0, 0) + "%"},
+                                        {"Ducking", fmtFloat(e->dialogEnhancerDsp.getDucking() * 100.0, 0) + "%"},
+                                        {"Vocal Clarity", fmtFloat(e->dialogEnhancerDsp.getClarity() * 100.0, 0) + "%"},
+                                        {"Center Focus", fmtFloat(e->dialogEnhancerDsp.getCenterFocus() * 100.0, 0) + "%"},
+                                        {"Live GR", fmtFloat(gr, 1) + " dB"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_CLARITY:
+                        if (e->channels >= 1 && e->clarityDsp.isEnabled())
+                        {
+                            const float intensity = e->clarityDsp.getIntensity();
+                            const int os = e->clarityDsp.getOversampling();
+                            appendNode("clarity", "Audio Clarity", nativePrec,
+                                       "Intensity " + fmtFloat(intensity * 100.0, 0) + "% · " + std::to_string(os) + "x OS", 0.0,
+                                       {{"Intensity", fmtFloat(intensity * 100.0, 0) + "%"},
+                                        {"Oversampling", std::to_string(os) + "x"},
+                                        {"Warmth Density", fmtFloat(e->clarityDsp.getWarmthDensity() * 100.0, 0) + "%"},
+                                        {"Presence Sheen", fmtFloat(e->clarityDsp.getPresenceSheen() * 100.0, 0) + "%"},
+                                        {"Transient Snap", fmtFloat(e->clarityDsp.getTransientSnap() * 100.0, 0) + "%"},
+                                        {"De-Mask", fmtFloat(e->clarityDsp.getDeMaskAmount() * 100.0, 0) + "%"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_CRYSTALIZER:
+                        if (e->channels >= 1 && e->crystalizerEnabled)
+                        {
+                            appendNode("crystalizer", "Crystalizer", nativePrec,
+                                       "Intensity " + fmtFloat(e->crystalizer.userIntensity * 100.0, 0) + "%" +
+                                       (e->crystalizer.highShelfEnabled ? (" · Air " + fmtSignedDb(e->crystalizer.highShelfGainDb, 1)) : ""), 0.0,
+                                       {{"Intensity", fmtFloat(e->crystalizer.userIntensity * 100.0, 0) + "%"},
+                                        {"Air Shelf", e->crystalizer.highShelfEnabled ? fmtSignedDb(e->crystalizer.highShelfGainDb, 1) : "OFF"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_COMPRESSOR:
+                        if (e->compressorEnabled)
+                        {
+                            const float gr = e->compressor.currentGainReductionDB.load(std::memory_order_relaxed);
+                            appendNode("compressor", "Compressor", nativePrec,
+                                       fmtFloat(e->compressor.thresholdDb, 1) + " dB · " + fmtFloat(e->compressor.ratio, 1) + ":1 · GR " + fmtFloat(gr, 1) + " dB", 0.0,
+                                       {{"Threshold", fmtFloat(e->compressor.thresholdDb, 1) + " dB"},
+                                        {"Ratio", fmtFloat(e->compressor.ratio, 1) + ":1"},
+                                        {"Knee", fmtFloat(e->compressor.kneeDb, 1) + " dB"},
+                                        {"Attack / Release", fmtFloat(e->compressor.attackMs, 1) + " / " + fmtFloat(e->compressor.releaseMs, 0) + " ms"},
+                                        {"Makeup", e->compressor.autoMakeup ? "Auto" : fmtSignedDb(e->compressor.makeupGainDb, 1)},
+                                        {"Mix", fmtFloat(e->compressor.mix * 100.0, 0) + "%"},
+                                        {"Live GR", fmtFloat(gr, 1) + " dB"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_MULTIBAND_EQ:
+                        if (e->multibandEqEnabled)
+                        {
+                            int nonZeroBands = 0;
+                            float peakGain = 0.0f;
+                            for (float g : e->eqGains)
+                            {
+                                if (std::fabs(g) > 0.05f)
+                                    nonZeroBands++;
+                                if (std::fabs(g) > std::fabs(peakGain))
+                                    peakGain = g;
+                            }
+                            appendNode("multiband_eq", "Multiband EQ", nativePrec,
+                                       std::to_string(e->eqBandCount) + " bands (" + std::to_string(nonZeroBands) + " active) · Peak " + fmtSignedDb(peakGain, 1), 0.0,
+                                       {{"Band Count", std::to_string(e->eqBandCount)},
+                                        {"Modified Bands", std::to_string(nonZeroBands)},
+                                        {"Peak Band Gain", fmtSignedDb(peakGain, 1)},
+                                        {"Precision", nativePrec}});
+                        }
+                        break;
+                    case AE_DSP_NODE_MULTIBAND_FX:
+                        if (e->multibandFxEnabled && e->has_active_multiband_fx())
+                        {
+                            appendNode("multiband_fx", "Multiband FX", nativePrec,
+                                       "Active", 0.0,
+                                       {{"Precision", nativePrec}});
+                        }
+                        break;
+                    case AE_DSP_NODE_THREE_BAND_EQ:
+                        if (e->eqEnabled)
+                        {
+                            const double lowDb = (e->eq.lowGain > 1e-6f) ? 20.0 * std::log10(e->eq.lowGain) : -60.0;
+                            const double midDb = (e->eq.midGain > 1e-6f) ? 20.0 * std::log10(e->eq.midGain) : -60.0;
+                            const double highDb = (e->eq.highGain > 1e-6f) ? 20.0 * std::log10(e->eq.highGain) : -60.0;
+                            appendNode("three_band_eq", "3-Band EQ", nativePrec,
+                                       "L " + fmtSignedDb(lowDb, 1) + " · M " + fmtSignedDb(midDb, 1) + " · H " + fmtSignedDb(highDb, 1), 0.0,
+                                       {{"Low", fmtSignedDb(lowDb, 1)},
+                                        {"Mid", fmtSignedDb(midDb, 1)},
+                                        {"High", fmtSignedDb(highDb, 1)},
+                                        {"Precision", nativePrec}});
+                        }
+                        break;
+                    case AE_DSP_NODE_TONE_CROSSOVER:
+                        if (e->toneCrossoverDsp.isEnabled())
+                        {
+                            const float bass = e->toneCrossoverDsp.getBassGainDb();
+                            const float mid = e->toneCrossoverDsp.getMidGainDb();
+                            const float treb = e->toneCrossoverDsp.getTrebleGainDb();
+                            const float tilt = e->toneCrossoverDsp.getTiltDb();
+                            appendNode("tone_crossover", "Tone Crossover", nativePrec,
+                                       "B " + fmtSignedDb(bass, 1) + " · M " + fmtSignedDb(mid, 1) + " · T " + fmtSignedDb(treb, 1), 0.0,
+                                       {{"Bass", fmtSignedDb(bass, 1)},
+                                        {"Mid", fmtSignedDb(mid, 1)},
+                                        {"Treble", fmtSignedDb(treb, 1)},
+                                        {"Tilt", fmtSignedDb(tilt, 1)},
+                                        {"Crossovers", fmtFloat(e->toneCrossoverDsp.getLowCrossoverHz(), 0) + " Hz / " + fmtFloat(e->toneCrossoverDsp.getHighCrossoverHz(), 0) + " Hz"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_CROSSFEED:
+                        if (crossfeedActive)
+                        {
+                            const int algoInt = static_cast<int>(e->crossfeedNode.getAlgorithm());
+                            const char *algoName = "Crossfeed";
+                            switch (algoInt)
+                            {
+                                case 1: algoName = "Simple ITD"; break;
+                                case 2: algoName = "Bauer BS2B"; break;
+                                case 3: algoName = "Jan Meier"; break;
+                                case 4: algoName = "Natural"; break;
+                                case 5: algoName = "Ambiophonics RACE"; break;
+                                case 6: algoName = "OpenStage"; break;
+                                default: algoName = "Crossfeed"; break;
+                            }
+                            const float mix = e->crossfeedNode.getMix();
+                            const double latMs = (sr > 0.0) ? (e->crossfeedNode.getLatencySamples() * 1000.0 / sr) : 0.0;
+                            if (algoInt == 6)
+                            {
+                                appendNode("crossfeed", "Crossfeed", nativePrec,
+                                           std::string(algoName) + " · " + fmtFloat(e->crossfeedNode.getAngle(), 0) + " deg · Mix " + fmtFloat(mix * 100.0, 0) + "%", latMs,
+                                           {{"Algorithm", algoName},
+                                            {"Angle", fmtFloat(e->crossfeedNode.getAngle(), 0) + " deg"},
+                                            {"Gain Comp", fmtFloat(e->crossfeedNode.getGainDb(), 1) + " dB"},
+                                            {"ITD", fmtFloat(e->crossfeedNode.getOpenStageItdMs() * 1000.0, 0) + " us"},
+                                            {"Head Shadow", fmtFloat(e->crossfeedNode.getOpenStageCutoffHz(), 0) + " Hz"},
+                                            {"Mix", fmtFloat(mix * 100.0, 0) + "%"}});
+                            }
+                            else if (algoInt == 5)
+                            {
+                                appendNode("crossfeed", "Crossfeed", nativePrec,
+                                           std::string(algoName) + " · Alpha " + fmtFloat(mix * 100.0, 0) + "%", latMs,
+                                           {{"Algorithm", algoName},
+                                            {"Attenuation", fmtFloat(mix * 100.0, 0) + "%"},
+                                            {"Delay", fmtFloat(e->crossfeedNode.getDelayMs() * 1000.0, 0) + " us"},
+                                            {"Head LPF", fmtFloat(e->crossfeedNode.getCutoffHz(), 0) + " Hz"},
+                                            {"Compensation", e->crossfeedNode.getOutputCompensation() ? "ON" : "OFF"}});
+                            }
+                            else
+                            {
+                                appendNode("crossfeed", "Crossfeed", nativePrec,
+                                           std::string(algoName) + " · Mix " + fmtFloat(mix * 100.0, 0) + "%", latMs,
+                                           {{"Algorithm", algoName},
+                                            {"Mix", fmtFloat(mix * 100.0, 0) + "%"},
+                                            {"Cutoff", fmtFloat(e->crossfeedNode.getCutoffHz(), 0) + " Hz"},
+                                            {"Delay", fmtFloat(e->crossfeedNode.getDelayMs(), 2) + " ms"},
+                                            {"Compensation", e->crossfeedNode.getOutputCompensation() ? "ON" : "OFF"}});
+                            }
+                        }
+                        break;
+                    case AE_DSP_NODE_SURROUND:
+                        if (isStereoSpatial && e->surroundDsp.isEnabled() &&
+                            e->surroundDsp.getMode() != sauti::dsp::SurroundMode::Off)
+                        {
+                            const auto sMode = e->surroundDsp.getMode();
+                            switch (sMode)
+                            {
+                                case sauti::dsp::SurroundMode::MatrixSurround:
+                                    appendNode("surround_3d", "Spatial Surround", nativePrec,
+                                               "Matrix 5.1 · Focus " + fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "% · Boost " + fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%", 0.0,
+                                               {{"Mode", "Matrix 5.1"},
+                                                {"Center Focus", fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "%"},
+                                                {"Surround Boost", fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%"},
+                                                {"Rear Delay", fmtFloat(e->surroundDsp.getSurroundDelayMs(), 1) + " ms"},
+                                                {"Head Radius", fmtFloat(e->surroundDsp.getHeadRadiusCm(), 2) + " cm"}});
+                                    break;
+                                case sauti::dsp::SurroundMode::BinauralVirtualizer:
+                                {
+                                    const bool isSpeaker = (e->surroundDsp.getBinauralMode() == 1);
+                                    const char *targetName = isSpeaker ? "Speaker Field" : "Headphone HRTF";
+                                    const int roomP = e->surroundDsp.getBinauralRoomPreset();
+                                    const char *roomName = (roomP == 1) ? "Studio" : (roomP == 3 ? "Concert Hall" : "Cinema");
+                                    const int ang = e->surroundDsp.getBinauralSpeakerAngle();
+                                    const char *angName = (ang == 0) ? "Narrow (10°)" : (ang == 2 ? "Wide (45°)" : "Standard (30°)");
+                                    std::vector<std::pair<std::string, std::string>> bParams = {
+                                        {"Mode", targetName},
+                                        {"Intensity", fmtFloat(e->surroundDsp.getBinauralBoost() * 100.0, 0) + "%"},
+                                        {"Shadow Cutoff", fmtFloat(e->surroundDsp.getBinauralShadowCutoff(), 0) + " Hz"},
+                                    };
+                                    if (isSpeaker)
+                                    {
+                                        bParams.push_back({"Speaker Angle", angName});
+                                    }
+                                    else
+                                    {
+                                        bParams.push_back({"Room Preset", roomName});
+                                        bParams.push_back({"Room Mix", fmtFloat(e->surroundDsp.getBinauralRoomMix() * 100.0, 0) + "%"});
+                                    }
+                                    appendNode("surround_3d", "Spatial Surround", nativePrec,
+                                               std::string("Binaural · ") + targetName + " · " + fmtFloat(e->surroundDsp.getBinauralBoost() * 100.0, 0) + "%", 0.0,
+                                               std::move(bParams));
+                                    break;
+                                }
+                                case sauti::dsp::SurroundMode::AcousticStage:
+                                {
+                                    const char *profName = (e->surroundDsp.getStageProfile() == 1) ? "Speaker" : "Headset";
+                                    const char *spreadName = (e->surroundDsp.getStageMode() == 1) ? "Panoramic" : "Studio";
+                                    appendNode("surround_3d", "Spatial Surround", nativePrec,
+                                               std::string("Acoustic Stage · ") + profName + " · " + spreadName + " · Width " + fmtFloat(e->surroundDsp.getStageWidth(), 1) + "x", 0.0,
+                                               {{"Profile", profName},
+                                                {"Spread", spreadName},
+                                                {"Stage Width", fmtFloat(e->surroundDsp.getStageWidth() * 100.0, 0) + "%"},
+                                                {"Stage Depth", fmtFloat(e->surroundDsp.getStageDepth() * 100.0, 0) + "%"},
+                                                {"Crosstalk Cancel", fmtFloat(e->surroundDsp.getStageCancellation() * 100.0, 0) + "%"},
+                                                {"Air Contour", fmtFloat(e->surroundDsp.getStageAirPresence() * 100.0, 0) + "%"},
+                                                {"Bass Anchor", fmtFloat(e->surroundDsp.getStageBassAnchorHz(), 0) + " Hz"}});
+                                    break;
+                                }
+                                default:
+                                    break;
+                            }
+                        }
+                        break;
+                    case AE_DSP_NODE_STEREO_WIDEN:
+                        if (e->stereoWidenEnabled)
+                        {
+                            const int imMode = e->stereoWiden.mode;
+                            const char *modeName = (imMode == 1) ? "Spatial 3D" : (imMode == 2 ? "Blumlein" : "Clean M/S");
+                            std::vector<std::pair<std::string, std::string>> imParams = {
+                                {"Mode", modeName},
+                                {"Width", fmtFloat(e->stereoWiden.width * 100.0, 0) + "%"},
+                                {"Mono Below", e->stereoWiden.monoBelowHz <= 20.0f ? "Off" : (fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz")},
+                                {"Air Boost", fmtSignedDb(e->stereoWiden.airBoostDb, 1)},
+                                {"Phase Corr", fmtFloat(e->stereoWiden.imager.getTelemetryPhaseCorrelation(), 2)},
+                            };
+                            if (imMode == 1)
+                            {
+                                imParams.push_back({"Decorr Delay", fmtFloat(e->stereoWiden.delayMs, 1) + " ms"});
+                            }
+                            appendNode("stereo_widen", "Stereo Imager", nativePrec,
+                                       std::string(modeName) + " · Width " + fmtFloat(e->stereoWiden.width, 1) + "x · Mono <" + (e->stereoWiden.monoBelowHz <= 20.0f ? "Off" : (fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz")), 0.0,
+                                       std::move(imParams));
+                        }
+                        break;
+                    case AE_DSP_NODE_STEREO_ENHANCEMENT:
+                        if (e->stereoEnhancementEnabled)
+                        {
+                            appendNode("stereo_enhance", "Stereo Enhancement", nativePrec,
+                                       "Mix " + fmtFloat(e->stereoEnhancement.mix * 100.0, 0) + "% · Gain ×" + fmtFloat(e->stereoEnhancement.gain, 2), 0.0,
+                                       {{"Mix", fmtFloat(e->stereoEnhancement.mix * 100.0, 0) + "%"},
+                                        {"Gain", "×" + fmtFloat(e->stereoEnhancement.gain, 2)}});
+                        }
+                        break;
+                    case AE_DSP_NODE_REVERB:
+                        if (e->reverbEnabled)
+                        {
+                            const int eng = e->reverbNode.getEngine();
+                            const char *engName = "Dattorro Tank";
+                            switch (eng)
+                            {
+                                case 1: engName = "Lattice Reverb"; break;
+                                case 2: engName = "Diffusion Reverb"; break;
+                                case 3: engName = "Hadamard FDN"; break;
+                                case 4: engName = "Keith Barr Ring"; break;
+                                case 5: engName = "Griesinger Tank"; break;
+                                default: engName = "Dattorro Tank"; break;
+                            }
+                            float revWet = 0.0f, revDry = 1.0f, revRoom = 0.5f, revDamp = 0.5f, revPreDelay = 0.0f, revWidth = 1.0f;
+                            e->reverbNode.getActiveParams(&revWet, &revDry, &revRoom, &revDamp, &revPreDelay, &revWidth);
+                            const double latMs = (sr > 0.0) ? (e->reverbNode.getLatencySamples() * 1000.0 / sr) : 0.0;
+                            std::vector<std::pair<std::string, std::string>> revParams = {
+                                {"Engine", engName},
+                                {"Wet / Dry", fmtFloat(revWet * 100.0, 0) + "% / " + fmtFloat(revDry * 100.0, 0) + "%"},
+                                {"Room Size", fmtFloat(revRoom * 100.0, 0) + "%"},
+                                {"Damping", fmtFloat(revDamp * 100.0, 0) + "%"},
+                            };
+                            if (eng == 0 || revPreDelay > 0.01f)
+                                revParams.push_back({"Pre-Delay", fmtFloat(revPreDelay, 1) + " ms"});
+                            revParams.push_back({"Width", fmtFloat(revWidth * 100.0, 0) + "%"});
+                            appendNode("reverb", "Reverb", nativePrec,
+                                       std::string(engName) + " · Wet " + fmtFloat(revWet * 100.0, 0) + "% · Room " + fmtFloat(revRoom * 100.0, 0) + "%", latMs,
+                                       std::move(revParams));
+                        }
+                        break;
+                    case AE_DSP_NODE_CONVOLVER:
+                        if (e->channels >= 2 && e->fftConvolverDsp.isEnabled())
+                        {
+                            const size_t latSamp = e->fftConvolverDsp.getLatencySamples();
+                            const double latMs = (sr > 0.0) ? ((double)latSamp * 1000.0 / sr) : 0.0;
+                            appendNode("autoeq_fir", "AutoEQ FIR Convolver", nativePrec,
+                                       std::to_string(e->fftConvolverDsp.getKernelLength()) + " taps · Wet " + fmtFloat(e->fftConvolverDsp.getWetLevel() * 100.0, 0) + "%", latMs,
+                                       {{"Kernel Taps", std::to_string(e->fftConvolverDsp.getKernelLength())},
+                                        {"Wet / Dry", fmtFloat(e->fftConvolverDsp.getWetLevel() * 100.0, 0) + "% / " + fmtFloat(e->fftConvolverDsp.getDryLevel() * 100.0, 0) + "%"},
+                                        {"Latency", fmtFloat(latMs, 2) + " ms"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_BROADCAST_LEVELLER:
+                        if (e->levellerDsp.isEnabled())
+                        {
+                            float targetLufs = -16.0f, rise = 2.0f, fall = 4.0f, maxBoost = 12.0f, maxAtten = 12.0f, gate = -50.0f;
+                            e->levellerDsp.getParams(&targetLufs, &rise, &fall, &maxBoost, &maxAtten, &gate);
+                            const float curGain = e->levellerDsp.getCurrentGainDb();
+                            appendNode("broadcast_leveller", "Broadcast Leveller", nativePrec,
+                                       "Target " + fmtFloat(targetLufs, 1) + " LUFS · Gain " + fmtSignedDb(curGain, 1), 0.0,
+                                       {{"Target", fmtFloat(targetLufs, 1) + " LUFS"},
+                                        {"Live Gain", fmtSignedDb(curGain, 1)},
+                                        {"Max Boost / Cut", "+" + fmtFloat(maxBoost, 1) + " / -" + fmtFloat(maxAtten, 1) + " dB"},
+                                        {"Silence Gate", fmtFloat(gate, 1) + " LUFS"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_LOOKAHEAD_AGC:
+                        if (e->lookaheadAgcDsp.isEnabled())
+                        {
+                            float targetLufs = -14.0f, maxBoost = 9.0f, maxAtten = 15.0f, rise = 1.5f, fall = 4.0f;
+                            float gate = -45.0f, laMs = 10.0f, ceilDb = -0.1f, lowHz = 180.0f, highHz = 3000.0f, bassRelMs = 160.0f;
+                            e->lookaheadAgcDsp.getParams(&targetLufs, &maxBoost, &maxAtten, &rise, &fall, &gate,
+                                                         &laMs, &ceilDb, &lowHz, &highHz, &bassRelMs);
+                            float agcDb = 0.0f, lowGr = 0.0f, midGr = 0.0f, highGr = 0.0f, peakGr = 0.0f;
+                            e->lookaheadAgcDsp.getTelemetry(&agcDb, &lowGr, &midGr, &highGr, &peakGr);
+                            const double latMs = (sr > 0.0) ? ((double)e->lookaheadAgcDsp.getLatencySamples() * 1000.0 / sr) : (double)laMs;
+                            appendNode("lookahead_agc_limiter", "Lookahead AGC + Limiter", nativePrec,
+                                       "Target " + fmtFloat(targetLufs, 1) + " LUFS · Lookahead " + fmtFloat(laMs, 0) + " ms · Gain " + fmtSignedDb(agcDb, 1),
+                                       latMs,
+                                       {{"Target", fmtFloat(targetLufs, 1) + " LUFS"},
+                                        {"AGC Gain", fmtSignedDb(agcDb, 1)},
+                                        {"Bass / Mid / High GR", fmtFloat(lowGr, 1) + " / " + fmtFloat(midGr, 1) + " / " + fmtFloat(highGr, 1) + " dB"},
+                                        {"Lookahead / Ceiling", fmtFloat(laMs, 1) + " ms / " + fmtFloat(ceilDb, 1) + " dBTP"}});
+                        }
+                        break;
                     default:
                         break;
                 }
             }
 
-            if (e->stereoWidenEnabled)
-            {
-                const int imMode = e->stereoWiden.mode;
-                const char *modeName = (imMode == 1) ? "Spatial 3D" : (imMode == 2 ? "Blumlein" : "Clean M/S");
-                std::vector<std::pair<std::string, std::string>> imParams = {
-                    {"Mode", modeName},
-                    {"Width", fmtFloat(e->stereoWiden.width * 100.0, 0) + "%"},
-                    {"Mono Below", e->stereoWiden.monoBelowHz <= 20.0f ? "Off" : (fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz")},
-                    {"Air Boost", fmtSignedDb(e->stereoWiden.airBoostDb, 1)},
-                    {"Phase Corr", fmtFloat(e->stereoWiden.imager.getTelemetryPhaseCorrelation(), 2)},
-                };
-                if (imMode == 1)
-                {
-                    imParams.push_back({"Decorr Delay", fmtFloat(e->stereoWiden.delayMs, 1) + " ms"});
-                }
-                appendNode("stereo_widen", "Stereo Imager", nativePrec,
-                           std::string(modeName) + " · Width " + fmtFloat(e->stereoWiden.width, 1) + "x · Mono <" + (e->stereoWiden.monoBelowHz <= 20.0f ? "Off" : (fmtFloat(e->stereoWiden.monoBelowHz, 0) + " Hz")), 0.0,
-                           std::move(imParams));
-            }
-
-            if (e->stereoEnhancementEnabled)
-            {
-                appendNode("stereo_enhance", "Stereo Enhancement", nativePrec,
-                           "Mix " + fmtFloat(e->stereoEnhancement.mix * 100.0, 0) + "% · Gain ×" + fmtFloat(e->stereoEnhancement.gain, 2), 0.0,
-                           {{"Mix", fmtFloat(e->stereoEnhancement.mix * 100.0, 0) + "%"},
-                            {"Gain", "×" + fmtFloat(e->stereoEnhancement.gain, 2)}});
-            }
-
-            if (e->reverbEnabled)
-            {
-                const int eng = e->reverbNode.getEngine();
-                const char *engName = "Dattorro Tank";
-                switch (eng)
-                {
-                    case 1: engName = "Lattice Reverb"; break;
-                    case 2: engName = "Diffusion Reverb"; break;
-                    case 3: engName = "Hadamard FDN"; break;
-                    case 4: engName = "Keith Barr Ring"; break;
-                    case 5: engName = "Griesinger Tank"; break;
-                    default: engName = "Dattorro Tank"; break;
-                }
-                float revWet = 0.0f, revDry = 1.0f, revRoom = 0.5f, revDamp = 0.5f, revPreDelay = 0.0f, revWidth = 1.0f;
-                e->reverbNode.getActiveParams(&revWet, &revDry, &revRoom, &revDamp, &revPreDelay, &revWidth);
-                const double latMs = (sr > 0.0) ? (e->reverbNode.getLatencySamples() * 1000.0 / sr) : 0.0;
-                std::vector<std::pair<std::string, std::string>> revParams = {
-                    {"Engine", engName},
-                    {"Wet / Dry", fmtFloat(revWet * 100.0, 0) + "% / " + fmtFloat(revDry * 100.0, 0) + "%"},
-                    {"Room Size", fmtFloat(revRoom * 100.0, 0) + "%"},
-                    {"Damping", fmtFloat(revDamp * 100.0, 0) + "%"},
-                };
-                if (eng == 0 || revPreDelay > 0.01f)
-                    revParams.push_back({"Pre-Delay", fmtFloat(revPreDelay, 1) + " ms"});
-                revParams.push_back({"Width", fmtFloat(revWidth * 100.0, 0) + "%"});
-                appendNode("reverb", "Reverb", nativePrec,
-                           std::string(engName) + " · Wet " + fmtFloat(revWet * 100.0, 0) + "% · Room " + fmtFloat(revRoom * 100.0, 0) + "%", latMs,
-                           std::move(revParams));
-            }
-
-            if (e->crystalizerEnabled)
-            {
-                appendNode("crystalizer", "Crystalizer", nativePrec,
-                           "Intensity " + fmtFloat(e->crystalizer.userIntensity * 100.0, 0) + "%" +
-                           (e->crystalizer.highShelfEnabled ? (" · Air " + fmtSignedDb(e->crystalizer.highShelfGainDb, 1)) : ""), 0.0,
-                           {{"Intensity", fmtFloat(e->crystalizer.userIntensity * 100.0, 0) + "%"},
-                            {"Air Shelf", e->crystalizer.highShelfEnabled ? fmtSignedDb(e->crystalizer.highShelfGainDb, 1) : "OFF"}});
-            }
-
-            // 24. AutoEQ FIR Convolver
-            if (e->channels >= 2 && e->fftConvolverDsp.isEnabled())
-            {
-                const size_t latSamp = e->fftConvolverDsp.getLatencySamples();
-                const double latMs = (sr > 0.0) ? ((double)latSamp * 1000.0 / sr) : 0.0;
-                appendNode("autoeq_fir", "AutoEQ FIR Convolver", nativePrec,
-                           std::to_string(e->fftConvolverDsp.getKernelLength()) + " taps · Wet " + fmtFloat(e->fftConvolverDsp.getWetLevel() * 100.0, 0) + "%", latMs,
-                           {{"Kernel Taps", std::to_string(e->fftConvolverDsp.getKernelLength())},
-                            {"Wet / Dry", fmtFloat(e->fftConvolverDsp.getWetLevel() * 100.0, 0) + "% / " + fmtFloat(e->fftConvolverDsp.getDryLevel() * 100.0, 0) + "%"},
-                            {"Latency", fmtFloat(latMs, 2) + " ms"}});
-            }
-
-            // 25. Broadcast Leveller
-            if (e->levellerDsp.isEnabled())
-            {
-                float targetLufs = -16.0f, rise = 2.0f, fall = 4.0f, maxBoost = 12.0f, maxAtten = 12.0f, gate = -50.0f;
-                e->levellerDsp.getParams(&targetLufs, &rise, &fall, &maxBoost, &maxAtten, &gate);
-                const float curGain = e->levellerDsp.getCurrentGainDb();
-                appendNode("broadcast_leveller", "Broadcast Leveller", nativePrec,
-                           "Target " + fmtFloat(targetLufs, 1) + " LUFS · Gain " + fmtSignedDb(curGain, 1), 0.0,
-                           {{"Target", fmtFloat(targetLufs, 1) + " LUFS"},
-                            {"Live Gain", fmtSignedDb(curGain, 1)},
-                            {"Max Boost / Cut", "+" + fmtFloat(maxBoost, 1) + " / -" + fmtFloat(maxAtten, 1) + " dB"},
-                            {"Silence Gate", fmtFloat(gate, 1) + " LUFS"}});
-            }
-
-            // 25b. 3-Band Lookahead AGC + Limiter
-            if (e->lookaheadAgcDsp.isEnabled())
-            {
-                float targetLufs = -14.0f, maxBoost = 9.0f, maxAtten = 15.0f, rise = 1.5f, fall = 4.0f;
-                float gate = -45.0f, laMs = 10.0f, ceilDb = -0.1f, lowHz = 180.0f, highHz = 3000.0f, bassRelMs = 160.0f;
-                e->lookaheadAgcDsp.getParams(&targetLufs, &maxBoost, &maxAtten, &rise, &fall, &gate,
-                                             &laMs, &ceilDb, &lowHz, &highHz, &bassRelMs);
-                float agcDb = 0.0f, lowGr = 0.0f, midGr = 0.0f, highGr = 0.0f, peakGr = 0.0f;
-                e->lookaheadAgcDsp.getTelemetry(&agcDb, &lowGr, &midGr, &highGr, &peakGr);
-                const double latMs = (sr > 0.0) ? ((double)e->lookaheadAgcDsp.getLatencySamples() * 1000.0 / sr) : (double)laMs;
-                appendNode("lookahead_agc_limiter", "Lookahead AGC + Limiter", nativePrec,
-                           "Target " + fmtFloat(targetLufs, 1) + " LUFS · Lookahead " + fmtFloat(laMs, 0) + " ms · Gain " + fmtSignedDb(agcDb, 1),
-                           latMs,
-                           {{"Target", fmtFloat(targetLufs, 1) + " LUFS"},
-                            {"AGC Gain", fmtSignedDb(agcDb, 1)},
-                            {"Bass / Mid / High GR", fmtFloat(lowGr, 1) + " / " + fmtFloat(midGr, 1) + " / " + fmtFloat(highGr, 1) + " dB"},
-                            {"Lookahead / Ceiling", fmtFloat(laMs, 1) + " ms / " + fmtFloat(ceilDb, 1) + " dBTP"}});
-            }
-
-            // 26. Dynamic Loudness (ISO 226)
+            // Pinned Post-Rack: Dynamic Loudness (ISO 226)
             if (e->dynamicLoudnessDsp.isEnabled())
             {
                 float refDb = 80.0f, maxBass = 12.0f, maxTreb = 6.0f, bassHz = 100.0f, trebHz = 10000.0f;
@@ -15685,7 +15815,7 @@ extern "C"
                             {"Max Bass / Treble", "+" + fmtFloat(maxBass, 1) + " / +" + fmtFloat(maxTreb, 1) + " dB"}});
             }
 
-            // 27. Active Limiter (exact data_callback priority)
+            // Pinned Post-Rack: Active Limiter (exact data_callback priority)
             if (e->masterLimiterDsp.isEnabled())
             {
                 const float ceilDb = e->masterLimiterDsp.getCeilingDb();
@@ -18847,6 +18977,7 @@ extern "C"
     {
         if (!engine)
             return;
+        std::lock_guard<std::mutex> fx(engine->fxMutex);
         engine->compressorEnabled = (enabled != 0);
     }
 
@@ -20301,8 +20432,7 @@ extern "C"
     {
         if (!engine) return;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
-        const int clampedProfile = std::clamp(profile, 0, static_cast<int>(sauti::dsp::TransducerProfile::Custom));
-        engine->dynamicSystemDsp.setProfile(static_cast<sauti::dsp::TransducerProfile>(clampedProfile));
+        engine->dynamicSystemDsp.setProfile(static_cast<sauti::dsp::TransducerProfile>(profile));
         engine->dynamicSystemDsp.setStrength(strength);
     }
 
@@ -20310,7 +20440,10 @@ extern "C"
     {
         if (!engine) return;
         std::lock_guard<std::mutex> lock(engine->dspMutex);
-        engine->dynamicSystemDsp.setCustomParams(x_low, x_high, y_low, y_high, side_gain_low, side_gain_high, bass_gain);
+        engine->dynamicSystemDsp.setXCoeffs(x_low, x_high);
+        engine->dynamicSystemDsp.setYCoeffs(y_low, y_high);
+        engine->dynamicSystemDsp.setSideGain(side_gain_low, side_gain_high);
+        engine->dynamicSystemDsp.setBassGain(bass_gain);
     }
 
     // Analog Warmth (Tube & Tape Saturation)
@@ -20471,6 +20604,92 @@ extern "C"
             std::lock_guard<std::mutex> fx(engine->fxMutex);
             engine->surroundDsp.reset();
         }
+    }
+
+    AE_API int ae_get_dsp_node_count(void)
+    {
+        return AE_DSP_NODE_COUNT;
+    }
+
+    AE_API int ae_set_dsp_chain_order(AudioEngineHandle *engine, const int *node_ids, int count)
+    {
+        if (!engine) return 0;
+        std::lock_guard<std::mutex> lock(engine->dspChainOrderMutex);
+
+        std::array<int, AE_DSP_NODE_COUNT> normalized{};
+        bool seen[AE_DSP_NODE_COUNT]{};
+        int writeIdx = 0;
+
+        if (node_ids != nullptr && count > 0)
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                const int id = node_ids[i];
+                if (id >= 0 && id < AE_DSP_NODE_COUNT && !seen[id])
+                {
+                    seen[id] = true;
+                    normalized[(size_t)writeIdx++] = id;
+                }
+            }
+        }
+        for (int id = 0; id < AE_DSP_NODE_COUNT; ++id)
+        {
+            if (!seen[id])
+            {
+                seen[id] = true;
+                normalized[(size_t)writeIdx++] = id;
+            }
+        }
+
+        bool unchanged = true;
+        for (size_t i = 0; i < (size_t)AE_DSP_NODE_COUNT; ++i)
+        {
+            if (engine->dspChainOrder[i].load(std::memory_order_relaxed) != normalized[i])
+            {
+                unchanged = false;
+                break;
+            }
+        }
+        if (unchanged)
+        {
+            return AE_DSP_NODE_COUNT;
+        }
+
+        const uint64_t seq = engine->dspChainSeq.load(std::memory_order_relaxed);
+        engine->dspChainSeq.store(seq + 1ULL, std::memory_order_release);
+        std::atomic_thread_fence(std::memory_order_release);
+        for (size_t i = 0; i < (size_t)AE_DSP_NODE_COUNT; ++i)
+        {
+            engine->dspChainOrder[i].store(normalized[i], std::memory_order_relaxed);
+        }
+        engine->dspChainSeq.store(seq + 2ULL, std::memory_order_release);
+        return AE_DSP_NODE_COUNT;
+    }
+
+    AE_API int ae_get_dsp_chain_order(AudioEngineHandle *engine, int *out_node_ids, int max_count)
+    {
+        if (!engine || !out_node_ids || max_count <= 0) return 0;
+        std::array<int, AE_DSP_NODE_COUNT> snap{};
+        uint64_t gen = 0;
+        if (!snapshot_dsp_chain_order(engine, snap, gen, false))
+        {
+            std::lock_guard<std::mutex> lock(engine->dspChainOrderMutex);
+            for (size_t i = 0; i < (size_t)AE_DSP_NODE_COUNT; ++i)
+            {
+                snap[i] = engine->dspChainOrder[i].load(std::memory_order_relaxed);
+            }
+        }
+        const int n = std::min(max_count, (int)AE_DSP_NODE_COUNT);
+        for (int i = 0; i < n; ++i)
+        {
+            out_node_ids[i] = snap[(size_t)i];
+        }
+        return n;
+    }
+
+    AE_API void ae_reset_dsp_chain_order(AudioEngineHandle *engine)
+    {
+        ae_set_dsp_chain_order(engine, nullptr, 0);
     }
 
     AE_API void ae_dsp_set_subsonic_filter_enabled(AudioEngineHandle *engine, int enabled)
@@ -20993,7 +21212,6 @@ extern "C"
     AE_API void ae_dsp_set_convolver_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine) return;
-        std::lock_guard<std::mutex> lock(engine->dspMutex);
         engine->fftConvolverDsp.setEnabled(enabled != 0);
     }
 

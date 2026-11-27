@@ -195,6 +195,105 @@ enum TapeDriftPreset {
   const TapeDriftPreset(this.value);
 }
 
+/// Reorderable DSP Rack Node IDs matching `AEDspNodeId` in `audio_engine.h`.
+///
+/// The enum declaration order defines the canonical audiophile default signal
+/// chain order.
+enum DspNodeId {
+  preamp(0, 'preamp'),
+  noiseGate(1, 'noise_gate'),
+  downwardExpander(2, 'downward_expander'),
+  dynamicEq(3, 'dynamic_eq'),
+  deEsser(4, 'de_esser'),
+  harmonicBass(5, 'harmonic_bass'),
+  dynamicSystem(6, 'dynamic_system'),
+  analogWarmth(7, 'analog_warmth'),
+  tapeDrift(8, 'tape_drift'),
+  dialogEnhancer(9, 'dialog_enhancer'),
+  clarity(10, 'clarity'),
+  crystalizer(11, 'crystalizer'),
+  compressor(12, 'compressor'),
+  multibandEq(13, 'multiband_eq'),
+  multibandFx(14, 'multiband_fx'),
+  threeBandEq(15, 'three_band_eq'),
+  toneCrossover(16, 'tone_crossover'),
+  crossfeed(17, 'crossfeed'),
+  surround(18, 'surround_3d'),
+  stereoWiden(19, 'stereo_widen'),
+  stereoEnhancement(20, 'stereo_enhance'),
+  reverb(21, 'reverb'),
+  convolver(22, 'autoeq_fir'),
+  broadcastLeveller(23, 'broadcast_leveller'),
+  lookaheadAgc(24, 'lookahead_agc_limiter');
+
+  /// Native `AEDspNodeId` integer identifier.
+  final int value;
+
+  /// Stable serialization & telemetry key matching `ae_get_active_dsp_nodes_json`.
+  final String key;
+
+  const DspNodeId(this.value, this.key);
+
+  /// Canonical default audiophile DSP chain order.
+  static List<DspNodeId> get defaultOrder =>
+      List<DspNodeId>.unmodifiable(DspNodeId.values);
+
+  /// Looks up a [DspNodeId] by native integer ID, or `null` if unknown.
+  static DspNodeId? fromValue(int value) {
+    if (value < 0 || value >= DspNodeId.values.length) return null;
+    final candidate = DspNodeId.values[value];
+    if (candidate.value == value) return candidate;
+    for (final node in DspNodeId.values) {
+      if (node.value == value) return node;
+    }
+    return null;
+  }
+
+  /// Looks up a [DspNodeId] by stable string key, or `null` if unknown.
+  static DspNodeId? fromKey(String key) {
+    for (final node in DspNodeId.values) {
+      if (node.key == key) return node;
+    }
+    return null;
+  }
+
+  /// Returns a complete deduplicated permutation containing every [DspNodeId].
+  static List<DspNodeId> normalizeOrder(Iterable<DspNodeId> nodes) {
+    final result = <DspNodeId>[];
+    final seen = <DspNodeId>{};
+    for (final node in nodes) {
+      if (seen.add(node)) {
+        result.add(node);
+      }
+    }
+    for (final node in DspNodeId.values) {
+      if (seen.add(node)) {
+        result.add(node);
+      }
+    }
+    return List<DspNodeId>.unmodifiable(result);
+  }
+
+  /// Parses persisted string keys into a normalized full DSP chain permutation.
+  static List<DspNodeId> fromKeys(Iterable<String> keys) {
+    final parsed = <DspNodeId>[];
+    for (final k in keys) {
+      final node = fromKey(k);
+      if (node != null) parsed.add(node);
+    }
+    return normalizeOrder(parsed);
+  }
+
+  /// Whether [order] matches the canonical default sequence.
+  static bool isDefaultOrder(List<DspNodeId> order) {
+    final normalized = normalizeOrder(order);
+    for (int i = 0; i < DspNodeId.values.length; i++) {
+      if (normalized[i] != DspNodeId.values[i]) return false;
+    }
+    return true;
+  }
+}
+
 // Native FFI Typedefs
 typedef _DspSetEnabledNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Int32);
@@ -684,6 +783,19 @@ typedef _DspGetTapeDriftPresetNative = ffi.Int32 Function(
     ffi.Pointer<ffi.Void>);
 typedef _DspGetTapeDriftPresetDart = int Function(ffi.Pointer<ffi.Void>);
 
+typedef _DspSetChainOrderNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, ffi.Int32);
+typedef _DspSetChainOrderDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, int);
+
+typedef _DspGetChainOrderNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, ffi.Int32);
+typedef _DspGetChainOrderDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int32>, int);
+
+typedef _DspResetChainOrderNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _DspResetChainOrderDart = void Function(ffi.Pointer<ffi.Void>);
+
 /// Clean-room high-fidelity DSP suite for SautiFlow.
 class SautiDsp {
   final ffi.DynamicLibrary _lib;
@@ -782,6 +894,10 @@ class SautiDsp {
   late final _DspGetTapeDriftParamsDart _getTapeDriftParams;
   late final _DspSetTapeDriftPresetDart _setTapeDriftPreset;
   late final _DspGetTapeDriftPresetDart _getTapeDriftPreset;
+
+  _DspSetChainOrderDart? _setDspChainOrder;
+  _DspGetChainOrderDart? _getDspChainOrder;
+  _DspResetChainOrderDart? _resetDspChainOrder;
 
   SautiDsp(this._lib, this._enginePtr) {
     _initFunctions();
@@ -1023,6 +1139,25 @@ class SautiDsp {
     _getTapeDriftPreset = _lib.lookupFunction<
         _DspGetTapeDriftPresetNative,
         _DspGetTapeDriftPresetDart>('ae_dsp_get_tape_drift_preset');
+
+    try {
+      _setDspChainOrder = _lib.lookupFunction<_DspSetChainOrderNative,
+          _DspSetChainOrderDart>('ae_set_dsp_chain_order');
+    } catch (_) {
+      _setDspChainOrder = null;
+    }
+    try {
+      _getDspChainOrder = _lib.lookupFunction<_DspGetChainOrderNative,
+          _DspGetChainOrderDart>('ae_get_dsp_chain_order');
+    } catch (_) {
+      _getDspChainOrder = null;
+    }
+    try {
+      _resetDspChainOrder = _lib.lookupFunction<_DspResetChainOrderNative,
+          _DspResetChainOrderDart>('ae_reset_dsp_chain_order');
+    } catch (_) {
+      _resetDspChainOrder = null;
+    }
   }
 
   /// Reset all internal DSP buffers and history states.
@@ -2136,5 +2271,53 @@ class SautiDsp {
       return TapeDriftPreset.values[val];
     }
     return TapeDriftPreset.custom;
+  }
+
+  /// Sets the execution order of the reorderable DSP rack nodes in the native engine.
+  ///
+  /// Any omitted nodes are appended in default canonical order. Returns `true`
+  /// if the native engine accepted the order.
+  bool setDspChainOrder(List<DspNodeId> order) {
+    final fn = _setDspChainOrder;
+    if (_enginePtr == ffi.nullptr || fn == null) return false;
+    final normalized = DspNodeId.normalizeOrder(order);
+    final ptr = calloc<ffi.Int32>(normalized.length);
+    try {
+      for (int i = 0; i < normalized.length; i++) {
+        ptr[i] = normalized[i].value;
+      }
+      return fn(_enginePtr, ptr, normalized.length) > 0;
+    } finally {
+      calloc.free(ptr);
+    }
+  }
+
+  /// Reads the active DSP rack node execution order from the native engine.
+  List<DspNodeId> getDspChainOrder() {
+    final fn = _getDspChainOrder;
+    if (_enginePtr == ffi.nullptr || fn == null) {
+      return DspNodeId.defaultOrder;
+    }
+    final count = DspNodeId.values.length;
+    final ptr = calloc<ffi.Int32>(count);
+    try {
+      final written = fn(_enginePtr, ptr, count);
+      if (written <= 0) return DspNodeId.defaultOrder;
+      final parsed = <DspNodeId>[];
+      for (int i = 0; i < written && i < count; i++) {
+        final node = DspNodeId.fromValue(ptr[i]);
+        if (node != null) parsed.add(node);
+      }
+      return DspNodeId.normalizeOrder(parsed);
+    } finally {
+      calloc.free(ptr);
+    }
+  }
+
+  /// Resets the native DSP rack execution order to the canonical default sequence.
+  void resetDspChainOrder() {
+    final fn = _resetDspChainOrder;
+    if (_enginePtr == ffi.nullptr || fn == null) return;
+    fn(_enginePtr);
   }
 }

@@ -161,6 +161,8 @@ class AudioProfileService {
 
     // Reset & disable all Sauti DSP Suite modules directly in engine
     player.resetDsp();
+    player.resetDspChainOrder();
+    await AppStateService.instance.saveDspChainOrder(DspNodeId.defaultOrder);
     player.setClarity(enabled: false);
     player.setDialogEnhancer(enabled: false);
     player.setHarmonicBass(enabled: false);
@@ -885,6 +887,12 @@ class AudioProfileService {
           .clamp(0.0, 18.0),
     );
     await AppStateService.instance.saveSautiDspState(cleanDspState);
+    final chainOrder =
+        (profile.dspChainOrder != null && profile.dspChainOrder!.isNotEmpty)
+            ? DspNodeId.fromKeys(profile.dspChainOrder!)
+            : DspNodeId.defaultOrder;
+    await AppStateService.instance.saveDspChainOrder(chainOrder);
+    player.setDspChainOrder(chainOrder);
     await EqScreen.applySavedStateToEngine(player);
 
     // Ensure profile-level spatial effects stay applied even if dspMasterEnabled is false

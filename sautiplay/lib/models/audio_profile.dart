@@ -18,6 +18,9 @@ class AudioProfile {
   /// 3. Sauti DSP Suite complete state dictionary
   final Map<String, dynamic> sautiDspState;
 
+  /// 4. Optional custom DSP rack node order (list of [DspNodeId.key] strings).
+  final List<String>? dspChainOrder;
+
   AudioProfile({
     required this.id,
     required this.name,
@@ -29,6 +32,7 @@ class AudioProfile {
     this.eqState = const {},
     this.dspEffectsState = const {},
     this.sautiDspState = const {},
+    this.dspChainOrder,
   });
 
   AudioProfile copyWith({
@@ -42,6 +46,7 @@ class AudioProfile {
     Map<String, dynamic>? eqState,
     Map<String, dynamic>? dspEffectsState,
     Map<String, dynamic>? sautiDspState,
+    List<String>? dspChainOrder,
   }) {
     return AudioProfile(
       id: id ?? this.id,
@@ -54,6 +59,7 @@ class AudioProfile {
       eqState: eqState ?? this.eqState,
       dspEffectsState: dspEffectsState ?? this.dspEffectsState,
       sautiDspState: sautiDspState ?? this.sautiDspState,
+      dspChainOrder: dspChainOrder ?? this.dspChainOrder,
     );
   }
 
@@ -68,6 +74,7 @@ class AudioProfile {
         'eqState': eqState,
         'dspEffectsState': dspEffectsState,
         'sautiDspState': sautiDspState,
+        if (dspChainOrder != null) 'dspChainOrder': dspChainOrder,
       };
 
   factory AudioProfile.fromJson(Map<String, dynamic> json) => AudioProfile(
@@ -83,6 +90,9 @@ class AudioProfile {
         sautiDspState: Map<String, dynamic>.from(
           (json['sautiDspState'] ?? json['viperFxState']) as Map? ?? {},
         ),
+        dspChainOrder: (json['dspChainOrder'] as List?)
+            ?.map((e) => e.toString())
+            .toList(),
       );
 
   @override

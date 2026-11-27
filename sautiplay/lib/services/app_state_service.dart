@@ -26,6 +26,10 @@ class AppStateService {
   final StreamController<void> eqSettingsChanged =
       StreamController<void>.broadcast();
 
+  // Stream to notify listeners of live DSP chain order changes without forcing full DSP re-init
+  final StreamController<List<DspNodeId>> dspChainOrderChanged =
+      StreamController<List<DspNodeId>>.broadcast();
+
   // Stream to notify listeners of ReplayGain changes
   final StreamController<void> replayGainChanged =
       StreamController<void>.broadcast();
@@ -47,6 +51,30 @@ class AppStateService {
   // Stream to notify listeners of Wavy / Linear Seek Bar slider setting changes
   final StreamController<bool> useWavySliderChanged =
       StreamController<bool>.broadcast();
+
+  // ─── DSP Chain Order ────────────────────────────────────────────────────────
+  static const _kDspChainOrder = 'sp_dsp_chain_order';
+
+  /// Persists the user's custom DSP rack node order as stable string keys.
+  Future<void> saveDspChainOrder(List<DspNodeId> order) async {
+    final prefs = PreferencesStore.instance;
+    final normalized = DspNodeId.normalizeOrder(order);
+    await prefs.setStringList(
+      _kDspChainOrder,
+      normalized.map((e) => e.key).toList(growable: false),
+    );
+    dspChainOrderChanged.add(normalized);
+  }
+
+  /// Loads the persisted DSP rack node order, normalized with any new modules.
+  Future<List<DspNodeId>> loadDspChainOrder() async {
+    final prefs = PreferencesStore.instance;
+    final raw = prefs.getStringList(_kDspChainOrder);
+    if (raw == null || raw.isEmpty) {
+      return DspNodeId.defaultOrder;
+    }
+    return DspNodeId.fromKeys(raw);
+  }
 
   // ─── Playback ───────────────────────────────────────────────────────────────
   static const _kQueueJson = 'sp_queue_json';

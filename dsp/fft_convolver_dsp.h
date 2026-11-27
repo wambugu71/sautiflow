@@ -44,17 +44,22 @@ public:
 
     bool isEnabled() const { return enabled_.load(std::memory_order_relaxed); }
 
-    void setWetLevel(float wet) {
-        target_wet_level_ = std::clamp(wet, 0.0f, 1.0f);
+    bool isActive() const {
+        return has_ir_.load(std::memory_order_acquire) &&
+               (enabled_.load(std::memory_order_relaxed) || fade_progress_ > 0.0f);
     }
 
-    float getWetLevel() const { return target_wet_level_; }
+    void setWetLevel(float wet) {
+        target_wet_level_.store(std::clamp(wet, 0.0f, 1.0f), std::memory_order_relaxed);
+    }
+
+    float getWetLevel() const { return target_wet_level_.load(std::memory_order_relaxed); }
 
     void setDryLevel(float dry) {
-        target_dry_level_ = std::clamp(dry, 0.0f, 1.0f);
+        target_dry_level_.store(std::clamp(dry, 0.0f, 1.0f), std::memory_order_relaxed);
     }
 
-    float getDryLevel() const { return target_dry_level_; }
+    float getDryLevel() const { return target_dry_level_.load(std::memory_order_relaxed); }
 
     // Load Impulse Response (mono or stereo interleaved float samples)
     bool loadImpulseResponse(const float* ir_samples, uint32_t frame_count, uint32_t channels) {
@@ -143,9 +148,9 @@ public:
         //    wet and start a short dip-and-return micro-fade (handled in
         //    process()) that masks the one-block partition transition and
         //    prevents the crackle a bare swap would cause.
-        const bool is_hot_swap = has_ir_ && (segments_count_ > 0);
         {
             std::lock_guard<std::mutex> lock(ir_mutex_);
+            const bool is_hot_swap = has_ir_.load(std::memory_order_acquire) && (segments_count_ > 0);
             segments_count_ = num_segments;
             ir_channels_ = channels;
             ir_partitions_l_ = std::move(new_partitions_l);
@@ -168,14 +173,14 @@ public:
                 resetInternalBuffers();
                 fade_progress_ = 0.0f;
             }
-            has_ir_ = true;
+            has_ir_.store(true, std::memory_order_release);
         }
         return true;
     }
 
     void clearImpulseResponse() {
         std::lock_guard<std::mutex> lock(ir_mutex_);
-        has_ir_ = false;
+        has_ir_.store(false, std::memory_order_release);
         segments_count_ = 0;
         ir_partitions_l_.clear();
         ir_partitions_r_.clear();
@@ -185,15 +190,15 @@ public:
         fade_progress_ = 0.0f;
     }
 
-    bool hasImpulseResponse() const { return has_ir_; }
+    bool hasImpulseResponse() const { return has_ir_.load(std::memory_order_acquire); }
     size_t getKernelLength() const { return segments_count_ * BLOCK_SIZE; }
     size_t getLatencySamples() const { return BLOCK_SIZE; }
 
     void reset() {
         std::lock_guard<std::mutex> lock(ir_mutex_);
         resetInternalBuffers();
-        current_wet_level_ = target_wet_level_;
-        current_dry_level_ = target_dry_level_;
+        current_wet_level_ = target_wet_level_.load(std::memory_order_relaxed);
+        current_dry_level_ = target_dry_level_.load(std::memory_order_relaxed);
         fade_progress_ = 0.0f;
     }
 
@@ -212,11 +217,11 @@ private:
     void processImpl(T* interleaved_samples, uint32_t frame_count) {
         const bool is_enabled = enabled_.load(std::memory_order_relaxed);
         if (!is_enabled && fade_progress_ <= 0.0f) return;
-        if (!has_ir_ || frame_count == 0 || !interleaved_samples) return;
+        if (!has_ir_.load(std::memory_order_acquire) || frame_count == 0 || !interleaved_samples) return;
 
         // Try lock without blocking the real-time audio thread
         std::unique_lock<std::mutex> lock(ir_mutex_, std::try_to_lock);
-        if (!lock.owns_lock() || !has_ir_ || segments_count_ == 0) return;
+        if (!lock.owns_lock() || !has_ir_.load(std::memory_order_acquire) || segments_count_ == 0) return;
 
         uint32_t processed_frames = 0;
 
@@ -239,8 +244,10 @@ private:
                 in_buf_r_[in_pos_ + i] = dry_in_r;
 
                 // De-zipper / smoothly interpolate wet & dry levels per sample
-                current_wet_level_ += smoothing_coeff_ * (target_wet_level_ - current_wet_level_);
-                current_dry_level_ += smoothing_coeff_ * (target_dry_level_ - current_dry_level_);
+                const float targetWet = target_wet_level_.load(std::memory_order_relaxed);
+                const float targetDry = target_dry_level_.load(std::memory_order_relaxed);
+                current_wet_level_ += smoothing_coeff_ * (targetWet - current_wet_level_);
+                current_dry_level_ += smoothing_coeff_ * (targetDry - current_dry_level_);
 
                 // Output combined dry + overlap-added wet sample
                 const double wet_l = out_buf_l_[in_pos_ + i];
@@ -315,9 +322,9 @@ private:
 
     float sample_rate_{48000.0f};
     float sample_period_{1.0f / 48000.0f};
-    float target_wet_level_{1.0f};
+    std::atomic<float> target_wet_level_{1.0f};
     float current_wet_level_{1.0f};
-    float target_dry_level_{0.0f};
+    std::atomic<float> target_dry_level_{0.0f};
     float current_dry_level_{0.0f};
 
     float smoothing_coeff_{0.002f};

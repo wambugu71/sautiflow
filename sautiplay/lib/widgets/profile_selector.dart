@@ -62,6 +62,7 @@ class AudioProfileSelector extends StatefulWidget {
     final loudnessNorm =
         await AppStateService.instance.loadLoudnessNormalizer();
     final dspMap = await AppStateService.instance.loadSautiDspState();
+    final dspChainOrder = await AppStateService.instance.loadDspChainOrder();
     final parametricEq = await AppStateService.instance.loadParametricEq();
     final prefs = PreferencesStore.instance;
     final activeParametricPreset =
@@ -194,6 +195,7 @@ class AudioProfileSelector extends StatefulWidget {
         },
       },
       'sautiDspState': dspMap,
+      'dspChainOrder': dspChainOrder.map((e) => e.key).toList(),
     };
   }
 
@@ -400,6 +402,11 @@ class AudioProfileSelector extends StatefulWidget {
                       eqState: eqState,
                       dspEffectsState: dspState,
                       sautiDspState: sautiDspState,
+                      dspChainOrder: includeSautiDsp
+                          ? (currentState['dspChainOrder'] as List?)
+                              ?.map((e) => e.toString())
+                              .toList()
+                          : null,
                     );
 
                     await AudioProfileService.instance.saveProfile(newProfile);

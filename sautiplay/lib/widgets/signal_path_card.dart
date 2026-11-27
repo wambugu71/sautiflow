@@ -9,6 +9,7 @@ class SignalPathCard extends StatefulWidget {
   final bool isDark;
   final Color textPrimary;
   final Color textMuted;
+  final VoidCallback? onEditChainOrder;
 
   const SignalPathCard({
     super.key,
@@ -18,6 +19,7 @@ class SignalPathCard extends StatefulWidget {
     required this.isDark,
     required this.textPrimary,
     required this.textMuted,
+    this.onEditChainOrder,
   });
 
   @override
@@ -93,6 +95,45 @@ class _SignalPathCardState extends State<SignalPathCard> {
                   ],
                 ),
               ),
+              if (widget.onEditChainOrder != null) ...[
+                Semantics(
+                  button: true,
+                  label: 'Reorder DSP signal chain',
+                  child: InkWell(
+                    onTap: widget.onEditChainOrder,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: primary.withValues(alpha: widget.isDark ? 0.14 : 0.09),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: primary.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.reorder_rounded, size: 12, color: primary),
+                          const SizedBox(width: 4),
+                          Text(
+                            'REORDER',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.bold,
+                              color: primary,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
               if (totalMs != null)
                 Text(
                   '${totalMs.toStringAsFixed(2)} ms',

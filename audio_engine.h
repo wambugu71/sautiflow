@@ -936,6 +936,42 @@ extern "C"
     // Master DSP Reset
     AE_API void ae_dsp_reset(AudioEngineHandle *engine);
 
+    // Reorderable DSP Rack Node IDs (in default canonical audiophile order)
+    typedef enum AEDspNodeId
+    {
+        AE_DSP_NODE_PREAMP = 0,
+        AE_DSP_NODE_NOISE_GATE = 1,
+        AE_DSP_NODE_DOWNWARD_EXPANDER = 2,
+        AE_DSP_NODE_DYNAMIC_EQ = 3,
+        AE_DSP_NODE_DE_ESSER = 4,
+        AE_DSP_NODE_HARMONIC_BASS = 5,
+        AE_DSP_NODE_DYNAMIC_SYSTEM = 6,
+        AE_DSP_NODE_ANALOG_WARMTH = 7,
+        AE_DSP_NODE_TAPE_DRIFT = 8,
+        AE_DSP_NODE_DIALOG_ENHANCER = 9,
+        AE_DSP_NODE_CLARITY = 10,
+        AE_DSP_NODE_CRYSTALIZER = 11,
+        AE_DSP_NODE_COMPRESSOR = 12,
+        AE_DSP_NODE_MULTIBAND_EQ = 13,
+        AE_DSP_NODE_MULTIBAND_FX = 14,
+        AE_DSP_NODE_THREE_BAND_EQ = 15,
+        AE_DSP_NODE_TONE_CROSSOVER = 16,
+        AE_DSP_NODE_CROSSFEED = 17,
+        AE_DSP_NODE_SURROUND = 18,
+        AE_DSP_NODE_STEREO_WIDEN = 19,
+        AE_DSP_NODE_STEREO_ENHANCEMENT = 20,
+        AE_DSP_NODE_REVERB = 21,
+        AE_DSP_NODE_CONVOLVER = 22,
+        AE_DSP_NODE_BROADCAST_LEVELLER = 23,
+        AE_DSP_NODE_LOOKAHEAD_AGC = 24,
+        AE_DSP_NODE_COUNT = 25
+    } AEDspNodeId;
+
+    AE_API int  ae_get_dsp_node_count(void);
+    AE_API int  ae_set_dsp_chain_order(AudioEngineHandle *engine, const int *node_ids, int count);
+    AE_API int  ae_get_dsp_chain_order(AudioEngineHandle *engine, int *out_node_ids, int max_count);
+    AE_API void ae_reset_dsp_chain_order(AudioEngineHandle *engine);
+
     // ==========================================
     // Spatial Surround Suite (see surround.md)
     //   Mode 1 FieldExpander   : M/S soundstage expander + Schroeder diffuser

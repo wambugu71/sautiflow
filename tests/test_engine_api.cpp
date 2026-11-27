@@ -2130,6 +2130,230 @@ static void test_ffmpeg_streaming_audit()
     }
 }
 
+static void test_dsp_chain_order()
+{
+    std::printf("\n== Reorderable DSP Chain Order API ==\n");
+    const int nodeCount = ae_get_dsp_node_count();
+    CHECK(nodeCount == AE_DSP_NODE_COUNT, "ae_get_dsp_node_count matches AE_DSP_NODE_COUNT");
+
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created for DSP chain order tests");
+    if (!e) return;
+
+    std::vector<int> order(static_cast<size_t>(nodeCount), -1);
+    int readCount = ae_get_dsp_chain_order(e, order.data(), nodeCount);
+    bool isDefault = (readCount == nodeCount);
+    for (int i = 0; i < nodeCount && isDefault; ++i)
+    {
+        if (order[static_cast<size_t>(i)] != i) isDefault = false;
+    }
+    CHECK(isDefault, "default DSP chain order matches canonical 0..N-1");
+
+    // Partial/duplicate/invalid IDs normalize cleanly to a complete permutation
+    const int partialInput[] = {
+        AE_DSP_NODE_REVERB,
+        AE_DSP_NODE_REVERB,
+        -5,
+        999,
+        AE_DSP_NODE_MULTIBAND_EQ,
+        AE_DSP_NODE_COMPRESSOR
+    };
+    const int written = ae_set_dsp_chain_order(e, partialInput, 6);
+    CHECK(written == nodeCount, "ae_set_dsp_chain_order normalizes partial input to full count");
+
+    readCount = ae_get_dsp_chain_order(e, order.data(), nodeCount);
+    CHECK(readCount == nodeCount &&
+          order[0] == AE_DSP_NODE_REVERB &&
+          order[1] == AE_DSP_NODE_MULTIBAND_EQ &&
+          order[2] == AE_DSP_NODE_COMPRESSOR,
+          "custom prefix order preserved without duplicates or invalid IDs");
+
+    std::vector<bool> seen(static_cast<size_t>(nodeCount), false);
+    bool validPerm = true;
+    for (int id : order)
+    {
+        if (id < 0 || id >= nodeCount || seen[static_cast<size_t>(id)])
+        {
+            validPerm = false;
+            break;
+        }
+        seen[static_cast<size_t>(id)] = true;
+    }
+    CHECK(validPerm, "normalized chain order is a valid full permutation");
+
+    // Verify ae_get_active_dsp_nodes_json reflects live custom order
+    float freqs[3] = {100.0f, 1000.0f, 8000.0f};
+    ae_init_multiband_eq(e, 3, freqs, nullptr);
+    ae_set_multiband_eq_enabled(e, 1);
+    ae_set_reverb_enabled(e, 1);
+
+    std::vector<char> jsonBuf(8192, '\0');
+    int jsonLen = ae_get_active_dsp_nodes_json(e, jsonBuf.data(), static_cast<int>(jsonBuf.size()));
+    std::string jsonCustom(jsonBuf.data(), static_cast<size_t>(std::max(0, jsonLen)));
+    const size_t revPosCustom = jsonCustom.find("\"id\":\"reverb\"");
+    const size_t eqPosCustom = jsonCustom.find("\"id\":\"multiband_eq\"");
+    CHECK(revPosCustom != std::string::npos && eqPosCustom != std::string::npos && revPosCustom < eqPosCustom,
+          "ae_get_active_dsp_nodes_json reports reverb before multiband_eq when reordered");
+
+    // Reset restores canonical order (multiband_eq before reverb)
+    ae_reset_dsp_chain_order(e);
+    jsonLen = ae_get_active_dsp_nodes_json(e, jsonBuf.data(), static_cast<int>(jsonBuf.size()));
+    std::string jsonReset(jsonBuf.data(), static_cast<size_t>(std::max(0, jsonLen)));
+    const size_t revPosReset = jsonReset.find("\"id\":\"reverb\"");
+    const size_t eqPosReset = jsonReset.find("\"id\":\"multiband_eq\"");
+    CHECK(revPosReset != std::string::npos && eqPosReset != std::string::npos && eqPosReset < revPosReset,
+          "ae_reset_dsp_chain_order restores multiband_eq before reverb");
+
+    // Multi-threaded tear-free seqlock stress test (writer mutates order + live toggles concurrently)
+    {
+        std::atomic<bool> writerStop{false};
+        std::thread writer([&]() {
+            std::vector<int> perm(static_cast<size_t>(nodeCount));
+            for (int iter = 0; iter < 2000 && !writerStop.load(std::memory_order_relaxed); ++iter)
+            {
+                for (int i = 0; i < nodeCount; ++i)
+                {
+                    perm[static_cast<size_t>(i)] = (i + iter * 7) % nodeCount;
+                }
+                ae_set_dsp_chain_order(e, perm.data(), nodeCount);
+                if ((iter & 3) == 0) ae_set_reverb_enabled(e, (iter & 4) ? 1 : 0);
+                if ((iter & 3) == 1) ae_set_compressor_enabled(e, (iter & 8) ? 1 : 0);
+                if ((iter & 3) == 2) ae_set_multiband_eq_enabled(e, (iter & 16) ? 1 : 0);
+                if ((iter & 3) == 3) ae_dsp_set_convolver_enabled(e, (iter & 32) ? 1 : 0);
+            }
+        });
+
+        bool allOrderSnapshotsValid = true;
+        bool allJsonSnapshotsValid = true;
+        std::vector<int> snap(static_cast<size_t>(nodeCount), -1);
+        for (int r = 0; r < 1000; ++r)
+        {
+            const int cnt = ae_get_dsp_chain_order(e, snap.data(), nodeCount);
+            if (cnt != nodeCount)
+            {
+                allOrderSnapshotsValid = false;
+                break;
+            }
+            std::vector<bool> seenSnap(static_cast<size_t>(nodeCount), false);
+            for (int id : snap)
+            {
+                if (id < 0 || id >= nodeCount || seenSnap[static_cast<size_t>(id)])
+                {
+                    allOrderSnapshotsValid = false;
+                    break;
+                }
+                seenSnap[static_cast<size_t>(id)] = true;
+            }
+            if (!allOrderSnapshotsValid) break;
+
+            if ((r % 5) == 0)
+            {
+                const int jLen = ae_get_active_dsp_nodes_json(e, jsonBuf.data(), static_cast<int>(jsonBuf.size()));
+                if (jLen < 2 || jsonBuf[0] != '[' || jsonBuf[static_cast<size_t>(jLen - 1)] != ']')
+                {
+                    allJsonSnapshotsValid = false;
+                    break;
+                }
+            }
+        }
+        writerStop.store(true, std::memory_order_relaxed);
+        writer.join();
+        CHECK(allOrderSnapshotsValid, "1000 concurrent seqlock chain snapshots remained tear-free permutations");
+        CHECK(allJsonSnapshotsValid, "200 concurrent active-node JSON snapshots remained well-formed");
+    }
+
+    ae_destroy_engine(e);
+
+    // Live playback continuity test across active DSP chain reorders + toggles
+    {
+        const char *wavPath = "dsp_chain_live_test.wav";
+        const int sr = 48000;
+        const int frames = sr * 2;
+        std::vector<int16_t> pcm(static_cast<size_t>(frames) * 2);
+        for (int i = 0; i < frames; ++i)
+        {
+            const double t = static_cast<double>(i) / static_cast<double>(sr);
+            const double s = 0.25 * std::sin(2.0 * M_PI * 1000.0 * t);
+            const int16_t sample = static_cast<int16_t>(std::lround(s * 32767.0));
+            pcm[static_cast<size_t>(2 * i)] = sample;
+            pcm[static_cast<size_t>(2 * i + 1)] = sample;
+        }
+        {
+#pragma pack(push, 1)
+            struct WH { char r[4]; uint32_t rs; char w[4]; char f[4]; uint32_t fs; uint16_t af, ch; uint32_t sr, br; uint16_t ba, bps; char d[4]; uint32_t db; };
+#pragma pack(pop)
+            WH h{{'R','I','F','F'}, 36 + (uint32_t)(pcm.size() * 2), {'W','A','V','E'}, {'f','m','t',' '}, 16, 1, 2, (uint32_t)sr, (uint32_t)sr * 4, 4, 16, {'d','a','t','a'}, (uint32_t)(pcm.size() * 2)};
+            FILE *fp = std::fopen(wavPath, "wb");
+            if (fp) { std::fwrite(&h, sizeof(h), 1, fp); std::fwrite(pcm.data(), 1, pcm.size() * 2, fp); std::fclose(fp); }
+        }
+
+        AudioEngineHandle *live = ae_create_engine(sr, 2);
+        CHECK(live != nullptr, "live playback engine created for DSP chain reorder continuity test");
+        if (live)
+        {
+            float liveFreqs[3] = {100.0f, 1000.0f, 8000.0f};
+            ae_init_multiband_eq(live, 3, liveFreqs, nullptr);
+            ae_set_multiband_eq_gain(live, 1, 3.0f);
+            ae_set_multiband_eq_enabled(live, 1);
+            ae_set_compressor_enabled(live, 1);
+            ae_set_reverb_enabled(live, 1);
+            ae_dsp_set_analog_warmth_enabled(live, 1);
+            ae_set_analyzer_enabled(live, 1);
+
+            const char *paths[1] = { wavPath };
+            ae_set_playlist(live, paths, 1);
+            ae_set_loop_mode(live, 2);
+            ae_play(live);
+
+            std::vector<float> frameBuf(1024, 0.0f);
+            int totalFramesCaptured = 0;
+            bool allFinite = true;
+            float maxAbsSample = 0.0f;
+
+            // Wait briefly for playback to start before reordering live
+            const auto startDeadline = Clock::now() + std::chrono::seconds(3);
+            while (Clock::now() < startDeadline)
+            {
+                if (ae_get_status(live).is_playing) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(15));
+            }
+
+            std::vector<int> orderA = {
+                AE_DSP_NODE_MULTIBAND_EQ, AE_DSP_NODE_COMPRESSOR, AE_DSP_NODE_ANALOG_WARMTH, AE_DSP_NODE_REVERB
+            };
+            std::vector<int> orderB = {
+                AE_DSP_NODE_REVERB, AE_DSP_NODE_ANALOG_WARMTH, AE_DSP_NODE_COMPRESSOR, AE_DSP_NODE_MULTIBAND_EQ
+            };
+
+            for (int step = 0; step < 12; ++step)
+            {
+                const auto &ord = (step & 1) ? orderB : orderA;
+                ae_set_dsp_chain_order(live, ord.data(), static_cast<int>(ord.size()));
+                if ((step % 4) == 2) ae_set_reverb_enabled(live, 0);
+                if ((step % 4) == 3) ae_set_reverb_enabled(live, 1);
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+                const int copied = ae_poll_analyzer_frame_stereo(live, frameBuf.data(), 512);
+                if (copied > 0)
+                {
+                    totalFramesCaptured += copied;
+                    const int samples = copied * 2;
+                    for (int s = 0; s < samples; ++s)
+                    {
+                        if (!std::isfinite(frameBuf[static_cast<size_t>(s)])) allFinite = false;
+                        maxAbsSample = std::max(maxAbsSample, std::fabs(frameBuf[static_cast<size_t>(s)]));
+                    }
+                }
+            }
+
+            CHECK(totalFramesCaptured > 0, "live playback captured analyzer frames across 12 live reorders");
+            CHECK(allFinite && maxAbsSample < 2.0f, "live playback remained finite and bounded (< 2.0) during reorders");
+            ae_destroy_engine(live);
+        }
+        std::remove(wavPath);
+    }
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -2159,6 +2383,7 @@ int main()
     test_hires_384khz_and_fidelity_alignment();
     test_stereo_enhancement_and_pdc_latency();
     test_ffmpeg_streaming_audit();
+    test_dsp_chain_order();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

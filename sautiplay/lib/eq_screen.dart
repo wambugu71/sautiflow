@@ -33,6 +33,7 @@ import 'widgets/playback_speed_modal.dart';
 import 'widgets/open_stage_visualizer.dart';
 import 'widgets/race_visualizer.dart';
 import 'widgets/stereo_vectorscope_graph.dart';
+import 'widgets/dsp_chain_order_sheet.dart';
 
 import 'services/app_theme_service.dart';
 import 'l10n/app_strings.dart';
@@ -268,6 +269,9 @@ class EqScreen extends StatefulWidget {
 
   /// Applies persisted Sauti DSP suite, EQ, Preamp & Tone settings directly to the audio engine.
   static Future<void> applySavedStateToEngine(IsolateAudioPlayer player) async {
+    final chainOrder = await AppStateService.instance.loadDspChainOrder();
+    player.setDspChainOrder(chainOrder);
+
     // 0. Restore Graphic EQ, Preamp, Tone Controls & 3-Band Tuning unconditionally
     final eqBands = await AppStateService.instance.loadEqBands();
     final eqExt = await AppStateService.instance
@@ -413,7 +417,7 @@ class EqScreen extends StatefulWidget {
     final dynamicSystemSideGainY =
         (state['dynamicSystemSideGainY'] as num?)?.toDouble() ?? 0.70;
     final dynamicSystemMaxDrive =
-        (state['dynamicSystemMaxDrive'] as num?)?.toDouble() ?? 2.8;
+        (state['dynamicSystemMaxDrive'] as num?)?.toDouble() ?? 3.4;
 
     final analogWarmthEnabled =
         masterEnabled && (state['analogWarmthEnabled'] ?? false);
@@ -480,8 +484,8 @@ class EqScreen extends StatefulWidget {
         xHigh: dynamicSystemXHigh,
         yLow: dynamicSystemYLow,
         yHigh: dynamicSystemYHigh,
-        sideGainLow: dynamicSystemSideGainX,
-        sideGainHigh: dynamicSystemSideGainY,
+        sideGainLow: 1.0 + dynamicSystemStrength * (dynamicSystemSideGainX - 1.0),
+        sideGainHigh: 1.0 + dynamicSystemStrength * (dynamicSystemSideGainY - 1.0),
         bassGain: 1.0 + dynamicSystemStrength * (dynamicSystemMaxDrive - 1.0),
       );
     } else {
@@ -1809,6 +1813,7 @@ class _EqScreenState extends State<EqScreen>
 
   // Subscriptions
   StreamSubscription<void>? _eqSettingsSub;
+  StreamSubscription<List<DspNodeId>>? _dspChainOrderSub;
 
   // Soft Limiter
   bool _limiterEnabled = false;
@@ -1940,6 +1945,7 @@ class _EqScreenState extends State<EqScreen>
   Timer? _compressorMeterTimer;
   final GlobalKey _fallbackEffectsKnobKey = GlobalKey();
   bool _isDynamicsModalActive = false;
+  List<DspNodeId> _dspChainOrder = DspNodeId.defaultOrder;
 
   // ── Sauti DSP Suite States ──
   // 1. Audio Clarity
@@ -1978,7 +1984,7 @@ class _EqScreenState extends State<EqScreen>
   double _dynamicSystemYHigh = 80.0;
   double _dynamicSystemSideGainX = 0.10;
   double _dynamicSystemSideGainY = 0.70;
-  double _dynamicSystemMaxDrive = 2.8;
+  double _dynamicSystemMaxDrive = 3.4;
 
   // 4. Analog Warmth
   bool _analogWarmthEnabled = false;
@@ -2837,6 +2843,12 @@ class _EqScreenState extends State<EqScreen>
         AppStateService.instance.eqSettingsChanged.stream.listen((_) {
       if (mounted) _loadPreferences();
     });
+    _dspChainOrderSub =
+        AppStateService.instance.dspChainOrderChanged.stream.listen((order) {
+      if (mounted) {
+        setState(() => _dspChainOrder = order);
+      }
+    });
   }
 
   void _startDynamicsMeterTimer() {
@@ -3099,6 +3111,7 @@ class _EqScreenState extends State<EqScreen>
     _statusSub?.cancel();
     _autoEqSub?.cancel();
     _eqSettingsSub?.cancel();
+    _dspChainOrderSub?.cancel();
     _hrirDropdownController.dispose();
     _dynamicEqScrollController.dispose();
     widget.player.setAnalyzerEnabled(false);
@@ -3113,6 +3126,7 @@ class _EqScreenState extends State<EqScreen>
     });
 
     // Load all persisted EQ state
+    final chainOrder = await AppStateService.instance.loadDspChainOrder();
     final rate = await AppStateService.instance.loadPlaybackRate();
     final pitch = await AppStateService.instance.loadPlaybackPitch();
     final pitchCorrection =
@@ -3145,6 +3159,7 @@ class _EqScreenState extends State<EqScreen>
     final rgSaved = await AppStateService.instance.loadReplayGainSettings();
 
     setState(() {
+      _dspChainOrder = chainOrder;
       _showWarningBanner = !hideBanner;
       _playbackRate = rate;
       _playbackPitch = pitch;
@@ -3648,6 +3663,7 @@ class _EqScreenState extends State<EqScreen>
     }
 
     // Apply loaded state to the audio engine
+    widget.player.setDspChainOrder(_dspChainOrder);
     widget.player.setMultibandEqEnabled(_masterEqEnabled);
     widget.player.setMultibandEqMode(_eqTopology);
     widget.player.setMultibandEqChannelMode(_eqChannelMode);
@@ -3835,8 +3851,8 @@ class _EqScreenState extends State<EqScreen>
         xHigh: _dynamicSystemXHigh,
         yLow: _dynamicSystemYLow,
         yHigh: _dynamicSystemYHigh,
-        sideGainLow: _dynamicSystemSideGainX,
-        sideGainHigh: _dynamicSystemSideGainY,
+        sideGainLow: 1.0 + _dynamicSystemStrength * (_dynamicSystemSideGainX - 1.0),
+        sideGainHigh: 1.0 + _dynamicSystemStrength * (_dynamicSystemSideGainY - 1.0),
         bassGain: 1.0 + _dynamicSystemStrength * (_dynamicSystemMaxDrive - 1.0),
       );
     } else {
@@ -4992,7 +5008,7 @@ class _EqScreenState extends State<EqScreen>
       _dynamicSystemYHigh = 80.0;
       _dynamicSystemSideGainX = 0.10;
       _dynamicSystemSideGainY = 0.70;
-      _dynamicSystemMaxDrive = 2.8;
+      _dynamicSystemMaxDrive = 3.4;
       widget.player.setDynamicSystem(enabled: false);
 
       _analogWarmthEnabled = false;
@@ -5131,7 +5147,10 @@ class _EqScreenState extends State<EqScreen>
       _loudnessNormalizerTargetLUFS = -14.0;
       _replayGainMode = ReplayGainMode.none;
       _replayGainPreamp = 0.0;
+      _dspChainOrder = DspNodeId.defaultOrder;
     });
+    widget.player.resetDspChainOrder();
+    AppStateService.instance.saveDspChainOrder(DspNodeId.defaultOrder);
     // Persist the reset state
     _persistLookaheadLimiterSettings();
     _persistLoudnessNormalizerSettings();
@@ -5240,6 +5259,544 @@ class _EqScreenState extends State<EqScreen>
         ),
         onTap: onTapDetail,
       ),
+    );
+  }
+
+  List<DspChainNodeInfo> _buildChainNodeInfos() {
+    return [
+      DspChainNodeInfo(
+        id: DspNodeId.preamp,
+        title: 'Preamp Gain',
+        subtitle:
+            'Gain: ${_preampDb > 0 ? '+' : ''}${_preampDb.toStringAsFixed(1)} dB',
+        icon: SautiIcons.preamp,
+        isEnabled: _preampDb.abs() > 0.05,
+        onOpenDetail: () => _openDetailScreen(
+          'Preamp Gain',
+          SautiIcons.preamp,
+          (_) => _buildPreampSection(),
+          shape: Shapes.circle,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.noiseGate,
+        title: 'Noise Gate',
+        subtitle: _noiseGateEnabled
+            ? 'Open ${_noiseGateOpenThreshDb.toInt()} dB / Close ${_noiseGateCloseThreshDb.toInt()} dB'
+            : 'Disabled',
+        icon: SautiIcons.noiseGate,
+        isEnabled: _noiseGateEnabled,
+        onToggle: (v) {
+          setState(() {
+            _noiseGateEnabled = v;
+            if (!v) _noiseGateGrNotifier.value = 0.0;
+          });
+          _updateNoiseGate();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Noise Gate',
+          SautiIcons.noiseGate,
+          (_) => _buildNoiseGateSection(),
+          shape: Shapes.diamond,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.downwardExpander,
+        title: 'Expander',
+        subtitle: _expanderEnabled
+            ? '${_getExpanderPresetName(_expanderPreset)} (${_expanderThresholdDb.toInt()} dB)'
+            : 'Disabled',
+        icon: SautiIcons.expander,
+        isEnabled: _expanderEnabled,
+        onToggle: (v) {
+          setState(() => _expanderEnabled = v);
+          _updateDownwardExpander();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Expander',
+          SautiIcons.expander,
+          (_) => _buildDownwardExpanderSection(),
+          shape: Shapes.flower,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.dynamicEq,
+        title: 'Dynamic EQ',
+        subtitle:
+            _dynamicEqEnabled ? '6-Band Dynamic · $_dynamicEqPreset' : 'Disabled',
+        icon: SautiIcons.dynamicEq,
+        isEnabled: _dynamicEqEnabled,
+        onToggle: (v) {
+          setState(() => _dynamicEqEnabled = v);
+          _updateDynamicEq();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Dynamic EQ',
+          SautiIcons.dynamicEq,
+          (_) => _buildDynamicEqSection(),
+          shape: Shapes.burst,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.deEsser,
+        title: 'De-Esser',
+        subtitle: _deEsserEnabled
+            ? '${(_deEsserFrequencyHz / 1000.0).toStringAsFixed(1)} kHz · ${_deEsserThresholdDb.toInt()} dB'
+            : 'Disabled',
+        icon: SautiIcons.deesser,
+        isEnabled: _deEsserEnabled,
+        onToggle: (v) {
+          setState(() => _deEsserEnabled = v);
+          _updateDeEsser();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'De-Esser',
+          SautiIcons.deesser,
+          (_) => _buildDeEsserSection(),
+          shape: Shapes.pill,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.harmonicBass,
+        title: 'Dynamic Bass',
+        subtitle: _bassEnabled
+            ? (_bassProfile == HarmonicBassProfile.dynamicMultiPole
+                ? '${_getDynamicBassPresetName(_bassPreset)} (+${_bassGainDb.toStringAsFixed(1)} dB)'
+                : '${_getHarmonicBassProfileName(_bassProfile)} | ${_bassCutoffHz.toInt()} Hz')
+            : 'Disabled',
+        icon: SautiIcons.dynamicBass,
+        isEnabled: _bassEnabled,
+        onToggle: (v) {
+          setState(() => _bassEnabled = v);
+          _updateHarmonicBass();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Dynamic Bass',
+          SautiIcons.dynamicBass,
+          (_) => _buildHarmonicBassSection(),
+          shape: Shapes.boom,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.dynamicSystem,
+        title: 'Dynamic System',
+        subtitle: _dynamicSystemEnabled
+            ? '${_getTransducerProfileName(_dynamicSystemProfile)} (${(_dynamicSystemStrength * 100).toInt()}%)'
+            : 'Disabled',
+        icon: SautiIcons.dynamicSystem,
+        isEnabled: _dynamicSystemEnabled,
+        onToggle: (v) {
+          setState(() => _dynamicSystemEnabled = v);
+          _updateDynamicSystem();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Dynamic System',
+          SautiIcons.dynamicSystem,
+          (_) => _buildDynamicSystemSection(),
+          shape: Shapes.burst,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.analogWarmth,
+        title: 'Analog Warmth',
+        subtitle: _analogWarmthEnabled
+            ? '${_getAnalogWarmthProfileName(_analogWarmthProfile)} (${(_analogWarmthDrive * 100).toInt()}%)'
+            : 'Disabled',
+        icon: SautiIcons.analogueWarmth,
+        isEnabled: _analogWarmthEnabled,
+        onToggle: (v) {
+          setState(() => _analogWarmthEnabled = v);
+          _updateAnalogWarmth();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Analog Warmth',
+          SautiIcons.analogueWarmth,
+          (_) => _buildAnalogWarmthSection(),
+          shape: Shapes.sunny,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.tapeDrift,
+        title: 'Vintage Tape Drift',
+        subtitle: _tapeDriftEnabled
+            ? '${_getTapeDriftPresetName(_tapeDriftPreset)} · Wow ${_tapeDriftWowRate.toStringAsFixed(1)} Hz'
+            : 'Disabled',
+        icon: SautiIcons.vintageDrift,
+        isEnabled: _tapeDriftEnabled,
+        onToggle: (v) {
+          setState(() => _tapeDriftEnabled = v);
+          _updateTapeDrift();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Vintage Tape Drift',
+          SautiIcons.vintageDrift,
+          (_) => _buildTapeDriftSection(),
+          shape: Shapes.c4SidedCookie,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.dialogEnhancer,
+        title: 'Dialogue Enhancer',
+        subtitle: _dialogEnhancerEnabled
+            ? '${_getDialogEnhancerProfileName(_dialogEnhancerProfile)} (+${(_dialogEnhancerAmount * 11.0).toStringAsFixed(1)} dB)'
+            : 'Disabled',
+        icon: SautiIcons.dialogueEnhancer,
+        isEnabled: _dialogEnhancerEnabled,
+        onToggle: (v) {
+          setState(() => _dialogEnhancerEnabled = v);
+          _updateDialogEnhancer();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Dialogue Enhancer',
+          SautiIcons.dialogueEnhancer,
+          (_) => _buildDialogEnhancerSection(),
+          shape: Shapes.pill,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.clarity,
+        title: 'Audio Clarity',
+        subtitle: _clarityEnabled
+            ? '${_getClarityProfileName(_clarityProfile)} (${(_clarityIntensity * 100).toInt()}%)'
+            : 'Disabled',
+        icon: SautiIcons.audioClarity,
+        isEnabled: _clarityEnabled,
+        onToggle: (v) {
+          setState(() => _clarityEnabled = v);
+          _updateClarity();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Audio Clarity',
+          SautiIcons.audioClarity,
+          (_) => _buildClaritySection(),
+          shape: Shapes.gem,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.crystalizer,
+        title: 'Crystalizer',
+        subtitle: _crystalizerEnabled
+            ? 'Intensity: ${(_crystalizerIntensity * 100).toInt()}%'
+            : 'Disabled',
+        icon: SautiIcons.crystallizer,
+        isEnabled: _crystalizerEnabled,
+        onToggle: (v) {
+          setState(() => _crystalizerEnabled = v);
+          _updateCrystalizer();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Crystalizer',
+          SautiIcons.crystallizer,
+          (_) => _buildCrystalizerSection(),
+          shape: Shapes.burst,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.compressor,
+        title: 'Compressor',
+        subtitle: _compressorEnabled
+            ? '$_compressorPreset · ${_compressorThresholdDb.toInt()} dB / ${_compressorRatio.toStringAsFixed(1)}:1'
+            : 'Disabled',
+        icon: SautiIcons.compressor,
+        isEnabled: _compressorEnabled,
+        onToggle: (v) {
+          setState(() => _compressorEnabled = v);
+          _updateCompressor();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Compressor',
+          SautiIcons.compressor,
+          (_) => _buildCompressorSection(),
+          shape: Shapes.burst,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.multibandEq,
+        title: '${_eqFrequencies.length}-Band Graphic EQ',
+        subtitle: _masterEqEnabled
+            ? '${_eqFrequencies.length}-Band ($_activePreset)'
+            : 'Disabled',
+        icon: SautiIcons.graphicEq,
+        isEnabled: _masterEqEnabled,
+        onToggle: (v) {
+          setState(() => _masterEqEnabled = v);
+          widget.player.setMultibandEqEnabled(v);
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Graphic EQ',
+          SautiIcons.graphicEq,
+          (_) => _buildGraphicEqSection(),
+          shape: Shapes.c4SidedCookie,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.multibandFx,
+        title: 'Parametric EQ',
+        subtitle: _parametricEqEnabled
+            ? '${_parametricBands.length} Bands ($_parametricPreset)'
+            : 'Disabled',
+        icon: SautiIcons.parametricEq,
+        isEnabled: _parametricEqEnabled,
+        onToggle: (v) {
+          setState(() => _parametricEqEnabled = v);
+          widget.player.setMultibandFxEnabled(v);
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Parametric EQ',
+          SautiIcons.parametricEq,
+          (_) => _buildParametricEqSection(),
+          shape: Shapes.gem,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.threeBandEq,
+        title: '3-Band EQ',
+        subtitle: _audioTuningEnabled ? 'Active' : 'Disabled',
+        icon: Icons.equalizer_rounded,
+        isEnabled: _audioTuningEnabled,
+        onToggle: (v) {
+          setState(() => _audioTuningEnabled = v);
+          widget.player.setEqEnabled(v);
+          _saveEqState();
+        },
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.toneCrossover,
+        title: 'Tone Controls',
+        subtitle: _toneCrossoverEnabled
+            ? 'Active (${_toneMode.name})'
+            : 'Disabled',
+        icon: SautiIcons.toneControls,
+        isEnabled: _toneCrossoverEnabled,
+        onToggle: (v) {
+          setState(() => _toneCrossoverEnabled = v);
+          widget.player.setToneCrossoverEnabled(v);
+          _updateToneCrossover();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Tone Controls',
+          SautiIcons.toneControls,
+          (_) => _buildToneCrossoverSection(),
+          shape: Shapes.pill,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.crossfeed,
+        title: 'Crossfeed',
+        subtitle: _crossfeedEnabled ? 'Active' : 'Disabled',
+        icon: SautiIcons.crossfeed,
+        isEnabled: _crossfeedEnabled,
+        onToggle: (v) {
+          setState(() => _crossfeedEnabled = v);
+          _updateCrossfeed();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Crossfeed',
+          SautiIcons.crossfeed,
+          (_) => _buildCrossfeedSection(),
+          shape: Shapes.arch,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.surround,
+        title: 'Spatial Surround',
+        subtitle: _surroundEnabled ? _getSurroundModeSubtitle() : 'Disabled',
+        icon: SautiIcons.spatialSound,
+        isEnabled: _surroundEnabled,
+        onToggle: (v) {
+          setState(() {
+            _surroundEnabled = v;
+            if (v && _surroundMode == SurroundMode.off) {
+              _surroundMode = SurroundMode.matrixSurround;
+            }
+          });
+          _updateSurround();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Spatial Surround',
+          SautiIcons.spatialSound,
+          (_) => _buildSurroundSection(),
+          shape: Shapes.puffyDiamond,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.stereoWiden,
+        title: 'Stereo Imager',
+        subtitle: _stereoWidenEnabled
+            ? 'Width ${_stereoWidenWidth.toStringAsFixed(1)}x'
+            : 'Disabled',
+        icon: SautiIcons.stereoImager,
+        isEnabled: _stereoWidenEnabled,
+        onToggle: (v) {
+          setState(() => _stereoWidenEnabled = v);
+          if (v) {
+            _updateStereoWiden();
+          } else {
+            widget.player.setStereoImager(
+              enabled: false,
+              width: _stereoWidenWidth,
+              mode: _stereoWidenMode,
+              monoBelowHz: _stereoWidenMonoBelowHz,
+              airBoostDb: _stereoWidenAirBoostDb,
+              delayMs: _stereoWidenDelayMs,
+            );
+          }
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Stereo Imager',
+          SautiIcons.stereoImager,
+          (_) => _buildStereoWidenSection(),
+          shape: Shapes.slanted,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.stereoEnhancement,
+        title: 'Stereo Enhancer',
+        subtitle: _stereoEnhancementEnabled
+            ? 'Mix: ${(_stereoEnhancementMix * 100).toInt()}%'
+            : 'Disabled',
+        icon: SautiIcons.stereoWidth,
+        isEnabled: _stereoEnhancementEnabled,
+        onToggle: (v) {
+          setState(() => _stereoEnhancementEnabled = v);
+          _updateStereoEnhancement();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Stereo Enhancer',
+          SautiIcons.stereoWidth,
+          (_) => _buildStereoEnhancementSection(),
+          shape: Shapes.puffyDiamond,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.reverb,
+        title: 'Reverb',
+        subtitle: _reverbEnabled ? _getActiveReverbSummary() : 'Disabled',
+        icon: SautiIcons.reverb,
+        isEnabled: _reverbEnabled,
+        onToggle: (v) {
+          setState(() => _reverbEnabled = v);
+          _updateReverb();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Reverb',
+          SautiIcons.reverb,
+          (_) => _buildReverbSection(),
+          shape: Shapes.flower,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.convolver,
+        title: 'Convolver',
+        subtitle: _convolverEnabled
+            ? (_convolverIrFileName ?? 'Acoustic IR Active')
+            : 'Disabled',
+        icon: SautiIcons.convolver,
+        isEnabled: _convolverEnabled,
+        onToggle: (v) {
+          setState(() => _convolverEnabled = v);
+          _updateConvolver();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Convolver',
+          SautiIcons.convolver,
+          (_) => _buildConvolverSection(),
+          shape: Shapes.c4SidedCookie,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.broadcastLeveller,
+        title: 'Auto Gain Control',
+        subtitle: _levellerEnabled
+            ? 'Slow-Window AGC · ${_levellerTargetLufs.toInt()} LUFS'
+            : 'Disabled',
+        icon: SautiIcons.agcControl,
+        isEnabled: _levellerEnabled,
+        onToggle: (v) {
+          setState(() {
+            _levellerEnabled = v;
+            if (!v) _levellerGainNotifier.value = 0.0;
+          });
+          _updateLeveller();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Auto Gain Control',
+          SautiIcons.agcControl,
+          (_) => _buildLevellerSection(),
+          shape: Shapes.square,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.lookaheadAgc,
+        title: 'Lookahead AGC + Limiter',
+        subtitle: _lookaheadAgcEnabled
+            ? '3-Band · ${_lookaheadAgcLookaheadMs.toStringAsFixed(0)} ms Lookahead'
+            : 'Disabled',
+        icon: Icons.speed_rounded,
+        isEnabled: _lookaheadAgcEnabled,
+        onToggle: (v) {
+          setState(() {
+            _lookaheadAgcEnabled = v;
+            if (!v) {
+              _lookaheadAgcTelemetryNotifier.value = (
+                agcGainDb: 0.0,
+                lowGrDb: 0.0,
+                midGrDb: 0.0,
+                highGrDb: 0.0,
+                peakGrDb: 0.0,
+              );
+            }
+          });
+          _updateLookaheadAgc();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Lookahead AGC + Limiter',
+          Icons.speed_rounded,
+          (_) => _buildLookaheadAgcSection(),
+          shape: Shapes.diamond,
+        ),
+      ),
+    ];
+  }
+
+  void _openChainOrderSheet() {
+    showDspChainOrderSheet(
+      context: context,
+      initialOrder: _dspChainOrder,
+      nodes: _buildChainNodeInfos(),
+      onOrderChanged: (newOrder) {
+        setState(() => _dspChainOrder = newOrder);
+        widget.player.setDspChainOrder(newOrder);
+        AppStateService.instance.saveDspChainOrder(newOrder);
+      },
+      onResetOrder: () {
+        setState(() => _dspChainOrder = DspNodeId.defaultOrder);
+        widget.player.resetDspChainOrder();
+        AppStateService.instance.saveDspChainOrder(DspNodeId.defaultOrder);
+      },
     );
   }
 
@@ -5593,11 +6150,29 @@ class _EqScreenState extends State<EqScreen>
                 child: _buildSectionHeader(
                   'Limiters & Protection',
                   icon: Icons.shield_rounded,
-                  trailing: M3EIconButton(
-                    icon: const Icon(Icons.refresh_rounded, size: 16),
-                    variant: M3EIconButtonVariant.tonal,
-                    tooltip: 'Reset All Effects',
-                    onPressed: _resetAll,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      M3EIconButton(
+                        icon: Icon(
+                          Icons.reorder_rounded,
+                          size: 16,
+                          color: !DspNodeId.isDefaultOrder(_dspChainOrder)
+                              ? primaryColor
+                              : null,
+                        ),
+                        variant: M3EIconButtonVariant.tonal,
+                        tooltip: 'DSP Signal Chain Order',
+                        onPressed: _openChainOrderSheet,
+                      ),
+                      const SizedBox(width: 6),
+                      M3EIconButton(
+                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                        variant: M3EIconButtonVariant.tonal,
+                        tooltip: 'Reset All Effects',
+                        onPressed: _resetAll,
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -10310,7 +10885,7 @@ class _EqScreenState extends State<EqScreen>
               value: _dynamicSystemMaxDrive,
               min: 1.0,
               max: 6.0,
-              flatValue: 2.8,
+              flatValue: 3.4,
               activeColor: _dynamicSystemEnabled ? primaryColor : Colors.white,
               valueFormatter: (v) => '${v.toStringAsFixed(1)}x',
               onChanged: (v) {

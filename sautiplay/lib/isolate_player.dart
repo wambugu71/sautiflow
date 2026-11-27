@@ -1261,6 +1261,43 @@ class IsolateAudioPlayer {
   void clearMultibandFx() => _send({'cmd': 'clearMultibandFx'});
 
   // --- Sauti Clean-Room Audio DSP Suite ---
+  List<DspNodeId> _dspChainOrder = DspNodeId.defaultOrder;
+
+  /// Current active DSP rack node execution order.
+  List<DspNodeId> get dspChainOrder => _dspChainOrder;
+
+  /// Sets the execution order of the reorderable DSP rack nodes.
+  void setDspChainOrder(List<DspNodeId> order) {
+    final normalized = DspNodeId.normalizeOrder(order);
+    _dspChainOrder = normalized;
+    _send({
+      'cmd': 'setDspChainOrder',
+      'order': normalized.map((e) => e.value).toList(),
+    });
+  }
+
+  /// Queries the active DSP rack node order from the audio engine isolate.
+  Future<List<DspNodeId>> getDspChainOrder() async {
+    final res = await _request('getDspChainOrder');
+    if (res is List) {
+      final parsed = <DspNodeId>[];
+      for (final item in res) {
+        if (item is int) {
+          final node = DspNodeId.fromValue(item);
+          if (node != null) parsed.add(node);
+        }
+      }
+      _dspChainOrder = DspNodeId.normalizeOrder(parsed);
+    }
+    return _dspChainOrder;
+  }
+
+  /// Resets the DSP rack execution order to the canonical default sequence.
+  void resetDspChainOrder() {
+    _dspChainOrder = DspNodeId.defaultOrder;
+    _send({'cmd': 'resetDspChainOrder'});
+  }
+
   void resetDsp() => _send({'cmd': 'resetDsp'});
 
   void setClarity({
@@ -3827,6 +3864,30 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'resetDsp':
           player.dsp.reset();
+          break;
+        case 'setDspChainOrder':
+          {
+            final rawOrder = message['order'];
+            if (rawOrder is List) {
+              final parsed = <DspNodeId>[];
+              for (final item in rawOrder) {
+                if (item is int) {
+                  final node = DspNodeId.fromValue(item);
+                  if (node != null) parsed.add(node);
+                }
+              }
+              player.dsp.setDspChainOrder(parsed);
+            }
+          }
+          break;
+        case 'getDspChainOrder':
+          sendResponse(
+            message,
+            player.dsp.getDspChainOrder().map((e) => e.value).toList(),
+          );
+          break;
+        case 'resetDspChainOrder':
+          player.dsp.resetDspChainOrder();
           break;
         case 'setClarity':
           player.dsp.setClarity(
