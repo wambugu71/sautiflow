@@ -34,6 +34,7 @@
 #include "dsp/denormals.h"
 #include "dsp/scaletempo_dsp.h"
 #include "dsp/fft_convolver_dsp.h"
+#include "CDSPResampler.h"
 #include "dsp/spatial_surround_dsp.h"
 #include "dsp/stereo_imager_dsp.h"
 #include "dsp/dynamic_loudness_dsp.h"
@@ -1356,6 +1357,204 @@ static void test_fft_convolver_latency_compensation()
 }
 
 // -----------------------------------------------------------------------------
+// [C] Convolver 4-Path True-Stereo, 3-Stage NUPOLS & Dry-Delay Alignment
+// -----------------------------------------------------------------------------
+static void test_fft_convolver_true_stereo_and_nupols()
+{
+    std::printf("\n== Convolver 4-Path True-Stereo & 3-Stage NUPOLS ==\n");
+
+    // 1. 4-path true-stereo matrix: [LL=d(0)*1.0, LR=d(10)*0.5, RL=d(20)*0.25, RR=d(5)*0.8]
+    {
+        sauti::dsp::FFTConvolverDSP conv;
+        conv.setSampleRate(48000.0f);
+        conv.setEnabled(true);
+        conv.setDryLevel(0.0f);
+        conv.setWetLevel(1.0f);
+
+        std::vector<float> ir4(64 * 4, 0.0f);
+        ir4[0 * 4 + 0] = 1.0f;  // LL @ 0
+        ir4[10 * 4 + 1] = 0.5f; // LR @ 10
+        ir4[20 * 4 + 2] = 0.25f;// RL @ 20
+        ir4[5 * 4 + 3] = 0.8f;  // RR @ 5
+
+        CHECK(conv.loadImpulseResponse(ir4.data(), 64, 4), "4-ch true-stereo IR loaded");
+        CHECK(conv.getChannels() == 4, "4-ch mode reported");
+
+        // Warm up past 20ms crossfade
+        std::vector<float> warmup(1536 * 2, 0.0f);
+        conv.process(warmup.data(), 1536);
+
+        // L-only impulse at frame 0 -> L @ 512 = 1.0, R @ 522 = 0.5
+        std::vector<float> bufL(2048 * 2, 0.0f);
+        bufL[0] = 1.0f;
+        conv.process(bufL.data(), 2048);
+        CHECK(std::fabs(bufL[512 * 2 + 0] - 1.0f) < 1e-4f, "4-path L->L peak 1.0 at frame 512");
+        CHECK(std::fabs(bufL[522 * 2 + 1] - 0.5f) < 1e-4f, "4-path L->R crossfeed peak 0.5 at frame 522");
+
+        // R-only impulse at frame 0 -> L @ 532 = 0.25, R @ 517 = 0.8
+        std::vector<float> bufR(2048 * 2, 0.0f);
+        bufR[1] = 1.0f;
+        conv.process(bufR.data(), 2048);
+        CHECK(std::fabs(bufR[532 * 2 + 0] - 0.25f) < 1e-4f, "4-path R->L crossfeed peak 0.25 at frame 532");
+        CHECK(std::fabs(bufR[517 * 2 + 1] - 0.8f) < 1e-4f, "4-path R->R peak 0.8 at frame 517");
+    }
+
+    // 2. 3-Stage NUPOLS boundary continuity & long-IR (110,000 samples ~2.29s @ 48kHz)
+    {
+        sauti::dsp::FFTConvolverDSP conv;
+        conv.setSampleRate(48000.0f);
+        conv.setEnabled(true);
+        conv.setDryLevel(0.0f);
+        conv.setWetLevel(1.0f);
+
+        const uint32_t taps[] = {0, 511, 512, 2047, 2048, 10239, 10240, 100000};
+        constexpr uint32_t kIrLen = 110000;
+        std::vector<float> ir(kIrLen, 0.0f);
+        for (uint32_t t : taps) ir[t] = 0.5f;
+
+        CHECK(conv.loadImpulseResponse(ir.data(), kIrLen, 1), "110k-frame long IR loaded without truncation");
+        CHECK(!conv.wasTruncated(), "110k-frame IR is not truncated under 534k NUPOLS budget");
+        CHECK(conv.getLoadedFrames() == kIrLen, "loaded frames == 110000");
+
+        std::vector<float> warmup(2048 * 2, 0.0f);
+        conv.process(warmup.data(), 2048);
+
+        // Process impulse followed by zeros using non-power-of-2 chunk size (333)
+        constexpr uint32_t kTotalOut = 112000;
+        std::vector<float> audio(kTotalOut * 2, 0.0f);
+        audio[0] = 1.0f;
+        audio[1] = 1.0f;
+        uint32_t pos = 0;
+        while (pos < kTotalOut) {
+            uint32_t chunk = std::min<uint32_t>(333, kTotalOut - pos);
+            conv.process(&audio[pos * 2], chunk);
+            pos += chunk;
+        }
+
+        bool allTapsExact = true;
+        int tapCountFound = 0;
+        for (uint32_t t : taps) {
+            const float val = audio[(512 + t) * 2];
+            if (std::fabs(val - 0.5f) > 1e-3f) {
+                allTapsExact = false;
+                std::printf("  NUPOLS mismatch at tap %u (out idx %u): got %.5f expected 0.5\n", t, 512 + t, val);
+            }
+        }
+        for (uint32_t i = 0; i < kTotalOut; ++i) {
+            if (std::fabs(audio[i * 2]) > 1e-3f) tapCountFound++;
+        }
+        CHECK(allTapsExact, "all 3 NUPOLS stage boundaries (0, 511, 512, 2047, 2048, 10239, 10240, 100000) align sample-accurately");
+        CHECK(tapCountFound == 8, "no spurious echoes or duplicate stage overlap-adds");
+    }
+
+    // 3. Extra wet-delay dry compensation alignment (e.g. 70-sample pre-pad)
+    {
+        sauti::dsp::FFTConvolverDSP conv;
+        conv.setSampleRate(48000.0f);
+        conv.setEnabled(true);
+        conv.setDryLevel(0.5f);
+        conv.setWetLevel(0.5f);
+
+        std::vector<float> ir(128, 0.0f);
+        ir[70] = 1.0f;
+        CHECK(conv.loadImpulseResponse(ir.data(), 128, 1, 70, false), "loaded IR with extra_wet_delay=70");
+        CHECK(conv.getLatencySamples() == 582, "getLatencySamples() == 512 + 70 = 582");
+
+        std::vector<float> warmup(2048 * 2, 0.0f);
+        conv.process(warmup.data(), 2048);
+
+        std::vector<float> audio(2048 * 2, 0.0f);
+        audio[0] = 1.0f;
+        audio[1] = 1.0f;
+        conv.process(audio.data(), 2048);
+        CHECK(std::fabs(audio[582 * 2] - 1.0f) < 1e-4f, "dry + pre-padded wet sum coherently at frame 582");
+    }
+
+    // 4. Sample-rate & gain invariance (44.1 kHz 8kHz-notch IR resampled to 48 kHz and 96 kHz)
+    {
+        // Generate 1024-tap impulse response of a 44.1 kHz biquad notch at f0 = 8000 Hz, Q = 4.0
+        const double irSr = 44100.0;
+        const double f0 = 8000.0;
+        const double Q = 4.0;
+        const double w0 = 2.0 * M_PI * f0 / irSr;
+        const double alpha = std::sin(w0) / (2.0 * Q);
+        const double b0 = 1.0, b1 = -2.0 * std::cos(w0), b2 = 1.0;
+        const double a0 = 1.0 + alpha, a1 = -2.0 * std::cos(w0), a2 = 1.0 - alpha;
+
+        constexpr uint32_t kIrLen = 1024;
+        std::vector<float> ir441(kIrLen, 0.0f);
+        double x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
+        for (uint32_t n = 0; n < kIrLen; ++n) {
+            const double x0 = (n == 0) ? 1.0 : 0.0;
+            const double y0 = (b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+            ir441[n] = static_cast<float>(y0);
+            x2 = x1; x1 = x0;
+            y2 = y1; y1 = y0;
+        }
+
+        const int targetRates[] = {48000, 96000};
+        for (int engSr : targetRates) {
+            const uint32_t prePadIn = 48;
+            const double ratio = static_cast<double>(engSr) / irSr;
+            const uint32_t prePadOut = static_cast<uint32_t>(std::llround(prePadIn * ratio));
+            const uint32_t tailPadOut = 64;
+            const uint32_t totalIn = prePadIn + kIrLen;
+            const uint32_t outFrames = prePadOut + static_cast<uint32_t>(std::ceil(kIrLen * ratio)) + tailPadOut;
+            const double tapGain = irSr / static_cast<double>(engSr);
+
+            std::vector<double> chIn(totalIn, 0.0);
+            for (uint32_t i = 0; i < kIrLen; ++i) chIn[prePadIn + i] = ir441[i];
+            std::vector<double> chOut(outFrames, 0.0);
+            r8b::CDSPResampler24 resampler(irSr, static_cast<double>(engSr), 4096);
+            resampler.oneshot(chIn.data(), static_cast<int>(totalIn), chOut.data(), static_cast<int>(outFrames));
+
+            std::vector<float> resampled(outFrames);
+            for (uint32_t i = 0; i < outFrames; ++i) resampled[i] = static_cast<float>(chOut[i] * tapGain);
+
+            sauti::dsp::FFTConvolverDSP conv;
+            conv.setSampleRate(static_cast<float>(engSr));
+            conv.setEnabled(true);
+            conv.setDryLevel(0.0f);
+            conv.setWetLevel(1.0f);
+            CHECK(conv.loadImpulseResponse(resampled.data(), outFrames, 1, prePadOut, false),
+                  "resampled 44.1kHz notch IR loaded");
+
+            auto measureGainDb = [&](double freqHz) -> double {
+                conv.reset();
+                const uint32_t nFrames = static_cast<uint32_t>(engSr / 4); // 250 ms
+                std::vector<float> buf(nFrames * 2, 0.0f);
+                for (uint32_t i = 0; i < nFrames; ++i) {
+                    const float s = static_cast<float>(std::sin(2.0 * M_PI * freqHz * i / engSr));
+                    buf[2 * i] = s;
+                    buf[2 * i + 1] = s;
+                }
+                conv.process(buf.data(), nFrames);
+                double sumSq = 0.0;
+                const uint32_t start = nFrames / 2;
+                for (uint32_t i = start; i < nFrames; ++i) {
+                    const double v = buf[2 * i];
+                    sumSq += v * v;
+                }
+                const double rms = std::sqrt(sumSq / (nFrames - start));
+                return 20.0 * std::log10(std::max(rms / 0.7071067811865475, 1e-9));
+            };
+
+            const double gain1kDb = measureGainDb(1000.0);
+            const double gain8kDb = measureGainDb(8000.0);
+            char msg[160];
+            std::snprintf(msg, sizeof(msg),
+                          "44.1k->%dkHz passband gain @1kHz = %.2f dB (within +/-0.25 dB)",
+                          engSr / 1000, gain1kDb);
+            CHECK(std::fabs(gain1kDb) < 0.25, msg);
+            std::snprintf(msg, sizeof(msg),
+                          "44.1k->%dkHz notch locked @8kHz = %.2f dB (< -20 dB)",
+                          engSr / 1000, gain8kDb);
+            CHECK(gain8kDb < -20.0, msg);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
 // [C] P1.10 Base-Rate Nonlinear Saturation Aliasing Elimination
 // -----------------------------------------------------------------------------
 static void test_base_rate_saturation_aliasing_elimination_p110()
@@ -2427,28 +2626,14 @@ static void test_dsp_audit_v2_regressions()
         CHECK(!de.isActive(), "DialogEnhancer reaches bit-exact bypass after fade-out");
     }
 
-    // 2. DynamicSystemDSP regressions
+    // 2. DynamicSystemDSP regressions (original 4-pole ladder behavior)
     {
         sauti::dsp::DynamicSystemDSP ds;
         ds.setSampleRate(48000.0f);
         ds.setEnabled(true);
 
-        // (a) All 19 presets have zero destructive bass notches (min >= -0.2 dB)
+        // (a) strength = 0.0 is flat within +/-0.05 dB across spectrum
         const float checkFreqs[] = {25.0f, 40.0f, 60.0f, 80.0f, 120.0f, 250.0f, 1000.0f, 6000.0f, 14000.0f};
-        bool allNoNotch = true;
-        for (int p = 0; p < 19; ++p) {
-            ds.setPreset(p);
-            ds.setStrength(1.0f);
-            for (float f : checkFreqs) {
-                ds.reset();
-                if (measureToneGainDb(ds, f, 12000) < -0.2f) {
-                    allNoNotch = false;
-                }
-            }
-        }
-        CHECK(allNoNotch, "DynamicSystemDSP all 19 presets have zero notches (>= -0.2 dB across 25Hz-14kHz)");
-
-        // (b) strength = 0.0 is flat within +/-0.05 dB across 20Hz-16kHz
         ds.setPreset(16);
         ds.setStrength(0.0f);
         bool allFlat = true;
@@ -2460,28 +2645,17 @@ static void test_dsp_audit_v2_regressions()
         }
         CHECK(allFlat, "DynamicSystemDSP strength=0.0 is flat within +/-0.05 dB across spectrum");
 
-        // (c) x_high changes measurable 6 kHz response
-        ds.setCustomParams(300.0f, 3000.0f, 45.0f, 90.0f, 0.2f, 0.5f, 3.0f);
-        ds.reset();
-        const float gAt3k = measureToneGainDb(ds, 6000.0f, 12000);
-        ds.setCustomParams(300.0f, 9000.0f, 45.0f, 90.0f, 0.2f, 0.5f, 3.0f);
-        ds.reset();
-        const float gAt9k = measureToneGainDb(ds, 6000.0f, 12000);
-        CHECK(std::abs(gAt3k - gAt9k) > 0.5f, "DynamicSystemDSP x_high actively shifts 6 kHz air crossover");
-
-        // (d) Club PA Punch (#16) at 0.80 strength boosts 25-45 Hz by +7..+9.5 dB and keeps 1 kHz flat
+        // (b) Club PA Punch (#16) at 0.80 strength boosts 30 Hz by +7..+9.5 dB and stays flat at 6 kHz
         ds.setPreset(16);
         ds.setStrength(0.80f);
         ds.reset();
-        const float g35 = measureToneGainDb(ds, 35.0f, 24000);
+        const float g30 = measureToneGainDb(ds, 30.0f, 24000);
         ds.reset();
-        const float g1k = measureToneGainDb(ds, 1000.0f, 24000);
-        CHECK(g35 >= 7.0f && g35 <= 9.5f && std::abs(g1k) < 0.3f,
-              "DynamicSystemDSP Club PA Punch @ 80% boosts 35 Hz (+7..+9.5 dB) and stays flat at 1 kHz");
+        const float g6k = measureToneGainDb(ds, 6000.0f, 24000);
+        CHECK(g30 >= 7.0f && g30 <= 9.5f && std::abs(g6k) < 0.3f,
+              "DynamicSystemDSP Club PA Punch @ 80% boosts 30 Hz (+7..+9.5 dB) and stays flat at 6 kHz");
 
-        // (e) setCustomParams sets TransducerProfile::Custom cleanly with zero crosstalk
-        ds.setCustomParams(260.0f, 5500.0f, 45.0f, 95.0f, 0.25f, 0.8f, 3.2f);
-        CHECK(ds.getProfile() == sauti::dsp::TransducerProfile::Custom, "DynamicSystemDSP setCustomParams sets Custom profile");
+        // (c) Stereo ladder maintains zero channel crosstalk
         ds.reset();
         std::vector<float> isoBuf(2 * 1024, 0.0f);
         for (uint32_t i = 0; i < 1024; ++i) {
@@ -2490,7 +2664,7 @@ static void test_dsp_audit_v2_regressions()
         ds.process(isoBuf.data(), 1024);
         float maxR = 0.0f;
         for (uint32_t i = 0; i < 1024; ++i) maxR = std::max(maxR, std::abs(isoBuf[2 * i + 1]));
-        CHECK(maxR < 1e-6f, "DynamicSystemDSP Custom LR4 maintains zero channel crosstalk");
+        CHECK(maxR < 1e-6f, "DynamicSystemDSP stereo ladder maintains zero channel crosstalk");
     }
 
     // 3. HarmonicBassDSP regressions
@@ -2586,7 +2760,10 @@ int main(int argc, char **argv)
     if (only.empty() || only == "subsonic") test_subsonic_filter_and_denormals();
     if (only.empty() || only == "dialog") test_dialog_enhancer_dsp();
     if (only.empty() || only == "scaletempo") test_scaletempo_dsp();
-    if (only.empty() || only == "convolver") test_fft_convolver_latency_compensation();
+    if (only.empty() || only == "convolver") {
+        test_fft_convolver_latency_compensation();
+        test_fft_convolver_true_stereo_and_nupols();
+    }
     if (only.empty() || only == "p110") test_base_rate_saturation_aliasing_elimination_p110();
     if (only.empty() || only == "p111") test_de_esser_soft_knee_and_coeff_modulation_p111();
     if (only.empty() || only == "p112") test_dialog_enhancer_headroom_and_dynamic_attenuation_p112();

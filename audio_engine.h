@@ -1048,8 +1048,26 @@ extern "C"
                                               float head_radius_cm);
 
     // FFT Impulse Response Convolver
+    typedef struct AEConvolverInfo
+    {
+        int loaded;             /* 1 if IR active, 0 otherwise */
+        int ir_sample_rate;     /* Source IR sample rate (Hz) */
+        int engine_sample_rate; /* Engine rate active partitions are built for (Hz) */
+        int source_channels;    /* Channel count in original file/buffer */
+        int active_channels;    /* 1 = mono, 2 = stereo, 4 = true-stereo */
+        int original_frames;    /* Frame count at ir_sample_rate */
+        int resampled_frames;   /* Frame count at engine_sample_rate before truncation */
+        int loaded_frames;      /* Frames actually loaded into convolver */
+        int was_truncated;      /* 1 if resampled_frames > loaded_frames */
+        int channel_warning;    /* 1 if unusual channel count fell back to first 2 channels */
+    } AEConvolverInfo;
+
     AE_API void ae_dsp_set_convolver_enabled(AudioEngineHandle *engine, int enabled);
     AE_API int ae_dsp_load_convolver_ir(AudioEngineHandle *engine, const float *samples, int frame_count, int channels);
+    AE_API int ae_dsp_load_convolver_ir_ex(AudioEngineHandle *engine, const float *samples, int frame_count, int channels, int ir_sample_rate);
+    AE_API int ae_dsp_load_convolver_ir_file(AudioEngineHandle *engine, const char *file_path);
+    AE_API int ae_dsp_load_convolver_ir_memory(AudioEngineHandle *engine, const uint8_t *data, int byte_count);
+    AE_API int ae_dsp_get_convolver_info(AudioEngineHandle *engine, AEConvolverInfo *out_info);
     AE_API void ae_dsp_clear_convolver_ir(AudioEngineHandle *engine);
     AE_API void ae_dsp_set_convolver_mix(AudioEngineHandle *engine, float wet, float dry);
     AE_API int ae_dsp_has_convolver_ir(AudioEngineHandle *engine);

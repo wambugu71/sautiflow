@@ -437,6 +437,112 @@ typedef _DspLoadConvolverIrNative = ffi.Int32 Function(
 typedef _DspLoadConvolverIrDart = int Function(
     ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int, int);
 
+typedef _DspLoadConvolverIrExNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32);
+typedef _DspLoadConvolverIrExDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Float>, int, int, int);
+
+typedef _DspLoadConvolverIrFileNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>);
+typedef _DspLoadConvolverIrFileDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>);
+
+typedef _DspLoadConvolverIrMemoryNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Uint8>, ffi.Int32);
+typedef _DspLoadConvolverIrMemoryDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Uint8>, int);
+
+final class _AEConvolverInfoNative extends ffi.Struct {
+  @ffi.Int32()
+  external int loaded;
+  @ffi.Int32()
+  external int irSampleRate;
+  @ffi.Int32()
+  external int engineSampleRate;
+  @ffi.Int32()
+  external int sourceChannels;
+  @ffi.Int32()
+  external int activeChannels;
+  @ffi.Int32()
+  external int originalFrames;
+  @ffi.Int32()
+  external int resampledFrames;
+  @ffi.Int32()
+  external int loadedFrames;
+  @ffi.Int32()
+  external int wasTruncated;
+  @ffi.Int32()
+  external int channelWarning;
+}
+
+typedef _DspGetConvolverInfoNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<_AEConvolverInfoNative>);
+typedef _DspGetConvolverInfoDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<_AEConvolverInfoNative>);
+
+/// Metadata & active resampling/truncation status of the loaded convolver IR.
+class ConvolverInfo {
+  final bool loaded;
+  final int irSampleRate;
+  final int engineSampleRate;
+  final int sourceChannels;
+  final int activeChannels;
+  final int originalFrames;
+  final int resampledFrames;
+  final int loadedFrames;
+  final bool wasTruncated;
+  final bool channelWarning;
+
+  const ConvolverInfo({
+    this.loaded = false,
+    this.irSampleRate = 0,
+    this.engineSampleRate = 0,
+    this.sourceChannels = 0,
+    this.activeChannels = 0,
+    this.originalFrames = 0,
+    this.resampledFrames = 0,
+    this.loadedFrames = 0,
+    this.wasTruncated = false,
+    this.channelWarning = false,
+  });
+
+  double get loadedDurationSec =>
+      engineSampleRate > 0 ? loadedFrames / engineSampleRate : 0.0;
+
+  double get resampledDurationSec =>
+      engineSampleRate > 0 ? resampledFrames / engineSampleRate : 0.0;
+
+  String get modeLabel {
+    switch (activeChannels) {
+      case 4:
+        return 'True-Stereo 4-Path';
+      case 2:
+        return 'Stereo';
+      case 1:
+        return 'Mono';
+      default:
+        return 'Inactive';
+    }
+  }
+
+  Map<String, dynamic> toMap() => {
+        'loaded': loaded,
+        'irSampleRate': irSampleRate,
+        'engineSampleRate': engineSampleRate,
+        'sourceChannels': sourceChannels,
+        'activeChannels': activeChannels,
+        'originalFrames': originalFrames,
+        'resampledFrames': resampledFrames,
+        'loadedFrames': loadedFrames,
+        'wasTruncated': wasTruncated,
+        'channelWarning': channelWarning,
+      };
+}
+
 typedef _DspClearConvolverIrNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _DspClearConvolverIrDart = void Function(ffi.Pointer<ffi.Void>);
 
@@ -840,6 +946,10 @@ class SautiDsp {
 
   late final _DspSetEnabledDart _setConvolverEnabled;
   late final _DspLoadConvolverIrDart _loadConvolverIr;
+  late final _DspLoadConvolverIrExDart _loadConvolverIrEx;
+  late final _DspLoadConvolverIrFileDart _loadConvolverIrFile;
+  late final _DspLoadConvolverIrMemoryDart _loadConvolverIrMemory;
+  late final _DspGetConvolverInfoDart _getConvolverInfo;
   late final _DspClearConvolverIrDart _clearConvolverIr;
   late final _DspSetConvolverMixDart _setConvolverMix;
   late final _DspHasConvolverIrDart _hasConvolverIr;
@@ -999,6 +1109,15 @@ class SautiDsp {
     _loadConvolverIr =
         _lib.lookupFunction<_DspLoadConvolverIrNative, _DspLoadConvolverIrDart>(
             'ae_dsp_load_convolver_ir');
+    _loadConvolverIrEx = _lib.lookupFunction<_DspLoadConvolverIrExNative,
+        _DspLoadConvolverIrExDart>('ae_dsp_load_convolver_ir_ex');
+    _loadConvolverIrFile = _lib.lookupFunction<_DspLoadConvolverIrFileNative,
+        _DspLoadConvolverIrFileDart>('ae_dsp_load_convolver_ir_file');
+    _loadConvolverIrMemory = _lib.lookupFunction<
+        _DspLoadConvolverIrMemoryNative,
+        _DspLoadConvolverIrMemoryDart>('ae_dsp_load_convolver_ir_memory');
+    _getConvolverInfo = _lib.lookupFunction<_DspGetConvolverInfoNative,
+        _DspGetConvolverInfoDart>('ae_dsp_get_convolver_info');
     _clearConvolverIr = _lib.lookupFunction<_DspClearConvolverIrNative,
         _DspClearConvolverIrDart>('ae_dsp_clear_convolver_ir');
     _setConvolverMix =
@@ -1459,17 +1578,70 @@ class SautiDsp {
   }
 
   /// Partitioned FFT Impulse Response Convolver.
-  bool loadImpulseResponse(Float32List samples, int channels) {
-    if (_enginePtr == ffi.nullptr || samples.isEmpty) return false;
+  bool loadImpulseResponse(Float32List samples, int channels,
+      {int sampleRate = 0}) {
+    if (_enginePtr == ffi.nullptr || samples.isEmpty || channels <= 0) {
+      return false;
+    }
     final frameCount = samples.length ~/ channels;
     final ptr = calloc<ffi.Float>(samples.length);
     final typedList = ptr.asTypedList(samples.length);
     typedList.setAll(0, samples);
     try {
-      final res = _loadConvolverIr(_enginePtr, ptr, frameCount, channels);
+      final res = sampleRate > 0
+          ? _loadConvolverIrEx(
+              _enginePtr, ptr, frameCount, channels, sampleRate)
+          : _loadConvolverIr(_enginePtr, ptr, frameCount, channels);
       return res == 1;
     } finally {
       calloc.free(ptr);
+    }
+  }
+
+  /// Decodes and loads an impulse response file (WAV/IRS/RF64/FLAC/AIFF) natively.
+  bool loadImpulseResponseFile(String filePath) {
+    if (_enginePtr == ffi.nullptr || filePath.isEmpty) return false;
+    final pathPtr = filePath.toNativeUtf8(allocator: calloc);
+    try {
+      return _loadConvolverIrFile(_enginePtr, pathPtr) == 1;
+    } finally {
+      calloc.free(pathPtr);
+    }
+  }
+
+  /// Decodes and loads an impulse response from an in-memory buffer (WAV/IRS/FLAC).
+  bool loadImpulseResponseMemory(Uint8List bytes) {
+    if (_enginePtr == ffi.nullptr || bytes.isEmpty) return false;
+    final ptr = calloc<ffi.Uint8>(bytes.length);
+    ptr.asTypedList(bytes.length).setAll(0, bytes);
+    try {
+      return _loadConvolverIrMemory(_enginePtr, ptr, bytes.length) == 1;
+    } finally {
+      calloc.free(ptr);
+    }
+  }
+
+  /// Returns active convolver IR metadata, resampling rates, and truncation status.
+  ConvolverInfo get convolverInfo {
+    if (_enginePtr == ffi.nullptr) return const ConvolverInfo();
+    final infoPtr = calloc<_AEConvolverInfoNative>();
+    try {
+      _getConvolverInfo(_enginePtr, infoPtr);
+      final ref = infoPtr.ref;
+      return ConvolverInfo(
+        loaded: ref.loaded != 0,
+        irSampleRate: ref.irSampleRate,
+        engineSampleRate: ref.engineSampleRate,
+        sourceChannels: ref.sourceChannels,
+        activeChannels: ref.activeChannels,
+        originalFrames: ref.originalFrames,
+        resampledFrames: ref.resampledFrames,
+        loadedFrames: ref.loadedFrames,
+        wasTruncated: ref.wasTruncated != 0,
+        channelWarning: ref.channelWarning != 0,
+      );
+    } finally {
+      calloc.free(infoPtr);
     }
   }
 

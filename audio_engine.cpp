@@ -4129,6 +4129,14 @@ struct AudioEngineHandle
     sauti::dsp::DeEsserDSP deEsserDsp;
     sauti::dsp::DownwardExpanderDSP downwardExpanderDsp;
     sauti::dsp::FFTConvolverDSP fftConvolverDsp;
+    std::mutex convolverIrControlMutex;
+    std::vector<float> convolverRawIrSamples; // mapped to 1, 2, or 4 interleaved channels, pre-peak-normalized
+    uint32_t convolverRawIrFrames = 0;
+    int convolverRawIrChannels = 0;
+    int convolverSourceChannels = 0;
+    int convolverRawIrSampleRate = 0;
+    int convolverChannelWarning = 0;
+    AEConvolverInfo convolverInfo{};
     sauti::dsp::MasterLimiterDSP masterLimiterDsp;
     sauti::dsp::SpatialSurroundDSP surroundDsp;
     sauti::dsp::SubsonicFilter subsonicFilter;
@@ -5715,6 +5723,205 @@ static void reinit_advanced_fx_filters(AudioEngineHandle *e)
     e->lookaheadLimiter.setSampleRate((int)sampleRate);
 }
 
+static void map_and_normalize_ir_channels(
+    const float *src,
+    uint32_t frames,
+    int srcCh,
+    std::vector<float> &out,
+    int &outCh,
+    int &outWarning)
+{
+    out.clear();
+    outCh = 0;
+    outWarning = 0;
+    if (!src || frames == 0 || srcCh <= 0)
+        return;
+
+    if (srcCh == 1)
+    {
+        outCh = 1;
+        out.assign(src, src + static_cast<size_t>(frames));
+    }
+    else if (srcCh == 2)
+    {
+        outCh = 2;
+        out.assign(src, src + static_cast<size_t>(frames) * 2);
+    }
+    else if (srcCh == 4)
+    {
+        outCh = 4;
+        out.assign(src, src + static_cast<size_t>(frames) * 4);
+    }
+    else if (srcCh == 7)
+    {
+        // Symmetric 7-channel HeSuVi layout: [0]=L->L/R->R, [1]=L->R/R->L
+        outCh = 4;
+        out.resize(static_cast<size_t>(frames) * 4);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            const float *f = src + static_cast<size_t>(i) * 7;
+            float *d = &out[static_cast<size_t>(i) * 4];
+            d[0] = f[0]; // LL
+            d[1] = f[1]; // LR
+            d[2] = f[1]; // RL
+            d[3] = f[0]; // RR
+        }
+    }
+    else if (srcCh == 14)
+    {
+        // Full 14-channel HeSuVi layout: [0]=LL, [1]=LR, [8]=RL, [7]=RR
+        outCh = 4;
+        out.resize(static_cast<size_t>(frames) * 4);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            const float *f = src + static_cast<size_t>(i) * 14;
+            float *d = &out[static_cast<size_t>(i) * 4];
+            d[0] = f[0]; // LL
+            d[1] = f[1]; // LR
+            d[2] = f[8]; // RL
+            d[3] = f[7]; // RR
+        }
+    }
+    else
+    {
+        // Unsupported/unusual multichannel count: take first 2 channels with warning
+        outCh = 2;
+        outWarning = 1;
+        out.resize(static_cast<size_t>(frames) * 2);
+        for (uint32_t i = 0; i < frames; ++i)
+        {
+            const float *f = src + static_cast<size_t>(i) * srcCh;
+            float *d = &out[static_cast<size_t>(i) * 2];
+            d[0] = f[0];
+            d[1] = f[1];
+        }
+    }
+
+    // Apply time-domain peak clamp BEFORE resampling so downsampled IRs
+    // (which get scaled by ir_sr / engine_sr) are not falsely attenuated.
+    float maxPeak = 0.0f;
+    for (float v : out)
+    {
+        const float av = std::fabs(v);
+        if (av > maxPeak) maxPeak = av;
+    }
+    if (maxPeak > 1.0f)
+    {
+        const float inv = 1.0f / maxPeak;
+        for (float &v : out) v *= inv;
+    }
+}
+
+static bool resample_and_load_convolver_ir_locked(AudioEngineHandle *e, int targetEngineRate)
+{
+    if (!e || e->convolverRawIrFrames == 0 || e->convolverRawIrChannels == 0 || targetEngineRate <= 0)
+        return false;
+
+    const uint32_t rawFrames = e->convolverRawIrFrames;
+    const int ch = e->convolverRawIrChannels;
+    const int srcRate = (e->convolverRawIrSampleRate > 0) ? e->convolverRawIrSampleRate : targetEngineRate;
+
+    bool ok = false;
+    uint32_t resampledFrames = rawFrames;
+
+    if (srcRate == targetEngineRate)
+    {
+        ok = e->fftConvolverDsp.loadImpulseResponse(
+            e->convolverRawIrSamples.data(), rawFrames, static_cast<uint32_t>(ch), 0, false);
+    }
+    else
+    {
+        // Preserve pre-ringing of zero-delay HRIRs (which often peak at frame 0)
+        uint32_t firstSig = rawFrames;
+        for (uint32_t i = 0; i < rawFrames; ++i)
+        {
+            const float *f = &e->convolverRawIrSamples[static_cast<size_t>(i) * ch];
+            bool anySig = false;
+            for (int c = 0; c < ch; ++c)
+            {
+                if (std::fabs(f[c]) > 1.0e-6f)
+                {
+                    anySig = true;
+                    break;
+                }
+            }
+            if (anySig)
+            {
+                firstSig = i;
+                break;
+            }
+        }
+
+        const uint32_t prePadIn = (firstSig < 48) ? (48u - firstSig) : 0u;
+        const double ratio = static_cast<double>(targetEngineRate) / static_cast<double>(srcRate);
+        const uint32_t prePadOut = (prePadIn > 0)
+            ? static_cast<uint32_t>(std::llround(static_cast<double>(prePadIn) * ratio))
+            : 0u;
+        const uint32_t tailPadOut = 64u;
+        const uint32_t totalIn = prePadIn + rawFrames;
+        const uint32_t resampledCore = static_cast<uint32_t>(std::ceil(static_cast<double>(rawFrames) * ratio));
+        resampledFrames = prePadOut + resampledCore + tailPadOut;
+
+        // Mandatory discrete-convolution energy normalization when changing sample rate
+        const double tapGain = static_cast<double>(srcRate) / static_cast<double>(targetEngineRate);
+
+        std::vector<float> resampled(static_cast<size_t>(resampledFrames) * ch, 0.0f);
+        std::vector<double> chIn(totalIn, 0.0);
+        std::vector<double> chOut(resampledFrames, 0.0);
+
+        r8b::CDSPResampler24 resampler(
+            static_cast<double>(srcRate),
+            static_cast<double>(targetEngineRate),
+            4096);
+
+        for (int c = 0; c < ch; ++c)
+        {
+            std::fill(chIn.begin(), chIn.end(), 0.0);
+            for (uint32_t i = 0; i < rawFrames; ++i)
+            {
+                chIn[prePadIn + i] = static_cast<double>(e->convolverRawIrSamples[static_cast<size_t>(i) * ch + c]);
+            }
+            std::fill(chOut.begin(), chOut.end(), 0.0);
+            resampler.clear();
+            resampler.oneshot(chIn.data(), static_cast<int>(totalIn), chOut.data(), static_cast<int>(resampledFrames));
+
+            for (uint32_t i = 0; i < resampledFrames; ++i)
+            {
+                resampled[static_cast<size_t>(i) * ch + c] = static_cast<float>(chOut[i] * tapGain);
+            }
+        }
+
+        ok = e->fftConvolverDsp.loadImpulseResponse(
+            resampled.data(), resampledFrames, static_cast<uint32_t>(ch), prePadOut, false);
+    }
+
+    AEConvolverInfo info{};
+    info.loaded = ok ? 1 : 0;
+    info.ir_sample_rate = srcRate;
+    info.engine_sample_rate = targetEngineRate;
+    info.source_channels = e->convolverSourceChannels;
+    info.active_channels = ch;
+    info.original_frames = static_cast<int>(rawFrames);
+    info.resampled_frames = static_cast<int>(resampledFrames);
+    info.loaded_frames = ok ? static_cast<int>(e->fftConvolverDsp.getLoadedFrames()) : 0;
+    info.was_truncated = (ok && e->fftConvolverDsp.wasTruncated()) ? 1 : 0;
+    info.channel_warning = e->convolverChannelWarning;
+    e->convolverInfo = info;
+    return ok;
+}
+
+static void reload_convolver_ir_if_rate_changed(AudioEngineHandle *e)
+{
+    if (!e) return;
+    const int targetSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+    std::lock_guard<std::mutex> lk(e->convolverIrControlMutex);
+    if (e->convolverRawIrFrames == 0 || e->convolverRawIrChannels == 0)
+        return;
+    if (e->convolverInfo.loaded && e->convolverInfo.engine_sample_rate == targetSr)
+        return;
+    resample_and_load_convolver_ir_locked(e, targetSr);
+}
+
 static void reinit_clean_room_dsp_filters(AudioEngineHandle *e)
 {
     if (e == nullptr)
@@ -5878,6 +6085,8 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
         std::lock_guard<std::mutex> lock(e->dspMutex);
         reinit_clean_room_dsp_filters(e);
     }
+
+    reload_convolver_ir_if_rate_changed(e);
 
     ma_uint32 decOutRate = (e->currentDecoder != nullptr) ? e->currentDecoder->outputSampleRate : (ma_uint32)plan.engineRate;
 
@@ -14914,7 +15123,7 @@ extern "C"
             std::lock_guard<std::mutex> dspLock(e->dspMutex);
             if (e->fftConvolverDsp.isEnabled() && e->fftConvolverDsp.hasImpulseResponse())
             {
-                totalLatency += (double)sauti::dsp::FFTConvolverDSP::BLOCK_SIZE;
+                totalLatency += (double)e->fftConvolverDsp.getLatencySamples();
             }
             if (e->lookaheadAgcDsp.isEnabled())
             {
@@ -15755,9 +15964,12 @@ extern "C"
                         {
                             const size_t latSamp = e->fftConvolverDsp.getLatencySamples();
                             const double latMs = (sr > 0.0) ? ((double)latSamp * 1000.0 / sr) : 0.0;
+                            const uint32_t convCh = e->fftConvolverDsp.getChannels();
+                            const char *modeLabel = (convCh == 4) ? "True-Stereo 4-Path" : ((convCh == 2) ? "Stereo" : "Mono");
                             appendNode("autoeq_fir", "AutoEQ FIR Convolver", nativePrec,
-                                       std::to_string(e->fftConvolverDsp.getKernelLength()) + " taps · Wet " + fmtFloat(e->fftConvolverDsp.getWetLevel() * 100.0, 0) + "%", latMs,
-                                       {{"Kernel Taps", std::to_string(e->fftConvolverDsp.getKernelLength())},
+                                       std::string(modeLabel) + " · " + std::to_string(e->fftConvolverDsp.getKernelLength()) + " taps · Wet " + fmtFloat(e->fftConvolverDsp.getWetLevel() * 100.0, 0) + "%", latMs,
+                                       {{"Mode", modeLabel},
+                                        {"Kernel Taps", std::to_string(e->fftConvolverDsp.getKernelLength())},
                                         {"Wet / Dry", fmtFloat(e->fftConvolverDsp.getWetLevel() * 100.0, 0) + "% / " + fmtFloat(e->fftConvolverDsp.getDryLevel() * 100.0, 0) + "%"},
                                         {"Latency", fmtFloat(latMs, 2) + " ms"}});
                         }
@@ -17085,6 +17297,8 @@ extern "C"
                 std::lock_guard<std::mutex> dspLock(e->dspMutex);
                 reinit_clean_room_dsp_filters(e);
             }
+
+            reload_convolver_ir_if_rate_changed(e);
 
             const ma_format requestedOutFmt = ae_format_to_ma_format(e->outputFormat);
 
@@ -21209,21 +21423,190 @@ extern "C"
     }
 
     // FFT Impulse Response Convolver
+    static bool decode_ir_with_miniaudio(
+        ma_decoder *dec,
+        std::vector<float> &outSamples,
+        uint32_t &outFrames,
+        int &outChannels,
+        int &outSampleRate)
+    {
+        if (!dec) return false;
+        outChannels = static_cast<int>(dec->outputChannels);
+        outSampleRate = static_cast<int>(dec->outputSampleRate);
+        if (outChannels <= 0 || outSampleRate <= 0) return false;
+
+        // Hard safety cap against malformed container headers or huge files:
+        // up to 30 seconds at source rate or 16M total floats (~64 MB)
+        const uint64_t maxFramesByTime = static_cast<uint64_t>(outSampleRate) * 30ULL;
+        const uint64_t maxFramesByMem = (16ULL * 1024ULL * 1024ULL) / static_cast<uint64_t>(outChannels);
+        const uint64_t maxFrames = std::max<uint64_t>(1ULL, std::min(maxFramesByTime, maxFramesByMem));
+
+        constexpr ma_uint64 kChunkFrames = 4096;
+        std::vector<float> chunk(static_cast<size_t>(kChunkFrames) * static_cast<size_t>(outChannels));
+        outSamples.clear();
+        uint64_t totalFrames = 0;
+
+        while (totalFrames < maxFrames)
+        {
+            const ma_uint64 toRead = std::min<ma_uint64>(kChunkFrames, maxFrames - totalFrames);
+            ma_uint64 framesRead = 0;
+            ma_result r = ma_decoder_read_pcm_frames(dec, chunk.data(), toRead, &framesRead);
+            if (framesRead > 0)
+            {
+                const size_t nSamp = static_cast<size_t>(framesRead) * static_cast<size_t>(outChannels);
+                outSamples.insert(outSamples.end(), chunk.begin(), chunk.begin() + nSamp);
+                totalFrames += framesRead;
+            }
+            if (r != MA_SUCCESS || framesRead == 0)
+                break;
+        }
+
+        outFrames = static_cast<uint32_t>(totalFrames);
+        return totalFrames > 0;
+    }
+
     AE_API void ae_dsp_set_convolver_enabled(AudioEngineHandle *engine, int enabled)
     {
         if (!engine) return;
         engine->fftConvolverDsp.setEnabled(enabled != 0);
     }
 
-    AE_API int ae_dsp_load_convolver_ir(AudioEngineHandle *engine, const float *samples, int frame_count, int channels)
+    AE_API int ae_dsp_load_convolver_ir_ex(AudioEngineHandle *engine, const float *samples, int frame_count, int channels, int ir_sample_rate)
     {
         if (!engine) return 0;
-        return engine->fftConvolverDsp.loadImpulseResponse(samples, frame_count, channels) ? 1 : 0;
+        if (!samples || frame_count <= 0 || channels <= 0)
+        {
+            ae_dsp_clear_convolver_ir(engine);
+            return 0;
+        }
+
+        std::lock_guard<std::mutex> lk(engine->convolverIrControlMutex);
+        engine->convolverSourceChannels = channels;
+        engine->convolverRawIrFrames = static_cast<uint32_t>(frame_count);
+        engine->convolverRawIrSampleRate = (ir_sample_rate > 0) ? ir_sample_rate : 0;
+
+        map_and_normalize_ir_channels(
+            samples,
+            static_cast<uint32_t>(frame_count),
+            channels,
+            engine->convolverRawIrSamples,
+            engine->convolverRawIrChannels,
+            engine->convolverChannelWarning);
+
+        const int targetSr = (engine->sampleRate > 0) ? engine->sampleRate : 48000;
+        return resample_and_load_convolver_ir_locked(engine, targetSr) ? 1 : 0;
+    }
+
+    AE_API int ae_dsp_load_convolver_ir(AudioEngineHandle *engine, const float *samples, int frame_count, int channels)
+    {
+        return ae_dsp_load_convolver_ir_ex(engine, samples, frame_count, channels, 0);
+    }
+
+    AE_API int ae_dsp_load_convolver_ir_file(AudioEngineHandle *engine, const char *file_path)
+    {
+        if (!engine || !file_path || file_path[0] == '\0')
+            return 0;
+
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 0, 0);
+        ma_decoder dec{};
+
+#if defined(_WIN32) || defined(_WIN64)
+        const std::wstring wpath = utf8_to_wstring(file_path);
+        ma_result r = !wpath.empty()
+                          ? ma_decoder_init_file_w(wpath.c_str(), &cfg, &dec)
+                          : ma_decoder_init_file(file_path, &cfg, &dec);
+#else
+        ma_result r = ma_decoder_init_file(file_path, &cfg, &dec);
+#endif
+
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+        if (r != MA_SUCCESS)
+        {
+            static ma_decoding_backend_vtable *pDecoders[] = {
+                &g_ma_decoding_backend_vtable_ffmpeg
+            };
+            sautiflow::FFmpegDecoderInitConfig ffmpegCfg{};
+            ffmpegCfg.targetSampleRate = 0;
+            ffmpegCfg.targetChannels = 0;
+            ffmpegCfg.forceFallback = true;
+            cfg.pCustomBackendUserData = &ffmpegCfg;
+            cfg.ppCustomBackendVTables = pDecoders;
+            cfg.customBackendCount = 1;
+#if defined(_WIN32) || defined(_WIN64)
+            r = !wpath.empty()
+                    ? ma_decoder_init_file_w(wpath.c_str(), &cfg, &dec)
+                    : ma_decoder_init_file(file_path, &cfg, &dec);
+#else
+            r = ma_decoder_init_file(file_path, &cfg, &dec);
+#endif
+        }
+#endif
+
+        if (r != MA_SUCCESS)
+        {
+            engine_log("ae_dsp_load_convolver_ir_file failed (ma_result=%d) for: %s", (int)r, file_path);
+            return 0;
+        }
+
+        std::vector<float> decoded;
+        uint32_t frames = 0;
+        int ch = 0;
+        int sr = 0;
+        const bool ok = decode_ir_with_miniaudio(&dec, decoded, frames, ch, sr);
+        ma_decoder_uninit(&dec);
+
+        if (!ok)
+            return 0;
+        return ae_dsp_load_convolver_ir_ex(engine, decoded.data(), static_cast<int>(frames), ch, sr);
+    }
+
+    AE_API int ae_dsp_load_convolver_ir_memory(AudioEngineHandle *engine, const uint8_t *data, int byte_count)
+    {
+        if (!engine || !data || byte_count <= 0)
+            return 0;
+
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 0, 0);
+        ma_decoder dec{};
+        const ma_result r = ma_decoder_init_memory(data, static_cast<size_t>(byte_count), &cfg, &dec);
+        if (r != MA_SUCCESS)
+        {
+            engine_log("ae_dsp_load_convolver_ir_memory failed (ma_result=%d, bytes=%d)", (int)r, byte_count);
+            return 0;
+        }
+
+        std::vector<float> decoded;
+        uint32_t frames = 0;
+        int ch = 0;
+        int sr = 0;
+        const bool ok = decode_ir_with_miniaudio(&dec, decoded, frames, ch, sr);
+        ma_decoder_uninit(&dec);
+
+        if (!ok)
+            return 0;
+        return ae_dsp_load_convolver_ir_ex(engine, decoded.data(), static_cast<int>(frames), ch, sr);
+    }
+
+    AE_API int ae_dsp_get_convolver_info(AudioEngineHandle *engine, AEConvolverInfo *out_info)
+    {
+        if (!engine || !out_info) return 0;
+        std::lock_guard<std::mutex> lk(engine->convolverIrControlMutex);
+        *out_info = engine->convolverInfo;
+        return engine->convolverInfo.loaded ? 1 : 0;
     }
 
     AE_API void ae_dsp_clear_convolver_ir(AudioEngineHandle *engine)
     {
         if (!engine) return;
+        {
+            std::lock_guard<std::mutex> lk(engine->convolverIrControlMutex);
+            engine->convolverRawIrSamples.clear();
+            engine->convolverRawIrFrames = 0;
+            engine->convolverRawIrChannels = 0;
+            engine->convolverSourceChannels = 0;
+            engine->convolverRawIrSampleRate = 0;
+            engine->convolverChannelWarning = 0;
+            engine->convolverInfo = AEConvolverInfo{};
+        }
         engine->fftConvolverDsp.clearImpulseResponse();
     }
 

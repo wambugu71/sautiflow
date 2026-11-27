@@ -1814,6 +1814,8 @@ class _EqScreenState extends State<EqScreen>
   // Subscriptions
   StreamSubscription<void>? _eqSettingsSub;
   StreamSubscription<List<DspNodeId>>? _dspChainOrderSub;
+  StreamSubscription<Map<String, dynamic>?>? _convolverInfoSub;
+  Map<String, dynamic>? _convolverInfo;
 
   // Soft Limiter
   bool _limiterEnabled = false;
@@ -2849,6 +2851,12 @@ class _EqScreenState extends State<EqScreen>
         setState(() => _dspChainOrder = order);
       }
     });
+    _convolverInfo = widget.player.lastConvolverInfo;
+    _convolverInfoSub = widget.player.convolverInfoStream.listen((info) {
+      if (mounted) {
+        setState(() => _convolverInfo = info);
+      }
+    });
   }
 
   void _startDynamicsMeterTimer() {
@@ -3112,6 +3120,7 @@ class _EqScreenState extends State<EqScreen>
     _autoEqSub?.cancel();
     _eqSettingsSub?.cancel();
     _dspChainOrderSub?.cancel();
+    _convolverInfoSub?.cancel();
     _hrirDropdownController.dispose();
     _dynamicEqScrollController.dispose();
     widget.player.setAnalyzerEnabled(false);
@@ -4196,7 +4205,7 @@ class _EqScreenState extends State<EqScreen>
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['wav', 'irs'],
+        allowedExtensions: ['wav', 'irs', 'flac', 'aif', 'aiff'],
       );
       if (result != null && result.files.single.path != null) {
         final path = result.files.single.path!;
@@ -12113,6 +12122,53 @@ class _EqScreenState extends State<EqScreen>
     );
   }
 
+  String _formatConvolverSubtitle() {
+    final info = _convolverInfo;
+    if (_convolverIrPath == null) {
+      return 'Load a .wav, .irs, .flac, or .aiff room impulse response';
+    }
+    if (info == null || info['loaded'] != true) {
+      return 'Active Acoustic Room Simulation';
+    }
+    final activeCh = (info['activeChannels'] as int?) ?? 2;
+    final mode = activeCh == 4
+        ? 'True-Stereo 4-Path'
+        : (activeCh == 1 ? 'Mono' : 'Stereo');
+    final irSr = (info['irSampleRate'] as int?) ?? 0;
+    final engSr = (info['engineSampleRate'] as int?) ?? 0;
+    final loadedFrames = (info['loadedFrames'] as int?) ?? 0;
+    final durSec = engSr > 0 ? loadedFrames / engSr : 0.0;
+    final srPart = (irSr > 0 && engSr > 0)
+        ? (irSr == engSr
+            ? '${(engSr / 1000.0).toStringAsFixed(engSr % 1000 == 0 ? 0 : 1)} kHz'
+            : '${(irSr / 1000.0).toStringAsFixed(irSr % 1000 == 0 ? 0 : 1)} → ${(engSr / 1000.0).toStringAsFixed(engSr % 1000 == 0 ? 0 : 1)} kHz')
+        : '';
+    final durPart = durSec > 0 ? '${durSec.toStringAsFixed(2)} s' : '';
+    return [mode, if (srPart.isNotEmpty) srPart, if (durPart.isNotEmpty) durPart]
+        .join(' · ');
+  }
+
+  String? _formatConvolverWarning() {
+    final info = _convolverInfo;
+    if (info == null || info['loaded'] != true) return null;
+    final warnings = <String>[];
+    if (info['wasTruncated'] == true) {
+      final engSr = (info['engineSampleRate'] as int?) ?? 48000;
+      final loadedFrames = (info['loadedFrames'] as int?) ?? 0;
+      final resampledFrames = (info['resampledFrames'] as int?) ?? 0;
+      final loadedSec = engSr > 0 ? loadedFrames / engSr : 0.0;
+      final totalSec = engSr > 0 ? resampledFrames / engSr : 0.0;
+      warnings.add(
+          'IR tail truncated to ${loadedSec.toStringAsFixed(2)} s (of ${totalSec.toStringAsFixed(2)} s) at ${(engSr / 1000.0).toStringAsFixed(engSr % 1000 == 0 ? 0 : 1)} kHz.');
+    }
+    if (info['channelWarning'] == true) {
+      final srcCh = (info['sourceChannels'] as int?) ?? 0;
+      warnings.add(
+          'Unsupported $srcCh-channel layout: using first 2 channels only.');
+    }
+    return warnings.isEmpty ? null : warnings.join(' ');
+  }
+
   Widget _buildConvolverSection() {
     return _CollapsibleSection(
       icon: Center(
@@ -12194,6 +12250,7 @@ class _EqScreenState extends State<EqScreen>
                     _convolverIrFileName = null;
                     _lastLoadedConvolverPath = null;
                     _convolverEnabled = false;
+                    _convolverInfo = null;
                   });
                   widget.player.clearConvolverIr();
                   _updateConvolver();
@@ -12231,12 +12288,28 @@ class _EqScreenState extends State<EqScreen>
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      _convolverIrPath != null
-                          ? 'Active Acoustic Room Simulation'
-                          : 'Load a .wav or .irs room impulse response file',
+                      _formatConvolverSubtitle(),
                       style:
                           const TextStyle(color: Colors.white38, fontSize: 11),
                     ),
+                    if (_formatConvolverWarning() != null) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.warning_amber_rounded,
+                              color: Colors.amberAccent, size: 14),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              _formatConvolverWarning()!,
+                              style: const TextStyle(
+                                  color: Colors.amberAccent, fontSize: 10.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -12253,6 +12326,7 @@ class _EqScreenState extends State<EqScreen>
                       _convolverIrFileName = null;
                       _lastLoadedConvolverPath = null;
                       _convolverEnabled = false;
+                      _convolverInfo = null;
                     });
                     widget.player.clearConvolverIr();
                     _updateConvolver();

@@ -6,7 +6,6 @@ import 'package:flutter/services.dart'; // For RootIsolateToken
 import 'package:sautiflow/sautiflow.dart';
 import 'package:sautiplay/services/app_state_service.dart';
 import 'package:sautiplay/services/desktop_system_audio.dart';
-import 'package:sautiplay/services/wav_parser.dart';
 import 'package:sautiplay/services/dlna_service.dart';
 import 'package:sautiplay/services/chromecast_service.dart';
 
@@ -23,6 +22,9 @@ class IsolateAudioPlayer {
   final _analyzerStereoController = StreamController<Float32List>.broadcast();
   final _telemetryController = StreamController<StreamTelemetry>.broadcast();
   final _bufferingController = StreamController<bool>.broadcast();
+  final _convolverInfoController =
+      StreamController<Map<String, dynamic>?>.broadcast();
+  Map<String, dynamic>? _lastConvolverInfo;
 
   final List<Map<String, dynamic>> _pendingCommands = [];
   bool _networkStreamingSupported = false;
@@ -120,6 +122,9 @@ class IsolateAudioPlayer {
   Stream<StreamTelemetry> get streamTelemetryStream =>
       _telemetryController.stream;
   Stream<bool> get bufferingStream => _bufferingController.stream;
+  Stream<Map<String, dynamic>?> get convolverInfoStream =>
+      _convolverInfoController.stream;
+  Map<String, dynamic>? get lastConvolverInfo => _lastConvolverInfo;
   StreamTelemetry get streamTelemetry => _lastTelemetry;
   bool get isBuffering => _isBuffering;
   PlayerStatus? get currentStatus => _lastStatus;
@@ -213,6 +218,12 @@ class IsolateAudioPlayer {
           }
         } else if (message['type'] == 'clippedCount') {
           _clippedSamplesCount = (message['count'] as int?) ?? 0;
+        } else if (message['type'] == 'convolverInfo') {
+          final rawInfo = message['info'];
+          _lastConvolverInfo = rawInfo is Map
+              ? Map<String, dynamic>.from(rawInfo)
+              : null;
+          _convolverInfoController.add(_lastConvolverInfo);
         }
       } else if (message is String) {
         if (message.startsWith('[log]')) {
@@ -375,6 +386,7 @@ class IsolateAudioPlayer {
     _analyzerStereoController.close();
     _telemetryController.close();
     _bufferingController.close();
+    _convolverInfoController.close();
     _receivePort.close();
     for (final c in _pendingRequests.values) {
       if (!c.isCompleted) c.complete(null);
@@ -2373,8 +2385,38 @@ void _isolateEntry(_IsolateInitData initData) {
   double userMasterOutputGainDb = 0.0;
   double userMasterReleaseMs = 60.0;
 
+  int lastSentConvolverEngineSr = 0;
+  bool lastSentConvolverLoaded = false;
+
+  void emitConvolverInfo({bool force = false}) {
+    try {
+      final info = player.dsp.convolverInfo;
+      if (!info.loaded) {
+        if (lastSentConvolverLoaded || force) {
+          lastSentConvolverLoaded = false;
+          lastSentConvolverEngineSr = 0;
+          initData.sendPort.send({'type': 'convolverInfo', 'info': null});
+        }
+        return;
+      }
+      if (force ||
+          !lastSentConvolverLoaded ||
+          info.engineSampleRate != lastSentConvolverEngineSr) {
+        lastSentConvolverLoaded = true;
+        lastSentConvolverEngineSr = info.engineSampleRate;
+        initData.sendPort.send({
+          'type': 'convolverInfo',
+          'info': info.toMap(),
+        });
+      }
+    } catch (_) {}
+  }
+
   player.statusStream.listen((status) {
     initData.sendPort.send(status);
+    if (lastSentConvolverLoaded) {
+      emitConvolverInfo();
+    }
 
     if (status.isPlaying &&
         status.currentIndex >= 0 &&
@@ -4104,8 +4146,13 @@ void _isolateEntry(_IsolateInitData initData) {
           break;
         case 'loadConvolverIr':
           try {
-            final samples = WavParser.parse(message['path']);
-            player.dsp.loadImpulseResponse(samples, 2);
+            final path = message['path'] as String;
+            final ok = player.dsp.loadImpulseResponseFile(path);
+            if (!ok) {
+              initData.sendPort
+                  .send('[log]loadConvolverIr failed to decode: $path');
+            }
+            emitConvolverInfo(force: true);
           } catch (e) {
             initData.sendPort.send('[log]loadConvolverIr Error: $e');
           }
@@ -4113,14 +4160,19 @@ void _isolateEntry(_IsolateInitData initData) {
         case 'loadConvolverIrData':
           try {
             final bytes = message['bytes'] as Uint8List;
-            final samples = WavParser.parseBytes(bytes);
-            player.dsp.loadImpulseResponse(samples, 2);
+            final ok = player.dsp.loadImpulseResponseMemory(bytes);
+            if (!ok) {
+              initData.sendPort
+                  .send('[log]loadConvolverIrData failed to decode asset bytes');
+            }
+            emitConvolverInfo(force: true);
           } catch (e) {
             initData.sendPort.send('[log]loadConvolverIrData Error: $e');
           }
           break;
         case 'clearConvolverIr':
           player.dsp.clearImpulseResponse();
+          emitConvolverInfo(force: true);
           break;
         case 'setConvolverMix':
           player.dsp.setConvolverMix(

@@ -32,6 +32,7 @@ extern "C" {
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <random>
 #include <thread>
 #include <vector>
@@ -2354,6 +2355,150 @@ static void test_dsp_chain_order()
     }
 }
 
+static void test_convolver_overhaul()
+{
+    std::printf("\n== Convolver 4-Path, Resampling, Auto-Reload, Truncation & Decoder Hardening ==\n");
+
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "engine created for convolver tests");
+
+    // 1. Load bundled 14-ch HeSuVi HRIR (atmos.wav @ 44.1 kHz) via native file loader
+    {
+        int ok = ae_dsp_load_convolver_ir_file(e, "sautiplay/assets/hrirs/atmos.wav");
+        CHECK(ok == 1, "loaded bundled 14-ch atmos.wav via ae_dsp_load_convolver_ir_file");
+        AEConvolverInfo info{};
+        CHECK(ae_dsp_get_convolver_info(e, &info) == 1, "convolver info reports loaded");
+        CHECK(info.ir_sample_rate == 44100, "atmos.wav ir_sample_rate == 44100");
+        CHECK(info.source_channels == 14, "atmos.wav source_channels == 14");
+        CHECK(info.active_channels == 4, "atmos.wav active_channels == 4 (true-stereo)");
+        CHECK(info.was_truncated == 0, "atmos.wav not truncated");
+        CHECK(info.channel_warning == 0, "atmos.wav has no channel warning");
+    }
+
+    // 2. Load bundled 7-ch symmetric HeSuVi HRIR (ds3d.wav @ 44.1 kHz) via memory loader
+    {
+        std::ifstream ifs("sautiplay/assets/hrirs/ds3d.wav", std::ios::binary | std::ios::ate);
+        CHECK(ifs.is_open(), "opened sautiplay/assets/hrirs/ds3d.wav");
+        if (ifs.is_open())
+        {
+            const std::streamsize sz = ifs.tellg();
+            ifs.seekg(0, std::ios::beg);
+            std::vector<uint8_t> bytes(static_cast<size_t>(sz));
+            ifs.read(reinterpret_cast<char *>(bytes.data()), sz);
+            int ok = ae_dsp_load_convolver_ir_memory(e, bytes.data(), static_cast<int>(bytes.size()));
+            CHECK(ok == 1, "loaded 7-ch ds3d.wav via ae_dsp_load_convolver_ir_memory");
+            AEConvolverInfo info{};
+            ae_dsp_get_convolver_info(e, &info);
+            CHECK(info.ir_sample_rate == 44100, "ds3d.wav ir_sample_rate == 44100");
+            CHECK(info.source_channels == 7, "ds3d.wav source_channels == 7");
+            CHECK(info.active_channels == 4, "ds3d.wav active_channels == 4 (true-stereo)");
+        }
+    }
+
+    // 2b. Load bundled 48 kHz 24-bit .irs file (dolby_digital_plus.irs)
+    {
+        int ok = ae_dsp_load_convolver_ir_file(e, "sautiplay/assets/hrirs/dolby_digital_plus.irs");
+        CHECK(ok == 1, "loaded bundled 48kHz dolby_digital_plus.irs");
+        AEConvolverInfo info{};
+        ae_dsp_get_convolver_info(e, &info);
+        CHECK(info.ir_sample_rate == 48000, "dolby_digital_plus.irs ir_sample_rate == 48000");
+        CHECK(info.active_channels == 2, "dolby_digital_plus.irs active_channels == 2");
+    }
+
+    // 3. Automatic IR reload when engine sample rate changes (44.1k -> 96k -> 48k)
+    {
+        std::vector<float> ir441(441, 0.0f);
+        ir441[0] = 0.8f;
+        CHECK(ae_dsp_load_convolver_ir_ex(e, ir441.data(), 441, 1, 44100) == 1, "loaded 44.1kHz IR");
+        ae_set_auto_sample_rate_match_enabled(e, 0);
+
+        const int ratesToTry[] = {44100, 96000, 48000};
+        for (int targetSr : ratesToTry)
+        {
+            ae_set_output_sample_rate(e, targetSr);
+            const AEResamplingPolicyInfo pol = ae_get_resampling_policy_info(e);
+            AEConvolverInfo info{};
+            CHECK(ae_dsp_get_convolver_info(e, &info) == 1, "convolver remains loaded across rate switch");
+            CHECK(info.ir_sample_rate == 44100, "source ir_sample_rate remains 44100");
+            CHECK(info.engine_sample_rate == pol.engine_sample_rate,
+                  "convolver automatically reloaded for current engine_sample_rate");
+            if (info.engine_sample_rate == 96000)
+            {
+                CHECK(info.resampled_frames > 950, "44.1k IR resampled to 96k length (>950 frames)");
+            }
+            else if (info.engine_sample_rate == 44100)
+            {
+                CHECK(info.resampled_frames == 441, "44.1k IR at 44.1k engine rate uses 1:1 441 frames");
+            }
+        }
+    }
+
+    // 4. Truncation & channel warning flags
+    {
+        std::vector<float> ch5(128 * 5, 0.0f);
+        ch5[0] = 0.5f;
+        ch5[1] = 0.5f;
+        CHECK(ae_dsp_load_convolver_ir_ex(e, ch5.data(), 128, 5, 48000) == 1, "5-ch IR accepted with fallback");
+        AEConvolverInfo info5{};
+        ae_dsp_get_convolver_info(e, &info5);
+        CHECK(info5.channel_warning == 1, "5-ch IR sets channel_warning == 1");
+        CHECK(info5.active_channels == 2, "5-ch IR falls back to 2 channels");
+
+        // Exceed MAX_KERNEL_FRAMES (534,528) at same engine rate
+        const int engSr = info5.engine_sample_rate > 0 ? info5.engine_sample_rate : 48000;
+        std::vector<float> hugeIr(600000, 0.0f);
+        hugeIr[0] = 0.5f;
+        CHECK(ae_dsp_load_convolver_ir_ex(e, hugeIr.data(), 600000, 1, engSr) == 1, "600k IR loads up to NUPOLS cap");
+        AEConvolverInfo infoHuge{};
+        ae_dsp_get_convolver_info(e, &infoHuge);
+        CHECK(infoHuge.was_truncated == 1, "600k IR sets was_truncated == 1");
+        CHECK(infoHuge.loaded_frames == 534528, "600k IR caps at 534,528 frames");
+    }
+
+    // 5. Hardened memory decoder: odd-sized LIST chunk, 8-bit PCM, 64-bit float, huge declared dataSize
+    {
+        // Odd-sized LIST chunk + 8-bit PCM
+        std::vector<uint8_t> wavOdd;
+        auto pushU32 = [&](uint32_t v) {
+            for (int i = 0; i < 4; ++i) wavOdd.push_back((v >> (i * 8)) & 0xFF);
+        };
+        auto pushU16 = [&](uint16_t v) {
+            wavOdd.push_back(v & 0xFF);
+            wavOdd.push_back((v >> 8) & 0xFF);
+        };
+        auto pushStr = [&](const char *s) {
+            while (*s) wavOdd.push_back((uint8_t)*s++);
+        };
+        pushStr("RIFF"); pushU32(0); pushStr("WAVE");
+        pushStr("LIST"); pushU32(5); pushStr("HELLO"); wavOdd.push_back(0); // odd 5 + 1 pad
+        pushStr("fmt "); pushU32(16);
+        pushU16(1); pushU16(1); pushU32(44100); pushU32(44100); pushU16(1); pushU16(8);
+        pushStr("data"); pushU32(4);
+        wavOdd.push_back(255); wavOdd.push_back(128); wavOdd.push_back(128); wavOdd.push_back(128);
+        uint32_t totalRiff = static_cast<uint32_t>(wavOdd.size() - 8);
+        std::memcpy(&wavOdd[4], &totalRiff, 4);
+
+        CHECK(ae_dsp_load_convolver_ir_memory(e, wavOdd.data(), static_cast<int>(wavOdd.size())) == 1,
+              "native decoder handles odd-sized LIST chunk + 8-bit PCM");
+
+        // Corrupt huge dataSize should not OOM/crash
+        std::vector<uint8_t> badWav = wavOdd;
+        const size_t dataSizePos = badWav.size() - 8;
+        uint32_t bogus = 0x7FFFFFF0u;
+        std::memcpy(&badWav[dataSizePos], &bogus, 4);
+        // Should either cleanly clamp to available frames or fail gracefully without crash/OOM
+        (void)ae_dsp_load_convolver_ir_memory(e, badWav.data(), static_cast<int>(badWav.size()));
+        CHECK(true, "corrupt huge dataSize WAV handled without OOM or crash");
+    }
+
+    ae_dsp_clear_convolver_ir(e);
+    AEConvolverInfo cleared{};
+    ae_dsp_get_convolver_info(e, &cleared);
+    CHECK(cleared.loaded == 0, "ae_dsp_clear_convolver_ir resets info.loaded to 0");
+
+    ae_destroy_engine(e);
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -2384,6 +2529,7 @@ int main()
     test_stereo_enhancement_and_pdc_latency();
     test_ffmpeg_streaming_audit();
     test_dsp_chain_order();
+    test_convolver_overhaul();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

@@ -13,17 +13,39 @@
 namespace sauti::dsp {
 
 // =============================================================================
-// FFTConvolverDSP: Clean, High-Performance Partitioned Overlap-Add Convolver
-// with Latency-Compensated Seamless Dry/Wet Crossfading and Automatic Gain Normalization
+// FFTConvolverDSP: 3-Stage Gardner Non-Uniform Partitioned Overlap-Add Convolver
+// - 4-Path True-Stereo Matrix Convolution ([LL, LR, RL, RR]) + Mono & Stereo
+// - Hermitian Half-Spectrum Storage & MACs (FFT_SIZE/2 + 1 bins)
+// - Latency-Compensated Seamless Dry/Wet Crossfading (512 + extra_wet_delay)
+// - Lock-Free Audio Fast-Path & Off-Lock Staging Hot-Swap
 // =============================================================================
 class FFTConvolverDSP {
 public:
     static constexpr size_t BLOCK_SIZE = 512;
-    static constexpr size_t FFT_SIZE = BLOCK_SIZE * 2; // 1024-point FFT for 512-sample blocks
+    static constexpr size_t FFT_SIZE = BLOCK_SIZE * 2; // Base latency block size (1024-pt FFT)
+
+    // 3-Stage NUPOLS layout (all block sizes are powers of 2 and multiples of 512):
+    //   Stage 0: 4 x  512 =   2,048 samples [0      ..  2,048), output delay = 0
+    //   Stage 1: 4 x 2048 =   8,192 samples [2,048  .. 10,240), output delay = 512
+    //   Stage 2: 64 x 8192 = 524,288 samples [10,240 .. 534,528), output delay = 2560
+    // Total capacity: 534,528 samples (~11.1s @ 48kHz, ~5.57s @ 96kHz, ~2.78s @ 192kHz)
+    static constexpr size_t STAGE0_BLOCK = 512;
+    static constexpr size_t STAGE0_SEGMENTS = 4;
+    static constexpr size_t STAGE1_BLOCK = 2048;
+    static constexpr size_t STAGE1_SEGMENTS = 4;
+    static constexpr size_t STAGE2_BLOCK = 8192;
+    static constexpr size_t STAGE2_SEGMENTS = 64;
+    static constexpr size_t MAX_INPUT_HIST = STAGE2_BLOCK; // 8192
+    static constexpr size_t MAX_KERNEL_FRAMES =
+        STAGE0_BLOCK * STAGE0_SEGMENTS +
+        STAGE1_BLOCK * STAGE1_SEGMENTS +
+        STAGE2_BLOCK * STAGE2_SEGMENTS; // 534,528
 
     FFTConvolverDSP() {
         setSampleRate(48000.0f);
-        initTwiddles();
+        dry_delay_l_.assign(BLOCK_SIZE, 0.0);
+        dry_delay_r_.assign(BLOCK_SIZE, 0.0);
+        dry_delay_len_ = BLOCK_SIZE;
         reset();
     }
 
@@ -61,115 +83,96 @@ public:
 
     float getDryLevel() const { return target_dry_level_.load(std::memory_order_relaxed); }
 
-    // Load Impulse Response (mono or stereo interleaved float samples)
-    bool loadImpulseResponse(const float* ir_samples, uint32_t frame_count, uint32_t channels) {
-        if (!ir_samples || frame_count == 0 || (channels != 1 && channels != 2)) {
+    // Load Impulse Response:
+    //   channels == 1: mono (applied to both L and R)
+    //   channels == 2: dual-mono stereo [L, R]
+    //   channels == 4: true-stereo matrix [LL, LR, RL, RR]
+    // extra_wet_delay_samples aligns dry delay compensation with any pre-padding
+    // added during linear-phase IR resampling.
+    bool loadImpulseResponse(const float* ir_samples,
+                             uint32_t frame_count,
+                             uint32_t channels,
+                             uint32_t extra_wet_delay_samples = 0,
+                             bool apply_peak_norm = true) {
+        if (!ir_samples || frame_count == 0 || (channels != 1 && channels != 2 && channels != 4)) {
             clearImpulseResponse();
             return false;
         }
 
-        // Calculate number of 512-sample segments
-        uint32_t num_segments = (frame_count + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        if (num_segments > MAX_SEGMENTS) {
-            num_segments = MAX_SEGMENTS;
-        }
+        const uint32_t loaded_frames = std::min<uint32_t>(
+            frame_count, static_cast<uint32_t>(MAX_KERNEL_FRAMES));
+        const bool truncated = (frame_count > loaded_frames);
 
-        // 1. Time-domain peak normalization: only ever attenuates IRs that would
-        // exceed digital full scale. (An energy-based clamp was tried and removed:
-        // it silently turned hot/long custom IRs down by many dB, making the
-        // convolver sound like it was barely applied.) Any residual overload on
-        // bass-heavy content through high-gain HRIRs is handled downstream by the
-        // app's look-ahead limiter / loudness / master chain, not here.
-        float max_peak = 0.0f;
-        for (uint32_t i = 0; i < frame_count; i++) {
-            float l = (channels == 1) ? ir_samples[i] : ir_samples[i * 2];
-            float r = (channels == 1) ? ir_samples[i] : ir_samples[i * 2 + 1];
-            max_peak = std::max(max_peak, std::max(std::abs(l), std::abs(r)));
-        }
-
+        // 1. Optional time-domain peak normalization across all active channels
+        // identically so interaural level differences (ILD) are preserved.
         float norm_scale = 1.0f;
-        if (max_peak > 1.0f) {
-            norm_scale = 1.0f / max_peak;
-        }
-
-        // 2. Pre-allocate and compute FFT partitions in local staging vectors OUTSIDE the lock
-        std::vector<std::complex<double>> new_partitions_l(num_segments * FFT_SIZE);
-        std::vector<std::complex<double>> new_partitions_r;
-        if (channels == 2) {
-            new_partitions_r.resize(num_segments * FFT_SIZE);
-        }
-
-        std::vector<double> time_block(FFT_SIZE, 0.0);
-        std::vector<std::complex<double>> freq_block(FFT_SIZE);
-
-        for (uint32_t seg = 0; seg < num_segments; seg++) {
-            uint32_t offset = seg * BLOCK_SIZE;
-
-            // --- Left Channel (or Mono) ---
-            std::fill(time_block.begin(), time_block.end(), 0.0);
-            for (size_t i = 0; i < BLOCK_SIZE; i++) {
-                uint32_t frame_idx = offset + i;
-                if (frame_idx < frame_count) {
-                    double s = static_cast<double>((channels == 1) ? ir_samples[frame_idx] : ir_samples[frame_idx * 2]);
-                    time_block[i] = s * static_cast<double>(norm_scale);
-                }
+        if (apply_peak_norm) {
+            float max_peak = 0.0f;
+            const size_t total_samples = static_cast<size_t>(loaded_frames) * channels;
+            for (size_t i = 0; i < total_samples; ++i) {
+                const float v = std::abs(ir_samples[i]);
+                if (v > max_peak) max_peak = v;
             }
-            forwardFFT(time_block.data(), freq_block.data());
-            for (size_t k = 0; k < FFT_SIZE; k++) {
-                new_partitions_l[seg * FFT_SIZE + k] = freq_block[k];
-            }
-
-            // --- Right Channel (if stereo) ---
-            if (channels == 2) {
-                std::fill(time_block.begin(), time_block.end(), 0.0);
-                for (size_t i = 0; i < BLOCK_SIZE; i++) {
-                    uint32_t frame_idx = offset + i;
-                    if (frame_idx < frame_count) {
-                        double s = static_cast<double>(ir_samples[frame_idx * 2 + 1]);
-                        time_block[i] = s * static_cast<double>(norm_scale);
-                    }
-                }
-                forwardFFT(time_block.data(), freq_block.data());
-                for (size_t k = 0; k < FFT_SIZE; k++) {
-                    new_partitions_r[seg * FFT_SIZE + k] = freq_block[k];
-                }
+            if (max_peak > 1.0f) {
+                norm_scale = 1.0f / max_peak;
             }
         }
+
+        // 2. Build all 3 NUPOLS stages in local staging objects OUTSIDE ir_mutex_.
+        StageData staged[3];
+        buildStage(staged[0], STAGE0_BLOCK, 0, STAGE0_SEGMENTS, 0,
+                   ir_samples, loaded_frames, channels, norm_scale);
+        buildStage(staged[1], STAGE1_BLOCK, STAGE0_BLOCK * STAGE0_SEGMENTS, STAGE1_SEGMENTS, 512,
+                   ir_samples, loaded_frames, channels, norm_scale);
+        buildStage(staged[2], STAGE2_BLOCK,
+                   STAGE0_BLOCK * STAGE0_SEGMENTS + STAGE1_BLOCK * STAGE1_SEGMENTS,
+                   STAGE2_SEGMENTS, 2560,
+                   ir_samples, loaded_frames, channels, norm_scale);
+
+        const size_t new_dry_len = BLOCK_SIZE + static_cast<size_t>(extra_wet_delay_samples);
+        std::vector<double> new_dry_l(new_dry_len, 0.0);
+        std::vector<double> new_dry_r(new_dry_len, 0.0);
 
         // 3. Swap into place under ir_mutex_ (microseconds).
-        //
-        // Two distinct cases:
-        //  - COLD load (no IR yet): hard-reset buffers and restart the 20ms
-        //    anti-pop fade from silence. Clean start, no stale state.
-        //  - HOT swap (IR already active): do NOT wipe FDLs / output buffers and
-        //    do NOT reset fade_progress_. Wiping state here is what made the
-        //    effect "disappear": it dumped the wet tail and forced the convolver
-        //    to rebuild from silence. Instead we keep the output continuously
-        //    wet and start a short dip-and-return micro-fade (handled in
-        //    process()) that masks the one-block partition transition and
-        //    prevents the crackle a bare swap would cause.
         {
             std::lock_guard<std::mutex> lock(ir_mutex_);
-            const bool is_hot_swap = has_ir_.load(std::memory_order_acquire) && (segments_count_ > 0);
-            segments_count_ = num_segments;
+            const bool is_hot_swap = has_ir_.load(std::memory_order_acquire) && (loaded_frames_ > 0);
+
+            input_frames_ = frame_count;
+            loaded_frames_ = loaded_frames;
+            was_truncated_ = truncated;
             ir_channels_ = channels;
-            ir_partitions_l_ = std::move(new_partitions_l);
-            ir_partitions_r_ = std::move(new_partitions_r);
+            extra_wet_delay_samples_ = extra_wet_delay_samples;
+
+            for (size_t s = 0; s < 3; ++s) {
+                if (is_hot_swap &&
+                    stages_[s].num_segments > 0 &&
+                    stages_[s].num_segments == staged[s].num_segments &&
+                    stages_[s].block_size == staged[s].block_size) {
+                    // Preserve warm FDL & pending overlap-add tail on matching-shape hot swap
+                    staged[s].fdl_l = std::move(stages_[s].fdl_l);
+                    staged[s].fdl_r = std::move(stages_[s].fdl_r);
+                    staged[s].fdl_head = stages_[s].fdl_head;
+                    staged[s].out_ring_l = std::move(stages_[s].out_ring_l);
+                    staged[s].out_ring_r = std::move(stages_[s].out_ring_r);
+                }
+                stages_[s] = std::move(staged[s]);
+            }
 
             if (is_hot_swap) {
-                // Keep history: only resize FDLs if the segment count changed,
-                // and preserve as much prior spectrum as possible.
-                if (fdl_l_.size() != segments_count_ * FFT_SIZE) {
-                    fdl_l_.assign(segments_count_ * FFT_SIZE, std::complex<double>(0.0, 0.0));
-                    fdl_r_.assign(segments_count_ * FFT_SIZE, std::complex<double>(0.0, 0.0));
-                    fdl_head_ = 0;
+                if (dry_delay_len_ != new_dry_len) {
+                    dry_delay_l_ = std::move(new_dry_l);
+                    dry_delay_r_ = std::move(new_dry_r);
+                    dry_delay_len_ = new_dry_len;
+                    dry_delay_pos_ = 0;
                 }
                 swap_fade_active_ = true;
-                swap_fade_hold_samples_ = static_cast<uint32_t>(0.005f * sample_rate_); // ~5ms at depth
+                swap_fade_hold_samples_ = static_cast<uint32_t>(0.005f * sample_rate_);
             } else {
-                fdl_l_.assign(segments_count_ * FFT_SIZE, std::complex<double>(0.0, 0.0));
-                fdl_r_.assign(segments_count_ * FFT_SIZE, std::complex<double>(0.0, 0.0));
-                fdl_head_ = 0;
+                dry_delay_l_ = std::move(new_dry_l);
+                dry_delay_r_ = std::move(new_dry_r);
+                dry_delay_len_ = new_dry_len;
+                dry_delay_pos_ = 0;
                 resetInternalBuffers();
                 fade_progress_ = 0.0f;
             }
@@ -181,18 +184,48 @@ public:
     void clearImpulseResponse() {
         std::lock_guard<std::mutex> lock(ir_mutex_);
         has_ir_.store(false, std::memory_order_release);
-        segments_count_ = 0;
-        ir_partitions_l_.clear();
-        ir_partitions_r_.clear();
-        fdl_l_.clear();
-        fdl_r_.clear();
+        input_frames_ = 0;
+        loaded_frames_ = 0;
+        was_truncated_ = false;
+        ir_channels_ = 1;
+        extra_wet_delay_samples_ = 0;
+        for (size_t s = 0; s < 3; ++s) {
+            stages_[s] = StageData{};
+        }
+        dry_delay_l_.assign(BLOCK_SIZE, 0.0);
+        dry_delay_r_.assign(BLOCK_SIZE, 0.0);
+        dry_delay_len_ = BLOCK_SIZE;
+        dry_delay_pos_ = 0;
         resetInternalBuffers();
         fade_progress_ = 0.0f;
     }
 
     bool hasImpulseResponse() const { return has_ir_.load(std::memory_order_acquire); }
-    size_t getKernelLength() const { return segments_count_ * BLOCK_SIZE; }
-    size_t getLatencySamples() const { return BLOCK_SIZE; }
+    size_t getKernelLength() const {
+        std::lock_guard<std::mutex> lock(ir_mutex_);
+        return loaded_frames_;
+    }
+    uint32_t getInputFrames() const {
+        std::lock_guard<std::mutex> lock(ir_mutex_);
+        return input_frames_;
+    }
+    uint32_t getLoadedFrames() const {
+        std::lock_guard<std::mutex> lock(ir_mutex_);
+        return loaded_frames_;
+    }
+    bool wasTruncated() const {
+        std::lock_guard<std::mutex> lock(ir_mutex_);
+        return was_truncated_;
+    }
+    uint32_t getChannels() const {
+        std::lock_guard<std::mutex> lock(ir_mutex_);
+        return ir_channels_;
+    }
+    size_t getLatencySamples() const {
+        std::lock_guard<std::mutex> lock(ir_mutex_);
+        return BLOCK_SIZE + static_cast<size_t>(extra_wet_delay_samples_);
+    }
+    static constexpr size_t getMaxKernelFrames() { return MAX_KERNEL_FRAMES; }
 
     void reset() {
         std::lock_guard<std::mutex> lock(ir_mutex_);
@@ -213,6 +246,211 @@ public:
     }
 
 private:
+    struct StageData {
+        size_t block_size = 0;
+        size_t fft_size = 0;
+        size_t half_bins = 0;
+        size_t ir_offset = 0;
+        size_t num_segments = 0;
+        size_t output_delay = 0;
+        size_t ring_size = 0;
+        size_t ring_mask = 0;
+        size_t fdl_head = 0;
+
+        // Partitioned Hermitian half-spectrum IRs (num_segments * half_bins)
+        std::vector<std::complex<double>> ir_ll; // also mono
+        std::vector<std::complex<double>> ir_rr; // stereo R or true-stereo RR
+        std::vector<std::complex<double>> ir_lr; // true-stereo L -> R
+        std::vector<std::complex<double>> ir_rl; // true-stereo R -> L
+
+        // Frequency Delay Lines (num_segments * half_bins)
+        std::vector<std::complex<double>> fdl_l;
+        std::vector<std::complex<double>> fdl_r;
+
+        // Overlap-add output rings indexed by global sample_clock_ & ring_mask
+        std::vector<double> out_ring_l;
+        std::vector<double> out_ring_r;
+
+        // Scratch & twiddle tables (allocated off-lock when stage is active)
+        std::vector<double> scratch_time_l;
+        std::vector<double> scratch_time_r;
+        std::vector<std::complex<double>> scratch_freq_l;
+        std::vector<std::complex<double>> scratch_freq_r;
+        std::vector<std::complex<double>> accum_l;
+        std::vector<std::complex<double>> accum_r;
+        std::vector<std::complex<double>> scratch_ifft;
+        std::vector<std::complex<double>> twiddles;
+        std::vector<size_t> bit_rev;
+    };
+
+    static size_t nextPow2(size_t v) {
+        size_t p = 1;
+        while (p < v) p <<= 1;
+        return p;
+    }
+
+    static void initStageTables(StageData& st) {
+        const size_t n = st.fft_size;
+        st.twiddles.resize(n);
+        st.bit_rev.resize(n);
+        constexpr double PI = 3.14159265358979323846;
+        for (size_t i = 0; i < n; ++i) {
+            const double angle = -2.0 * PI * static_cast<double>(i) / static_cast<double>(n);
+            st.twiddles[i] = std::complex<double>(std::cos(angle), std::sin(angle));
+        }
+        const size_t bits = static_cast<size_t>(std::round(std::log2(static_cast<double>(n))));
+        for (size_t i = 0; i < n; ++i) {
+            size_t rev = 0;
+            for (size_t b = 0; b < bits; ++b) {
+                if ((i >> b) & 1u) {
+                    rev |= (static_cast<size_t>(1) << (bits - 1 - b));
+                }
+            }
+            st.bit_rev[i] = rev;
+        }
+
+        st.scratch_time_l.assign(n, 0.0);
+        st.scratch_time_r.assign(n, 0.0);
+        st.scratch_freq_l.assign(n, std::complex<double>(0.0, 0.0));
+        st.scratch_freq_r.assign(n, std::complex<double>(0.0, 0.0));
+        st.accum_l.assign(n, std::complex<double>(0.0, 0.0));
+        st.accum_r.assign(n, std::complex<double>(0.0, 0.0));
+        st.scratch_ifft.assign(n, std::complex<double>(0.0, 0.0));
+    }
+
+    static void forwardFFT(const StageData& st,
+                           const double* time_in,
+                           std::complex<double>* freq_out) {
+        const size_t n = st.fft_size;
+        for (size_t i = 0; i < n; ++i) {
+            freq_out[st.bit_rev[i]] = std::complex<double>(time_in[i], 0.0);
+        }
+        for (size_t len = 2; len <= n; len <<= 1) {
+            const size_t half_len = len >> 1;
+            const size_t step = n / len;
+            for (size_t i = 0; i < n; i += len) {
+                for (size_t j = 0; j < half_len; ++j) {
+                    const std::complex<double> u = freq_out[i + j];
+                    const std::complex<double> v = freq_out[i + j + half_len] * st.twiddles[j * step];
+                    freq_out[i + j] = u + v;
+                    freq_out[i + j + half_len] = u - v;
+                }
+            }
+        }
+    }
+
+    static void inverseFFTHermitian(StageData& st,
+                                    std::complex<double>* freq_half_in,
+                                    double* time_out) {
+        const size_t n = st.fft_size;
+        // Reconstruct upper conjugate-symmetric bins from Hermitian half-spectrum
+        for (size_t k = 1; k < st.block_size; ++k) {
+            freq_half_in[n - k] = std::conj(freq_half_in[k]);
+        }
+
+        std::complex<double>* temp = st.scratch_ifft.data();
+        for (size_t i = 0; i < n; ++i) {
+            temp[st.bit_rev[i]] = freq_half_in[i];
+        }
+        for (size_t len = 2; len <= n; len <<= 1) {
+            const size_t half_len = len >> 1;
+            const size_t step = n / len;
+            for (size_t i = 0; i < n; i += len) {
+                for (size_t j = 0; j < half_len; ++j) {
+                    const std::complex<double> u = temp[i + j];
+                    const std::complex<double> tw = st.twiddles[j * step];
+                    const std::complex<double> w(tw.real(), -tw.imag());
+                    const std::complex<double> v = temp[i + j + half_len] * w;
+                    temp[i + j] = u + v;
+                    temp[i + j + half_len] = u - v;
+                }
+            }
+        }
+        const double inv_n = 1.0 / static_cast<double>(n);
+        for (size_t i = 0; i < n; ++i) {
+            time_out[i] = temp[i].real() * inv_n;
+        }
+    }
+
+    static void buildStage(StageData& st,
+                           size_t block_size,
+                           size_t ir_offset,
+                           size_t max_segments,
+                           size_t output_delay,
+                           const float* ir_samples,
+                           uint32_t frame_count,
+                           uint32_t channels,
+                           float norm_scale) {
+        if (frame_count <= ir_offset) {
+            st = StageData{};
+            return;
+        }
+        const size_t remaining = static_cast<size_t>(frame_count) - ir_offset;
+        size_t num_seg = (remaining + block_size - 1) / block_size;
+        if (num_seg > max_segments) num_seg = max_segments;
+        if (num_seg == 0) {
+            st = StageData{};
+            return;
+        }
+
+        st.block_size = block_size;
+        st.fft_size = block_size * 2;
+        st.half_bins = block_size + 1;
+        st.ir_offset = ir_offset;
+        st.num_segments = num_seg;
+        st.output_delay = output_delay;
+        st.ring_size = nextPow2(output_delay + st.fft_size);
+        st.ring_mask = st.ring_size - 1;
+        st.fdl_head = 0;
+
+        initStageTables(st);
+
+        const size_t part_elems = num_seg * st.half_bins;
+        st.ir_ll.resize(part_elems);
+        if (channels >= 2) st.ir_rr.resize(part_elems);
+        if (channels == 4) {
+            st.ir_lr.resize(part_elems);
+            st.ir_rl.resize(part_elems);
+        }
+
+        st.fdl_l.assign(part_elems, std::complex<double>(0.0, 0.0));
+        st.fdl_r.assign(part_elems, std::complex<double>(0.0, 0.0));
+        st.out_ring_l.assign(st.ring_size, 0.0);
+        st.out_ring_r.assign(st.ring_size, 0.0);
+
+        std::vector<double> time_block(st.fft_size, 0.0);
+        std::vector<std::complex<double>> freq_block(st.fft_size);
+        const double d_scale = static_cast<double>(norm_scale);
+
+        auto encodeChannel = [&](uint32_t ch_idx, std::vector<std::complex<double>>& dst) {
+            for (size_t seg = 0; seg < num_seg; ++seg) {
+                const size_t seg_offset = ir_offset + seg * block_size;
+                std::fill(time_block.begin(), time_block.end(), 0.0);
+                for (size_t i = 0; i < block_size; ++i) {
+                    const size_t frame_idx = seg_offset + i;
+                    if (frame_idx < frame_count) {
+                        time_block[i] = static_cast<double>(ir_samples[frame_idx * channels + ch_idx]) * d_scale;
+                    }
+                }
+                forwardFFT(st, time_block.data(), freq_block.data());
+                std::memcpy(&dst[seg * st.half_bins], freq_block.data(),
+                            st.half_bins * sizeof(std::complex<double>));
+            }
+        };
+
+        if (channels == 1) {
+            encodeChannel(0, st.ir_ll);
+        } else if (channels == 2) {
+            encodeChannel(0, st.ir_ll);
+            encodeChannel(1, st.ir_rr);
+        } else { // channels == 4: [LL, LR, RL, RR]
+            encodeChannel(0, st.ir_ll);
+            encodeChannel(1, st.ir_lr);
+            encodeChannel(2, st.ir_rl);
+            encodeChannel(3, st.ir_rr);
+        }
+    }
+
     template <typename T>
     void processImpl(T* interleaved_samples, uint32_t frame_count) {
         const bool is_enabled = enabled_.load(std::memory_order_relaxed);
@@ -221,37 +459,65 @@ private:
 
         // Try lock without blocking the real-time audio thread
         std::unique_lock<std::mutex> lock(ir_mutex_, std::try_to_lock);
-        if (!lock.owns_lock() || !has_ir_.load(std::memory_order_acquire) || segments_count_ == 0) return;
+        if (!lock.owns_lock() || !has_ir_.load(std::memory_order_acquire) || loaded_frames_ == 0) return;
 
         uint32_t processed_frames = 0;
+        const float targetWet = target_wet_level_.load(std::memory_order_relaxed);
+        const float targetDry = target_dry_level_.load(std::memory_order_relaxed);
+        const bool s1_active = (stages_[1].num_segments > 0);
+        const bool s2_active = (stages_[2].num_segments > 0);
 
         while (processed_frames < frame_count) {
-            uint32_t frames_to_copy = std::min(static_cast<uint32_t>(BLOCK_SIZE - in_pos_), frame_count - processed_frames);
+            const uint32_t cur_in_pos = static_cast<uint32_t>(sample_clock_ & (BLOCK_SIZE - 1));
+            const uint32_t frames_to_copy = std::min(
+                static_cast<uint32_t>(BLOCK_SIZE) - cur_in_pos,
+                frame_count - processed_frames);
 
-            for (uint32_t i = 0; i < frames_to_copy; i++) {
-                uint32_t in_idx = (processed_frames + i) * 2;
+            for (uint32_t i = 0; i < frames_to_copy; ++i) {
+                const uint32_t in_idx = (processed_frames + i) * 2;
                 const double dry_in_l = static_cast<double>(interleaved_samples[in_idx]);
                 const double dry_in_r = static_cast<double>(interleaved_samples[in_idx + 1]);
 
-                // Dry delay compensation buffer (BLOCK_SIZE = 512 samples)
-                // Aligns dry path with partitioned overlap-add wet latency to prevent comb filtering
-                const double dry_delayed_l = dry_delay_l_[in_pos_ + i];
-                const double dry_delayed_r = dry_delay_r_[in_pos_ + i];
-                dry_delay_l_[in_pos_ + i] = dry_in_l;
-                dry_delay_r_[in_pos_ + i] = dry_in_r;
+                // Dry delay compensation buffer (BLOCK_SIZE + extra_wet_delay_samples_)
+                const double dry_delayed_l = dry_delay_l_[dry_delay_pos_];
+                const double dry_delayed_r = dry_delay_r_[dry_delay_pos_];
+                dry_delay_l_[dry_delay_pos_] = dry_in_l;
+                dry_delay_r_[dry_delay_pos_] = dry_in_r;
+                dry_delay_pos_ = (dry_delay_pos_ + 1 < dry_delay_len_) ? (dry_delay_pos_ + 1) : 0;
 
-                in_buf_l_[in_pos_ + i] = dry_in_l;
-                in_buf_r_[in_pos_ + i] = dry_in_r;
+                // Record input sample into shared circular history
+                const size_t hist_idx = sample_clock_ & (MAX_INPUT_HIST - 1);
+                hist_in_l_[hist_idx] = dry_in_l;
+                hist_in_r_[hist_idx] = dry_in_r;
+
+                // Sum and clear wet outputs from all active NUPOLS stage rings
+                double wet_l = 0.0;
+                double wet_r = 0.0;
+                if (stages_[0].num_segments > 0) {
+                    const size_t r0 = sample_clock_ & stages_[0].ring_mask;
+                    wet_l += stages_[0].out_ring_l[r0];
+                    wet_r += stages_[0].out_ring_r[r0];
+                    stages_[0].out_ring_l[r0] = 0.0;
+                    stages_[0].out_ring_r[r0] = 0.0;
+                }
+                if (s1_active) {
+                    const size_t r1 = sample_clock_ & stages_[1].ring_mask;
+                    wet_l += stages_[1].out_ring_l[r1];
+                    wet_r += stages_[1].out_ring_r[r1];
+                    stages_[1].out_ring_l[r1] = 0.0;
+                    stages_[1].out_ring_r[r1] = 0.0;
+                }
+                if (s2_active) {
+                    const size_t r2 = sample_clock_ & stages_[2].ring_mask;
+                    wet_l += stages_[2].out_ring_l[r2];
+                    wet_r += stages_[2].out_ring_r[r2];
+                    stages_[2].out_ring_l[r2] = 0.0;
+                    stages_[2].out_ring_r[r2] = 0.0;
+                }
 
                 // De-zipper / smoothly interpolate wet & dry levels per sample
-                const float targetWet = target_wet_level_.load(std::memory_order_relaxed);
-                const float targetDry = target_dry_level_.load(std::memory_order_relaxed);
                 current_wet_level_ += smoothing_coeff_ * (targetWet - current_wet_level_);
                 current_dry_level_ += smoothing_coeff_ * (targetDry - current_dry_level_);
-
-                // Output combined dry + overlap-added wet sample
-                const double wet_l = out_buf_l_[in_pos_ + i];
-                const double wet_r = out_buf_r_[in_pos_ + i];
 
                 // Anti-pop smooth crossfade on activation / disablement
                 if (is_enabled) {
@@ -264,11 +530,10 @@ private:
                     }
                 }
 
-                // IR hot-swap micro-fade: dip toward a reduced level, hold briefly
-                // while the new partitions take over, then return.
+                // IR hot-swap micro-fade
                 float swap_gain = 1.0f;
                 if (swap_fade_active_) {
-                    constexpr float SWAP_DIP = 0.35f; // dip to 35% wet during transition
+                    constexpr float SWAP_DIP = 0.35f;
                     if (swap_fade_hold_samples_ > 0) {
                         if (swap_gain_depth_ < 1.0f) {
                             swap_gain_depth_ = std::min(1.0f, swap_gain_depth_ + 2.0f * crossfade_step_);
@@ -286,8 +551,6 @@ private:
                     }
                 }
 
-                // Seamless blend: 100% real-time dry when fade == 0,
-                // latency-compensated convolver mix (delayed dry + wet) when fade == 1.
                 const double fade = static_cast<double>(fade_progress_);
                 const double dry_mix_l = (1.0 - fade) * dry_in_l + (static_cast<double>(current_dry_level_) * fade) * dry_delayed_l;
                 const double dry_mix_r = (1.0 - fade) * dry_in_r + (static_cast<double>(current_dry_level_) * fade) * dry_delayed_r;
@@ -295,20 +558,129 @@ private:
 
                 interleaved_samples[in_idx]     = static_cast<T>(dry_mix_l + (wet_l * eff_wet));
                 interleaved_samples[in_idx + 1] = static_cast<T>(dry_mix_r + (wet_r * eff_wet));
+
+                ++sample_clock_;
             }
 
-            in_pos_ += frames_to_copy;
             processed_frames += frames_to_copy;
 
-            // When a full 512-sample block is gathered, process FFT overlap-add
-            if (in_pos_ >= BLOCK_SIZE) {
-                processBlock();
-                in_pos_ = 0;
+            // All stage block sizes (512, 2048, 8192) are multiples of 512,
+            // so triggers align cleanly with 512-sample chunk boundaries.
+            if ((sample_clock_ & (STAGE0_BLOCK - 1)) == 0) {
+                if (stages_[0].num_segments > 0) {
+                    processStage(stages_[0]);
+                }
+                if (s1_active && (sample_clock_ & (STAGE1_BLOCK - 1)) == 0) {
+                    processStage(stages_[1]);
+                }
+                if (s2_active && (sample_clock_ & (STAGE2_BLOCK - 1)) == 0) {
+                    processStage(stages_[2]);
+                }
             }
         }
     }
 
-    static constexpr size_t MAX_SEGMENTS = 128; // Up to ~1.36 seconds of impulse response at 48kHz
+    void processStage(StageData& st) {
+        const size_t b = st.block_size;
+        const size_t hb = st.half_bins;
+        const size_t num_seg = st.num_segments;
+
+        // 1. Copy the latest b samples from shared circular input history and zero-pad.
+        // Because sample_clock_ is a multiple of b and b divides MAX_INPUT_HIST (8192),
+        // [hist_start .. hist_start + b - 1] is guaranteed contiguous in hist_in_.
+        const size_t hist_start = (sample_clock_ - b) & (MAX_INPUT_HIST - 1);
+        std::memcpy(st.scratch_time_l.data(), &hist_in_l_[hist_start], b * sizeof(double));
+        std::memset(st.scratch_time_l.data() + b, 0, b * sizeof(double));
+
+        std::memcpy(st.scratch_time_r.data(), &hist_in_r_[hist_start], b * sizeof(double));
+        std::memset(st.scratch_time_r.data() + b, 0, b * sizeof(double));
+
+        // 2. Forward FFT on input block and store Hermitian half-spectrum in FDL
+        forwardFFT(st, st.scratch_time_l.data(), st.scratch_freq_l.data());
+        forwardFFT(st, st.scratch_time_r.data(), st.scratch_freq_r.data());
+
+        std::memcpy(&st.fdl_l[st.fdl_head * hb], st.scratch_freq_l.data(),
+                    hb * sizeof(std::complex<double>));
+        std::memcpy(&st.fdl_r[st.fdl_head * hb], st.scratch_freq_r.data(),
+                    hb * sizeof(std::complex<double>));
+
+        // 3. Hermitian half-spectrum MAC across all segments in this stage
+        std::complex<double>* acc_l = st.accum_l.data();
+        std::complex<double>* acc_r = st.accum_r.data();
+        std::fill(acc_l, acc_l + hb, std::complex<double>(0.0, 0.0));
+        std::fill(acc_r, acc_r + hb, std::complex<double>(0.0, 0.0));
+
+        if (ir_channels_ == 4) {
+            for (size_t seg = 0; seg < num_seg; ++seg) {
+                const size_t fdl_slot = (st.fdl_head + num_seg - seg) % num_seg;
+                const std::complex<double>* in_l = &st.fdl_l[fdl_slot * hb];
+                const std::complex<double>* in_r = &st.fdl_r[fdl_slot * hb];
+                const std::complex<double>* ir_ll = &st.ir_ll[seg * hb];
+                const std::complex<double>* ir_lr = &st.ir_lr[seg * hb];
+                const std::complex<double>* ir_rl = &st.ir_rl[seg * hb];
+                const std::complex<double>* ir_rr = &st.ir_rr[seg * hb];
+
+                for (size_t k = 0; k < hb; ++k) {
+                    acc_l[k] += in_l[k] * ir_ll[k] + in_r[k] * ir_rl[k];
+                    acc_r[k] += in_l[k] * ir_lr[k] + in_r[k] * ir_rr[k];
+                }
+            }
+        } else {
+            const bool is_stereo = (ir_channels_ == 2);
+            for (size_t seg = 0; seg < num_seg; ++seg) {
+                const size_t fdl_slot = (st.fdl_head + num_seg - seg) % num_seg;
+                const std::complex<double>* in_l = &st.fdl_l[fdl_slot * hb];
+                const std::complex<double>* in_r = &st.fdl_r[fdl_slot * hb];
+                const std::complex<double>* ir_l = &st.ir_ll[seg * hb];
+                const std::complex<double>* ir_r = is_stereo ? &st.ir_rr[seg * hb] : ir_l;
+
+                for (size_t k = 0; k < hb; ++k) {
+                    acc_l[k] += in_l[k] * ir_l[k];
+                    acc_r[k] += in_r[k] * ir_r[k];
+                }
+            }
+        }
+
+        st.fdl_head = (st.fdl_head + 1) % num_seg;
+
+        // 4. Inverse FFT (reconstructing conjugate upper half)
+        inverseFFTHermitian(st, acc_l, st.scratch_time_l.data());
+        inverseFFTHermitian(st, acc_r, st.scratch_time_r.data());
+
+        // 5. Overlap-add into stage's output ring at sample_clock_ + output_delay
+        const size_t write_base = sample_clock_ + st.output_delay;
+        const size_t mask = st.ring_mask;
+        const double* tl = st.scratch_time_l.data();
+        const double* tr = st.scratch_time_r.data();
+        double* rl = st.out_ring_l.data();
+        double* rr = st.out_ring_r.data();
+
+        for (size_t i = 0; i < st.fft_size; ++i) {
+            const size_t idx = (write_base + i) & mask;
+            rl[idx] += tl[i];
+            rr[idx] += tr[i];
+        }
+    }
+
+    void resetInternalBuffers() {
+        std::memset(hist_in_l_, 0, sizeof(hist_in_l_));
+        std::memset(hist_in_r_, 0, sizeof(hist_in_r_));
+        if (!dry_delay_l_.empty()) std::fill(dry_delay_l_.begin(), dry_delay_l_.end(), 0.0);
+        if (!dry_delay_r_.empty()) std::fill(dry_delay_r_.begin(), dry_delay_r_.end(), 0.0);
+        dry_delay_pos_ = 0;
+        sample_clock_ = 0;
+        for (size_t s = 0; s < 3; ++s) {
+            StageData& st = stages_[s];
+            if (!st.fdl_l.empty()) std::fill(st.fdl_l.begin(), st.fdl_l.end(), std::complex<double>(0.0, 0.0));
+            if (!st.fdl_r.empty()) std::fill(st.fdl_r.begin(), st.fdl_r.end(), std::complex<double>(0.0, 0.0));
+            if (!st.out_ring_l.empty()) std::fill(st.out_ring_l.begin(), st.out_ring_l.end(), 0.0);
+            if (!st.out_ring_r.empty()) std::fill(st.out_ring_r.begin(), st.out_ring_r.end(), 0.0);
+            st.fdl_head = 0;
+        }
+        swap_fade_active_ = false;
+        swap_gain_depth_ = 0.0f;
+        swap_fade_hold_samples_ = 0;
+    }
 
     std::atomic<bool> enabled_{false};
     std::atomic<bool> has_ir_{false}; // read lock-free by process() fast-path
@@ -326,182 +698,27 @@ private:
     float current_wet_level_{1.0f};
     std::atomic<float> target_dry_level_{0.0f};
     float current_dry_level_{0.0f};
-
     float smoothing_coeff_{0.002f};
 
     mutable std::mutex ir_mutex_;
-    uint32_t segments_count_{0};
+    uint32_t input_frames_{0};
+    uint32_t loaded_frames_{0};
+    bool was_truncated_{false};
     uint32_t ir_channels_{1};
+    uint32_t extra_wet_delay_samples_{0};
 
-    // Partitioned Frequency Domain Impulse Response (64-bit precision)
-    std::vector<std::complex<double>> ir_partitions_l_;
-    std::vector<std::complex<double>> ir_partitions_r_;
+    StageData stages_[3]{};
 
-    // Frequency Delay Lines (64-bit precision)
-    std::vector<std::complex<double>> fdl_l_;
-    std::vector<std::complex<double>> fdl_r_;
-    size_t fdl_head_{0};
+    // Shared circular input history for all stages (8192 samples)
+    double hist_in_l_[MAX_INPUT_HIST]{};
+    double hist_in_r_[MAX_INPUT_HIST]{};
+    size_t sample_clock_{0};
 
-    // Time-domain overlap and latency compensation buffers (64-bit precision)
-    double in_buf_l_[BLOCK_SIZE]{};
-    double in_buf_r_[BLOCK_SIZE]{};
-    double out_buf_l_[FFT_SIZE]{};
-    double out_buf_r_[FFT_SIZE]{};
-    double dry_delay_l_[BLOCK_SIZE]{};
-    double dry_delay_r_[BLOCK_SIZE]{};
-    size_t in_pos_{0};
-
-    // Scratch buffers for zero-allocation realtime FFT (64-bit precision)
-    double scratch_time_l_[FFT_SIZE]{};
-    double scratch_time_r_[FFT_SIZE]{};
-    std::complex<double> scratch_freq_l_[FFT_SIZE]{};
-    std::complex<double> scratch_freq_r_[FFT_SIZE]{};
-    std::complex<double> accum_l_[FFT_SIZE]{};
-    std::complex<double> accum_r_[FFT_SIZE]{};
-
-    // Precalculated FFT twiddle factors (64-bit precision)
-    std::complex<double> twiddles_[FFT_SIZE]{};
-    size_t bit_rev_[FFT_SIZE]{};
-
-    void initTwiddles() {
-        constexpr double PI = 3.14159265358979323846;
-        for (size_t i = 0; i < FFT_SIZE; i++) {
-            double angle = -2.0 * PI * static_cast<double>(i) / static_cast<double>(FFT_SIZE);
-            twiddles_[i] = std::complex<double>(std::cos(angle), std::sin(angle));
-        }
-
-        // Bit reversal table
-        size_t bits = static_cast<size_t>(std::round(std::log2(FFT_SIZE)));
-        for (size_t i = 0; i < FFT_SIZE; i++) {
-            size_t rev = 0;
-            for (size_t b = 0; b < bits; b++) {
-                if ((i >> b) & 1) {
-                    rev |= (1 << (bits - 1 - b));
-                }
-            }
-            bit_rev_[i] = rev;
-        }
-    }
-
-    void resetInternalBuffers() {
-        std::memset(in_buf_l_, 0, sizeof(in_buf_l_));
-        std::memset(in_buf_r_, 0, sizeof(in_buf_r_));
-        std::memset(out_buf_l_, 0, sizeof(out_buf_l_));
-        std::memset(out_buf_r_, 0, sizeof(out_buf_r_));
-        std::memset(dry_delay_l_, 0, sizeof(dry_delay_l_));
-        std::memset(dry_delay_r_, 0, sizeof(dry_delay_r_));
-        in_pos_ = 0;
-        if (!fdl_l_.empty()) std::fill(fdl_l_.begin(), fdl_l_.end(), std::complex<double>(0.0, 0.0));
-        if (!fdl_r_.empty()) std::fill(fdl_r_.begin(), fdl_r_.end(), std::complex<double>(0.0, 0.0));
-        fdl_head_ = 0;
-        swap_fade_active_ = false;
-        swap_gain_depth_ = 0.0f;
-        swap_fade_hold_samples_ = 0;
-    }
-
-    void processBlock() {
-        // Zero-pad 512 input samples to 1024 FFT length
-        std::memcpy(scratch_time_l_, in_buf_l_, BLOCK_SIZE * sizeof(double));
-        std::memset(scratch_time_l_ + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(double));
-
-        std::memcpy(scratch_time_r_, in_buf_r_, BLOCK_SIZE * sizeof(double));
-        std::memset(scratch_time_r_ + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(double));
-
-        // 1. Forward FFT on input block
-        forwardFFT(scratch_time_l_, scratch_freq_l_);
-        forwardFFT(scratch_time_r_, scratch_freq_r_);
-
-        // 2. Store input spectrum in current FDL slot
-        std::memcpy(&fdl_l_[fdl_head_ * FFT_SIZE], scratch_freq_l_, FFT_SIZE * sizeof(std::complex<double>));
-        std::memcpy(&fdl_r_[fdl_head_ * FFT_SIZE], scratch_freq_r_, FFT_SIZE * sizeof(std::complex<double>));
-
-        // 3. Frequency-domain complex multiply-accumulate across all IR partitions (64-bit)
-        std::fill(accum_l_, accum_l_ + FFT_SIZE, std::complex<double>(0.0, 0.0));
-        std::fill(accum_r_, accum_r_ + FFT_SIZE, std::complex<double>(0.0, 0.0));
-
-        for (uint32_t seg = 0; seg < segments_count_; seg++) {
-            const size_t fdl_slot = (fdl_head_ + segments_count_ - seg) % segments_count_;
-            const std::complex<double>* in_l = &fdl_l_[fdl_slot * FFT_SIZE];
-            const std::complex<double>* in_r = &fdl_r_[fdl_slot * FFT_SIZE];
-            const std::complex<double>* ir_l = &ir_partitions_l_[seg * FFT_SIZE];
-            const std::complex<double>* ir_r = (ir_channels_ == 2)
-                ? &ir_partitions_r_[seg * FFT_SIZE]
-                : ir_l; // reuse mono IR partition for right channel
-
-            for (size_t k = 0; k < FFT_SIZE; ++k) {
-                accum_l_[k] += in_l[k] * ir_l[k];
-                accum_r_[k] += in_r[k] * ir_r[k];
-            }
-        }
-
-        // Advance FDL head
-        fdl_head_ = (fdl_head_ + 1) % segments_count_;
-
-        // 4. Inverse FFT on accumulated frequency spectrum
-        inverseFFT(accum_l_, scratch_time_l_);
-        inverseFFT(accum_r_, scratch_time_r_);
-
-        // 5. Overlap-Add into output buffer
-        // Shift old second half (tail) to first half
-        std::memcpy(out_buf_l_, out_buf_l_ + BLOCK_SIZE, BLOCK_SIZE * sizeof(double));
-        std::memset(out_buf_l_ + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(double));
-
-        std::memcpy(out_buf_r_, out_buf_r_ + BLOCK_SIZE, BLOCK_SIZE * sizeof(double));
-        std::memset(out_buf_r_ + BLOCK_SIZE, 0, BLOCK_SIZE * sizeof(double));
-
-        for (size_t i = 0; i < FFT_SIZE; ++i) {
-            out_buf_l_[i] += scratch_time_l_[i];
-            out_buf_r_[i] += scratch_time_r_[i];
-        }
-    }
-
-    // Radix-2 Cooley-Tukey In-Place Decimation-in-Time Forward FFT (64-bit)
-    void forwardFFT(const double* time_in, std::complex<double>* freq_out) {
-        for (size_t i = 0; i < FFT_SIZE; i++) {
-            freq_out[bit_rev_[i]] = std::complex<double>(time_in[i], 0.0);
-        }
-
-        for (size_t len = 2; len <= FFT_SIZE; len <<= 1) {
-            size_t half_len = len >> 1;
-            size_t step = FFT_SIZE / len;
-            for (size_t i = 0; i < FFT_SIZE; i += len) {
-                for (size_t j = 0; j < half_len; j++) {
-                    std::complex<double> u = freq_out[i + j];
-                    std::complex<double> v = freq_out[i + j + half_len] * twiddles_[j * step];
-                    freq_out[i + j] = u + v;
-                    freq_out[i + j + half_len] = u - v;
-                }
-            }
-        }
-    }
-
-    // Radix-2 Cooley-Tukey In-Place Inverse FFT (64-bit)
-    void inverseFFT(const std::complex<double>* freq_in, double* time_out) {
-        std::complex<double> temp[FFT_SIZE];
-        for (size_t i = 0; i < FFT_SIZE; i++) {
-            temp[bit_rev_[i]] = freq_in[i];
-        }
-
-        for (size_t len = 2; len <= FFT_SIZE; len <<= 1) {
-            size_t half_len = len >> 1;
-            size_t step = FFT_SIZE / len;
-            for (size_t i = 0; i < FFT_SIZE; i += len) {
-                for (size_t j = 0; j < half_len; j++) {
-                    std::complex<double> u = temp[i + j];
-                    // Conjugate twiddle for IFFT
-                    std::complex<double> w(twiddles_[j * step].real(), -twiddles_[j * step].imag());
-                    std::complex<double> v = temp[i + j + half_len] * w;
-                    temp[i + j] = u + v;
-                    temp[i + j + half_len] = u - v;
-                }
-            }
-        }
-
-        const double inv_n = 1.0 / static_cast<double>(FFT_SIZE);
-        for (size_t i = 0; i < FFT_SIZE; i++) {
-            time_out[i] = temp[i].real() * inv_n;
-        }
-    }
+    // Dynamic dry delay compensation ring (BLOCK_SIZE + extra_wet_delay_samples_)
+    std::vector<double> dry_delay_l_;
+    std::vector<double> dry_delay_r_;
+    size_t dry_delay_len_{BLOCK_SIZE};
+    size_t dry_delay_pos_{0};
 };
 
 } // namespace sauti::dsp
