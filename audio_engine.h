@@ -152,6 +152,10 @@ extern "C"
     AE_API bool ae_pause(AudioEngineHandle *engine);
     AE_API bool ae_stop(AudioEngineHandle *engine);
     AE_API bool ae_seek(AudioEngineHandle *engine, double percent_0_to_1);
+    /* Direct seek by seconds or decoder-domain PCM frame index.
+     * Unlike ae_seek(percent), these do not require total duration to be known upfront. */
+    AE_API bool ae_seek_to_seconds(AudioEngineHandle *engine, double seconds);
+    AE_API bool ae_seek_to_pcm_frame(AudioEngineHandle *engine, uint64_t frame_index);
     AE_API bool ae_next(AudioEngineHandle *engine);
     AE_API bool ae_prev(AudioEngineHandle *engine);
     AE_API bool ae_jump_to(AudioEngineHandle *engine, int index);
@@ -219,7 +223,7 @@ extern "C"
         int style;                /* AEAutomixStyle */
         int transition_bars;      /* 8, 16, or 32 bars (default 16) */
         int tempo_sync_enabled;   /* 1 = pitch-preserved WSOLA tempo lock */
-        int key_lock_enabled;     /* 1 = Camelot harmonic key pitch shift */
+        int key_lock_enabled;     /* 1 = preserve original pitch during tempo sync (DJ Master Tempo / Key Lock); 0 = vinyl-style coupled pitch/speed */
     } AEAutomixConfig;
 
     typedef struct AEAutomixStatus
@@ -242,6 +246,25 @@ extern "C"
     AE_API void ae_set_track_bpm(AudioEngineHandle *engine, float bpm);
     AE_API void ae_set_next_track_bpm(AudioEngineHandle *engine, float bpm);
     AE_API float ae_get_track_bpm(AudioEngineHandle *engine);
+
+    // ==========================================
+    // Silence Skipping & Edge Trimming
+    // ==========================================
+    typedef struct AESilenceConfig
+    {
+        int edge_trim_enabled;      /* 1 = trim leading/trailing silence on track boundaries */
+        int skip_silence_enabled;   /* 1 = dynamically skip/compress mid-track silence (podcasts) */
+        float threshold_db;         /* dBFS threshold, default -45.0, clamped [-80.0, -10.0] */
+        int min_silence_ms;         /* Contiguous silence required before skipping, default 350 */
+        int keep_silence_ms;        /* Natural pause retained before skipping, default 150 */
+        float silence_speed_factor; /* 0.0 = drop with smooth splice; >1.0 (e.g. 3.0) = speed up silence */
+        int trailing_trigger_ms;    /* Early end/crossfade when silent near track end (0 = disabled) */
+    } AESilenceConfig;
+
+    AE_API void ae_set_silence_config(AudioEngineHandle *engine, const AESilenceConfig *config);
+    AE_API void ae_get_silence_config(AudioEngineHandle *engine, AESilenceConfig *out_config);
+    AE_API uint64_t ae_get_skipped_silence_ms(AudioEngineHandle *engine);
+    AE_API void ae_reset_skipped_silence_ms(AudioEngineHandle *engine);
 
     AE_API PlayerStatus ae_get_status(AudioEngineHandle *engine);
     AE_API AEPipelineState ae_get_pipeline_state(AudioEngineHandle *engine);
@@ -421,6 +444,35 @@ extern "C"
     // End Callback processing
     typedef void (*AE_EndCallback)(void *pUserData, AudioEngineHandle *engine);
     AE_API void ae_set_end_callback(AudioEngineHandle *engine, AE_EndCallback callback, void *pUserData);
+
+    // ==========================================
+    // Native Push Event Queue & Wakeup Callback
+    // ==========================================
+    typedef enum AEEventType
+    {
+        AE_EVENT_NONE = 0,
+        AE_EVENT_TRACK_ENDED = 1,
+        AE_EVENT_TRACK_CHANGED = 2,
+        AE_EVENT_ERROR = 3,
+        AE_EVENT_UNDERRUN = 4,
+        AE_EVENT_RATE_CHANGE_PENDING = 5,
+        AE_EVENT_STREAM_STATE_CHANGED = 6,
+        AE_EVENT_DEVICE_STOPPED = 7,
+        AE_EVENT_DEVICE_REROUTED = 8
+    } AEEventType;
+
+    typedef struct AEEvent
+    {
+        int type;
+        int int_arg1;
+        int int_arg2;
+        uint64_t u64_arg;
+        char message[256];
+    } AEEvent;
+
+    typedef void (*AE_EventWakeCallback)(void *pUserData);
+    AE_API void ae_set_event_wakeup_callback(AudioEngineHandle *engine, AE_EventWakeCallback callback, void *pUserData);
+    AE_API int ae_poll_events(AudioEngineHandle *engine, AEEvent *out_events, int max_count);
 
     // Advanced Audio Controls
     AE_API void ae_set_exclusive_mode(AudioEngineHandle *engine, int enabled);
@@ -1140,6 +1192,36 @@ extern "C"
 
     AE_API AETrackInfo ae_inspect_file(const char *file_path);
 
+    // Stateless Offline File Analysis (EBU R128 / ReplayGain 2.0, True Peak, BPM, Silence Bounds)
+    typedef enum AEAnalyzeFlags
+    {
+        AE_ANALYZE_LOUDNESS = 1 << 0,
+        AE_ANALYZE_TRUE_PEAK = 1 << 1,
+        AE_ANALYZE_BPM = 1 << 2,
+        AE_ANALYZE_SILENCE_BOUNDS = 1 << 3,
+        AE_ANALYZE_FAST_PREVIEW = 1 << 4,
+        AE_ANALYZE_ALL = 0x0F
+    } AEAnalyzeFlags;
+
+    typedef struct AETrackAnalysis
+    {
+        int valid;
+        int sample_rate;
+        int channels;
+        double duration_seconds;
+        float integrated_lufs;
+        float loudness_range_lra;
+        float sample_peak_linear;
+        float true_peak_dbtp;
+        float replaygain_track_gain_db;
+        float bpm;
+        float bpm_confidence;
+        double leading_silence_sec;
+        double trailing_silence_sec;
+    } AETrackAnalysis;
+
+    AE_API int ae_analyze_file(const char *file_path, uint32_t flags, float silence_threshold_db, AETrackAnalysis *out_result);
+
     // Output Backend Types
     typedef enum AEAudioBackend
     {
@@ -1191,6 +1273,22 @@ extern "C"
 
     AE_API AEHardwareInfo ae_get_hardware_info(AudioEngineHandle *engine);
     AE_API void ae_register_android_jvm(void *vm);
+
+    // Output Device Enumeration & Selection (Desktop: WASAPI / CoreAudio / ALSA / PulseAudio)
+    typedef struct AEOutputDeviceInfo
+    {
+        char id[256];
+        char name[256];
+        int is_default;
+        int min_channels;
+        int max_channels;
+        int min_sample_rate;
+        int max_sample_rate;
+    } AEOutputDeviceInfo;
+
+    AE_API int ae_list_output_devices(AudioEngineHandle *engine, AEOutputDeviceInfo *out_devices, int max_count);
+    AE_API bool ae_set_output_device(AudioEngineHandle *engine, const char *device_id);
+    AE_API int ae_get_output_device(AudioEngineHandle *engine, char *out_id, int buf_len);
 
     // Dynamic Output Backend Selection & Capability Query
     AE_API int ae_set_output_backend(AudioEngineHandle *engine, int backend);

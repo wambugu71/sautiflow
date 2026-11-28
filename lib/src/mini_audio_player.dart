@@ -71,12 +71,14 @@ class MiniAudioPlayer {
   );
   Timer? _statusTimer;
   Timer? _analyzerTimer;
+  StreamSubscription<EngineEvent>? _eventSub;
   String _lastLog = '';
   bool _analyzerEnabled = false;
   bool _lastBuffering = false;
 
   Stream<PlayerStatus> get statusStream => _statusController.stream;
   Stream<String> get logStream => _logController.stream;
+  Stream<EngineEvent> get eventStream => _engine.eventStream;
   Stream<Float32List> get analyzerStream => _analyzerController.stream;
 
   /// Latest post-FX **stereo** analyzer frames (interleaved L/R pairs).
@@ -112,6 +114,35 @@ class MiniAudioPlayer {
       }
       _startStatusPolling();
       _startAnalyzerPolling();
+      _eventSub?.cancel();
+      _eventSub = _engine.eventStream.listen((event) {
+        switch (event.type) {
+          case EngineEventType.error:
+            if (!_logController.isClosed &&
+                event.message.isNotEmpty &&
+                event.message != _lastLog) {
+              _lastLog = event.message;
+              _logController.add(event.message);
+            }
+            break;
+          case EngineEventType.rateChangePending:
+            final pendingRate = _engine.consumePendingRateChange();
+            if (pendingRate > 0 && !_engine.getCastPcmTapEnabled()) {
+              _engine.setOutputSampleRate(pendingRate);
+            }
+            break;
+          case EngineEventType.trackEnded:
+          case EngineEventType.trackChanged:
+          case EngineEventType.streamStateChanged:
+          case EngineEventType.deviceStopped:
+          case EngineEventType.deviceRerouted:
+            _pollStatusNow();
+            break;
+          case EngineEventType.none:
+          case EngineEventType.underrun:
+            break;
+        }
+      });
       if (enableSystemAudio) {
         unawaited(
           _systemAudio.enable(
@@ -125,6 +156,8 @@ class MiniAudioPlayer {
 
   void dispose() {
     unawaited(_systemAudio.disable());
+    _eventSub?.cancel();
+    _eventSub = null;
     _statusTimer?.cancel();
     _analyzerTimer?.cancel();
     _statusController.close();
@@ -208,6 +241,18 @@ class MiniAudioPlayer {
     return ok;
   }
 
+  bool seekToSeconds(double seconds) {
+    final ok = _engine.seekToSeconds(seconds);
+    if (ok) _pollStatusNow();
+    return ok;
+  }
+
+  bool seekToPcmFrame(int frameIndex) {
+    final ok = _engine.seekToPcmFrame(frameIndex);
+    if (ok) _pollStatusNow();
+    return ok;
+  }
+
   bool seekToNext() {
     final ok = _engine.seekToNext();
     if (ok) _pollStatusNow();
@@ -259,6 +304,40 @@ class MiniAudioPlayer {
   void setTrackBpm(double bpm) => _engine.setTrackBpm(bpm);
   void setNextTrackBpm(double bpm) => _engine.setNextTrackBpm(bpm);
   double getTrackBpm() => _engine.getTrackBpm();
+
+  // Silence Skipping & Edge Trimming
+  void setSilenceConfig(SilenceConfig config) => _engine.setSilenceConfig(config);
+  SilenceConfig getSilenceConfig() => _engine.getSilenceConfig();
+  int getSkippedSilenceMs() => _engine.getSkippedSilenceMs();
+  void resetSkippedSilenceMs() => _engine.resetSkippedSilenceMs();
+
+  // Offline File Analysis
+  TrackAnalysis? analyzeFile(
+    String path, {
+    int flags = AnalyzeFlags.all,
+    double silenceThresholdDb = -50.0,
+  }) =>
+      _engine.analyzeFile(
+        path,
+        flags: flags,
+        silenceThresholdDb: silenceThresholdDb,
+      );
+
+  Future<TrackAnalysis?> analyzeFileAsync(
+    String path, {
+    int flags = AnalyzeFlags.all,
+    double silenceThresholdDb = -50.0,
+  }) =>
+      _engine.analyzeFileInBackground(
+        path,
+        flags: flags,
+        silenceThresholdDb: silenceThresholdDb,
+      );
+
+  // Desktop Output Device Enumeration & Selection
+  List<AEOutputDeviceInfo> listOutputDevices() => _engine.listOutputDevices();
+  bool setOutputDevice(String? deviceId) => _engine.setOutputDevice(deviceId);
+  String getOutputDevice() => _engine.getOutputDevice();
 
   PlayerStatus get status => _engine.getStatus();
   double get deviceLatencyMs => _engine.getDeviceLatencyMs();
@@ -1081,6 +1160,10 @@ class MiniAudioPlayer {
       ffi.Pointer<ffi.Void> userData) {
     _engine.setEndCallback(callback, userData);
   }
+
+  /// Registers a Dart-safe track-ended callback using [ffi.NativeCallable.listener].
+  void setOnTrackEnded(void Function()? callback) =>
+      _engine.setOnTrackEnded(callback);
 
   void setLowpass({required bool enabled, required double cutoffHz}) {
     _engine.setLowpassEnabled(enabled);

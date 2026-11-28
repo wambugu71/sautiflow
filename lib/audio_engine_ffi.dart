@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -263,6 +265,10 @@ class AutomixConfig {
   final AutomixStyle style;
   final int transitionBars;
   final bool tempoSyncEnabled;
+
+  /// When `true`, tempo sync preserves the original musical key/pitch via WSOLA
+  /// time-stretching (DJ Master Tempo / Key Lock). When `false`, tempo changes
+  /// scale pitch and speed together (vinyl mode).
   final bool keyLockEnabled;
 
   const AutomixConfig({
@@ -2519,6 +2525,346 @@ typedef _GetEngineTimeInPcmFramesNative = ffi.Uint64 Function(
     ffi.Pointer<ffi.Void>);
 typedef _GetEngineTimeInPcmFramesDart = int Function(ffi.Pointer<ffi.Void>);
 
+String _decodeFixedUtf8(ffi.Array<ffi.Uint8> array, int maxLen) {
+  final bytes = <int>[];
+  for (int i = 0; i < maxLen; i++) {
+    final b = array[i];
+    if (b == 0) break;
+    bytes.add(b);
+  }
+  return utf8.decode(bytes, allowMalformed: true).trim();
+}
+
+enum EngineEventType {
+  none(0),
+  trackEnded(1),
+  trackChanged(2),
+  error(3),
+  underrun(4),
+  rateChangePending(5),
+  streamStateChanged(6),
+  deviceStopped(7),
+  deviceRerouted(8);
+
+  final int value;
+  const EngineEventType(this.value);
+
+  static EngineEventType fromValue(int value) {
+    for (final t in EngineEventType.values) {
+      if (t.value == value) return t;
+    }
+    return EngineEventType.none;
+  }
+}
+
+class EngineEvent {
+  final EngineEventType type;
+  final int intArg1;
+  final int intArg2;
+  final int u64Arg;
+  final String message;
+
+  const EngineEvent({
+    required this.type,
+    this.intArg1 = 0,
+    this.intArg2 = 0,
+    this.u64Arg = 0,
+    this.message = '',
+  });
+
+  @override
+  String toString() =>
+      'EngineEvent(type: $type, arg1: $intArg1, arg2: $intArg2, u64: $u64Arg, msg: "$message")';
+}
+
+final class AEEventNative extends ffi.Struct {
+  @ffi.Int32()
+  external int type;
+  @ffi.Int32()
+  external int int_arg1;
+  @ffi.Int32()
+  external int int_arg2;
+  @ffi.Uint64()
+  external int u64_arg;
+  @ffi.Array(256)
+  external ffi.Array<ffi.Uint8> message;
+}
+
+class AEOutputDeviceInfo {
+  final String id;
+  final String name;
+  final bool isDefault;
+  final int minChannels;
+  final int maxChannels;
+  final int minSampleRate;
+  final int maxSampleRate;
+
+  const AEOutputDeviceInfo({
+    required this.id,
+    required this.name,
+    this.isDefault = false,
+    this.minChannels = 0,
+    this.maxChannels = 0,
+    this.minSampleRate = 0,
+    this.maxSampleRate = 0,
+  });
+
+  factory AEOutputDeviceInfo.fromNative(AEOutputDeviceInfoNative native) {
+    return AEOutputDeviceInfo(
+      id: _decodeFixedUtf8(native.id, 256),
+      name: _decodeFixedUtf8(native.name, 256),
+      isDefault: native.is_default != 0,
+      minChannels: native.min_channels,
+      maxChannels: native.max_channels,
+      minSampleRate: native.min_sample_rate,
+      maxSampleRate: native.max_sample_rate,
+    );
+  }
+
+  @override
+  String toString() =>
+      'AEOutputDeviceInfo(id: "$id", name: "$name", default: $isDefault, '
+      'ch: $minChannels..$maxChannels, rate: $minSampleRate..$maxSampleRate)';
+}
+
+final class AEOutputDeviceInfoNative extends ffi.Struct {
+  @ffi.Array(256)
+  external ffi.Array<ffi.Uint8> id;
+  @ffi.Array(256)
+  external ffi.Array<ffi.Uint8> name;
+  @ffi.Int32()
+  external int is_default;
+  @ffi.Int32()
+  external int min_channels;
+  @ffi.Int32()
+  external int max_channels;
+  @ffi.Int32()
+  external int min_sample_rate;
+  @ffi.Int32()
+  external int max_sample_rate;
+}
+
+abstract final class AnalyzeFlags {
+  static const int loudness = 1 << 0;
+  static const int truePeak = 1 << 1;
+  static const int bpm = 1 << 2;
+  static const int silenceBounds = 1 << 3;
+  static const int fastPreview = 1 << 4;
+  static const int all = 0x0F;
+}
+
+class TrackAnalysis {
+  final bool valid;
+  final int sampleRate;
+  final int channels;
+  final double durationSeconds;
+  final double integratedLufs;
+  final double loudnessRangeLra;
+  final double samplePeakLinear;
+  final double truePeakDbtp;
+  final double replayGainTrackGainDb;
+  final double bpm;
+  final double bpmConfidence;
+  final double leadingSilenceSec;
+  final double trailingSilenceSec;
+
+  const TrackAnalysis({
+    this.valid = false,
+    this.sampleRate = 0,
+    this.channels = 0,
+    this.durationSeconds = 0.0,
+    this.integratedLufs = -100.0,
+    this.loudnessRangeLra = 0.0,
+    this.samplePeakLinear = 0.0,
+    this.truePeakDbtp = -100.0,
+    this.replayGainTrackGainDb = 0.0,
+    this.bpm = 0.0,
+    this.bpmConfidence = 0.0,
+    this.leadingSilenceSec = 0.0,
+    this.trailingSilenceSec = 0.0,
+  });
+
+  factory TrackAnalysis.fromNative(AETrackAnalysisNative native) {
+    return TrackAnalysis(
+      valid: native.valid != 0,
+      sampleRate: native.sample_rate,
+      channels: native.channels,
+      durationSeconds: native.duration_seconds,
+      integratedLufs: native.integrated_lufs,
+      loudnessRangeLra: native.loudness_range_lra,
+      samplePeakLinear: native.sample_peak_linear,
+      truePeakDbtp: native.true_peak_dbtp,
+      replayGainTrackGainDb: native.replaygain_track_gain_db,
+      bpm: native.bpm,
+      bpmConfidence: native.bpm_confidence,
+      leadingSilenceSec: native.leading_silence_sec,
+      trailingSilenceSec: native.trailing_silence_sec,
+    );
+  }
+
+  @override
+  String toString() =>
+      'TrackAnalysis(valid: $valid, ${sampleRate}Hz/${channels}ch, '
+      'dur: ${durationSeconds.toStringAsFixed(2)}s, '
+      'lufs: ${integratedLufs.toStringAsFixed(2)}, '
+      'rg: ${replayGainTrackGainDb.toStringAsFixed(2)}dB, '
+      'tp: ${truePeakDbtp.toStringAsFixed(2)}dBTP, '
+      'bpm: ${bpm.toStringAsFixed(1)} (${(bpmConfidence * 100).toStringAsFixed(0)}%), '
+      'leadSil: ${leadingSilenceSec.toStringAsFixed(3)}s, '
+      'trailSil: ${trailingSilenceSec.toStringAsFixed(3)}s)';
+}
+
+final class AETrackAnalysisNative extends ffi.Struct {
+  @ffi.Int32()
+  external int valid;
+  @ffi.Int32()
+  external int sample_rate;
+  @ffi.Int32()
+  external int channels;
+  @ffi.Double()
+  external double duration_seconds;
+  @ffi.Float()
+  external double integrated_lufs;
+  @ffi.Float()
+  external double loudness_range_lra;
+  @ffi.Float()
+  external double sample_peak_linear;
+  @ffi.Float()
+  external double true_peak_dbtp;
+  @ffi.Float()
+  external double replaygain_track_gain_db;
+  @ffi.Float()
+  external double bpm;
+  @ffi.Float()
+  external double bpm_confidence;
+  @ffi.Double()
+  external double leading_silence_sec;
+  @ffi.Double()
+  external double trailing_silence_sec;
+}
+
+class SilenceConfig {
+  final bool edgeTrimEnabled;
+  final bool skipSilenceEnabled;
+  final double thresholdDb;
+  final int minSilenceMs;
+  final int keepSilenceMs;
+  final double silenceSpeedFactor;
+  final int trailingTriggerMs;
+
+  const SilenceConfig({
+    this.edgeTrimEnabled = false,
+    this.skipSilenceEnabled = false,
+    this.thresholdDb = -45.0,
+    this.minSilenceMs = 350,
+    this.keepSilenceMs = 150,
+    this.silenceSpeedFactor = 0.0,
+    this.trailingTriggerMs = 0,
+  });
+
+  SilenceConfig copyWith({
+    bool? edgeTrimEnabled,
+    bool? skipSilenceEnabled,
+    double? thresholdDb,
+    int? minSilenceMs,
+    int? keepSilenceMs,
+    double? silenceSpeedFactor,
+    int? trailingTriggerMs,
+  }) {
+    return SilenceConfig(
+      edgeTrimEnabled: edgeTrimEnabled ?? this.edgeTrimEnabled,
+      skipSilenceEnabled: skipSilenceEnabled ?? this.skipSilenceEnabled,
+      thresholdDb: thresholdDb ?? this.thresholdDb,
+      minSilenceMs: minSilenceMs ?? this.minSilenceMs,
+      keepSilenceMs: keepSilenceMs ?? this.keepSilenceMs,
+      silenceSpeedFactor: silenceSpeedFactor ?? this.silenceSpeedFactor,
+      trailingTriggerMs: trailingTriggerMs ?? this.trailingTriggerMs,
+    );
+  }
+}
+
+final class AESilenceConfigNative extends ffi.Struct {
+  @ffi.Int32()
+  external int edge_trim_enabled;
+  @ffi.Int32()
+  external int skip_silence_enabled;
+  @ffi.Float()
+  external double threshold_db;
+  @ffi.Int32()
+  external int min_silence_ms;
+  @ffi.Int32()
+  external int keep_silence_ms;
+  @ffi.Float()
+  external double silence_speed_factor;
+  @ffi.Int32()
+  external int trailing_trigger_ms;
+}
+
+typedef _SeekToSecondsNative = ffi.Uint8 Function(
+    ffi.Pointer<ffi.Void>, ffi.Double);
+typedef _SeekToSecondsDart = int Function(ffi.Pointer<ffi.Void>, double);
+
+typedef _SeekToPcmFrameNative = ffi.Uint8 Function(
+    ffi.Pointer<ffi.Void>, ffi.Uint64);
+typedef _SeekToPcmFrameDart = int Function(ffi.Pointer<ffi.Void>, int);
+
+typedef _EventWakeCallbackNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _SetEventWakeupCallbackNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.NativeFunction<_EventWakeCallbackNative>>,
+    ffi.Pointer<ffi.Void>);
+typedef _SetEventWakeupCallbackDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.NativeFunction<_EventWakeCallbackNative>>,
+    ffi.Pointer<ffi.Void>);
+
+typedef _PollEventsNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEEventNative>, ffi.Int32);
+typedef _PollEventsDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEEventNative>, int);
+
+typedef _ListOutputDevicesNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEOutputDeviceInfoNative>, ffi.Int32);
+typedef _ListOutputDevicesDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AEOutputDeviceInfoNative>, int);
+
+typedef _SetOutputDeviceNative = ffi.Uint8 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Char>);
+typedef _SetOutputDeviceDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Char>);
+
+typedef _GetOutputDeviceNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Char>, ffi.Int32);
+typedef _GetOutputDeviceDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Char>, int);
+
+typedef _AnalyzeFileNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Char>,
+    ffi.Uint32,
+    ffi.Float,
+    ffi.Pointer<AETrackAnalysisNative>);
+typedef _AnalyzeFileDart = int Function(
+    ffi.Pointer<ffi.Char>,
+    int,
+    double,
+    ffi.Pointer<AETrackAnalysisNative>);
+
+typedef _SetSilenceConfigNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AESilenceConfigNative>);
+typedef _SetSilenceConfigDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AESilenceConfigNative>);
+
+typedef _GetSilenceConfigNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AESilenceConfigNative>);
+typedef _GetSilenceConfigDart = void Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<AESilenceConfigNative>);
+
+typedef _GetSkippedSilenceMsNative = ffi.Uint64 Function(ffi.Pointer<ffi.Void>);
+typedef _GetSkippedSilenceMsDart = int Function(ffi.Pointer<ffi.Void>);
+
+typedef _ResetSkippedSilenceMsNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
+typedef _ResetSkippedSilenceMsDart = void Function(ffi.Pointer<ffi.Void>);
+
 // End Callback
 typedef EndCallbackNative = ffi.Void Function(
     ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Void>);
@@ -3364,7 +3710,8 @@ class PipelineAudioState {
 
 class AudioEngineFFI {
   AudioEngineFFI({String? libraryPath})
-      : _lib = openLibrary(libraryPath),
+      : _libraryPath = libraryPath,
+        _lib = openLibrary(libraryPath),
         _engine = ffi.nullptr {
     final allocLib = openAllocatorLibrary();
     _malloc = allocLib.lookupFunction<_MallocNative, _MallocDart>('malloc');
@@ -3408,6 +3755,15 @@ class AudioEngineFFI {
     _prev = _lib.lookupFunction<_BoolOpNative, _BoolOpDart>('ae_prev');
 
     _seek = _lib.lookupFunction<_SeekNative, _SeekDart>('ae_seek');
+    try {
+      _seekToSeconds = _lib.lookupFunction<_SeekToSecondsNative,
+          _SeekToSecondsDart>('ae_seek_to_seconds');
+      _seekToPcmFrame = _lib.lookupFunction<_SeekToPcmFrameNative,
+          _SeekToPcmFrameDart>('ae_seek_to_pcm_frame');
+    } catch (_) {
+      _seekToSeconds = null;
+      _seekToPcmFrame = null;
+    }
     _jumpTo = _lib.lookupFunction<_JumpNative, _JumpDart>('ae_jump_to');
     _jumpToWithPosition =
         _lib.lookupFunction<_JumpWithPositionNative, _JumpWithPositionDart>(
@@ -4604,8 +4960,57 @@ class AudioEngineFFI {
     } catch (_) {
       _setAndroidUsbFd = null;
     }
+
+    try {
+      _setEventWakeupCallback = _lib.lookupFunction<
+          _SetEventWakeupCallbackNative,
+          _SetEventWakeupCallbackDart>('ae_set_event_wakeup_callback');
+      _pollEvents = _lib.lookupFunction<_PollEventsNative, _PollEventsDart>(
+          'ae_poll_events');
+    } catch (_) {
+      _setEventWakeupCallback = null;
+      _pollEvents = null;
+    }
+
+    try {
+      _listOutputDevices = _lib.lookupFunction<_ListOutputDevicesNative,
+          _ListOutputDevicesDart>('ae_list_output_devices');
+      _setOutputDevice = _lib.lookupFunction<_SetOutputDeviceNative,
+          _SetOutputDeviceDart>('ae_set_output_device');
+      _getOutputDevice = _lib.lookupFunction<_GetOutputDeviceNative,
+          _GetOutputDeviceDart>('ae_get_output_device');
+    } catch (_) {
+      _listOutputDevices = null;
+      _setOutputDevice = null;
+      _getOutputDevice = null;
+    }
+
+    try {
+      _analyzeFile = _lib.lookupFunction<_AnalyzeFileNative, _AnalyzeFileDart>(
+          'ae_analyze_file');
+    } catch (_) {
+      _analyzeFile = null;
+    }
+
+    try {
+      _setSilenceConfig = _lib.lookupFunction<_SetSilenceConfigNative,
+          _SetSilenceConfigDart>('ae_set_silence_config');
+      _getSilenceConfig = _lib.lookupFunction<_GetSilenceConfigNative,
+          _GetSilenceConfigDart>('ae_get_silence_config');
+      _getSkippedSilenceMs = _lib.lookupFunction<_GetSkippedSilenceMsNative,
+          _GetSkippedSilenceMsDart>('ae_get_skipped_silence_ms');
+      _resetSkippedSilenceMs = _lib.lookupFunction<
+          _ResetSkippedSilenceMsNative,
+          _ResetSkippedSilenceMsDart>('ae_reset_skipped_silence_ms');
+    } catch (_) {
+      _setSilenceConfig = null;
+      _getSilenceConfig = null;
+      _getSkippedSilenceMs = null;
+      _resetSkippedSilenceMs = null;
+    }
   }
 
+  final String? _libraryPath;
   final ffi.DynamicLibrary _lib;
   ffi.DynamicLibrary get library => _lib;
   late final _CreateEngineDart _createEngine;
@@ -4622,6 +5027,18 @@ class AudioEngineFFI {
   late final _BoolOpDart _next;
   late final _BoolOpDart _prev;
   late final _SeekDart _seek;
+  _SeekToSecondsDart? _seekToSeconds;
+  _SeekToPcmFrameDart? _seekToPcmFrame;
+  _SetEventWakeupCallbackDart? _setEventWakeupCallback;
+  _PollEventsDart? _pollEvents;
+  _ListOutputDevicesDart? _listOutputDevices;
+  _SetOutputDeviceDart? _setOutputDevice;
+  _GetOutputDeviceDart? _getOutputDevice;
+  _AnalyzeFileDart? _analyzeFile;
+  _SetSilenceConfigDart? _setSilenceConfig;
+  _GetSilenceConfigDart? _getSilenceConfig;
+  _GetSkippedSilenceMsDart? _getSkippedSilenceMs;
+  _ResetSkippedSilenceMsDart? _resetSkippedSilenceMs;
   late final _JumpDart _jumpTo;
   late final _JumpWithPositionDart _jumpToWithPosition;
   late final _GetDeviceLatencyMsDart _getDeviceLatencyMs;
@@ -5020,9 +5437,57 @@ class AudioEngineFFI {
     return ffi.DynamicLibrary.process();
   }
 
+  final StreamController<EngineEvent> _eventController =
+      StreamController<EngineEvent>.broadcast();
+  Stream<EngineEvent> get eventStream => _eventController.stream;
+
+  ffi.NativeCallable<ffi.Void Function(ffi.Pointer<ffi.Void>)>?
+      _eventWakeCallable;
+  ffi.NativeCallable<EndCallbackNative>? _onTrackEndedCallable;
+  ffi.Pointer<AEEventNative>? _eventPollScratch;
+  static const int _eventPollBatch = 32;
+
+  void _drainNativeEvents() {
+    if (_engine == ffi.nullptr || _pollEvents == null) return;
+    if (_eventController.isClosed) return;
+    _eventPollScratch ??= calloc<AEEventNative>(_eventPollBatch);
+    while (true) {
+      final count = _pollEvents!(_engine, _eventPollScratch!, _eventPollBatch);
+      if (count <= 0) break;
+      for (int i = 0; i < count; i++) {
+        final ev = _eventPollScratch![i];
+        final type = EngineEventType.fromValue(ev.type);
+        if (type == EngineEventType.none) continue;
+        if (!_eventController.isClosed) {
+          _eventController.add(
+            EngineEvent(
+              type: type,
+              intArg1: ev.int_arg1,
+              intArg2: ev.int_arg2,
+              u64Arg: ev.u64_arg,
+              message: _decodeFixedUtf8(ev.message, 256),
+            ),
+          );
+        }
+      }
+      if (count < _eventPollBatch) break;
+    }
+  }
+
   bool create({int sampleRate = 48000, int channels = 2}) {
     if (_engine != ffi.nullptr) return true;
     _engine = _createEngine(sampleRate, channels);
+    if (_engine != ffi.nullptr && _setEventWakeupCallback != null) {
+      _eventWakeCallable ??= ffi.NativeCallable<
+          ffi.Void Function(ffi.Pointer<ffi.Void>)>.listener(
+        (ffi.Pointer<ffi.Void> _) => _drainNativeEvents(),
+      );
+      _setEventWakeupCallback!(
+        _engine,
+        _eventWakeCallable!.nativeFunction,
+        ffi.nullptr,
+      );
+    }
     return _engine != ffi.nullptr;
   }
 
@@ -5091,8 +5556,23 @@ class AudioEngineFFI {
       _telErrorMsgPtr = null;
     }
     if (_engine != ffi.nullptr) {
+      _setEventWakeupCallback?.call(_engine, ffi.nullptr, ffi.nullptr);
+      _setEndCallback(_engine, ffi.nullptr, ffi.nullptr);
+    }
+    _eventWakeCallable?.close();
+    _eventWakeCallable = null;
+    _onTrackEndedCallable?.close();
+    _onTrackEndedCallable = null;
+    if (_eventPollScratch != null) {
+      calloc.free(_eventPollScratch!);
+      _eventPollScratch = null;
+    }
+    if (_engine != ffi.nullptr) {
       _destroyEngine(_engine);
       _engine = ffi.nullptr;
+    }
+    if (!_eventController.isClosed) {
+      _eventController.close();
     }
   }
 
@@ -5858,12 +6338,11 @@ class AudioEngineFFI {
       }
     }
 
-    if (rawDurationSec <= 0) return false;
-
     final src = (raw.current_index >= 0 &&
             raw.current_index < _playlistSources.length)
         ? _playlistSources[raw.current_index]
         : null;
+
     if (src != null && src.isClipped) {
       final startSec = (src.clipStart?.inMicroseconds ?? 0) / 1000000.0;
       double targetSec = startSec + (position.inMicroseconds / 1000000.0);
@@ -5873,12 +6352,36 @@ class AudioEngineFFI {
           targetSec = math.max(startSec, endSec - 0.05);
         }
       }
+      if (_seekToSeconds != null) {
+        return _seekToSeconds!(_engine, targetSec) != 0;
+      }
+      if (rawDurationSec <= 0) return false;
       final percent = (targetSec / rawDurationSec).clamp(0.0, 1.0);
       return seek(percent);
     }
 
-    final percent = (position.inMicroseconds / 1000000.0) / rawDurationSec;
+    final targetSec = math.max(0.0, position.inMicroseconds / 1000000.0);
+    if (_seekToSeconds != null) {
+      return _seekToSeconds!(_engine, targetSec) != 0;
+    }
+    if (rawDurationSec <= 0) return false;
+    final percent = targetSec / rawDurationSec;
     return seek(percent);
+  }
+
+  bool seekToSeconds(double seconds) {
+    if (_engine == ffi.nullptr) return false;
+    if (_seekToSeconds != null) {
+      return _seekToSeconds!(_engine, seconds) != 0;
+    }
+    final raw = _getStatus(_engine);
+    if (raw.duration_seconds <= 0) return false;
+    return seek((seconds / raw.duration_seconds).clamp(0.0, 1.0));
+  }
+
+  bool seekToPcmFrame(int frameIndex) {
+    if (_engine == ffi.nullptr || _seekToPcmFrame == null) return false;
+    return _seekToPcmFrame!(_engine, frameIndex < 0 ? 0 : frameIndex) != 0;
   }
 
   bool seek(double percent0to1) =>
@@ -7253,6 +7756,175 @@ class AudioEngineFFI {
       ffi.Pointer<ffi.Void> userData) {
     if (_engine == ffi.nullptr) return;
     _setEndCallback(_engine, callback, userData);
+  }
+
+  /// Registers a Dart-safe track-ended callback using [ffi.NativeCallable.listener].
+  /// Pass `null` to unregister.
+  void setOnTrackEnded(void Function()? callback) {
+    if (_engine == ffi.nullptr) return;
+    _setEndCallback(_engine, ffi.nullptr, ffi.nullptr);
+    _onTrackEndedCallable?.close();
+    _onTrackEndedCallable = null;
+    if (callback != null) {
+      _onTrackEndedCallable = ffi.NativeCallable<EndCallbackNative>.listener(
+        (ffi.Pointer<ffi.Void> _, ffi.Pointer<ffi.Void> __) {
+          callback();
+        },
+      );
+      _setEndCallback(
+        _engine,
+        _onTrackEndedCallable!.nativeFunction,
+        ffi.nullptr,
+      );
+    }
+  }
+
+  List<AEOutputDeviceInfo> listOutputDevices() {
+    if (_engine == ffi.nullptr || _listOutputDevices == null) return const [];
+    final total = _listOutputDevices!(_engine, ffi.nullptr, 0);
+    if (total <= 0) return const [];
+    final buf = calloc<AEOutputDeviceInfoNative>(total);
+    try {
+      final count = _listOutputDevices!(_engine, buf, total);
+      final devices = <AEOutputDeviceInfo>[];
+      for (int i = 0; i < count; i++) {
+        devices.add(AEOutputDeviceInfo.fromNative(buf[i]));
+      }
+      return devices;
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  bool setOutputDevice(String? deviceId) {
+    if (_engine == ffi.nullptr || _setOutputDevice == null) return false;
+    final ptr = _toNativeChar(deviceId ?? '');
+    try {
+      return _setOutputDevice!(_engine, ptr) != 0;
+    } finally {
+      _freePtr(ptr.cast<ffi.Void>());
+    }
+  }
+
+  String getOutputDevice() {
+    if (_engine == ffi.nullptr || _getOutputDevice == null) return '';
+    final buf = calloc<ffi.Char>(256);
+    try {
+      final len = _getOutputDevice!(_engine, buf, 256);
+      if (len <= 0) return '';
+      return buf.cast<Utf8>().toDartString();
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  TrackAnalysis? analyzeFile(
+    String path, {
+    int flags = AnalyzeFlags.all,
+    double silenceThresholdDb = -50.0,
+  }) {
+    final fn = _analyzeFile;
+    if (fn == null) return null;
+    final normalized = _normalizeSourcePath(path);
+    final pathPtr = _toNativeChar(normalized);
+    final outPtr = calloc<AETrackAnalysisNative>();
+    try {
+      final ok = fn(pathPtr, flags, silenceThresholdDb, outPtr);
+      if (ok == 0) return null;
+      final res = TrackAnalysis.fromNative(outPtr.ref);
+      return res.valid ? res : null;
+    } finally {
+      _freePtr(pathPtr.cast<ffi.Void>());
+      calloc.free(outPtr);
+    }
+  }
+
+  /// Analyzes a local audio file on a background Dart [Isolate] without
+  /// touching an active playback engine handle.
+  static Future<TrackAnalysis?> analyzeFileAsync(
+    String path, {
+    String? libraryPath,
+    int flags = AnalyzeFlags.all,
+    double silenceThresholdDb = -50.0,
+  }) {
+    final normalized = CueVirtualPath.strip(path);
+    return Isolate.run(() {
+      final lib = openLibrary(libraryPath);
+      final fn = lib.lookupFunction<_AnalyzeFileNative, _AnalyzeFileDart>(
+        'ae_analyze_file',
+      );
+      final pathPtr = normalized.toNativeUtf8(allocator: calloc).cast<ffi.Char>();
+      final outPtr = calloc<AETrackAnalysisNative>();
+      try {
+        final ok = fn(pathPtr, flags, silenceThresholdDb, outPtr);
+        if (ok == 0) return null;
+        final res = TrackAnalysis.fromNative(outPtr.ref);
+        return res.valid ? res : null;
+      } finally {
+        calloc.free(pathPtr);
+        calloc.free(outPtr);
+      }
+    });
+  }
+
+  Future<TrackAnalysis?> analyzeFileInBackground(
+    String path, {
+    int flags = AnalyzeFlags.all,
+    double silenceThresholdDb = -50.0,
+  }) =>
+      analyzeFileAsync(
+        path,
+        libraryPath: _libraryPath,
+        flags: flags,
+        silenceThresholdDb: silenceThresholdDb,
+      );
+
+  void setSilenceConfig(SilenceConfig config) {
+    if (_engine == ffi.nullptr || _setSilenceConfig == null) return;
+    final ptr = calloc<AESilenceConfigNative>();
+    try {
+      ptr.ref.edge_trim_enabled = config.edgeTrimEnabled ? 1 : 0;
+      ptr.ref.skip_silence_enabled = config.skipSilenceEnabled ? 1 : 0;
+      ptr.ref.threshold_db = config.thresholdDb;
+      ptr.ref.min_silence_ms = config.minSilenceMs;
+      ptr.ref.keep_silence_ms = config.keepSilenceMs;
+      ptr.ref.silence_speed_factor = config.silenceSpeedFactor;
+      ptr.ref.trailing_trigger_ms = config.trailingTriggerMs;
+      _setSilenceConfig!(_engine, ptr);
+    } finally {
+      calloc.free(ptr);
+    }
+  }
+
+  SilenceConfig getSilenceConfig() {
+    if (_engine == ffi.nullptr || _getSilenceConfig == null) {
+      return const SilenceConfig();
+    }
+    final ptr = calloc<AESilenceConfigNative>();
+    try {
+      _getSilenceConfig!(_engine, ptr);
+      return SilenceConfig(
+        edgeTrimEnabled: ptr.ref.edge_trim_enabled != 0,
+        skipSilenceEnabled: ptr.ref.skip_silence_enabled != 0,
+        thresholdDb: ptr.ref.threshold_db,
+        minSilenceMs: ptr.ref.min_silence_ms,
+        keepSilenceMs: ptr.ref.keep_silence_ms,
+        silenceSpeedFactor: ptr.ref.silence_speed_factor,
+        trailingTriggerMs: ptr.ref.trailing_trigger_ms,
+      );
+    } finally {
+      calloc.free(ptr);
+    }
+  }
+
+  int getSkippedSilenceMs() {
+    if (_engine == ffi.nullptr || _getSkippedSilenceMs == null) return 0;
+    return _getSkippedSilenceMs!(_engine);
+  }
+
+  void resetSkippedSilenceMs() {
+    if (_engine == ffi.nullptr || _resetSkippedSilenceMs == null) return;
+    _resetSkippedSilenceMs!(_engine);
   }
 
   // Advanced Audio Features Helpers

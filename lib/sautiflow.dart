@@ -41,7 +41,13 @@ export 'audio_engine_ffi.dart'
         MultibandMasteringParams,
         AutomixStyle,
         AutomixConfig,
-        AutomixStatus;
+        AutomixStatus,
+        EngineEventType,
+        EngineEvent,
+        AEOutputDeviceInfo,
+        AnalyzeFlags,
+        TrackAnalysis,
+        SilenceConfig;
 export 'src/filters_api.dart';
 export 'src/cue_parser.dart'
     show

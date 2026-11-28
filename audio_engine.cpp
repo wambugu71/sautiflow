@@ -13,6 +13,7 @@
 #include <TargetConditionals.h>
 #if !TARGET_OS_IPHONE
 #include <CoreAudio/CoreAudio.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <unistd.h>
 #endif
 #endif
@@ -94,6 +95,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <numeric>
 #include <random>
@@ -1796,7 +1798,7 @@ namespace
         }
 
         template <typename SampleT>
-        void process(const SampleT *interleaved, ma_uint32 frames, int channels)
+        void process(const SampleT *interleaved, ma_uint32 frames, int channels, bool decayPeak = true)
         {
             if (!interleaved || frames == 0 || channels < 1) return;
             const int ch = std::min(channels, 8);
@@ -1837,16 +1839,19 @@ namespace
             const float rightDBTP = (maxR > 1e-5f) ? 20.0f * std::log10(maxR) : -100.0f;
             const float extraDBTP = (maxExtra > 1e-5f) ? 20.0f * std::log10(maxExtra) : -100.0f;
 
+            const float decayStep = decayPeak ? 0.2f : 0.0f;
             const float prevL = peakLeftDBTP.load(std::memory_order_relaxed);
             const float prevR = peakRightDBTP.load(std::memory_order_relaxed);
-            peakLeftDBTP.store(std::max(leftDBTP, prevL - 0.2f), std::memory_order_relaxed);
-            peakRightDBTP.store(std::max(rightDBTP, prevR - 0.2f), std::memory_order_relaxed);
-            maxTruePeakDBTP.store(std::max({peakLeftDBTP.load(std::memory_order_relaxed),
-                                            peakRightDBTP.load(std::memory_order_relaxed),
-                                            extraDBTP}), std::memory_order_relaxed);
+            peakLeftDBTP.store(std::max(leftDBTP, prevL - decayStep), std::memory_order_relaxed);
+            peakRightDBTP.store(std::max(rightDBTP, prevR - decayStep), std::memory_order_relaxed);
+            const float prevMax = maxTruePeakDBTP.load(std::memory_order_relaxed);
+            const float curMax = std::max({peakLeftDBTP.load(std::memory_order_relaxed),
+                                           peakRightDBTP.load(std::memory_order_relaxed),
+                                           extraDBTP});
+            maxTruePeakDBTP.store(decayPeak ? curMax : std::max(curMax, prevMax), std::memory_order_relaxed);
 
             const float samplePeakDB = (maxSample > 1e-5f) ? 20.0f * std::log10(maxSample) : -100.0f;
-            samplePeakDBTP.store(std::max(samplePeakDB, samplePeakDBTP.load(std::memory_order_relaxed) - 0.2f), std::memory_order_relaxed);
+            samplePeakDBTP.store(std::max(samplePeakDB, samplePeakDBTP.load(std::memory_order_relaxed) - decayStep), std::memory_order_relaxed);
         }
     };
 
@@ -2496,6 +2501,101 @@ namespace
                 }
             }
             inProcess_.store(false, std::memory_order_relaxed);
+        }
+
+        void finalize(int channels = 2)
+        {
+            const int ch = std::clamp(channels, 1, 8);
+            static const double channelWeights[8] = {1.0, 1.0, 1.0, 0.0, 1.41, 1.41, 1.0, 1.0};
+            constexpr double absThresholdPwr = 1.17762e-7; // -70 LUFS
+
+            if (blockSampleCount > 0 && (totalBlocksCount == 0 || blockSampleCount >= blockTargetSamples / 4))
+            {
+                double blockPower = 0.0;
+                for (int c = 0; c < ch; ++c)
+                {
+                    const double meanSq = blockSumSq[c] / (double)blockSampleCount;
+                    blockPower += channelWeights[c] * meanSq;
+                    blockSumSq[c] = 0.0;
+                }
+                blockSampleCount = 0;
+                blockRing[ringHead] = {blockPower, true};
+                ringHead = (ringHead + 1) % RING_SIZE;
+                totalBlocksCount++;
+
+                double momSum = 0.0;
+                int momCount = 0;
+                for (int b = 0; b < 4; ++b)
+                {
+                    const size_t idx = (ringHead + RING_SIZE - 1 - (size_t)b) % RING_SIZE;
+                    if (blockRing[idx].valid) { momSum += blockRing[idx].power; momCount++; }
+                }
+                if (momCount > 0)
+                {
+                    const double momPwr = momSum / (double)momCount;
+                    if (momPwr >= absThresholdPwr)
+                    {
+                        const double momLufs = -0.691 + 10.0 * std::log10(momPwr);
+                        const int bin = lufsToBin(momLufs);
+                        intHistCounts[bin]++;
+                        intHistPwrSum[bin] += momPwr;
+                        absGateSum += momPwr;
+                        absGateCount++;
+                        gatedBlocksCount++;
+                    }
+                }
+            }
+
+            if (absGateCount > 0)
+            {
+                const double ungatedMeanPwr = absGateSum / (double)absGateCount;
+                const double relThresholdLUFS = -0.691 + 10.0 * std::log10(std::max(ungatedMeanPwr, 1e-12)) - 10.0;
+                const int startBin = lufsToBin(relThresholdLUFS);
+
+                double pass2Sum = 0.0;
+                uint64_t pass2Count = 0;
+                for (int b = startBin; b < kHistBins; ++b)
+                {
+                    pass2Count += intHistCounts[b];
+                    pass2Sum += intHistPwrSum[b];
+                }
+                if (pass2Count > 0)
+                {
+                    const double finalMeanPwr = pass2Sum / (double)pass2Count;
+                    const float intLufs = (float)(-0.691 + 10.0 * std::log10(finalMeanPwr));
+                    integratedLUFS.store(intLufs, std::memory_order_relaxed);
+                }
+            }
+
+            if (lraAbsCount >= 2)
+            {
+                const double lraMeanPwr = lraAbsSum / (double)lraAbsCount;
+                const double lraRelThresh = -0.691 + 10.0 * std::log10(std::max(lraMeanPwr, 1e-12)) - 20.0;
+                const int lraStart = lufsToBin(lraRelThresh);
+
+                uint64_t lraGatedTotal = 0;
+                for (int b = lraStart; b < kHistBins; ++b)
+                {
+                    lraGatedTotal += lraHistCounts[b];
+                }
+                if (lraGatedTotal >= 2)
+                {
+                    const uint64_t rank10 = (uint64_t)(0.10 * (double)lraGatedTotal);
+                    const uint64_t rank95 = std::max<uint64_t>(rank10, (uint64_t)(0.95 * (double)lraGatedTotal));
+                    uint64_t cum = 0;
+                    int bin10 = lraStart;
+                    int bin95 = kHistBins - 1;
+                    bool found10 = false;
+                    for (int b = lraStart; b < kHistBins; ++b)
+                    {
+                        cum += lraHistCounts[b];
+                        if (!found10 && cum > rank10) { bin10 = b; found10 = true; }
+                        if (cum >= rank95) { bin95 = b; break; }
+                    }
+                    const float lra = std::max(0.0f, static_cast<float>((bin95 - bin10) * 0.1));
+                    loudnessRangeLRA.store(lra, std::memory_order_relaxed);
+                }
+            }
         }
 
         float getNormalizerGainLinear(float dt = 0.0f)
@@ -3686,8 +3786,13 @@ struct AudioEngineHandle
     ActiveOutputState activeOut{};
 #if !defined(__ANDROID__)
     ma_device device{};
+    ma_context outputContext{};
+    bool outputContextInit = false;
+    bool outputContextIsAlsaExcl = false;
     ma_context customContext{};
     bool customContextInit = false;
+    bool hasSelectedOutputDevice = false;
+    std::string selectedOutputDeviceIdStr;
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
     bool macOsHogActive = false;
     uint32_t macOsHogDeviceId = 0;
@@ -3952,6 +4057,36 @@ struct AudioEngineHandle
     // End Callback
     AE_EndCallback endCallback = nullptr;
     void *pEndCallbackUserData = nullptr;
+
+    // Push Event Queue & Wakeup Callback
+    static constexpr size_t kEventQueueCap = 128;
+    std::mutex eventMutex;
+    AEEvent eventQueue[kEventQueueCap]{};
+    size_t eventHead = 0;
+    size_t eventCount = 0;
+    AE_EventWakeCallback eventWakeCallback = nullptr;
+    void *pEventWakeUserData = nullptr;
+    std::atomic<bool> eventWakePending{false};
+    std::atomic<uint64_t> pendingUnderrunEventFrames{0};
+    std::atomic<int> lastEmittedStreamState{-999};
+
+    // Silence Skipping & Edge Trimming
+    std::atomic<bool> edgeTrimEnabled{false};
+    std::atomic<bool> skipSilenceEnabled{false};
+    std::atomic<float> silenceThresholdDb{-45.0f};
+    std::atomic<int> silenceMinMs{350};
+    std::atomic<int> silenceKeepMs{150};
+    std::atomic<float> silenceSpeedFactor{0.0f};
+    std::atomic<int> silenceTrailingTriggerMs{0};
+    std::atomic<uint64_t> skippedSilenceFramesTotal{0};
+    std::atomic<ma_uint64> nextTrackLeadingTrimFrames{0};
+    // Producer-thread-only silence skipper state
+    ma_uint64 silenceRunFrames = 0;
+    bool silenceSkippingActive = false;
+    uint32_t silenceFadeInFramesLeft = 0;
+    uint32_t silenceFadeInFramesTotal = 0;
+    ma_uint64 trailingSilenceRunFrames = 0;
+    double silenceSpeedPhase = 0.0;
 
     std::mutex fxMutex;
     bool eqEnabled = false;
@@ -5378,6 +5513,73 @@ static inline bool get_decoder_native_format(
     return (rate > 0);
 }
 
+static void notify_event_wakeup(AudioEngineHandle *e)
+{
+    if (e == nullptr)
+        return;
+    if (e->eventWakePending.exchange(true, std::memory_order_acq_rel))
+    {
+        return;
+    }
+    AE_EventWakeCallback cb = nullptr;
+    void *ud = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(e->eventMutex);
+        cb = e->eventWakeCallback;
+        ud = e->pEventWakeUserData;
+    }
+    if (cb != nullptr)
+    {
+        cb(ud);
+    }
+}
+
+static void push_engine_event(
+    AudioEngineHandle *e,
+    int type,
+    int arg1 = 0,
+    int arg2 = 0,
+    uint64_t u64Arg = 0,
+    const char *msg = nullptr)
+{
+    if (e == nullptr || type == AE_EVENT_NONE)
+        return;
+    {
+        std::lock_guard<std::mutex> lk(e->eventMutex);
+        const size_t tail = (e->eventHead + e->eventCount) % AudioEngineHandle::kEventQueueCap;
+        AEEvent &slot = e->eventQueue[tail];
+        std::memset(&slot, 0, sizeof(slot));
+        slot.type = type;
+        slot.int_arg1 = arg1;
+        slot.int_arg2 = arg2;
+        slot.u64_arg = u64Arg;
+        if (msg != nullptr && msg[0] != '\0')
+        {
+            std::snprintf(slot.message, sizeof(slot.message), "%s", msg);
+        }
+        if (e->eventCount < AudioEngineHandle::kEventQueueCap)
+        {
+            e->eventCount++;
+        }
+        else
+        {
+            e->eventHead = (e->eventHead + 1) % AudioEngineHandle::kEventQueueCap;
+        }
+    }
+    notify_event_wakeup(e);
+}
+
+static void flush_pending_underrun_event(AudioEngineHandle *e)
+{
+    if (e == nullptr)
+        return;
+    const uint64_t frames = e->pendingUnderrunEventFrames.exchange(0, std::memory_order_acq_rel);
+    if (frames > 0)
+    {
+        push_engine_event(e, AE_EVENT_UNDERRUN, 0, 0, frames, nullptr);
+    }
+}
+
 static inline void sync_active_dsd_from_decoder(AudioEngineHandle *e, ma_decoder *dec)
 {
     if (!e) return;
@@ -5398,6 +5600,10 @@ static inline void sync_active_dsd_from_decoder(AudioEngineHandle *e, ma_decoder
         {
             const int req = (outRate > 0) ? static_cast<int>(outRate) : (e->outputSampleRate > 0 ? e->outputSampleRate : 48000);
             e->pendingAutoSampleRateMatchRate.store(req, std::memory_order_release);
+            if (req > 0)
+            {
+                push_engine_event(e, AE_EVENT_RATE_CHANGE_PENDING, req, 0, 0, nullptr);
+            }
         }
     }
     else
@@ -5412,6 +5618,10 @@ static inline void sync_active_dsd_from_decoder(AudioEngineHandle *e, ma_decoder
                 ? static_cast<int>(natRate)
                 : (e->outputSampleRate > 0 ? e->outputSampleRate : 48000);
             e->pendingAutoSampleRateMatchRate.store(req, std::memory_order_release);
+            if (req > 0)
+            {
+                push_engine_event(e, AE_EVENT_RATE_CHANGE_PENDING, req, 0, 0, nullptr);
+            }
         }
     }
 }
@@ -5577,6 +5787,18 @@ static ma_uint64 freeze_audible_clock(AudioEngineHandle *e)
         return 0;
     std::lock_guard<std::mutex> lk(e->audibleClockWriterMutex);
     return freeze_audible_clock_locked_impl(e, true, false);
+}
+
+static void reset_silence_skipper_state_locked(AudioEngineHandle *e)
+{
+    if (e == nullptr)
+        return;
+    e->silenceRunFrames = 0;
+    e->silenceSkippingActive = false;
+    e->silenceFadeInFramesLeft = 0;
+    e->silenceFadeInFramesTotal = 0;
+    e->trailingSilenceRunFrames = 0;
+    e->silenceSpeedPhase = 0.0;
 }
 
 static void reset_playback_position(AudioEngineHandle *e, ma_uint64 baseFrame)
@@ -6175,9 +6397,12 @@ static void set_last_error(AudioEngineHandle *e, const std::string &message)
 {
     if (e == nullptr)
         return;
-    std::lock_guard<std::mutex> lk(e->errorMutex);
-    e->lastError = message;
+    {
+        std::lock_guard<std::mutex> lk(e->errorMutex);
+        e->lastError = message;
+    }
     engine_log("ERROR: %s", message.c_str());
+    push_engine_event(e, AE_EVENT_ERROR, 0, 0, 0, message.c_str());
 }
 
 static void clear_last_error(AudioEngineHandle *e)
@@ -6875,6 +7100,71 @@ static float compute_preview_lufs(ma_decoder *decoder, float *outPeak = nullptr,
     return (meanPwr > 1e-10) ? (float)(-0.691 + 10.0 * std::log10(meanPwr)) : -100.0f;
 }
 
+static ma_uint64 detect_and_trim_leading_silence(ma_decoder *decoder, float thresholdDb)
+{
+    if (decoder == nullptr)
+        return 0;
+    const ma_uint32 sr = decoder->outputSampleRate > 0 ? decoder->outputSampleRate : 48000;
+    const ma_uint32 ch = decoder->outputChannels > 0 ? decoder->outputChannels : 2;
+    const float clampedDb = std::clamp(thresholdDb, -80.0f, -10.0f);
+    const double threshPwr = std::pow(10.0, (double)clampedDb / 10.0);
+
+    const ma_uint32 chunkFrames = std::max<ma_uint32>(1u, sr / 100u); // 10 ms
+    const ma_uint32 maxChunks = 1500; // Scan up to 15 seconds
+    std::vector<float> buf((size_t)chunkFrames * (size_t)ch);
+    std::vector<uint8_t> scratch;
+
+    ma_uint64 scannedFrames = 0;
+    ma_uint64 firstActiveFrame = 0;
+    bool foundActive = false;
+
+    for (ma_uint32 c = 0; c < maxChunks; ++c)
+    {
+        ma_uint64 got = 0;
+        const ma_result r = read_decoder_frames_f32(decoder, buf.data(), chunkFrames, &got, scratch);
+        if (r != MA_SUCCESS || got == 0)
+            break;
+
+        double sumSq = 0.0;
+        for (ma_uint64 i = 0; i < got; ++i)
+        {
+            for (ma_uint32 k = 0; k < ch; ++k)
+            {
+                const double s = (double)buf[(size_t)i * (size_t)ch + (size_t)k];
+                sumSq += s * s;
+            }
+        }
+        const double meanPwr = sumSq / (double)(got * ch);
+        if (meanPwr >= threshPwr)
+        {
+            firstActiveFrame = scannedFrames;
+            foundActive = true;
+            break;
+        }
+        scannedFrames += got;
+    }
+
+    if (!foundActive || firstActiveFrame == 0)
+    {
+        (void)ma_decoder_seek_to_pcm_frame(decoder, 0);
+        return 0;
+    }
+
+    const ma_uint64 backoff = (ma_uint64)sr * 15u / 1000u; // 15 ms safety margin
+    const ma_uint64 trimTarget = (firstActiveFrame > backoff) ? (firstActiveFrame - backoff) : 0;
+    if (trimTarget == 0)
+    {
+        (void)ma_decoder_seek_to_pcm_frame(decoder, 0);
+        return 0;
+    }
+    if (ma_decoder_seek_to_pcm_frame(decoder, trimTarget) != MA_SUCCESS)
+    {
+        (void)ma_decoder_seek_to_pcm_frame(decoder, 0);
+        return 0;
+    }
+    return trimTarget;
+}
+
 static void apply_initial_track_loudness(AudioEngineHandle *e, ma_decoder *decoder, const std::string &path)
 {
     if (e == nullptr) return;
@@ -7235,11 +7525,13 @@ static void worker_loop(AudioEngineHandle *e)
                 e->currentStream = newCurrentStream;
 #endif
                 e->currentLengthFrames = newCurrentLen;
+                const int prevTrackIndex = e->currentIndex;
                 e->currentIndex = jumpIndex;
                 e->hasCurrent = true;
                 sync_processing_channels_for_decoder(e, newCurrent, false);
                 arm_transition_fade_in(e);
                 apply_initial_track_loudness(e, newCurrent, path);
+                reset_silence_skipper_state_locked(e);
 
                 ma_uint64 startFrameEngine = 0;
                 if (e->pendingSeekValid.load(std::memory_order_acquire) &&
@@ -7271,6 +7563,24 @@ static void worker_loop(AudioEngineHandle *e)
                     e->pendingSeekSeconds.store(-1.0, std::memory_order_release);
                     e->pendingSeekIndex.store(-1, std::memory_order_release);
                 }
+                else if (e->currentDecoder != nullptr &&
+                         e->edgeTrimEnabled.load(std::memory_order_relaxed) &&
+                         !is_network_url(path) &&
+                         !e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+                         e->activeDsdMode.load(std::memory_order_acquire) == 0)
+                {
+                    const ma_uint64 trimmedDec = detect_and_trim_leading_silence(
+                        e->currentDecoder,
+                        e->silenceThresholdDb.load(std::memory_order_relaxed));
+                    if (trimmedDec > 0)
+                    {
+                        const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                        const int decSr = (e->currentDecoder->outputSampleRate > 0)
+                                              ? (int)e->currentDecoder->outputSampleRate
+                                              : engineSr;
+                        startFrameEngine = convert_frame_rate(trimmedDec, decSr, engineSr);
+                    }
+                }
                 reset_playback_position(e, startFrameEngine);
                 reset_track_resampler_locked(e);
 
@@ -7285,6 +7595,11 @@ static void worker_loop(AudioEngineHandle *e)
                 e->nextTrackNormalizerGain.store(1.0f, std::memory_order_relaxed);
                 e->nextTrackGainExplicitlySet.store(false, std::memory_order_relaxed);
                 e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
+                e->nextTrackLeadingTrimFrames.store(0, std::memory_order_relaxed);
+                if (jumpIndex != prevTrackIndex)
+                {
+                    push_engine_event(e, AE_EVENT_TRACK_CHANGED, jumpIndex, prevTrackIndex, 0, nullptr);
+                }
             }
 
             // Deferred auto-play: mark isPlaying=true NOW that the decoder is loaded.
@@ -7502,6 +7817,21 @@ static void worker_loop(AudioEngineHandle *e)
                 }
             }
 
+            ma_uint64 preloadLeadingTrimDec = 0;
+            if (decoded != nullptr &&
+                e->edgeTrimEnabled.load(std::memory_order_relaxed) &&
+                !is_network_url(nextPath) &&
+                !e->exclusiveModeEnabled.load(std::memory_order_relaxed))
+            {
+                AEDsdOutputMode dsdTmp = AE_DSD_MODE_D2P;
+                if (!sautiflow::dsd::query_dsd_decoder_info(decoded, &dsdTmp))
+                {
+                    preloadLeadingTrimDec = detect_and_trim_leading_silence(
+                        decoded,
+                        e->silenceThresholdDb.load(std::memory_order_relaxed));
+                }
+            }
+
             {
                 std::lock_guard<std::mutex> d(e->decoderMutex);
                 if (e->preloadGeneration.load(std::memory_order_relaxed) == startGen &&
@@ -7513,6 +7843,7 @@ static void worker_loop(AudioEngineHandle *e)
 #endif
                     e->nextLengthFrames = len;
                     e->nextIndex = nextIdx;
+                    e->nextTrackLeadingTrimFrames.store(preloadLeadingTrimDec, std::memory_order_relaxed);
                     e->hasNext = true;
                     engine_log("worker preload complete -> nextIndex=%d", nextIdx);
                 }
@@ -7548,20 +7879,28 @@ struct DeferredEndCallback
     AudioEngineHandle *engine;
     AE_EndCallback callback = nullptr;
     void *userData = nullptr;
+    bool emitEndedEvent = false;
+    int endedIndex = -1;
 
     explicit DeferredEndCallback(AudioEngineHandle *e) : engine(e) {}
 
-    void arm()
+    void arm(int finishedIdx = -1)
     {
         if (engine != nullptr)
         {
             callback = engine->endCallback;
             userData = engine->pEndCallbackUserData;
+            emitEndedEvent = true;
+            endedIndex = finishedIdx;
         }
     }
 
     ~DeferredEndCallback()
     {
+        if (emitEndedEvent && engine != nullptr)
+        {
+            push_engine_event(engine, AE_EVENT_TRACK_ENDED, endedIndex, 0, 0, nullptr);
+        }
         if (callback != nullptr)
         {
             callback(userData, engine);
@@ -7899,6 +8238,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     while (!e->decodeProducerExit.load(std::memory_order_relaxed))
     {
         e->garbageQueue.drain();
+        flush_pending_underrun_event(e);
         DeferredEndCallback deferredEnd(e);
         try
         {
@@ -8036,10 +8376,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     {
                         if (e->hasNext)
                         {
-                            if (e->endCallback != nullptr)
-                            {
-                                deferredEnd.arm();
-                            }
+                            deferredEnd.arm(e->currentIndex);
                             e->decoderEofReached.store(false, std::memory_order_release);
                             uninit_decoder_slot(
                                 e,
@@ -8054,6 +8391,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->currentStream = e->nextStream;
 #endif
                             e->currentLengthFrames = e->nextLengthFrames;
+                            const int prevIdx = e->currentIndex;
                             e->currentIndex = e->nextIndex;
                             sync_active_dsd_from_decoder(e, e->currentDecoder);
                 sync_processing_channels_for_decoder(e, e->currentDecoder, false);
@@ -8062,7 +8400,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
-                            reset_playback_position(e, 0);
+                            const ma_uint64 trimDec = e->nextTrackLeadingTrimFrames.exchange(0, std::memory_order_relaxed);
+                            const int engSrTmp = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                            const int decSrTmp = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                                ? (int)e->currentDecoder->outputSampleRate
+                                : engSrTmp;
+                            reset_playback_position(e, convert_frame_rate(trimDec, decSrTmp, engSrTmp));
+                            reset_silence_skipper_state_locked(e);
 
                             e->hasNext = false;
                             e->nextDecoder = nullptr;
@@ -8071,6 +8415,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 #endif
                             e->nextIndex = -1;
                             e->nextLengthFrames = 0;
+                            push_engine_event(e, AE_EVENT_TRACK_CHANGED, e->currentIndex, prevIdx, 0, nullptr);
                             arm_transition_fade_in(e);
                             request_preload(e);
                             continue;
@@ -8078,13 +8423,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                         if (e->loopMode == AE_LOOP_ONE && e->hasCurrent)
                         {
-                            if (e->endCallback != nullptr)
-                            {
-                                deferredEnd.arm();
-                            }
+                            deferredEnd.arm(e->currentIndex);
                             e->decoderEofReached.store(false, std::memory_order_release);
                             (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
                             reset_playback_position(e, 0);
+                            reset_silence_skipper_state_locked(e);
                             continue;
                         }
 
@@ -8100,10 +8443,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                         if (autoNextIndex >= 0 && autoNextIndex != e->currentIndex)
                         {
-                            if (e->endCallback != nullptr)
-                            {
-                                deferredEnd.arm();
-                            }
+                            deferredEnd.arm(e->currentIndex);
                             e->decoderEofReached.store(false, std::memory_order_release);
                             uninit_decoder_slot(
                                 e,
@@ -8129,10 +8469,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
                             continue;
                         }
-                        if (e->endCallback != nullptr)
-                        {
-                            deferredEnd.arm();
-                        }
+                        deferredEnd.arm(e->currentIndex);
                         set_playing_state(e, false);
                         continue;
                     }
@@ -8370,8 +8707,14 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->currentStream = e->nextStream;
 #endif
                             e->currentLengthFrames = e->nextLengthFrames;
+                            const int prevIdx = e->currentIndex;
                             e->currentIndex = e->nextIndex;
-                            reset_playback_position(e, 0);
+                            const ma_uint64 trimDec = e->nextTrackLeadingTrimFrames.exchange(0, std::memory_order_relaxed);
+                            const int decSrTrim = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                                ? (int)e->currentDecoder->outputSampleRate
+                                : engSr;
+                            reset_playback_position(e, convert_frame_rate(trimDec, decSrTrim, engSr));
+                            reset_silence_skipper_state_locked(e);
                             sync_active_dsd_from_decoder(e, e->currentDecoder);
                 sync_processing_channels_for_decoder(e, e->currentDecoder, false);
 
@@ -8397,6 +8740,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                     {
                                         engine_log("Auto Sample-Rate Match: Early crossfade track resolves to %d Hz (current hardware rate: %d Hz). Requesting deferred DAC switch...", targetHwRate, e->deviceSampleRate);
                                         e->pendingAutoSampleRateMatchRate.store(targetHwRate, std::memory_order_release);
+                                        push_engine_event(e, AE_EVENT_RATE_CHANGE_PENDING, targetHwRate, 0, 0, nullptr);
                                     }
                                 }
                             }
@@ -8409,10 +8753,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->nextIndex = -1;
                             e->nextLengthFrames = 0;
 
-                            if (e->endCallback != nullptr)
-                            {
-                                deferredEnd.arm();
-                            }
+                            deferredEnd.arm(prevIdx);
+                            push_engine_event(e, AE_EVENT_TRACK_CHANGED, e->currentIndex, prevIdx, 0, nullptr);
 
                             request_preload(e);
                         }
@@ -8729,6 +9071,18 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
             }
 
+            if (e->currentDecoder != nullptr)
+            {
+                const sautiflow::StreamTelemetry telNow = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+                const int stNow = static_cast<int>(telNow.state);
+                const int stPrev = e->lastEmittedStreamState.load(std::memory_order_relaxed);
+                if (stNow != stPrev && (stNow != 0 || stPrev != -999))
+                {
+                    e->lastEmittedStreamState.store(stNow, std::memory_order_relaxed);
+                    push_engine_event(e, AE_EVENT_STREAM_STATE_CHANGED, stNow, static_cast<int>(telNow.errorCode), 0, nullptr);
+                }
+            }
+
             bool isRealEof = (r == MA_AT_END && framesRead == 0 && e->tempoProcessor.availableOutputFrames() == 0);
             if (!isRealEof && framesRead == 0 && e->currentDecoder != nullptr)
             {
@@ -8736,6 +9090,61 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (tel.state == sautiflow::StreamState::Ended)
                 {
                     isRealEof = true;
+                }
+            }
+
+            if (!isRealEof && produced > 0 &&
+                e->edgeTrimEnabled.load(std::memory_order_relaxed) &&
+                !e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+                e->activeDsdMode.load(std::memory_order_acquire) == 0 &&
+                e->currentLengthFrames > 0 &&
+                e->currentDecoder != nullptr)
+            {
+                const int trailingMs = e->silenceTrailingTriggerMs.load(std::memory_order_relaxed);
+                if (trailingMs > 0)
+                {
+                    ma_uint64 curDec = 0;
+                    if (ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &curDec) == MA_SUCCESS)
+                    {
+                        const int decSr = (e->currentDecoder->outputSampleRate > 0)
+                                              ? (int)e->currentDecoder->outputSampleRate
+                                              : sr;
+                        const double remainSec = (e->currentLengthFrames > curDec)
+                                                     ? (double)(e->currentLengthFrames - curDec) / (double)decSr
+                                                     : 0.0;
+                        if (remainSec <= 20.0)
+                        {
+                            const float threshDb = std::clamp(e->silenceThresholdDb.load(std::memory_order_relaxed), -80.0f, -10.0f);
+                            const double threshPwr = std::pow(10.0, (double)threshDb / 10.0);
+                            double sumSq = 0.0;
+                            const size_t nSamp = (size_t)produced * ch;
+                            for (size_t si = 0; si < nSamp; ++si)
+                            {
+                                const double s = (double)tempChunk[si];
+                                sumSq += s * s;
+                            }
+                            const double meanPwr = sumSq / (double)std::max<size_t>(1, nSamp);
+                            if (meanPwr < threshPwr)
+                            {
+                                e->trailingSilenceRunFrames += produced;
+                                const ma_uint64 triggerFrames = (ma_uint64)trailingMs * (ma_uint64)sr / 1000u;
+                                if (e->trailingSilenceRunFrames >= triggerFrames)
+                                {
+                                    e->trailingSilenceRunFrames = 0;
+                                    produced = 0;
+                                    isRealEof = true;
+                                }
+                            }
+                            else
+                            {
+                                e->trailingSilenceRunFrames = 0;
+                            }
+                        }
+                        else
+                        {
+                            e->trailingSilenceRunFrames = 0;
+                        }
+                    }
                 }
             }
 
@@ -8751,10 +9160,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 if (e->hasNext)
                 {
-                    if (e->endCallback != nullptr)
-                    {
-                        deferredEnd.arm();
-                    }
+                    deferredEnd.arm(e->currentIndex);
                     e->decoderEofReached.store(false, std::memory_order_release);
                     uninit_decoder_slot(
                         e,
@@ -8794,18 +9200,24 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->paramNormalizerGain.current = promotedNorm;
                     e->paramNormalizerGain.setTarget(promotedNorm);
 
-                    const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                    const int srCur = (e->sampleRate > 0) ? e->sampleRate : 48000;
                     const float targetLufs = e->loudnessMeter.normalizerTargetLUFS.load(std::memory_order_relaxed);
                     const float seedLufs = targetLufs - 20.0f * std::log10(promotedNorm > 1e-4f ? promotedNorm : 1.0f);
-                    e->loudnessMeter.reset(sr, seedLufs);
+                    e->loudnessMeter.reset(srCur, seedLufs);
                     e->currentDecoder = e->nextDecoder;
 #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                     e->currentStream = e->nextStream;
 #endif
                     e->currentLengthFrames = e->nextLengthFrames;
+                    const int prevIdx = e->currentIndex;
                     e->currentIndex = e->nextIndex;
                     e->hasCurrent = true;
-                    reset_playback_position(e, 0);
+                    const ma_uint64 trimDec = e->nextTrackLeadingTrimFrames.exchange(0, std::memory_order_relaxed);
+                    const int decSrTrim = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                        ? (int)e->currentDecoder->outputSampleRate
+                        : srCur;
+                    reset_playback_position(e, convert_frame_rate(trimDec, decSrTrim, srCur));
+                    reset_silence_skipper_state_locked(e);
                     reset_track_resampler_locked(e);
                     e->abRepeatEnabled.store(false, std::memory_order_release);
                     sync_active_dsd_from_decoder(e, e->currentDecoder);
@@ -8833,6 +9245,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                  (e->deviceSampleRate <= 0 && targetHwRate != e->outputSampleRate)))
                             {
                                 e->pendingAutoSampleRateMatchRate.store(targetHwRate, std::memory_order_release);
+                                push_engine_event(e, AE_EVENT_RATE_CHANGE_PENDING, targetHwRate, 0, 0, nullptr);
                             }
                         }
                     }
@@ -8844,6 +9257,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 #endif
                     e->nextIndex = -1;
                     e->nextLengthFrames = 0;
+                    push_engine_event(e, AE_EVENT_TRACK_CHANGED, e->currentIndex, prevIdx, 0, nullptr);
                     arm_transition_fade_in(e);
                     request_preload(e);
                     continue;
@@ -8851,13 +9265,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 if (e->loopMode == AE_LOOP_ONE && e->hasCurrent)
                 {
-                    if (e->endCallback != nullptr)
-                    {
-                        deferredEnd.arm();
-                    }
+                    deferredEnd.arm(e->currentIndex);
                     e->decoderEofReached.store(false, std::memory_order_release);
                     (void)ma_decoder_seek_to_pcm_frame(e->currentDecoder, 0);
                     reset_playback_position(e, 0);
+                    reset_silence_skipper_state_locked(e);
                     reset_track_resampler_locked(e);
                     continue;
                 }
@@ -8875,10 +9287,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 if (autoNextIndex >= 0 && autoNextIndex != e->currentIndex)
                 {
-                    if (e->endCallback != nullptr)
-                    {
-                        deferredEnd.arm();
-                    }
+                    deferredEnd.arm(e->currentIndex);
                     e->decoderEofReached.store(false, std::memory_order_release);
                     uninit_decoder_slot(
                         e,
@@ -8904,13 +9313,136 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     e->decodeProducerCv.wait_for(lk, std::chrono::milliseconds(10));
                     continue;
                 }
-                if (e->endCallback != nullptr)
-                {
-                    deferredEnd.arm();
-                }
+                deferredEnd.arm(e->currentIndex);
                 set_playing_state(e, false);
                 continue;
             }
+        }
+
+        if (produced > 0 &&
+            e->skipSilenceEnabled.load(std::memory_order_relaxed) &&
+            !e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+            e->activeDsdMode.load(std::memory_order_acquire) == 0 &&
+            !e->isCrossfading.load(std::memory_order_acquire))
+        {
+            const float threshDb = std::clamp(e->silenceThresholdDb.load(std::memory_order_relaxed), -80.0f, -10.0f);
+            const double threshPwr = std::pow(10.0, (double)threshDb / 10.0);
+            const ma_uint64 minSilFrames = (ma_uint64)std::max(50, e->silenceMinMs.load(std::memory_order_relaxed)) * (ma_uint64)sr / 1000u;
+            const ma_uint64 keepSilFrames = (ma_uint64)std::max(0, e->silenceKeepMs.load(std::memory_order_relaxed)) * (ma_uint64)sr / 1000u;
+            const float speedFactor = e->silenceSpeedFactor.load(std::memory_order_relaxed);
+            const ma_uint32 subFrames = std::max<ma_uint32>(1u, (ma_uint32)(sr / 100)); // ~10 ms sub-blocks
+
+            ma_uint32 readPos = 0;
+            ma_uint32 writePos = 0;
+            ma_uint64 skippedFrames = 0;
+
+            while (readPos < produced)
+            {
+                const ma_uint32 n = std::min(subFrames, produced - readPos);
+                double sumSq = 0.0;
+                for (ma_uint32 i = 0; i < n; ++i)
+                {
+                    const size_t base = (size_t)(readPos + i) * ch;
+                    for (size_t c = 0; c < ch; ++c)
+                    {
+                        const double s = (double)tempChunk[base + c];
+                        sumSq += s * s;
+                    }
+                }
+                const double meanPwr = sumSq / (double)(n * ch);
+                const bool isSilent = (meanPwr < threshPwr);
+
+                if (isSilent)
+                {
+                    e->silenceRunFrames += n;
+                    if (e->silenceRunFrames <= minSilFrames || e->silenceRunFrames <= keepSilFrames)
+                    {
+                        if (writePos != readPos)
+                        {
+                            std::memmove(
+                                tempChunk.data() + (size_t)writePos * ch,
+                                tempChunk.data() + (size_t)readPos * ch,
+                                (size_t)n * ch * sizeof(float));
+                        }
+                        writePos += n;
+                    }
+                    else
+                    {
+                        e->silenceSkippingActive = true;
+                        if (speedFactor > 1.05f)
+                        {
+                            const double step = (double)std::clamp(speedFactor, 1.1f, 6.0f);
+                            ma_uint32 emitted = 0;
+                            double phase = e->silenceSpeedPhase;
+                            while (phase < (double)n)
+                            {
+                                const ma_uint32 srcIdx = std::min<ma_uint32>(n - 1, (ma_uint32)phase);
+                                const size_t dstBase = (size_t)(writePos + emitted) * ch;
+                                const size_t srcBase = (size_t)(readPos + srcIdx) * ch;
+                                for (size_t c = 0; c < ch; ++c)
+                                {
+                                    tempChunk[dstBase + c] = tempChunk[srcBase + c];
+                                }
+                                emitted++;
+                                phase += step;
+                            }
+                            e->silenceSpeedPhase = phase - (double)n;
+                            writePos += emitted;
+                            if (n > emitted)
+                            {
+                                skippedFrames += (ma_uint64)(n - emitted);
+                            }
+                        }
+                        else
+                        {
+                            skippedFrames += (ma_uint64)n;
+                        }
+                    }
+                }
+                else
+                {
+                    if (e->silenceSkippingActive)
+                    {
+                        e->silenceSkippingActive = false;
+                        e->silenceSpeedPhase = 0.0;
+                        const uint32_t fadeN = (uint32_t)std::max(1, sr * 12 / 1000);
+                        e->silenceFadeInFramesTotal = fadeN;
+                        e->silenceFadeInFramesLeft = fadeN;
+                    }
+                    e->silenceRunFrames = 0;
+
+                    if (writePos != readPos)
+                    {
+                        std::memmove(
+                            tempChunk.data() + (size_t)writePos * ch,
+                            tempChunk.data() + (size_t)readPos * ch,
+                            (size_t)n * ch * sizeof(float));
+                    }
+                    if (e->silenceFadeInFramesLeft > 0)
+                    {
+                        for (ma_uint32 i = 0; i < n && e->silenceFadeInFramesLeft > 0; ++i)
+                        {
+                            const uint32_t done = e->silenceFadeInFramesTotal - e->silenceFadeInFramesLeft;
+                            const float g = (float)done / (float)std::max<uint32_t>(1u, e->silenceFadeInFramesTotal);
+                            const size_t base = (size_t)(writePos + i) * ch;
+                            for (size_t c = 0; c < ch; ++c)
+                            {
+                                tempChunk[base + c] *= g;
+                            }
+                            e->silenceFadeInFramesLeft--;
+                        }
+                    }
+                    writePos += n;
+                }
+                readPos += n;
+            }
+
+            if (skippedFrames > 0)
+            {
+                e->skippedSilenceFramesTotal.fetch_add(skippedFrames, std::memory_order_relaxed);
+                e->seekBasePcmFrame.fetch_add(skippedFrames, std::memory_order_relaxed);
+            }
+            produced = writePos;
         }
 
         if (produced > 0)
@@ -9308,7 +9840,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
             prevPlayed >= preRollThreshold &&
             !e->decoderEofReached.load(std::memory_order_acquire))
         {
-            e->underrunCount.fetch_add(expectedFrames - (ma_uint64)produced, std::memory_order_relaxed);
+            const ma_uint64 missing = expectedFrames - (ma_uint64)produced;
+            e->underrunCount.fetch_add(missing, std::memory_order_relaxed);
+            e->pendingUnderrunEventFrames.fetch_add(missing, std::memory_order_relaxed);
         }
 
         // =====================================================================
@@ -13103,6 +13637,120 @@ static void data_callback(ma_device *pDevice, void *pOutput, const void *, ma_ui
     }
 #endif
 
+#if !defined(__ANDROID__)
+static std::string serialize_ma_device_id(ma_backend backend, const ma_device_id &id)
+{
+    switch (backend)
+    {
+#if defined(_WIN32) || defined(_WIN64)
+    case ma_backend_wasapi:
+    {
+        const wchar_t *ws = reinterpret_cast<const wchar_t *>(id.wasapi);
+        size_t wlen = wcsnlen(ws, 64);
+        if (wlen == 0)
+            return "wasapi:";
+        int needed = WideCharToMultiByte(CP_UTF8, 0, ws, (int)wlen, nullptr, 0, nullptr, nullptr);
+        std::string utf8(needed > 0 ? (size_t)needed : 0, '\0');
+        if (needed > 0)
+        {
+            WideCharToMultiByte(CP_UTF8, 0, ws, (int)wlen, &utf8[0], needed, nullptr, nullptr);
+        }
+        return std::string("wasapi:") + utf8;
+    }
+    case ma_backend_winmm:
+        return std::string("winmm:") + std::to_string(id.winmm);
+#endif
+    case ma_backend_coreaudio:
+        return std::string("coreaudio:") + std::string(id.coreaudio, strnlen(id.coreaudio, sizeof(id.coreaudio)));
+    case ma_backend_alsa:
+        return std::string("alsa:") + std::string(id.alsa, strnlen(id.alsa, sizeof(id.alsa)));
+    case ma_backend_pulseaudio:
+        return std::string("pulse:") + std::string(id.pulse, strnlen(id.pulse, sizeof(id.pulse)));
+    default:
+    {
+        static const char hexDigits[] = "0123456789abcdef";
+        const uint8_t *raw = reinterpret_cast<const uint8_t *>(&id);
+        std::string out = "raw:";
+        out.reserve(4 + sizeof(id) * 2);
+        for (size_t i = 0; i < sizeof(id); ++i)
+        {
+            out.push_back(hexDigits[(raw[i] >> 4) & 0x0F]);
+            out.push_back(hexDigits[raw[i] & 0x0F]);
+        }
+        return out;
+    }
+    }
+}
+
+// Caller must hold e->deviceMutex.
+static ma_context *ensure_output_context_locked(AudioEngineHandle *e, bool wantLinuxAlsaExclusive)
+{
+    if (!e)
+        return nullptr;
+#if defined(__linux__) && !defined(__ANDROID__)
+    if (e->outputContextInit && e->outputContextIsAlsaExcl != wantLinuxAlsaExclusive)
+    {
+        if (e->device.pContext == nullptr)
+        {
+            ma_context_uninit(&e->outputContext);
+            e->outputContextInit = false;
+        }
+    }
+    if (!e->outputContextInit)
+    {
+        if (wantLinuxAlsaExclusive)
+        {
+            ma_backend alsaBackend = ma_backend_alsa;
+            if (ma_context_init(&alsaBackend, 1, nullptr, &e->outputContext) == MA_SUCCESS)
+            {
+                e->outputContextInit = true;
+                e->outputContextIsAlsaExcl = true;
+            }
+        }
+        if (!e->outputContextInit)
+        {
+            if (ma_context_init(nullptr, 0, nullptr, &e->outputContext) == MA_SUCCESS)
+            {
+                e->outputContextInit = true;
+                e->outputContextIsAlsaExcl = false;
+            }
+        }
+    }
+#else
+    (void)wantLinuxAlsaExclusive;
+    if (!e->outputContextInit)
+    {
+        if (ma_context_init(nullptr, 0, nullptr, &e->outputContext) == MA_SUCCESS)
+        {
+            e->outputContextInit = true;
+            e->outputContextIsAlsaExcl = false;
+        }
+    }
+#endif
+    return e->outputContextInit ? &e->outputContext : nullptr;
+}
+
+// Caller must hold e->deviceMutex.
+static bool resolve_selected_device_id_locked(AudioEngineHandle *e, ma_context *pCtx, ma_device_id *outId)
+{
+    if (!e || !pCtx || !outId || !e->hasSelectedOutputDevice || e->selectedOutputDeviceIdStr.empty())
+        return false;
+    ma_device_info *pPlaybackInfos = nullptr;
+    ma_uint32 playbackCount = 0;
+    if (ma_context_get_devices(pCtx, &pPlaybackInfos, &playbackCount, nullptr, nullptr) != MA_SUCCESS || pPlaybackInfos == nullptr)
+        return false;
+    for (ma_uint32 i = 0; i < playbackCount; ++i)
+    {
+        if (serialize_ma_device_id(pCtx->backend, pPlaybackInfos[i].id) == e->selectedOutputDeviceIdStr)
+        {
+            *outId = pPlaybackInfos[i].id;
+            return true;
+        }
+    }
+    return false;
+}
+#endif
+
 // Caller must hold e->deviceMutex.
 static void ensure_output_started_locked(AudioEngineHandle *e, const char *caller)
 {
@@ -13234,6 +13882,9 @@ static void release_output_locked(AudioEngineHandle *e, bool destroySinks = fals
 
 extern "C"
 {
+#if !defined(__ANDROID__)
+    static void device_notification_callback(const ma_device_notification *pNotification);
+#endif
     AE_API AudioEngineHandle *ae_create_engine(int sample_rate, int channels)
 
     {
@@ -13399,6 +14050,7 @@ extern "C"
         cfg.wasapi.noAutoConvertSRC = 1;
         cfg.wasapi.noDefaultQualitySRC = 1;
         cfg.dataCallback = data_callback;
+        cfg.notificationCallback = device_notification_callback;
         cfg.pUserData = e;
         apply_buffer_policy(e, cfg);
 
@@ -13407,9 +14059,19 @@ extern "C"
         // into the PCM ring buffer (r8brain operates strictly at 1:1 in the audio callback).
         cfg.resampling.algorithm = ma_resample_algorithm_linear;
 
-        if (ma_device_init(nullptr, &cfg, &e->device) != MA_SUCCESS)
+        ma_context *pInitCtx = nullptr;
+        {
+            std::lock_guard<std::mutex> devLock(e->deviceMutex);
+            pInitCtx = ensure_output_context_locked(e, false);
+        }
+        if (ma_device_init(pInitCtx, &cfg, &e->device) != MA_SUCCESS)
         {
             set_last_error(e, "Failed to initialize playback device.");
+            if (e->outputContextInit)
+            {
+                ma_context_uninit(&e->outputContext);
+                e->outputContextInit = false;
+            }
             delete e;
             return nullptr;
         }
@@ -13466,6 +14128,11 @@ extern "C"
             set_last_error(e, "Failed to start playback device.");
             ma_device_uninit(&e->device);
             e->activeOut.initialized = false;
+            if (e->outputContextInit)
+            {
+                ma_context_uninit(&e->outputContext);
+                e->outputContextInit = false;
+            }
             delete e;
             return nullptr;
         }
@@ -13491,6 +14158,16 @@ extern "C"
             return;
 
         engine_log("destroy_engine begin");
+        {
+            std::lock_guard<std::mutex> evLock(e->eventMutex);
+            e->eventWakeCallback = nullptr;
+            e->pEventWakeUserData = nullptr;
+        }
+        {
+            std::lock_guard<std::mutex> d(e->decoderMutex);
+            e->endCallback = nullptr;
+            e->pEndCallbackUserData = nullptr;
+        }
 #if defined(__ANDROID__)
         {
             std::lock_guard<std::mutex> usbDispLock(g_usbHotplugDispatchMutex);
@@ -13576,6 +14253,13 @@ extern "C"
         {
             std::lock_guard<std::mutex> devLock(e->deviceMutex);
             release_output_locked(e, /*destroySinks=*/true);
+#if !defined(__ANDROID__)
+            if (e->outputContextInit)
+            {
+                ma_context_uninit(&e->outputContext);
+                e->outputContextInit = false;
+            }
+#endif
         }
 
         e->garbageQueue.drain();
@@ -13979,6 +14663,7 @@ extern "C"
                 e->pitchInputUnconsumed = 0;
             }
             e->tempoProcessor.reset();
+            reset_silence_skipper_state_locked(e);
         }
 #if defined(__ANDROID__)
         {
@@ -13986,6 +14671,64 @@ extern "C"
             stop_output_locked(e);
         }
 #endif
+        return true;
+    }
+
+    static bool seek_to_decoder_frame_locked(AudioEngineHandle *e, ma_uint64 targetDec)
+    {
+        if (e == nullptr || !e->hasCurrent || e->currentDecoder == nullptr)
+        {
+            set_last_error(e, "Seek failed: no active track.");
+            return false;
+        }
+
+        if (e->currentLengthFrames == 0)
+        {
+            ma_uint64 len = 0;
+            if (ma_decoder_get_length_in_pcm_frames(e->currentDecoder, &len) == MA_SUCCESS && len > 0)
+            {
+                e->currentLengthFrames = len;
+            }
+        }
+
+        const sautiflow::StreamTelemetry tel = sautiflow::get_stream_telemetry_from_decoder(e->currentDecoder);
+        if (tel.state != sautiflow::StreamState::Idle &&
+            (tel.isLiveStream || (!tel.isSeekable && e->currentLengthFrames == 0)))
+        {
+            set_last_error(e, "Seek failed: unseekable live stream.");
+            return false;
+        }
+
+        if (e->currentLengthFrames > 0 && targetDec > e->currentLengthFrames)
+        {
+            targetDec = e->currentLengthFrames;
+        }
+
+        const bool ok = ma_decoder_seek_to_pcm_frame(e->currentDecoder, targetDec) == MA_SUCCESS;
+        if (!ok)
+        {
+            set_last_error(e, "Seek failed in decoder.");
+            return false;
+        }
+
+        const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+        const int decSr = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                              ? (int)e->currentDecoder->outputSampleRate
+                              : engineSr;
+        const ma_uint64 targetEngine = convert_frame_rate(targetDec, decSr, engineSr);
+        e->pcmRingBuffer.reset();
+        e->pcmDirectRingBuffer.reset();
+        e->flushCastRing();
+        reset_playback_position(e, targetEngine);
+        reset_silence_skipper_state_locked(e);
+        reset_track_resampler_locked(e);
+        if (e->pitchResamplerInit)
+        {
+            ma_resampler_reset(&e->pitchResampler);
+            e->pitchInputUnconsumed = 0;
+        }
+        e->tempoProcessor.reset();
+        clear_last_error(e);
         return true;
     }
 
@@ -14014,30 +14757,46 @@ extern "C"
             return false;
         }
 
-        ma_uint64 targetDec = (ma_uint64)((double)e->currentLengthFrames * p);
-        const bool ok = ma_decoder_seek_to_pcm_frame(e->currentDecoder, targetDec) == MA_SUCCESS;
-        if (!ok)
-            set_last_error(e, "Seek failed in decoder.");
-        else
+        const ma_uint64 targetDec = (ma_uint64)((double)e->currentLengthFrames * p);
+        const bool ok = seek_to_decoder_frame_locked(e, targetDec);
+        e->ringBufferFlushing.store(false, std::memory_order_release);
+        e->decodeProducerCv.notify_one();
+        return ok;
+    }
+
+    AE_API bool ae_seek_to_seconds(AudioEngineHandle *e, double seconds)
+    {
+        if (e == nullptr)
+            return false;
+        if (!std::isfinite(seconds) || seconds < 0.0)
+            seconds = 0.0;
+
+        e->ringBufferFlushing.store(true, std::memory_order_release);
+        std::lock_guard<std::mutex> d(e->decoderMutex);
+        if (!e->hasCurrent || e->currentDecoder == nullptr)
         {
-            const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
-            const int decSr = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
-                                  ? (int)e->currentDecoder->outputSampleRate
-                                  : engineSr;
-            const ma_uint64 targetEngine = convert_frame_rate(targetDec, decSr, engineSr);
-            e->pcmRingBuffer.reset();
-            e->pcmDirectRingBuffer.reset();
-            e->flushCastRing();
-            reset_playback_position(e, targetEngine);
-            reset_track_resampler_locked(e);
-            if (e->pitchResamplerInit)
-            {
-                ma_resampler_reset(&e->pitchResampler);
-                e->pitchInputUnconsumed = 0;
-            }
-            e->tempoProcessor.reset();
-            clear_last_error(e);
+            set_last_error(e, "Seek failed: no active track.");
+            e->ringBufferFlushing.store(false, std::memory_order_release);
+            return false;
         }
+        const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+        const int decSr = (e->currentDecoder->outputSampleRate > 0)
+                              ? (int)e->currentDecoder->outputSampleRate
+                              : engineSr;
+        const ma_uint64 targetDec = (ma_uint64)std::llround(seconds * (double)decSr);
+        const bool ok = seek_to_decoder_frame_locked(e, targetDec);
+        e->ringBufferFlushing.store(false, std::memory_order_release);
+        e->decodeProducerCv.notify_one();
+        return ok;
+    }
+
+    AE_API bool ae_seek_to_pcm_frame(AudioEngineHandle *e, uint64_t frame_index)
+    {
+        if (e == nullptr)
+            return false;
+        e->ringBufferFlushing.store(true, std::memory_order_release);
+        std::lock_guard<std::mutex> d(e->decoderMutex);
+        const bool ok = seek_to_decoder_frame_locked(e, static_cast<ma_uint64>(frame_index));
         e->ringBufferFlushing.store(false, std::memory_order_release);
         e->decodeProducerCv.notify_one();
         return ok;
@@ -14152,6 +14911,7 @@ extern "C"
         e->currentStream = nextSt;
 #endif
         e->currentLengthFrames = nextLen;
+        const int prevIdx = e->currentIndex;
         e->currentIndex = nextIdx;
         e->hasCurrent = true;
 
@@ -14166,7 +14926,17 @@ extern "C"
             e->sourceChannels = (int)nativeCh;
         }
         sync_active_dsd_from_decoder(e, e->currentDecoder);
-        reset_playback_position(e, 0);
+        const ma_uint64 trimDec = fromPreloadedNext ? e->nextTrackLeadingTrimFrames.exchange(0, std::memory_order_relaxed) : 0;
+        const int engSrTmp = (e->sampleRate > 0) ? e->sampleRate : 48000;
+        const int decSrTmp = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+            ? (int)e->currentDecoder->outputSampleRate
+            : engSrTmp;
+        reset_playback_position(e, convert_frame_rate(trimDec, decSrTmp, engSrTmp));
+        reset_silence_skipper_state_locked(e);
+        if (nextIdx != prevIdx)
+        {
+            push_engine_event(e, AE_EVENT_TRACK_CHANGED, nextIdx, prevIdx, 0, nullptr);
+        }
 
         if (fromPreloadedNext)
         {
@@ -14410,11 +15180,13 @@ extern "C"
                 e->currentStream = newCurrentStream;
 #endif
                 e->currentLengthFrames = newCurrentLen;
+                const int prevTrackIdx = e->currentIndex;
                 e->currentIndex = jumpIndex;
                 e->hasCurrent = (newCurrent != nullptr);
                 sync_processing_channels_for_decoder(e, newCurrent, false);
                 arm_transition_fade_in(e);
                 apply_initial_track_loudness(e, newCurrent, path);
+                reset_silence_skipper_state_locked(e);
 
                 ma_uint64 startFrameEngine = 0;
                 if (hasPendingSeek)
@@ -14443,8 +15215,31 @@ extern "C"
                     e->pendingSeekSeconds.store(-1.0, std::memory_order_release);
                     e->pendingSeekIndex.store(-1, std::memory_order_release);
                 }
+                else if (e->currentDecoder != nullptr &&
+                         e->edgeTrimEnabled.load(std::memory_order_relaxed) &&
+                         !is_network_url(path) &&
+                         !e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+                         e->activeDsdMode.load(std::memory_order_acquire) == 0)
+                {
+                    const ma_uint64 trimmedDec = detect_and_trim_leading_silence(
+                        e->currentDecoder,
+                        e->silenceThresholdDb.load(std::memory_order_relaxed));
+                    if (trimmedDec > 0)
+                    {
+                        const int engineSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                        const int decSr = (e->currentDecoder->outputSampleRate > 0)
+                                              ? (int)e->currentDecoder->outputSampleRate
+                                              : engineSr;
+                        startFrameEngine = convert_frame_rate(trimmedDec, decSr, engineSr);
+                    }
+                }
                 reset_playback_position(e, startFrameEngine);
                 reset_track_resampler_locked(e);
+                e->nextTrackLeadingTrimFrames.store(0, std::memory_order_relaxed);
+                if (jumpIndex != prevTrackIdx)
+                {
+                    push_engine_event(e, AE_EVENT_TRACK_CHANGED, jumpIndex, prevTrackIdx, 0, nullptr);
+                }
             }
 
             e->nextDecoder = nullptr;
@@ -14553,6 +15348,7 @@ extern "C"
                 e->nextStream = nullptr;
 #endif
                 e->currentLengthFrames = e->nextLengthFrames;
+                const int prevTrackIdx = e->currentIndex;
                 e->currentIndex = idx;
                 e->hasCurrent = true;
                 if (!nextIsDsd && nNativeRate > 0)
@@ -14567,7 +15363,13 @@ extern "C"
                 e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                 e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
                 e->nextTrackBpmExplicit.store(false, std::memory_order_relaxed);
-                reset_playback_position(e, 0);
+                const ma_uint64 trimDec = e->nextTrackLeadingTrimFrames.exchange(0, std::memory_order_relaxed);
+                const int engSrTmp = (e->sampleRate > 0) ? e->sampleRate : 48000;
+                const int decSrTmp = (e->currentDecoder != nullptr && e->currentDecoder->outputSampleRate > 0)
+                    ? (int)e->currentDecoder->outputSampleRate
+                    : engSrTmp;
+                reset_playback_position(e, convert_frame_rate(trimDec, decSrTmp, engSrTmp));
+                reset_silence_skipper_state_locked(e);
                 reset_track_resampler_locked(e);
                 e->hasNext = false;
                 e->nextDecoder = nullptr;
@@ -14576,6 +15378,10 @@ extern "C"
                 e->pcmRingBuffer.reset();
                 e->pcmDirectRingBuffer.reset();
                 e->flushCastRing();
+                if (idx != prevTrackIdx)
+                {
+                    push_engine_event(e, AE_EVENT_TRACK_CHANGED, idx, prevTrackIdx, 0, nullptr);
+                }
                 arm_transition_fade_in(e);
             }
         }
@@ -14771,12 +15577,7 @@ extern "C"
         const double pos = std::max(0.0, position_seconds);
         if (pos <= 0.01)
         {
-            e->pendingAutoPlay.store(true, std::memory_order_relaxed);
-            if (try_promote_preloaded_next(e, index))
-            {
-                clear_last_error(e);
-                return true;
-            }
+            return ae_jump_to(e, index);
         }
         const ma_uint64 frame = (ma_uint64)(pos * (double)e->sampleRate);
 
@@ -15172,6 +15973,54 @@ extern "C"
             st.deck_b_filter_cutoff_hz = 20.0f;
         }
         return st;
+    }
+
+    AE_API void ae_set_silence_config(AudioEngineHandle *e, const AESilenceConfig *config)
+    {
+        if (e == nullptr || config == nullptr)
+            return;
+        e->edgeTrimEnabled.store(config->edge_trim_enabled != 0, std::memory_order_relaxed);
+        e->skipSilenceEnabled.store(config->skip_silence_enabled != 0, std::memory_order_relaxed);
+        const float thresh = std::isfinite(config->threshold_db)
+            ? std::clamp(config->threshold_db, -80.0f, -10.0f)
+            : -45.0f;
+        e->silenceThresholdDb.store(thresh, std::memory_order_relaxed);
+        e->silenceMinMs.store(clampi(config->min_silence_ms, 50, 5000), std::memory_order_relaxed);
+        e->silenceKeepMs.store(clampi(config->keep_silence_ms, 0, 2000), std::memory_order_relaxed);
+        const float speed = (std::isfinite(config->silence_speed_factor) && config->silence_speed_factor > 1.05f)
+            ? std::clamp(config->silence_speed_factor, 1.1f, 6.0f)
+            : 0.0f;
+        e->silenceSpeedFactor.store(speed, std::memory_order_relaxed);
+        e->silenceTrailingTriggerMs.store(clampi(config->trailing_trigger_ms, 0, 15000), std::memory_order_relaxed);
+    }
+
+    AE_API void ae_get_silence_config(AudioEngineHandle *e, AESilenceConfig *out_config)
+    {
+        if (e == nullptr || out_config == nullptr)
+            return;
+        out_config->edge_trim_enabled = e->edgeTrimEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+        out_config->skip_silence_enabled = e->skipSilenceEnabled.load(std::memory_order_relaxed) ? 1 : 0;
+        out_config->threshold_db = e->silenceThresholdDb.load(std::memory_order_relaxed);
+        out_config->min_silence_ms = e->silenceMinMs.load(std::memory_order_relaxed);
+        out_config->keep_silence_ms = e->silenceKeepMs.load(std::memory_order_relaxed);
+        out_config->silence_speed_factor = e->silenceSpeedFactor.load(std::memory_order_relaxed);
+        out_config->trailing_trigger_ms = e->silenceTrailingTriggerMs.load(std::memory_order_relaxed);
+    }
+
+    AE_API uint64_t ae_get_skipped_silence_ms(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return 0;
+        const uint64_t frames = e->skippedSilenceFramesTotal.load(std::memory_order_relaxed);
+        const uint64_t sr = (e->sampleRate > 0) ? (uint64_t)e->sampleRate : 48000ULL;
+        return (frames * 1000ULL) / sr;
+    }
+
+    AE_API void ae_reset_skipped_silence_ms(AudioEngineHandle *e)
+    {
+        if (e == nullptr)
+            return;
+        e->skippedSilenceFramesTotal.store(0, std::memory_order_relaxed);
     }
 
     AE_API void ae_trigger_automix_transition(AudioEngineHandle *e)
@@ -17228,6 +18077,14 @@ extern "C"
             pNotification->type == ma_device_notification_type_rerouted)
         {
             engine_log("Audio device notification event %d received. Device route or state changed.", (int)pNotification->type);
+            if (pNotification->type == ma_device_notification_type_stopped)
+            {
+                push_engine_event(e, AE_EVENT_DEVICE_STOPPED, (int)pNotification->type, 0, 0, nullptr);
+            }
+            else
+            {
+                push_engine_event(e, AE_EVENT_DEVICE_REROUTED, (int)pNotification->type, 0, 0, nullptr);
+            }
         }
     }
 #endif
@@ -17265,6 +18122,30 @@ extern "C"
         if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &defaultOutAddr, 0, nullptr, &devIdSize, &devId) != noErr || devId == 0)
         {
             return false;
+        }
+        if (e->hasSelectedOutputDevice && e->selectedOutputDeviceIdStr.rfind("coreaudio:", 0) == 0)
+        {
+            const std::string uidStr = e->selectedOutputDeviceIdStr.substr(10);
+            if (!uidStr.empty())
+            {
+                CFStringRef cfUid = CFStringCreateWithCString(kCFAllocatorDefault, uidStr.c_str(), kCFStringEncodingUTF8);
+                if (cfUid != nullptr)
+                {
+                    AudioDeviceID translatedId = 0;
+                    AudioValueTranslation trans = { &cfUid, sizeof(cfUid), &translatedId, sizeof(translatedId) };
+                    UInt32 transSize = sizeof(trans);
+                    AudioObjectPropertyAddress transAddr = {
+                        kAudioHardwarePropertyTranslateUIDToDevice,
+                        kAudioObjectPropertyScopeGlobal,
+                        kAudioObjectPropertyElementMain
+                    };
+                    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &transAddr, 0, nullptr, &transSize, &trans) == noErr && translatedId != 0)
+                    {
+                        devId = translatedId;
+                    }
+                    CFRelease(cfUid);
+                }
+            }
         }
 
         AudioObjectPropertyAddress hogAddr = {
@@ -17845,22 +18726,31 @@ extern "C"
 
             if (!initOk)
             {
-                ma_context *pContextToUse = nullptr;
+                bool wantLinuxAlsaExcl = false;
+#if defined(__linux__) && !defined(__ANDROID__)
+                wantLinuxAlsaExcl = wantExclusive;
+#endif
+                ma_context *pContextToUse = ensure_output_context_locked(e, wantLinuxAlsaExcl);
+                ma_device_id selectedDevId{};
+                bool hasResolvedDevId = false;
+                if (e->hasSelectedOutputDevice && pContextToUse != nullptr)
+                {
+                    hasResolvedDevId = resolve_selected_device_id_locked(e, pContextToUse, &selectedDevId);
+                    if (hasResolvedDevId)
+                    {
+                        cfg.playback.pDeviceID = &selectedDevId;
+                    }
+                    else
+                    {
+                        engine_log("Selected output device '%s' unavailable; falling back to default device.",
+                                   e->selectedOutputDeviceIdStr.c_str());
+                        push_engine_event(e, AE_EVENT_DEVICE_REROUTED, 0, 0, 0, "Selected output device unavailable; fell back to system default.");
+                    }
+                }
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
                 if (wantExclusive)
                 {
                     (void)macos_configure_exclusive_hog(e, true, cfg.sampleRate);
-                }
-#elif defined(__linux__) && !defined(__ANDROID__)
-                if (wantExclusive)
-                {
-                    ma_backend alsaBackend = ma_backend_alsa;
-                    if (ma_context_init(&alsaBackend, 1, nullptr, &e->customContext) == MA_SUCCESS)
-                    {
-                        e->customContextInit = true;
-                        pContextToUse = &e->customContext;
-                        engine_log("Linux ALSA exclusive context initialized.");
-                    }
                 }
 #endif
                 if (isDsdTrackRestart && (desiredDsdMode == AE_DSD_MODE_NATIVE || desiredDsdMode == AE_DSD_MODE_DOP))
@@ -17984,12 +18874,6 @@ extern "C"
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
                         (void)macos_configure_exclusive_hog(e, false, 0);
 #endif
-                        if (e->customContextInit)
-                        {
-                            ma_context_uninit(&e->customContext);
-                            e->customContextInit = false;
-                            pContextToUse = nullptr;
-                        }
                     }
                 }
 
@@ -18041,11 +18925,25 @@ extern "C"
                         safeCfg.dataCallback = data_callback;
                         safeCfg.notificationCallback = device_notification_callback;
                         safeCfg.pUserData = e;
+                        if (hasResolvedDevId)
+                        {
+                            safeCfg.playback.pDeviceID = &selectedDevId;
+                        }
 
                         if (ma_device_init(pContextToUse, &safeCfg, &e->device) == MA_SUCCESS)
                         {
                             initOk = true;
                             engine_log("Failsafe baseline Shared Mode initialized successfully at %u Hz.", e->device.sampleRate);
+                        }
+                        else if (hasResolvedDevId)
+                        {
+                            safeCfg.playback.pDeviceID = nullptr;
+                            if (ma_device_init(pContextToUse, &safeCfg, &e->device) == MA_SUCCESS)
+                            {
+                                initOk = true;
+                                push_engine_event(e, AE_EVENT_DEVICE_REROUTED, 0, 0, 0, "Selected output device failed; fell back to default.");
+                                engine_log("Selected device failsafe failed; initialized system default at %u Hz.", e->device.sampleRate);
+                            }
                         }
                     }
                 }
@@ -18500,6 +19398,43 @@ extern "C"
         std::lock_guard<std::mutex> d(e->decoderMutex);
         e->endCallback = callback;
         e->pEndCallbackUserData = pUserData;
+    }
+
+    AE_API void ae_set_event_wakeup_callback(AudioEngineHandle *e, AE_EventWakeCallback callback, void *pUserData)
+    {
+        if (e == nullptr)
+            return;
+        bool shouldWakeImmediately = false;
+        {
+            std::lock_guard<std::mutex> lk(e->eventMutex);
+            e->eventWakeCallback = callback;
+            e->pEventWakeUserData = pUserData;
+            shouldWakeImmediately = (callback != nullptr && e->eventCount > 0);
+        }
+        if (shouldWakeImmediately)
+        {
+            e->eventWakePending.store(false, std::memory_order_release);
+            notify_event_wakeup(e);
+        }
+    }
+
+    AE_API int ae_poll_events(AudioEngineHandle *e, AEEvent *out_events, int max_count)
+    {
+        if (e == nullptr || out_events == nullptr || max_count <= 0)
+            return 0;
+
+        e->eventWakePending.store(false, std::memory_order_release);
+        flush_pending_underrun_event(e);
+
+        std::lock_guard<std::mutex> lk(e->eventMutex);
+        const int toCopy = std::min<int>(max_count, static_cast<int>(e->eventCount));
+        for (int i = 0; i < toCopy; ++i)
+        {
+            out_events[i] = e->eventQueue[e->eventHead];
+            e->eventHead = (e->eventHead + 1) % AudioEngineHandle::kEventQueueCap;
+            e->eventCount--;
+        }
+        return toCopy;
     }
 
     // Advanced Audio Controls
@@ -22285,6 +23220,354 @@ extern "C"
         return info;
     }
 
+    AE_API int ae_analyze_file(const char *file_path, uint32_t flags, float silence_threshold_db, AETrackAnalysis *out_result)
+    {
+        if (out_result == nullptr)
+            return 0;
+        std::memset(out_result, 0, sizeof(AETrackAnalysis));
+        out_result->integrated_lufs = -100.0f;
+        out_result->true_peak_dbtp = -100.0f;
+
+        if (file_path == nullptr || file_path[0] == '\0' || is_network_url(file_path))
+        {
+            return 0;
+        }
+
+        if ((flags & AE_ANALYZE_ALL) == 0)
+        {
+            flags |= AE_ANALYZE_ALL;
+        }
+        const float threshDb = (std::isfinite(silence_threshold_db) && silence_threshold_db < 0.0f)
+            ? std::clamp(silence_threshold_db, -80.0f, -10.0f)
+            : -50.0f;
+        const double threshPwr = std::pow(10.0, (double)threshDb / 10.0);
+
+        std::string pathStr(file_path);
+        ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 0, 0);
+        cfg.seekPointCount = 0;
+
+        {
+            auto &dsdOpts = sautiflow::dsd::tls_dsd_open_options();
+            dsdOpts = sautiflow::dsd::DsdOpenOptions{};
+            if (sautiflow::dsd::is_dsd_file_path(pathStr))
+            {
+                dsdOpts.mode = AE_DSD_MODE_D2P;
+            }
+        }
+
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+        static ma_decoding_backend_vtable *pDecoders[] = {
+            &sautiflow::dsd::g_ma_decoding_backend_vtable_dsd,
+            &g_ma_decoding_backend_vtable_ffmpeg
+        };
+        sautiflow::FFmpegDecoderInitConfig ffmpegInitCfg{0, 0, false, 500, 1500, 10};
+        cfg.pCustomBackendUserData = &ffmpegInitCfg;
+        cfg.ppCustomBackendVTables = pDecoders;
+        cfg.customBackendCount = 2;
+#else
+        static ma_decoding_backend_vtable *pDecoders[] = {
+            &sautiflow::dsd::g_ma_decoding_backend_vtable_dsd
+        };
+        cfg.pCustomBackendUserData = nullptr;
+        cfg.ppCustomBackendVTables = pDecoders;
+        cfg.customBackendCount = 1;
+#endif
+
+        ma_decoder decoder{};
+        ma_result r = MA_ERROR;
+#if defined(_WIN32) || defined(_WIN64)
+        std::wstring wpath = utf8_to_wstring(pathStr);
+        r = ma_decoder_init_file_w(wpath.c_str(), &cfg, &decoder);
+#else
+        r = ma_decoder_init_file(pathStr.c_str(), &cfg, &decoder);
+#endif
+
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+        if (r != MA_SUCCESS)
+        {
+            decoder = ma_decoder{};
+            ffmpegInitCfg.forceFallback = true;
+            cfg.pCustomBackendUserData = &ffmpegInitCfg;
+#if defined(_WIN32) || defined(_WIN64)
+            r = ma_decoder_init_file_w(wpath.c_str(), &cfg, &decoder);
+#else
+            r = ma_decoder_init_file(pathStr.c_str(), &cfg, &decoder);
+#endif
+        }
+#endif
+
+        if (r != MA_SUCCESS)
+        {
+            return 0;
+        }
+
+        const int sr = (decoder.outputSampleRate > 0) ? (int)decoder.outputSampleRate : 48000;
+        const int ch = (decoder.outputChannels > 0) ? (int)decoder.outputChannels : 2;
+        const bool wantLoudness = (flags & AE_ANALYZE_LOUDNESS) != 0;
+        const bool wantTruePeak = (flags & AE_ANALYZE_TRUE_PEAK) != 0;
+        const bool wantBpm = (flags & AE_ANALYZE_BPM) != 0;
+        const bool wantSilence = (flags & AE_ANALYZE_SILENCE_BOUNDS) != 0;
+        const bool fastPreview = (flags & AE_ANALYZE_FAST_PREVIEW) != 0;
+
+        std::unique_ptr<BS1770LoudnessMeter> meter;
+        if (wantLoudness)
+        {
+            meter = std::make_unique<BS1770LoudnessMeter>();
+            meter->reset(sr, -100.0f);
+        }
+        std::unique_ptr<TruePeakMeterState> tpMeter;
+        if (wantTruePeak)
+        {
+            tpMeter = std::make_unique<TruePeakMeterState>();
+        }
+
+        const ma_uint32 chunkFrames = 4096;
+        std::vector<float> pcmChunk((size_t)chunkFrames * (size_t)ch);
+        std::vector<uint8_t> rawScratch;
+
+        const ma_uint64 maxPreviewFrames = fastPreview ? (ma_uint64)sr * 30ULL : UINT64_MAX;
+        ma_uint64 totalFrames = 0;
+        float maxSamplePeak = 0.0f;
+
+        // Silence bounds state (10 ms RMS windows)
+        const ma_uint32 silWinFrames = std::max<ma_uint32>(1u, (ma_uint32)(sr / 100));
+        double silSumSq = 0.0;
+        ma_uint32 silCount = 0;
+        ma_uint64 silWinStartFrame = 0;
+        bool hasAnyActive = false;
+        ma_uint64 firstActiveFrame = 0;
+        ma_uint64 lastActiveEndFrame = 0;
+
+        // BPM onset flux state (100 Hz envelope, up to 60 s after leading silence or start)
+        const ma_uint32 envHopFrames = std::max<ma_uint32>(1u, (ma_uint32)(sr / 100));
+        const size_t maxEnvSamples = 6000;
+        std::vector<float> onsetEnv;
+        if (wantBpm)
+        {
+            onsetEnv.reserve(3000);
+        }
+        const double lpfAlpha = 1.0 - std::exp(-2.0 * 3.14159265358979323846 * 180.0 / (double)sr);
+        double lpfState = 0.0;
+        double hopLowEnergy = 0.0;
+        double hopFullEnergy = 0.0;
+        ma_uint32 hopFrameCounter = 0;
+        float prevLogLow = 0.0f;
+        float prevLogFull = 0.0f;
+
+        while (totalFrames < maxPreviewFrames)
+        {
+            const ma_uint64 want = std::min<ma_uint64>(chunkFrames, maxPreviewFrames - totalFrames);
+            ma_uint64 got = 0;
+            const ma_result rr = read_decoder_frames_f32(&decoder, pcmChunk.data(), want, &got, rawScratch);
+            if (rr != MA_SUCCESS || got == 0)
+                break;
+
+            for (ma_uint64 i = 0; i < got; ++i)
+            {
+                double mono = 0.0;
+                double frameSumSq = 0.0;
+                for (int c = 0; c < ch; ++c)
+                {
+                    const float s = pcmChunk[(size_t)i * (size_t)ch + (size_t)c];
+                    const float absS = std::fabs(s);
+                    if (absS > maxSamplePeak) maxSamplePeak = absS;
+                    mono += (double)s;
+                    frameSumSq += (double)s * (double)s;
+                }
+
+                if (wantSilence)
+                {
+                    silSumSq += frameSumSq / (double)ch;
+                    silCount++;
+                    if (silCount >= silWinFrames)
+                    {
+                        const double meanPwr = silSumSq / (double)silCount;
+                        if (meanPwr >= threshPwr)
+                        {
+                            if (!hasAnyActive)
+                            {
+                                firstActiveFrame = silWinStartFrame;
+                                hasAnyActive = true;
+                            }
+                            lastActiveEndFrame = totalFrames + i + 1;
+                        }
+                        silWinStartFrame = totalFrames + i + 1;
+                        silSumSq = 0.0;
+                        silCount = 0;
+                    }
+                }
+
+                if (wantBpm && onsetEnv.size() < maxEnvSamples && (!wantSilence || hasAnyActive))
+                {
+                    mono /= (double)ch;
+                    lpfState += lpfAlpha * (mono - lpfState);
+                    hopLowEnergy += lpfState * lpfState;
+                    hopFullEnergy += mono * mono;
+                    if (++hopFrameCounter >= envHopFrames)
+                    {
+                        const float meanLow = (float)(hopLowEnergy / (double)hopFrameCounter);
+                        const float meanFull = (float)(hopFullEnergy / (double)hopFrameCounter);
+                        const float curLogLow = std::log1p(1000.0f * meanLow);
+                        const float curLogFull = std::log1p(250.0f * meanFull);
+                        const float fluxLow = std::max(0.0f, curLogLow - prevLogLow);
+                        const float fluxFull = std::max(0.0f, curLogFull - prevLogFull);
+                        onsetEnv.push_back(fluxLow + 0.4f * fluxFull);
+                        prevLogLow = curLogLow;
+                        prevLogFull = curLogFull;
+                        hopLowEnergy = 0.0;
+                        hopFullEnergy = 0.0;
+                        hopFrameCounter = 0;
+                    }
+                }
+            }
+
+            if (wantLoudness)
+            {
+                meter->process(pcmChunk.data(), (ma_uint32)got, ch, 1.0f);
+            }
+            if (wantTruePeak)
+            {
+                tpMeter->process(pcmChunk.data(), (ma_uint32)got, ch, /*decayPeak=*/false);
+            }
+
+            totalFrames += got;
+        }
+
+        if (wantSilence && silCount > 0)
+        {
+            const double meanPwr = silSumSq / (double)silCount;
+            if (meanPwr >= threshPwr)
+            {
+                if (!hasAnyActive)
+                {
+                    firstActiveFrame = silWinStartFrame;
+                    hasAnyActive = true;
+                }
+                lastActiveEndFrame = totalFrames;
+            }
+        }
+
+        ma_uint64 headerLenFrames = 0;
+        (void)ma_decoder_get_length_in_pcm_frames(&decoder, &headerLenFrames);
+        ma_decoder_uninit(&decoder);
+
+        const ma_uint64 effectiveTotalFrames = (fastPreview && headerLenFrames > totalFrames) ? headerLenFrames : totalFrames;
+        out_result->valid = 1;
+        out_result->sample_rate = sr;
+        out_result->channels = ch;
+        out_result->duration_seconds = (sr > 0) ? ((double)effectiveTotalFrames / (double)sr) : 0.0;
+        out_result->sample_peak_linear = maxSamplePeak;
+
+        if (wantLoudness)
+        {
+            meter->finalize(ch);
+            out_result->integrated_lufs = meter->integratedLUFS.load(std::memory_order_relaxed);
+            out_result->loudness_range_lra = meter->loudnessRangeLRA.load(std::memory_order_relaxed);
+            if (out_result->integrated_lufs > -70.0f)
+            {
+                out_result->replaygain_track_gain_db = -18.0f - out_result->integrated_lufs;
+            }
+        }
+
+        if (wantTruePeak)
+        {
+            out_result->true_peak_dbtp = tpMeter->maxTruePeakDBTP.load(std::memory_order_relaxed);
+        }
+
+        if (wantSilence && totalFrames > 0)
+        {
+            if (hasAnyActive)
+            {
+                out_result->leading_silence_sec = (double)firstActiveFrame / (double)sr;
+                const ma_uint64 trailFrames = (totalFrames > lastActiveEndFrame) ? (totalFrames - lastActiveEndFrame) : 0;
+                out_result->trailing_silence_sec = (double)trailFrames / (double)sr;
+            }
+            else
+            {
+                out_result->leading_silence_sec = (double)totalFrames / (double)sr;
+                out_result->trailing_silence_sec = 0.0;
+            }
+        }
+
+        if (wantBpm)
+        {
+            float estimatedBpm = 0.0f;
+            float bpmConfidence = 0.0f;
+            const size_t nEnv = onsetEnv.size();
+            const double envRate = (double)sr / (double)envHopFrames;
+            if (nEnv >= 250)
+            {
+                double mean = 0.0;
+                for (float v : onsetEnv) mean += (double)v;
+                mean /= (double)nEnv;
+                double var = 0.0;
+                for (size_t i = 0; i < nEnv; ++i)
+                {
+                    onsetEnv[i] = (float)((double)onsetEnv[i] - mean);
+                    var += (double)onsetEnv[i] * (double)onsetEnv[i];
+                }
+                const double acf0 = var / (double)nEnv;
+                if (var > 1e-6 && acf0 > 1e-12)
+                {
+                    const int minLag = std::max(20, (int)std::round(envRate * 60.0 / 180.0));
+                    const int maxLag = std::min((int)(nEnv / 2) - 1, (int)std::round(envRate * 60.0 / 68.0));
+                    if (maxLag > minLag + 2)
+                    {
+                        std::vector<double> acf((size_t)(maxLag * 2 + 2), 0.0);
+                        const int computeMax = std::min((int)nEnv - 1, maxLag * 2);
+                        for (int lag = minLag; lag <= computeMax; ++lag)
+                        {
+                            double sum = 0.0;
+                            const size_t count = nEnv - (size_t)lag;
+                            for (size_t i = 0; i < count; ++i)
+                            {
+                                sum += (double)onsetEnv[i] * (double)onsetEnv[i + (size_t)lag];
+                            }
+                            acf[(size_t)lag] = sum / (double)count;
+                        }
+
+                        int bestLag = minLag;
+                        double bestScore = -1e30;
+                        for (int lag = minLag; lag <= maxLag; ++lag)
+                        {
+                            const double candBpm = (60.0 * envRate) / (double)lag;
+                            const double logRatio = std::log2(candBpm / 120.0);
+                            const double prior = std::exp(-0.5 * (logRatio / 0.55) * (logRatio / 0.55));
+                            double comb = acf[(size_t)lag];
+                            if (lag * 2 <= computeMax) comb += 0.50 * acf[(size_t)(lag * 2)];
+                            const double score = comb * (0.75 + 0.25 * prior);
+                            if (score > bestScore)
+                            {
+                                bestScore = score;
+                                bestLag = lag;
+                            }
+                        }
+
+                        double refinedLag = (double)bestLag;
+                        if (bestLag > minLag && bestLag < maxLag)
+                        {
+                            const double y0 = acf[(size_t)(bestLag - 1)];
+                            const double y1 = acf[(size_t)(bestLag)];
+                            const double y2 = acf[(size_t)(bestLag + 1)];
+                            const double denom = y0 - 2.0 * y1 + y2;
+                            if (std::abs(denom) > 1e-12)
+                            {
+                                const double delta = std::clamp(0.5 * (y0 - y2) / denom, -0.5, 0.5);
+                                refinedLag = (double)bestLag + delta;
+                            }
+                        }
+                        estimatedBpm = (float)std::clamp((60.0 * envRate) / refinedLag, 60.0, 200.0);
+                        bpmConfidence = (float)std::clamp(acf[(size_t)bestLag] / acf0, 0.0, 1.0);
+                    }
+                }
+            }
+            out_result->bpm = estimatedBpm;
+            out_result->bpm_confidence = bpmConfidence;
+        }
+
+        return 1;
+    }
+
 #if defined(__ANDROID__)
     static void query_android_hardware_info(AEHardwareInfo* info)
     {
@@ -22574,6 +23857,173 @@ extern "C"
         }
     }
 #endif
+
+    AE_API int ae_list_output_devices(AudioEngineHandle *engine, AEOutputDeviceInfo *out_devices, int max_count)
+    {
+        if (!engine)
+            return 0;
+#if defined(__ANDROID__)
+        (void)out_devices;
+        (void)max_count;
+        return 0;
+#else
+        std::lock_guard<std::mutex> devLock(engine->deviceMutex);
+        bool wantLinuxAlsaExcl = false;
+#if defined(__linux__) && !defined(__ANDROID__)
+        wantLinuxAlsaExcl = engine->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                            is_direct_hires_family_backend(engine->configuredBackend.load(std::memory_order_relaxed));
+#endif
+        ma_context *pCtx = ensure_output_context_locked(engine, wantLinuxAlsaExcl);
+        if (!pCtx)
+            return 0;
+
+        ma_device_info *pPlaybackInfos = nullptr;
+        ma_uint32 playbackCount = 0;
+        if (ma_context_get_devices(pCtx, &pPlaybackInfos, &playbackCount, nullptr, nullptr) != MA_SUCCESS || pPlaybackInfos == nullptr)
+        {
+            return 0;
+        }
+
+        const int total = static_cast<int>(playbackCount);
+        if (out_devices != nullptr && max_count > 0)
+        {
+            const int toWrite = std::min(total, max_count);
+            for (int i = 0; i < toWrite; ++i)
+            {
+                AEOutputDeviceInfo &dst = out_devices[i];
+                std::memset(&dst, 0, sizeof(dst));
+                const std::string idStr = serialize_ma_device_id(pCtx->backend, pPlaybackInfos[i].id);
+                std::snprintf(dst.id, sizeof(dst.id), "%s", idStr.c_str());
+                std::snprintf(dst.name, sizeof(dst.name), "%s", pPlaybackInfos[i].name);
+                dst.is_default = pPlaybackInfos[i].isDefault ? 1 : 0;
+
+                ma_device_info detail{};
+                if (ma_context_get_device_info(pCtx, ma_device_type_playback, &pPlaybackInfos[i].id, &detail) == MA_SUCCESS &&
+                    detail.nativeDataFormatCount > 0)
+                {
+                    int minCh = 0;
+                    int maxCh = 0;
+                    int minSr = 0;
+                    int maxSr = 0;
+                    for (ma_uint32 f = 0; f < detail.nativeDataFormatCount; ++f)
+                    {
+                        const int chVal = static_cast<int>(detail.nativeDataFormats[f].channels);
+                        const int srVal = static_cast<int>(detail.nativeDataFormats[f].sampleRate);
+                        if (chVal > 0)
+                        {
+                            if (minCh == 0 || chVal < minCh) minCh = chVal;
+                            if (chVal > maxCh) maxCh = chVal;
+                        }
+                        if (srVal > 0)
+                        {
+                            if (minSr == 0 || srVal < minSr) minSr = srVal;
+                            if (srVal > maxSr) maxSr = srVal;
+                        }
+                    }
+                    dst.min_channels = minCh;
+                    dst.max_channels = maxCh;
+                    dst.min_sample_rate = minSr;
+                    dst.max_sample_rate = maxSr;
+                }
+            }
+        }
+        return total;
+#endif
+    }
+
+    AE_API bool ae_set_output_device(AudioEngineHandle *engine, const char *device_id)
+    {
+        if (!engine)
+            return false;
+#if defined(__ANDROID__)
+        (void)device_id;
+        return false;
+#else
+        const std::string reqId = (device_id != nullptr) ? std::string(device_id) : std::string();
+        bool needRestart = false;
+        {
+            std::lock_guard<std::mutex> devLock(engine->deviceMutex);
+            if (reqId.empty())
+            {
+                if (!engine->hasSelectedOutputDevice && engine->selectedOutputDeviceIdStr.empty())
+                {
+                    return true;
+                }
+                engine->hasSelectedOutputDevice = false;
+                engine->selectedOutputDeviceIdStr.clear();
+                needRestart = true;
+            }
+            else
+            {
+                bool wantLinuxAlsaExcl = false;
+#if defined(__linux__) && !defined(__ANDROID__)
+                wantLinuxAlsaExcl = engine->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+                                    is_direct_hires_family_backend(engine->configuredBackend.load(std::memory_order_relaxed));
+#endif
+                ma_context *pCtx = ensure_output_context_locked(engine, wantLinuxAlsaExcl);
+                if (!pCtx)
+                {
+                    set_last_error(engine, "Failed to access audio output context.");
+                    return false;
+                }
+                ma_device_info *pPlaybackInfos = nullptr;
+                ma_uint32 playbackCount = 0;
+                if (ma_context_get_devices(pCtx, &pPlaybackInfos, &playbackCount, nullptr, nullptr) != MA_SUCCESS || pPlaybackInfos == nullptr)
+                {
+                    set_last_error(engine, "Failed to enumerate output devices.");
+                    return false;
+                }
+                bool found = false;
+                for (ma_uint32 i = 0; i < playbackCount; ++i)
+                {
+                    if (serialize_ma_device_id(pCtx->backend, pPlaybackInfos[i].id) == reqId)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                {
+                    set_last_error(engine, std::string("Output device not found: ") + reqId);
+                    return false;
+                }
+                if (engine->hasSelectedOutputDevice && engine->selectedOutputDeviceIdStr == reqId)
+                {
+                    return true;
+                }
+                engine->hasSelectedOutputDevice = true;
+                engine->selectedOutputDeviceIdStr = reqId;
+                needRestart = true;
+            }
+        }
+        if (needRestart)
+        {
+            restart_and_apply_config(engine);
+        }
+        return true;
+#endif
+    }
+
+    AE_API int ae_get_output_device(AudioEngineHandle *engine, char *out_id, int buf_len)
+    {
+        if (!engine)
+        {
+            if (out_id && buf_len > 0) out_id[0] = '\0';
+            return 0;
+        }
+#if defined(__ANDROID__)
+        if (out_id && buf_len > 0) out_id[0] = '\0';
+        return 0;
+#else
+        std::lock_guard<std::mutex> devLock(engine->deviceMutex);
+        const std::string cur = engine->hasSelectedOutputDevice ? engine->selectedOutputDeviceIdStr : std::string();
+        if (out_id != nullptr && buf_len > 0)
+        {
+            std::snprintf(out_id, static_cast<size_t>(buf_len), "%s", cur.c_str());
+        }
+        return static_cast<int>(cur.size());
+#endif
+    }
 
     AE_API AEHardwareInfo ae_get_hardware_info(AudioEngineHandle *engine)
     {
