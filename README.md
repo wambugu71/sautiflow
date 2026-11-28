@@ -32,7 +32,7 @@ Add the dependency to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  sautiflow: ^1.1.1
+  sautiflow: ^1.2.0
 ```
 
 Initialize the player and start playback:

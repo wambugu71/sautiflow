@@ -97,7 +97,7 @@
           <h3>// ENGINE CARD</h3>
           <ul>
             <li><span>ENGINE</span><b>Sautiflow <a class="ver-link" href="https://docs.sautiflow.us.ci" target="_blank"
-                  rel="noopener" title="Read the Sautiflow docs">v1.1.1</a></b></li>
+                  rel="noopener" title="Read the Sautiflow docs">v1.2.0</a></b></li>
             <li><span>FRAMEWORK</span><b>Flutter / Dart + FFI</b></li>
             <li><span>INTERFACE</span><b>Material 3 Expressive</b></li>
             <li><span>CORE</span><b>C++ · miniaudio</b></li>
@@ -214,30 +214,30 @@
         <article class="feat">
           <h3 class="mono">F/01 — SIGNAL PATH</h3>
           <ul>
-            <li>True 64-bit float DSP pipeline with zero-allocation buffer safety</li>
+            <li>True 64-bit float DSP pipeline with zero-allocation buffer safety &amp; reorderable 26-node signal chain</li>
             <li>SIMD acceleration (ARM NEON &amp; x86 SSE/AVX/FMA) across 14 high-compute modules</li>
-            <li>Auto Bit-Perfect mode with exclusive MMAP &amp; low-latency profiles (on supported devices)</li>
-            <li>Hardware sample-rate matching; auto rate-switch for DACs</li>
-            <li>Remez equiripple polyphase oversampling (2x/4x) &amp; TPDF dither</li>
-            <li>Loudness normalization to BS.1770-4 LUFS + true-peak limiter</li>
+            <li>Bit-Perfect exclusive output (AAudio MMAP, WASAPI Exclusive, CoreAudio Hog Mode, direct ALSA) &amp; desktop device picker</li>
+            <li>Hardware sample-rate matching, auto rate-switch for DACs &amp; 24 minimum-phase resampler tables</li>
+            <li>Remez equiripple polyphase oversampling (2x/4x) &amp; double-precision noise-shaping TPDF dither</li>
+            <li>Silence skipping/edge trimming, BS.1770-4 LUFS normalization, offline LUFS/BPM analysis &amp; true-peak limiter</li>
           </ul>
         </article>
         <article class="feat">
           <h3 class="mono">F/02 — DSP SUITE</h3>
           <ul>
-            <li>Parametric EQs (Bell, Tilt, Shelf, Notch) &amp; 6-band Dynamic Parametric EQ</li>
-            <li>OpenStage acoustic crossfeed (ITD/shelving model) &amp; Ambiophonics R.A.C.E.</li>
-            <li>Broadcast Leveller (EBU R128 AGC), 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter, Studio Noise Gate &amp; ISO 226 Dynamic Loudness</li>
-            <li>5 Studio Reverb engines (Hadamard FDN, Keith Barr Ring, Griesinger Tank, Lattice, Diffusion) &amp; 3-Band LR4 Stereo Enhancer</li>
-            <li>Hilbert Stereo Imager, Spatial Surround suite, Analog Warmth, calibrated Vintage Tape Drift, Convolver, DDC, delay &amp; dynamic bass</li>
-            <li>Polarity invert, L/R swap, per-channel gain; M3E AutoEQ import</li>
+            <li>Overhauled Parametric EQs (Bell, Tilt, Shelf, Notch), Graphic EQ &amp; 6-band Dynamic Parametric EQ</li>
+            <li>Personal AES69 SOFA HRTF (6 bundled presets) &amp; 5.1/7.1 discrete bass management + speaker calibration</li>
+            <li>Overhauled Crossfeed (BS2B, Meier, Natural, R.A.C.E., OpenStage ITD/shelving model)</li>
+            <li>Broadcast Leveller (EBU R128 AGC), 3-Band Lookahead AGC + Brickwall Limiter, Noise Gate, Downward Expander, De-Esser &amp; ISO 226 Dynamic Loudness</li>
+            <li>5 Studio Reverb engines, 3-Band LR4 Stereo Enhancer, Hilbert Stereo Imager, Analog Warmth, Vintage Tape Drift &amp; 4-path true-stereo NUPOLS Convolver with r8brain IR resampling</li>
+            <li>Crystalizer, Audio Clarity, Dialog Enhancer, Dynamic Bass, Polarity invert, L/R swap &amp; M3E AutoEQ import</li>
           </ul>
         </article>
         <article class="feat">
           <h3 class="mono">F/03 — SOURCES &amp; STREAMING</h3>
           <ul>
             <li>YouTube Music search, streaming &amp; playlist import</li>
-            <li>Unified FFmpeg streaming decoder with automatic local file fallback</li>
+            <li>Hardened FFmpeg n7.1 streaming decoder (256-tap Kaiser <code>swresample</code>, HLS fMP4 seek, Stream Buffer Profiles) with local fallback</li>
             <li>DLNA cast-out plus built-in DLNA receiver (MediaRenderer)</li>
             <li>FTP browsing, direct URL streams, disk-cached online playback</li>
             <li>Last.fm scrobbling with persistent sign-in</li>
@@ -778,8 +778,9 @@ flutter build macos --release --dart-define=STREAM_URL_1="..." --dart-define=STR
               equalizers, shelving, notch, and pass filters.</li>
             <li><strong>BS2B (Boris Mikhaylov):</strong> Bauer stereophonic-to-binaural crossfeed algorithm for natural,
               fatigue-free headphone listening.</li>
-            <li><strong>Partitioned Overlap-Add FFT Convolution:</strong> Efficient frequency-domain convolution for
+            <li><strong>Partitioned Overlap-Add FFT Convolution:</strong> Efficient 4-path true-stereo NUPOLS convolution for
               AutoEQ and custom stereo impulse response (.wav) processing.</li>
+            <li><strong>libmysofa (AES69 SOFA HRTF):</strong> Personal and bundled head-related transfer function spatialization.</li>
             <li><strong>WSOLA (Waveform Similarity Overlap-Add):</strong> Pitch-stable time-domain audio scaling.</li>
           </ul>
         </article>

@@ -1,3 +1,11 @@
+## v1.2.0 — 2026-11-28
+- Personal SOFA HRTF & 5.1/7.1 Bass Management: Added AES69 personal SOFA HRTF spatialization with 6 bundled headphone HRTF presets (MIT KEMAR, ARI, CIPIC, LISTEN) plus discrete 5.1/7.1 bass management and per-speaker trim/delay calibration
+- Reorderable DSP Signal Chain: Reorder all 26 DSP modules in real time from the new drag-and-drop Signal Chain sheet with full Audio Profile persistence
+- True-Stereo NUPOLS Convolver: Upgraded to a 4-path true-stereo partitioned FFT convolver with automatic r8brain IR resampling and hardened native impulse response decoding
+- Engine Upgrades (Device Picker, Silence Skip & Offline Analysis): Added desktop output device selection, silence skipping & edge trimming, direct seconds/frame seeking, native push event queue, and stateless offline LUFS/true-peak/BPM/silence analysis
+- Desktop Bit-Perfect, AutoMix & Streaming Hardening: Added WASAPI fallback ladder, macOS CoreAudio Hog Mode, Linux ALSA direct output, Bit-Perfect Auto-Match preset, dual-deck Next/Prev crossfade with constant-power LR4 bass-swap, and hardened 256-tap Kaiser FFmpeg streaming with persistent Stream Buffer Profiles
+- Full DSP Suite Overhaul: Audited and overhauled EQ (Parametric, Dynamic, Graphic, Tone, AutoEQ), Dynamics & Limiters (lock-free Master Limiter, 4x true-peak Lookahead AGC, BS.1770 loudness, live GR/LUFS meters), Crossfeed (BS2B, Meier, Natural, RACE, OpenStage), Crystalizer, Clarity, De-Esser, Noise Gate, Downward Expander, Dialog Enhancer, and Dynamic Bass
+
 ## v1.1.1 — 2026-11-26
 - Studio Reverb Overhaul: Overhauled all five native reverb engines (Hadamard FDN, Keith Barr Ring, Griesinger Tank, Lattice, Diffusion) with isolated state and responsive M3E dropdown controls
 - 3-Band LR4 Stereo Enhancer & Hilbert Stereo Imager: Upgraded Stereo Enhancer to a 3-band Linkwitz-Riley adaptive M/S engine that preserves center vocals, and added phase-matched Hilbert quadrature & RMS compensation across all Stereo Imager modes

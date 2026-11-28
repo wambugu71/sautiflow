@@ -193,6 +193,7 @@
                     <li><strong>Sautiplay:</strong> Added ViPER FX effects, UI improvements, performance boosts, and bug fixes to the Sautiplay app.</li>
                     <li><strong>v1.1.0:</strong> Hardened Android <code>AudioService</code> foreground media notifications and <code>AudioSession</code> focus recovery with R8 <code>res/raw/keep.xml</code> icon preservation, added the 3-Band Lookahead AGC + Bass-Safe Brickwall Limiter DSP, and introduced adaptive perceptual artwork theming.</li>
                     <li><strong>v1.1.1:</strong> Overhauled the 5 native Studio Reverb engines, 3-Band LR4 Adaptive M/S Stereo Enhancer, Hilbert Spatial 3D Stereo Imager, Spatial Surround suite, Analog Warmth (universal DC blocking, monotonic tanh, TPT tape LPF), and Vintage Tape Drift (calibrated presets, TPT HF damping, 15 ms PDC latency), with Zone 1–3 real-time mutex safety.</li>
+                    <li><strong>v1.2.0:</strong> Added personal SOFA HRTF (<code>libmysofa</code> + 6 bundled presets), 5.1/7.1 discrete bass management &amp; speaker calibration, 4-path true-stereo NUPOLS convolver with r8brain IR resampling, real-time reorderable 26-node DSP chain, push event queue, direct seconds/PCM-frame seek, stateless offline LUFS/BPM/silence analysis, desktop output device selection, silence skip/edge trim, desktop Bit-Perfect (WASAPI/CoreAudio Hog/ALSA), hardened 256-tap Kaiser FFmpeg streaming, and full EQ/Dynamics/Crossfeed/Restoration DSP overhauls.</li>
                 </ul>
             </section>
 
@@ -202,7 +203,7 @@
                 <pre><code class="language-bash">flutter pub add sautiflow</code></pre>
                 <p>Or manually:</p>
                 <pre><code class="language-yaml">dependencies:
-    sautiflow: ^1.1.1</code></pre>
+    sautiflow: ^1.2.0</code></pre>
 
                 <div
                     style="background: rgba(255, 165, 0, 0.1); border-left: 4px solid orange; padding: 1rem; margin-top: 1rem; border-radius: 4px;">
@@ -798,7 +799,7 @@ player.setEngineDitherMode(2);
                 <h3>1. Dependencies</h3>
                 <p>Ensure your <code>pubspec.yaml</code> includes:</p>
                 <pre><code class="language-yaml">dependencies:
-  sautiflow: ^1.1.1
+  sautiflow: ^1.2.0
   audio_session: ^0.2.2
   audio_service: ^0.18.19</code></pre>
 
