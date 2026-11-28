@@ -964,7 +964,8 @@ extern "C"
         AE_DSP_NODE_CONVOLVER = 22,
         AE_DSP_NODE_BROADCAST_LEVELLER = 23,
         AE_DSP_NODE_LOOKAHEAD_AGC = 24,
-        AE_DSP_NODE_COUNT = 25
+        AE_DSP_NODE_BASS_MANAGEMENT = 25,
+        AE_DSP_NODE_COUNT = 26
     } AEDspNodeId;
 
     AE_API int  ae_get_dsp_node_count(void);
@@ -1046,6 +1047,51 @@ extern "C"
                                               float surround_boost,
                                               float surround_delay_ms,
                                               float head_radius_cm);
+
+    // Personal SOFA HRTF (AES69 via libmysofa)
+    typedef struct AESofaHrtfInfo
+    {
+        int loaded;             /* 1 if SOFA HRTF loaded, 0 otherwise */
+        int enabled;            /* 1 if personal SOFA HRTF active over fixed model */
+        int native_sample_rate; /* Source SOFA sampling rate (Hz) */
+        int engine_sample_rate; /* Engine sampling rate HRIR banks are built for (Hz) */
+        int ir_length;          /* Resampled partitioned IR length (samples) */
+        int num_measurements;   /* Total directional measurements M in SOFA file */
+        int latency_samples;    /* Algorithmic block latency (samples) */
+        char name[128];         /* Database / listener title */
+    } AESofaHrtfInfo;
+
+    AE_API int  ae_dsp_load_sofa_hrtf_file(AudioEngineHandle *engine, const char *file_path);
+    AE_API int  ae_dsp_load_sofa_hrtf_memory(AudioEngineHandle *engine, const uint8_t *data, int byte_count);
+    AE_API void ae_dsp_clear_sofa_hrtf(AudioEngineHandle *engine);
+    AE_API void ae_dsp_set_sofa_hrtf_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_sofa_hrtf_info(AudioEngineHandle *engine, AESofaHrtfInfo *out_info);
+
+    // 5.1 / 7.1 Discrete Bass Management & Speaker Calibration
+    AE_API void ae_dsp_set_bass_management_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_bass_management_enabled(AudioEngineHandle *engine);
+    AE_API void ae_dsp_set_bass_management_params(AudioEngineHandle *engine,
+                                                  float crossover_hz,
+                                                  float lfe_lpf_hz,
+                                                  float lfe_gain_db,
+                                                  int lfe_mode,
+                                                  int front_small,
+                                                  int center_small,
+                                                  int surround_small,
+                                                  int rear_small);
+    AE_API void ae_dsp_get_bass_management_params(AudioEngineHandle *engine,
+                                                  float *out_crossover_hz,
+                                                  float *out_lfe_lpf_hz,
+                                                  float *out_lfe_gain_db,
+                                                  int *out_lfe_mode,
+                                                  int *out_front_small,
+                                                  int *out_center_small,
+                                                  int *out_surround_small,
+                                                  int *out_rear_small);
+    AE_API void ae_dsp_set_speaker_calibration(AudioEngineHandle *engine, int channel, float trim_db, float delay_ms);
+    AE_API void ae_dsp_get_speaker_calibration(AudioEngineHandle *engine, int channel, float *out_trim_db, float *out_delay_ms);
+    AE_API void ae_dsp_set_multichannel_processing_enabled(AudioEngineHandle *engine, int enabled);
+    AE_API int  ae_dsp_get_multichannel_processing_enabled(AudioEngineHandle *engine);
 
     // FFT Impulse Response Convolver
     typedef struct AEConvolverInfo

@@ -8,6 +8,9 @@ $includes = @(
     "-I.",
     "-Ithird_party",
     "-Ithird_party/libsamplerate/include",
+    "-Ithird_party/libmysofa/src",
+    "-Ithird_party/libmysofa/src/hrtf",
+    "-Ithird_party/zlib",
     "-Ithird_party/ffmpeg/include",
     "-Ithird_party/r8brain",
     "-Idsp"
@@ -29,10 +32,16 @@ $defines = @(
     '-DENABLE_SINC_BEST_CONVERTER=1',
     '-DENABLE_SINC_MEDIUM_CONVERTER=1',
     '-DENABLE_SINC_FAST_CONVERTER=1',
+    "-DSAUTIFLOW_ENABLE_MYSOFA=1",
     "-DSAUTIFLOW_ENABLE_FFMPEG=1"
 )
 
-$cFiles = (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName)
+$cFiles = @()
+$cFiles += (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName)
+$cFiles += (Get-ChildItem -Path "third_party/libmysofa/src/hrtf/*.c" | Select-Object -ExpandProperty FullName)
+$cFiles += (Get-ChildItem -Path "third_party/libmysofa/src/hdf/*.c" | Select-Object -ExpandProperty FullName)
+$cFiles += (Get-ChildItem -Path "third_party/libmysofa/src/resampler/*.c" | Select-Object -ExpandProperty FullName)
+$cFiles += (Get-ChildItem -Path "third_party/zlib/*.c" | Select-Object -ExpandProperty FullName)
 
 Write-Host "Compiling C files..."
 foreach ($f in $cFiles) {

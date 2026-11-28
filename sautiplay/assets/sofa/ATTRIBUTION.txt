@@ -1,0 +1,25 @@
+Bundled AES69 SOFA HRTF Presets (sourced from hoene/libmysofa open datasets)
+
+1. mit_kemar_normal_pinna.sofa
+   MIT Media Lab KEMAR Dummy Head (Normal Pinna, 44.1 kHz, 710 positions)
+   Authors: Gardner & Martin (MIT Media Lab)
+
+2. mit_kemar_large_pinna.sofa
+   MIT Media Lab KEMAR Dummy Head (Large DB-065 Pinna, 44.1 kHz, 710 positions)
+   Authors: Gardner & Martin (MIT Media Lab)
+
+3. listen_irc_1002.sofa
+   IRCAM LISTEN Human Subject 1002 Compensated HRIR (48 kHz, 187 positions)
+   Institution: IRCAM / AKG
+
+4. ari_dtf_nh2.sofa
+   ARI Diffuse-Field Directional Transfer Function Human Subject NH2 (48 kHz, 1550 positions)
+   Institution: Acoustics Research Institute (OeAW), Vienna
+
+5. ari_hrtf_nh898.sofa
+   ARI Anechoic Compensated HRTF Human Subject NH898 (48 kHz, 1550 positions)
+   Institution: Acoustics Research Institute (OeAW), Vienna
+
+6. cipic_subject_003.sofa
+   UC Davis CIPIC Human Subject 003 HRIR (44.1 kHz, 1250 positions)
+   Authors: Algazi, Duda, Thompson & Avendano (UC Davis)

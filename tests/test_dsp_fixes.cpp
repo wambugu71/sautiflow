@@ -35,6 +35,8 @@
 #include "dsp/scaletempo_dsp.h"
 #include "dsp/fft_convolver_dsp.h"
 #include "CDSPResampler.h"
+#include "dsp/sofa_hrtf_dsp.h"
+#include "dsp/bass_management_dsp.h"
 #include "dsp/spatial_surround_dsp.h"
 #include "dsp/stereo_imager_dsp.h"
 #include "dsp/dynamic_loudness_dsp.h"
@@ -2733,6 +2735,364 @@ static void test_dsp_audit_v2_regressions()
     }
 }
 
+// -----------------------------------------------------------------------------
+// Personal SOFA HRTF (AES69 via libmysofa)
+// -----------------------------------------------------------------------------
+static std::string findDefaultSofaPath()
+{
+    const char *candidates[] = {
+        "third_party/libmysofa/share/default.sofa",
+        "../third_party/libmysofa/share/default.sofa"
+    };
+    for (const char *c : candidates) {
+        std::FILE *f = std::fopen(c, "rb");
+        if (f) {
+            std::fclose(f);
+            return std::string(c);
+        }
+    }
+    return "";
+}
+
+static void test_sofa_hrtf_dsp()
+{
+    std::printf("\n== Personal SOFA HRTF (SofaHrtfDSP + libmysofa) ==\n");
+
+    const std::string sofaPath = findDefaultSofaPath();
+    CHECK(!sofaPath.empty(), "located third_party/libmysofa/share/default.sofa");
+    if (sofaPath.empty()) return;
+
+    sauti::dsp::SofaHrtfDSP sofa;
+    const bool loadedFile = sofa.loadFromFile(sofaPath.c_str(), 48000.0f, 30.0f);
+    CHECK(loadedFile && sofa.isLoaded(), "SofaHrtfDSP::loadFromFile succeeds");
+
+    const auto meta = sofa.getMetadata();
+    CHECK(meta.loaded && meta.native_sample_rate > 0 && meta.engine_sample_rate == 48000 && meta.num_measurements > 0,
+          "SOFA metadata reports valid native/engine sample rates and measurement count");
+    CHECK(sofa.getLatencySamples() >= 128, "SOFA partitioned convolver reports >= 128 sample block latency");
+
+    // Helper: feed isolated channel sine wave into interleaved buffer and measure steady-state L/R RMS
+    auto measureLrRms = [&](int inCh, int targetCh, float freqHz, double *outL, double *outR) {
+        sofa.reset();
+        const float curSr = static_cast<float>(sofa.getMetadata().engine_sample_rate);
+        constexpr uint32_t kBlock = 256;
+        constexpr uint32_t kTotalBlocks = 24; // 6144 frames (>120ms at 48k, >60ms at 96k)
+        std::vector<float> buf(kBlock * static_cast<size_t>(inCh));
+        double sumL = 0.0, sumR = 0.0;
+        uint64_t count = 0;
+        for (uint32_t b = 0; b < kTotalBlocks; ++b) {
+            std::fill(buf.begin(), buf.end(), 0.0f);
+            for (uint32_t i = 0; i < kBlock; ++i) {
+                const uint32_t n = b * kBlock + i;
+                const float s = 0.25f * std::sin(2.0f * 3.14159265f * freqHz * static_cast<float>(n) / curSr);
+                buf[i * static_cast<size_t>(inCh) + static_cast<size_t>(targetCh)] = s;
+            }
+            const bool ok = sofa.process(buf.data(), kBlock, inCh, 0.70710678, 1.0);
+            if (!ok) {
+                *outL = *outR = 0.0;
+                return false;
+            }
+            if (b >= 6) {
+                for (uint32_t i = 0; i < kBlock; ++i) {
+                    const float l = buf[2 * i];
+                    const float r = buf[2 * i + 1];
+                    if (!std::isfinite(l) || !std::isfinite(r)) return false;
+                    sumL += static_cast<double>(l) * l;
+                    sumR += static_cast<double>(r) * r;
+                    ++count;
+                }
+            }
+        }
+        *outL = std::sqrt(sumL / std::max<uint64_t>(1, count));
+        *outR = std::sqrt(sumR / std::max<uint64_t>(1, count));
+        return true;
+    };
+
+    // Stereo lateralization
+    double lRms = 0.0, rRms = 0.0;
+    CHECK(measureLrRms(2, 0, 1500.0f, &lRms, &rRms) && lRms > rRms * 1.15,
+          "SOFA 2ch Left speaker (-30 deg) produces higher RMS in Left ear than Right ear");
+    CHECK(measureLrRms(2, 1, 1500.0f, &lRms, &rRms) && rRms > lRms * 1.15,
+          "SOFA 2ch Right speaker (+30 deg) produces higher RMS in Right ear than Left ear");
+
+    // Discrete 5.1 lateralization (FL, FR, FC, SL, SR)
+    CHECK(measureLrRms(6, 0, 1500.0f, &lRms, &rRms) && lRms > rRms * 1.15,
+          "SOFA 5.1 FL (-30 deg) lateralizes to Left ear");
+    CHECK(measureLrRms(6, 1, 1500.0f, &lRms, &rRms) && rRms > lRms * 1.15,
+          "SOFA 5.1 FR (+30 deg) lateralizes to Right ear");
+    CHECK(measureLrRms(6, 2, 1000.0f, &lRms, &rRms) && std::fabs(lRms - rRms) < 0.15 * std::max(lRms, rRms),
+          "SOFA 5.1 FC (0 deg) produces symmetric L/R response");
+    CHECK(measureLrRms(6, 4, 1500.0f, &lRms, &rRms) && lRms > rRms * 1.25,
+          "SOFA 5.1 SL (-110 deg) lateralizes strongly to Left ear");
+    CHECK(measureLrRms(6, 5, 1500.0f, &lRms, &rRms) && rRms > lRms * 1.25,
+          "SOFA 5.1 SR (+110 deg) lateralizes strongly to Right ear");
+
+    // Discrete 7.1 lateralization (BL, BR, SL7, SR7)
+    CHECK(measureLrRms(8, 4, 1500.0f, &lRms, &rRms) && lRms > rRms * 1.10,
+          "SOFA 7.1 BL (-150 deg) lateralizes to Left ear");
+    CHECK(measureLrRms(8, 7, 1500.0f, &lRms, &rRms) && rRms > lRms * 1.25,
+          "SOFA 7.1 SR (+90 deg) lateralizes strongly to Right ear");
+
+    // Auto-SR r8brain resampling: 48k -> 96k -> 44.1k
+    const double baseFlL = lRms;
+    (void)baseFlL;
+    CHECK(measureLrRms(6, 0, 1000.0f, &lRms, &rRms), "baseline 48k RMS measured");
+    const double rms48 = lRms;
+    sofa.setSampleRate(96000.0f);
+    CHECK(sofa.getMetadata().engine_sample_rate == 96000, "SOFA auto-resamples HRIR banks to 96000 Hz");
+    double l96 = 0.0, r96 = 0.0;
+    const bool ok96 = measureLrRms(6, 0, 1000.0f, &l96, &r96);
+    const double delta96Db = 20.0 * std::log10((l96 + 1e-9) / (rms48 + 1e-9));
+    std::printf("    [info] 48k RMS=%.5f, 96k L=%.5f R=%.5f (delta=%.2f dB)\n", rms48, l96, r96, delta96Db);
+    CHECK(ok96 && l96 > r96 * 1.15 && std::fabs(delta96Db) < 3.0,
+          "SOFA at 96 kHz preserves lateralization and RMS energy within +/-3 dB");
+
+    // Memory load + clear
+    std::FILE *fp = std::fopen(sofaPath.c_str(), "rb");
+    std::fseek(fp, 0, SEEK_END);
+    const long fsz = std::ftell(fp);
+    std::fseek(fp, 0, SEEK_SET);
+    std::vector<uint8_t> raw(static_cast<size_t>(fsz));
+    (void)std::fread(raw.data(), 1, raw.size(), fp);
+    std::fclose(fp);
+
+    sauti::dsp::SofaHrtfDSP sofaMem;
+    CHECK(sofaMem.loadFromMemory(raw.data(), raw.size(), 44100.0f, 30.0f) &&
+          sofaMem.getMetadata().engine_sample_rate == 44100,
+          "SofaHrtfDSP::loadFromMemory builds 44.1 kHz bank");
+    sofaMem.clear();
+    CHECK(!sofaMem.isLoaded(), "SofaHrtfDSP::clear cleanly unloads bank");
+
+    // Verify all 6 bundled AES69 SOFA assets in sautiplay/assets/sofa/
+    const char *bundledSofas[] = {
+        "sautiplay/assets/sofa/mit_kemar_normal_pinna.sofa",
+        "sautiplay/assets/sofa/mit_kemar_large_pinna.sofa",
+        "sautiplay/assets/sofa/listen_irc_1002.sofa",
+        "sautiplay/assets/sofa/ari_dtf_nh2.sofa",
+        "sautiplay/assets/sofa/ari_hrtf_nh898.sofa",
+        "sautiplay/assets/sofa/cipic_subject_003.sofa",
+    };
+    for (const char *assetPath : bundledSofas) {
+        sauti::dsp::SofaHrtfDSP preset;
+        const bool okLoad = preset.loadFromFile(assetPath, 48000.0f, 30.0f);
+        const auto m = preset.getMetadata();
+        bool okRender = false;
+        double flL = 0.0, flR = 0.0;
+        if (okLoad && preset.isLoaded()) {
+            constexpr uint32_t kBlock = 256;
+            std::vector<float> buf51(kBlock * 6);
+            double sumL = 0.0, sumR = 0.0;
+            okRender = true;
+            for (uint32_t b = 0; b < 16; ++b) {
+                std::fill(buf51.begin(), buf51.end(), 0.0f);
+                for (uint32_t i = 0; i < kBlock; ++i) {
+                    const uint32_t n = b * kBlock + i;
+                    buf51[i * 6 + 0] = 0.25f * std::sin(2.0f * 3.14159265f * 1500.0f * n / 48000.0f);
+                }
+                if (!preset.process(buf51.data(), kBlock, 6, 0.70710678, 1.0)) {
+                    okRender = false;
+                    break;
+                }
+                if (b >= 6) {
+                    for (uint32_t i = 0; i < kBlock; ++i) {
+                        const float l = buf51[2 * i];
+                        const float r = buf51[2 * i + 1];
+                        if (!std::isfinite(l) || !std::isfinite(r)) okRender = false;
+                        sumL += static_cast<double>(l) * l;
+                        sumR += static_cast<double>(r) * r;
+                    }
+                }
+            }
+            flL = std::sqrt(sumL);
+            flR = std::sqrt(sumR);
+        }
+        std::printf("    [asset] %s: sr=%dHz M=%d FL_L=%.4f FL_R=%.4f\n",
+                    assetPath, m.native_sample_rate, m.num_measurements, flL, flR);
+        CHECK(okLoad && m.native_sample_rate > 0 && m.num_measurements > 0 &&
+              okRender && flL > flR * 1.10,
+              "bundled SOFA preset loads cleanly and lateralizes 5.1 FL to Left ear");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 5.1 / 7.1 Bass Management, ChannelLayoutRouter & Multichannel Surround
+// -----------------------------------------------------------------------------
+static void test_bass_management_and_multichannel_surround()
+{
+    std::printf("\n== 5.1 / 7.1 Bass Management & Multichannel Surround ==\n");
+
+    auto chRms = [](const float *buf, uint32_t frames, int chCount, int targetCh, uint32_t startFrame) {
+        double sum = 0.0;
+        uint32_t n = 0;
+        for (uint32_t i = startFrame; i < frames; ++i) {
+            const double v = buf[i * static_cast<uint32_t>(chCount) + static_cast<uint32_t>(targetCh)];
+            sum += v * v;
+            ++n;
+        }
+        return std::sqrt(sum / std::max<uint32_t>(1, n));
+    };
+
+    // 1. Small speaker 40 Hz redirection to LFE & 1 kHz preservation + LFE LPF rejection
+    {
+        sauti::dsp::BassManagementDSP bm;
+        bm.setSampleRate(48000.0f);
+        bm.setEnabled(true);
+        bm.setCrossoverHz(80.0f);
+        bm.setLfeLowpassHz(120.0f);
+        bm.setLfeGainDb(0.0f);
+        bm.setLfeMode(static_cast<int>(sauti::dsp::BassLfeMode::LfeOnly));
+        bm.setSpeakerSizes(true, true, true, true);
+        bm.reset();
+
+        constexpr uint32_t N = 16384;
+        std::vector<float> buf40(N * 6, 0.0f);
+        for (uint32_t i = 0; i < N; ++i) {
+            buf40[i * 6 + 0] = 0.5f * std::sin(2.0f * 3.14159265f * 40.0f * i / 48000.0f);
+        }
+        bm.process(buf40.data(), N, 6);
+        const double fl40 = chRms(buf40.data(), N, 6, 0, N / 2);
+        const double lfe40 = chRms(buf40.data(), N, 6, 3, N / 2);
+        const double inRms = 0.5 / std::sqrt(2.0);
+        CHECK(20.0 * std::log10((fl40 + 1e-12) / inRms) < -18.0,
+              "BassManagement: 40 Hz on Small FL attenuated by >18 dB at LR4 80 Hz XO");
+        CHECK(lfe40 > inRms * 0.85,
+              "BassManagement: Small FL 40 Hz bass redirected to LFE channel");
+
+        bm.reset();
+        std::vector<float> buf1k(N * 6, 0.0f);
+        for (uint32_t i = 0; i < N; ++i) {
+            const float s = 0.5f * std::sin(2.0f * 3.14159265f * 1000.0f * i / 48000.0f);
+            buf1k[i * 6 + 0] = s;
+            buf1k[i * 6 + 3] = s; // 1 kHz garbage in LFE
+        }
+        bm.process(buf1k.data(), N, 6);
+        const double fl1k = chRms(buf1k.data(), N, 6, 0, N / 2);
+        const double lfe1k = chRms(buf1k.data(), N, 6, 3, N / 2);
+        CHECK(std::fabs(20.0 * std::log10((fl1k + 1e-12) / inRms)) < 0.2,
+              "BassManagement: 1 kHz main passes through within +/-0.2 dB");
+        CHECK(20.0 * std::log10((lfe1k + 1e-12) / inRms) < -35.0,
+              "BassManagement: 1 kHz in LFE rejected by >35 dB");
+
+        // Large FL speaker pass-through
+        bm.setSpeakerSizes(false, true, true, true);
+        bm.reset();
+        std::vector<float> bufLarge(N * 6, 0.0f);
+        for (uint32_t i = 0; i < N; ++i) {
+            bufLarge[i * 6 + 0] = 0.5f * std::sin(2.0f * 3.14159265f * 40.0f * i / 48000.0f);
+        }
+        bm.process(bufLarge.data(), N, 6);
+        const double flLarge40 = chRms(bufLarge.data(), N, 6, 0, N / 2);
+        const double lfeLarge40 = chRms(bufLarge.data(), N, 6, 3, N / 2);
+        CHECK(std::fabs(20.0 * std::log10((flLarge40 + 1e-12) / inRms)) < 0.25 && lfeLarge40 < 1e-5,
+              "BassManagement: Large Front passes 40 Hz directly without LFE redirection");
+
+        // PhantomSub folds LFE symmetrically into FL/FR and mutes ch 3
+        bm.setLfeMode(static_cast<int>(sauti::dsp::BassLfeMode::PhantomSub));
+        bm.reset();
+        std::vector<float> bufPhantom(N * 6, 0.0f);
+        for (uint32_t i = 0; i < N; ++i) {
+            bufPhantom[i * 6 + 3] = 0.5f * std::sin(2.0f * 3.14159265f * 50.0f * i / 48000.0f);
+        }
+        bm.process(bufPhantom.data(), N, 6);
+        const double flPh = chRms(bufPhantom.data(), N, 6, 0, N / 2);
+        const double frPh = chRms(bufPhantom.data(), N, 6, 1, N / 2);
+        const double lfePh = chRms(bufPhantom.data(), N, 6, 3, N / 2);
+        CHECK(lfePh < 1e-6 && flPh > inRms * 0.5 && std::fabs(flPh - frPh) < 1e-5,
+              "BassManagement: PhantomSub mutes LFE out and folds into FL/FR symmetrically");
+    }
+
+    // 2. Per-channel calibration trim (+6 dB) and delay (5.0 ms @ 48kHz = 240 samples)
+    {
+        sauti::dsp::BassManagementDSP cal;
+        cal.setSampleRate(48000.0f);
+        cal.setEnabled(true);
+        cal.setSpeakerSizes(false, false, false, false);
+        cal.setLfeMode(0);
+        cal.setChannelTrimDb(2, 6.0206f);
+        cal.setChannelDelayMs(2, 5.0f);
+        cal.reset();
+
+        constexpr uint32_t N = 512;
+        std::vector<float> buf(N * 6, 0.0f);
+        buf[2] = 0.25f; // impulse at frame 0 on FC
+        cal.process(buf.data(), N, 6);
+        uint32_t peakIdx = 0;
+        float peakVal = 0.0f;
+        for (uint32_t i = 0; i < N; ++i) {
+            const float v = std::fabs(buf[i * 6 + 2]);
+            if (v > peakVal) { peakVal = v; peakIdx = i; }
+        }
+        CHECK(peakIdx == 240 && nearlyEqual(peakVal, 0.50f, 0.02f),
+              "BassManagement speaker calibration shifts impulse by 240 samples (5ms) and applies +6 dB trim");
+    }
+
+    // 3. ChannelLayoutRouter::convert (6->2, 8->2, 8->6, 6->8, 2->6, 2->8)
+    {
+        constexpr uint32_t N = 128;
+        std::vector<float> buf(N * 8, 0.0f);
+        for (uint32_t i = 0; i < N; ++i) {
+            buf[i * 2 + 0] = 0.4f;
+            buf[i * 2 + 1] = -0.2f;
+        }
+        sauti::dsp::ChannelLayoutRouter::convert(buf.data(), N, 2, 6);
+        CHECK(nearlyEqual(buf[0], 0.4f, 1e-5f) && nearlyEqual(buf[1], -0.2f, 1e-5f) &&
+              nearlyEqual(buf[2], 0.0f, 1e-5f) && nearlyEqual(buf[4], 0.0f, 1e-5f),
+              "ChannelLayoutRouter 2->6 maps FL/FR cleanly backwards");
+
+        // Populate discrete 5.1 center and downmix back 6->2 (anti-clip norm = 1/(1+sqrt(0.5)+sqrt(0.5)))
+        for (uint32_t i = 0; i < N; ++i) {
+            buf[i * 6 + 0] = 0.0f; buf[i * 6 + 1] = 0.0f;
+            buf[i * 6 + 2] = 0.5f; // FC only
+            buf[i * 6 + 3] = 0.0f; buf[i * 6 + 4] = 0.0f; buf[i * 6 + 5] = 0.0f;
+        }
+        sauti::dsp::ChannelLayoutRouter::convert(buf.data(), N, 6, 2);
+        const float expectedFcFold = 0.5f * 0.70710678f / (1.0f + 0.70710678f + 0.70710678f);
+        CHECK(nearlyEqual(buf[0], expectedFcFold, 1e-4f) && nearlyEqual(buf[1], expectedFcFold, 1e-4f),
+              "ChannelLayoutRouter 6->2 folds Center symmetrically with ITU anti-clip norm");
+    }
+
+    // 4. SpatialSurroundDSP::processMultichannel (5.1->2 Parametric & SOFA, 2->6 Matrix upmix, 6->6 speaker)
+    {
+        sauti::dsp::SpatialSurroundDSP surr;
+        surr.setSampleRate(48000.0f);
+        surr.setEnabled(true);
+        surr.setMode(sauti::dsp::SurroundMode::MatrixSurround);
+
+        constexpr uint32_t N = 2048;
+        std::vector<float> buf(N * 8, 0.0f);
+
+        // 2 -> 6 discrete Matrix upmix (dominant in-phase center 1 kHz + anti-phase surround 600 Hz)
+        for (uint32_t i = 0; i < N; ++i) {
+            const float mid  = 0.35f * std::sin(2.0f * 3.14159265f * 1000.0f * i / 48000.0f);
+            const float side = 0.15f * std::sin(2.0f * 3.14159265f * 600.0f * i / 48000.0f);
+            buf[i * 2 + 0] = mid + side;
+            buf[i * 2 + 1] = mid - side;
+        }
+        const int out2to6 = surr.processMultichannel(buf.data(), N, 2, 6);
+        CHECK(out2to6 == 6 && chRms(buf.data(), N, 6, 2, N / 2) > 0.04 && chRms(buf.data(), N, 6, 4, N / 2) > 0.02,
+              "SpatialSurroundDSP::processMultichannel 2->6 produces discrete Center and Surround channels");
+
+        // 8 -> 2 Binaural with loaded SOFA
+        const std::string sofaPath = findDefaultSofaPath();
+        if (!sofaPath.empty()) {
+            surr.loadSofaFile(sofaPath.c_str());
+            surr.setSofaEnabled(true);
+            surr.setMode(sauti::dsp::SurroundMode::BinauralVirtualizer);
+            surr.setBinauralMode(0);
+            surr.reset();
+            std::fill(buf.begin(), buf.end(), 0.0f);
+            for (uint32_t i = 0; i < N; ++i) {
+                buf[i * 8 + 6] = 0.4f * std::sin(2.0f * 3.14159265f * 1200.0f * i / 48000.0f); // SL7
+            }
+            const int out8to2 = surr.processMultichannel(buf.data(), N, 8, 2);
+            const double l82 = chRms(buf.data(), N, 2, 0, N / 2);
+            const double r82 = chRms(buf.data(), N, 2, 1, N / 2);
+            CHECK(out8to2 == 2 && l82 > r82 * 1.2,
+                  "SpatialSurroundDSP::processMultichannel 8->2 binauralizes 7.1 SL with personal SOFA");
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     std::printf("==============================================\n");
@@ -2776,6 +3136,8 @@ int main(int argc, char **argv)
     if (only.empty() || only == "f64") test_uniform_f64_dsp_pipeline();
     if (only.empty() || only == "audit") test_dsp_audit_regressions();
     if (only.empty() || only == "audit_v2") test_dsp_audit_v2_regressions();
+    if (only.empty() || only == "sofa") test_sofa_hrtf_dsp();
+    if (only.empty() || only == "multichannel") test_bass_management_and_multichannel_surround();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

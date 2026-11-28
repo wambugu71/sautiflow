@@ -6,6 +6,8 @@
 #include <vector>
 #include "simd_math.h"
 #include "cytomic_svf_dsp.h"
+#include "sofa_hrtf_dsp.h"
+#include "bass_management_dsp.h"
 
 // =============================================================================
 // SpatialSurroundDSP: Zero-Latency Surround & 3D Spatial Audio Suite
@@ -476,14 +478,17 @@ public:
     void setSampleRate(float sample_rate)
     {
         if (sample_rate <= 0.0f) sample_rate = 48000.0f;
-        if (std::fabs(sample_rate_ - sample_rate) < 1.0f) return;
+        const bool srChanged = std::fabs(sample_rate_ - sample_rate) >= 1.0f;
+        if (!srChanged && !matrix_mc_scratch_.empty()) return;
 
         sample_rate_ = sample_rate;
         smoothing_coeff_ = 1.0f - std::exp(-1.0f / (0.035f * sample_rate_));
         matrix_env_coeff_ = 1.0 - std::exp(-1.0 / (0.015 * static_cast<double>(sample_rate_)));
+        matrix_mc_scratch_.assign(8192u * 8u, 0.0);
         buildDelayLines();
         updateFilters();
         reconfigureHrtf();
+        sofa_hrtf_.setSampleRate(sample_rate_);
         reset();
     }
 
@@ -515,8 +520,38 @@ public:
         need_filter_update_ = true;
     }
     void setBinauralRoomMix(float mix)       { binaural_room_mix_ = clampf(mix, 0.0f, 1.0f); }
-    void setBinauralSpeakerAngle(int angle)  { binaural_speaker_angle_ = clampi(angle, 0, 2); } // 0=Narrow (10), 1=Standard (30), 2=Wide (45)
+    void setBinauralSpeakerAngle(int angle)
+    {
+        binaural_speaker_angle_ = clampi(angle, 0, 2); // 0=Narrow (10), 1=Standard (30), 2=Wide (45)
+        sofa_hrtf_.setStereoAngleDeg(getTargetSpeakerAngleDeg());
+    }
     void setBinauralShadowCutoff(float hz)   { binaural_shadow_cutoff_ = clampf(hz, 2000.0f, 6000.0f); need_filter_update_ = true; }
+
+    // --- Personal SOFA HRTF Controls ---
+    bool loadSofaFile(const char *path)
+    {
+        return sofa_hrtf_.loadFromFile(path, sample_rate_, getTargetSpeakerAngleDeg());
+    }
+    bool loadSofaMemory(const uint8_t *data, size_t size)
+    {
+        return sofa_hrtf_.loadFromMemory(data, size, sample_rate_, getTargetSpeakerAngleDeg());
+    }
+    void clearSofa()                         { sofa_hrtf_.clear(); }
+    void setSofaEnabled(bool enabled)        { sofa_hrtf_enabled_ = enabled; }
+    bool isSofaEnabled() const               { return sofa_hrtf_enabled_; }
+    bool hasSofaLoaded() const               { return sofa_hrtf_.isLoaded(); }
+    bool isSofaActive() const                { return sofa_hrtf_enabled_ && sofa_hrtf_.isLoaded(); }
+    SofaHrtfMetadata getSofaMetadata() const { return sofa_hrtf_.getMetadata(); }
+    void rebuildSofaForSampleRate(float sr)  { sofa_hrtf_.setSampleRate(sr); }
+    size_t getLatencySamples() const
+    {
+        if (!enabled_ || !isSofaActive()) return 0;
+        if (mode_ == SurroundMode::MatrixSurround ||
+            (mode_ == SurroundMode::BinauralVirtualizer && binaural_mode_ == 0)) {
+            return sofa_hrtf_.getLatencySamples();
+        }
+        return 0;
+    }
 
     // --- Mode 3: 3D Acoustic Stage Parameters ---
     void setStageProfile(int profile)        { stage_profile_ = clampi(profile, 0, 1); } // 0=Headset, 1=Speaker
@@ -560,7 +595,9 @@ public:
         matrix_surr_hp_.reset(); matrix_surr_lp_.reset();
         matrix_hilbert_.reset();
         rear_line_l_.clear(); rear_line_r_.clear();
+        rear_line_bl_.clear(); rear_line_br_.clear();
         rear_diffuser_l_.reset(); rear_diffuser_r_.reset();
+        sofa_hrtf_.reset();
         matrix_env_lr_ = 0.0;
         matrix_env_l2_ = 0.0;
         matrix_env_r2_ = 0.0;
@@ -621,6 +658,19 @@ public:
         processImpl(interleaved, frame_count);
     }
 
+    // Multichannel-aware processing. Returns resulting active channel count
+    // (e.g., 6/8 -> 2 when binauralizing discrete 5.1/7.1 to headphones, or
+    // 2 -> 6/8 when upmixing stereo to discrete 5.1/7.1 speaker output).
+    int processMultichannel(float *interleaved, uint32_t frame_count, int in_channels, int out_channels)
+    {
+        return processMultichannelImpl(interleaved, frame_count, in_channels, out_channels);
+    }
+
+    int processMultichannel(double *interleaved, uint32_t frame_count, int in_channels, int out_channels)
+    {
+        return processMultichannelImpl(interleaved, frame_count, in_channels, out_channels);
+    }
+
 private:
     template <typename T>
     void processImpl(T *interleaved, uint32_t frame_count)
@@ -671,6 +721,287 @@ private:
         return 0.180f;                                   // Standard (30 deg)
     }
 
+    float getTargetSpeakerAngleDeg() const
+    {
+        if (binaural_speaker_angle_ == 0) return 10.0f;
+        if (binaural_speaker_angle_ == 2) return 45.0f;
+        return 30.0f;
+    }
+
+    template <typename T>
+    void applyAntiPopStereo(T *interleaved, uint32_t frame_count)
+    {
+        if (anti_pop_ < 1.0f) {
+            const float inc = 20.0f / sample_rate_;
+            for (uint32_t i = 0; i < frame_count; ++i) {
+                const double ap = static_cast<double>(anti_pop_);
+                interleaved[2 * i]     = static_cast<T>(static_cast<double>(interleaved[2 * i]) * ap);
+                interleaved[2 * i + 1] = static_cast<T>(static_cast<double>(interleaved[2 * i + 1]) * ap);
+                anti_pop_ = std::min(1.0f, anti_pop_ + inc);
+            }
+        }
+    }
+
+    template <typename T>
+    void applyBinauralRoomReflections(T *s, uint32_t frames)
+    {
+        const double sr = static_cast<double>(sample_rate_);
+        for (uint32_t i = 0; i < frames; ++i) {
+            smooth_binaural_room_ += smoothing_coeff_ * (binaural_room_mix_ - smooth_binaural_room_);
+            smooth_room_scale_    += smoothing_coeff_ * (target_room_scale_ - smooth_room_scale_);
+
+            const double l_in = static_cast<double>(s[2 * i]);
+            const double r_in = static_cast<double>(s[2 * i + 1]);
+
+            if (smooth_binaural_room_ > 1.0e-4) {
+                const double scale_ms = 0.001 * sr * static_cast<double>(smooth_room_scale_);
+                const double il0 = binaural_room_delays_[0].read(9.3 * scale_ms);
+                const double il1 = binaural_room_delays_[0].read(15.7 * scale_ms);
+                const double il2 = binaural_room_delays_[0].read(23.9 * scale_ms);
+                const double cr0 = binaural_room_delays_[1].read(12.1 * scale_ms);
+                const double cr1 = binaural_room_delays_[1].read(19.4 * scale_ms);
+                const double cr2 = binaural_room_delays_[1].read(28.3 * scale_ms);
+
+                const double ir0 = binaural_room_delays_[1].read(9.3 * scale_ms);
+                const double ir1 = binaural_room_delays_[1].read(15.7 * scale_ms);
+                const double ir2 = binaural_room_delays_[1].read(23.9 * scale_ms);
+                const double cl0 = binaural_room_delays_[0].read(12.1 * scale_ms);
+                const double cl1 = binaural_room_delays_[0].read(19.4 * scale_ms);
+                const double cl2 = binaural_room_delays_[0].read(28.3 * scale_ms);
+
+                binaural_room_delays_[0].push(l_in);
+                binaural_room_delays_[1].push(r_in);
+
+                const double raw_l = 0.30 * il0 - 0.22 * il1 + 0.16 * il2 + 0.24 * cr0 - 0.18 * cr1 + 0.12 * cr2;
+                const double raw_r = 0.30 * ir0 - 0.22 * ir1 + 0.16 * ir2 + 0.24 * cl0 - 0.18 * cl1 + 0.12 * cl2;
+
+                const double diff_l = binaural_room_diffuser_l2_.process(binaural_room_diffuser_l1_.process(raw_l));
+                const double diff_r = binaural_room_diffuser_r2_.process(binaural_room_diffuser_r1_.process(raw_r));
+                const double wet_l = binaural_room_air_l_.process(diff_l);
+                const double wet_r = binaural_room_air_r_.process(diff_r);
+
+                const double room_wet = 0.34 * static_cast<double>(smooth_binaural_room_);
+                const double direct_g = 1.0 / std::sqrt(1.0 + 0.5 * room_wet * room_wet);
+                s[2 * i]     = static_cast<T>(surround_sanitize(direct_g * l_in + room_wet * wet_l));
+                s[2 * i + 1] = static_cast<T>(surround_sanitize(direct_g * r_in + room_wet * wet_r));
+            } else {
+                binaural_room_delays_[0].push(l_in);
+                binaural_room_delays_[1].push(r_in);
+            }
+        }
+    }
+
+    template <typename T>
+    int processMultichannelImpl(T *buf, uint32_t frames, int in_channels, int out_channels)
+    {
+        if (!enabled_ || frames == 0 || !buf || mode_ == SurroundMode::Off) {
+            return in_channels;
+        }
+        if (in_channels == 2 && out_channels == 2) {
+            processImpl(buf, frames);
+            return 2;
+        }
+        if (in_channels < 2) {
+            return in_channels;
+        }
+
+        if (need_filter_update_) {
+            updateFilters();
+            need_filter_update_ = false;
+        }
+
+        // Case A: Discrete 5.1 (6ch) or 7.1 (8ch) -> 2ch Stereo/Headphone output
+        if ((in_channels == 6 || in_channels == 8) && out_channels == 2) {
+            if (mode_ == SurroundMode::BinauralVirtualizer && binaural_mode_ == 1) {
+                // Speaker Field XTC expects 2ch stereo speakers
+                ChannelLayoutRouter::convert(buf, frames, in_channels, 2);
+                processBinaural(buf, frames);
+                applyAntiPopStereo(buf, frames);
+                return 2;
+            }
+
+            // Optional Matrix surround boost scaling on discrete surround channels before HRTF
+            if (mode_ == SurroundMode::MatrixSurround) {
+                const double rb = 0.70 * static_cast<double>(surround_boost_);
+                const double cf = std::clamp(0.65 + 0.55 * static_cast<double>(center_focus_), 0.5, 1.3);
+                for (uint32_t i = 0; i < frames; ++i) {
+                    const size_t base = static_cast<size_t>(i) * static_cast<size_t>(in_channels);
+                    buf[base + 2] = static_cast<T>(static_cast<double>(buf[base + 2]) * cf);
+                    for (int c = 4; c < in_channels; ++c) {
+                        buf[base + static_cast<size_t>(c)] = static_cast<T>(static_cast<double>(buf[base + static_cast<size_t>(c)]) * rb);
+                    }
+                }
+            }
+
+            const double wet = (mode_ == SurroundMode::BinauralVirtualizer)
+                             ? static_cast<double>(binaural_boost_)
+                             : 1.0;
+
+            if (isSofaActive() && sofa_hrtf_.process(buf, frames, in_channels, 0.7071067811865475, wet)) {
+                if (mode_ == SurroundMode::BinauralVirtualizer) {
+                    applyBinauralRoomReflections(buf, frames);
+                }
+                applyAntiPopStereo(buf, frames);
+                return 2;
+            }
+
+            // Parametric spherical-head HRTF rendering of discrete 5.1 / 7.1
+            const double dMix = 1.0 - wet;
+            for (uint32_t i = 0; i < frames; ++i) {
+                const size_t inB = static_cast<size_t>(i) * static_cast<size_t>(in_channels);
+                const double fl  = static_cast<double>(buf[inB + 0]);
+                const double fr  = static_cast<double>(buf[inB + 1]);
+                const double fc  = static_cast<double>(buf[inB + 2]);
+                const double lfe = static_cast<double>(buf[inB + 3]);
+
+                double hrtf_l = 0.0, hrtf_r = 0.0;
+                matrix_sources_[0].process(fc, 0.7071067811865475, hrtf_l, hrtf_r); // FC @ 0 deg
+                matrix_sources_[1].process(fl, 1.0, hrtf_l, hrtf_r);                // FL @ -30 deg
+                matrix_sources_[2].process(fr, 1.0, hrtf_l, hrtf_r);                // FR @ +30 deg
+
+                if (in_channels == 6) {
+                    const double sl = static_cast<double>(buf[inB + 4]);
+                    const double sr = static_cast<double>(buf[inB + 5]);
+                    matrix_sources_[3].process(sl, 0.7071067811865475, hrtf_l, hrtf_r); // SL @ -110 deg
+                    matrix_sources_[4].process(sr, 0.7071067811865475, hrtf_l, hrtf_r); // SR @ +110 deg
+                } else {
+                    const double bl = static_cast<double>(buf[inB + 4]);
+                    const double br = static_cast<double>(buf[inB + 5]);
+                    const double sl = static_cast<double>(buf[inB + 6]);
+                    const double sr = static_cast<double>(buf[inB + 7]);
+                    matrix_sources_[5].process(bl, 0.65, hrtf_l, hrtf_r); // BL @ -150 deg
+                    matrix_sources_[6].process(br, 0.65, hrtf_l, hrtf_r); // BR @ +150 deg
+                    matrix_sources_[7].process(sl, 0.70, hrtf_l, hrtf_r); // SL @ -90 deg
+                    matrix_sources_[8].process(sr, 0.70, hrtf_l, hrtf_r); // SR @ +90 deg
+                }
+
+                // LFE bypasses ITD/pinna head-shadow so sub-bass stays tight & punchy
+                hrtf_l += 0.7071067811865475 * lfe;
+                hrtf_r += 0.7071067811865475 * lfe;
+
+                const double out_l = dMix * fl + wet * hrtf_l;
+                const double out_r = dMix * fr + wet * hrtf_r;
+                buf[2 * i]     = static_cast<T>(surround_sanitize(out_l));
+                buf[2 * i + 1] = static_cast<T>(surround_sanitize(out_r));
+            }
+            if (mode_ == SurroundMode::BinauralVirtualizer) {
+                applyBinauralRoomReflections(buf, frames);
+            }
+            applyAntiPopStereo(buf, frames);
+            return 2;
+        }
+
+        // Case B: 2ch Stereo -> Discrete 5.1 / 7.1 Hardware Output (Matrix Upmix)
+        if (in_channels == 2 && (out_channels == 6 || out_channels == 8)) {
+            if (mode_ == SurroundMode::MatrixSurround) {
+                const double sr = static_cast<double>(sample_rate_);
+                if (matrix_mc_scratch_.size() < static_cast<size_t>(frames) * 2u) {
+                    matrix_mc_scratch_.resize(static_cast<size_t>(frames) * 2u);
+                }
+                for (uint32_t i = 0; i < frames; ++i) {
+                    matrix_mc_scratch_[2 * i]     = static_cast<double>(buf[2 * i]);
+                    matrix_mc_scratch_[2 * i + 1] = static_cast<double>(buf[2 * i + 1]);
+                }
+                for (uint32_t i = 0; i < frames; ++i) {
+                    smooth_center_focus_   += smoothing_coeff_ * (center_focus_ - smooth_center_focus_);
+                    smooth_surround_boost_ += smoothing_coeff_ * (surround_boost_ - smooth_surround_boost_);
+                    smooth_surround_delay_ += smoothing_coeff_ * (surround_delay_ms_ - smooth_surround_delay_);
+
+                    const double l_in = matrix_mc_scratch_[2 * i];
+                    const double r_in = matrix_mc_scratch_[2 * i + 1];
+
+                    const double l_lo = matrix_lfe_lp2_.processSample(matrix_lfe_lp1_.processSample(l_in, 0), 0);
+                    const double r_lo = matrix_lfe_lp2_.processSample(matrix_lfe_lp1_.processSample(r_in, 1), 1);
+                    const double l_hi = matrix_lfe_hp2_.processSample(matrix_lfe_hp1_.processSample(l_in, 0), 0);
+                    const double r_hi = matrix_lfe_hp2_.processSample(matrix_lfe_hp1_.processSample(r_in, 1), 1);
+                    const double lfe = 0.5 * (l_lo + r_lo);
+
+                    matrix_env_lr_ += matrix_env_coeff_ * (l_hi * r_hi - matrix_env_lr_);
+                    matrix_env_l2_ += matrix_env_coeff_ * (l_hi * l_hi - matrix_env_l2_);
+                    matrix_env_r2_ += matrix_env_coeff_ * (r_hi * r_hi - matrix_env_r2_);
+
+                    const double denom_e = std::sqrt(matrix_env_l2_ * matrix_env_r2_) + 1.0e-12;
+                    const double corr = std::clamp(matrix_env_lr_ / denom_e, -1.0, 1.0);
+                    const double balance = std::clamp((matrix_env_l2_ - matrix_env_r2_) /
+                                                      (matrix_env_l2_ + matrix_env_r2_ + 1.0e-12), -1.0, 1.0);
+                    const double c_steer = std::clamp(corr, 0.0, 1.0) * (1.0 - std::fabs(balance));
+
+                    const double mid_hi  = 0.5 * (l_hi + r_hi);
+                    const double side_hi = 0.5 * (l_hi - r_hi);
+                    const double c_amt = static_cast<double>(smooth_center_focus_) * c_steer;
+                    const double fc = mid_hi * c_amt * 1.4142135623730951;
+                    const double fl = l_hi - mid_hi * c_amt;
+                    const double fr = r_hi - mid_hi * c_amt;
+
+                    const double side_band = matrix_surr_lp_.processSample(matrix_surr_hp_.processSample(side_hi, 0), 0);
+                    double q_a = 0.0, q_b = 0.0;
+                    matrix_hilbert_.process(side_band, q_a, q_b);
+
+                    const double ls_steer = std::clamp(0.5 * (1.0 + 0.70 * balance), 0.15, 0.85);
+                    const double rs_steer = 1.0 - ls_steer;
+                    const double rear_delay_samples = static_cast<double>(smooth_surround_delay_) * 0.001 * sr;
+                    const double rb = 0.50 * static_cast<double>(smooth_surround_boost_);
+
+                    const double ls = rear_diffuser_l_.process(
+                        rear_line_l_.pushAndRead(rear_delay_samples, q_a * ls_steer * 1.4142135623730951)) * rb;
+                    const double rs = rear_diffuser_r_.process(
+                        rear_line_r_.pushAndRead(rear_delay_samples, -q_b * rs_steer * 1.4142135623730951)) * rb;
+
+                    const size_t outB = static_cast<size_t>(i) * static_cast<size_t>(out_channels);
+                    buf[outB + 0] = static_cast<T>(surround_sanitize(fl));
+                    buf[outB + 1] = static_cast<T>(surround_sanitize(fr));
+                    buf[outB + 2] = static_cast<T>(surround_sanitize(fc));
+                    buf[outB + 3] = static_cast<T>(surround_sanitize(lfe));
+                    if (out_channels == 6) {
+                        buf[outB + 4] = static_cast<T>(surround_sanitize(ls));
+                        buf[outB + 5] = static_cast<T>(surround_sanitize(rs));
+                    } else {
+                        const double bl = rear_line_bl_.pushAndRead(rear_delay_samples * 1.25, ls * 0.7071067811865475);
+                        const double br = rear_line_br_.pushAndRead(rear_delay_samples * 1.25, rs * 0.7071067811865475);
+                        buf[outB + 4] = static_cast<T>(surround_sanitize(bl));
+                        buf[outB + 5] = static_cast<T>(surround_sanitize(br));
+                        buf[outB + 6] = static_cast<T>(surround_sanitize(ls * 0.85));
+                        buf[outB + 7] = static_cast<T>(surround_sanitize(rs * 0.85));
+                    }
+                }
+                return out_channels;
+            }
+            processImpl(buf, frames);
+            return 2;
+        }
+
+        // Case C: Discrete 5.1 / 7.1 -> Discrete 5.1 / 7.1 Hardware Output
+        if ((in_channels == 6 || in_channels == 8) && (out_channels == 6 || out_channels == 8)) {
+            if (mode_ == SurroundMode::MatrixSurround) {
+                const double sr = static_cast<double>(sample_rate_);
+                for (uint32_t i = 0; i < frames; ++i) {
+                    smooth_center_focus_   += smoothing_coeff_ * (center_focus_ - smooth_center_focus_);
+                    smooth_surround_boost_ += smoothing_coeff_ * (surround_boost_ - smooth_surround_boost_);
+                    smooth_surround_delay_ += smoothing_coeff_ * (surround_delay_ms_ - smooth_surround_delay_);
+
+                    const size_t base = static_cast<size_t>(i) * static_cast<size_t>(in_channels);
+                    const double cf = 0.60 + 0.60 * static_cast<double>(smooth_center_focus_);
+                    const double sb = static_cast<double>(smooth_surround_boost_);
+                    const double dSamp = static_cast<double>(smooth_surround_delay_) * 0.001 * sr;
+
+                    buf[base + 2] = static_cast<T>(surround_sanitize(static_cast<double>(buf[base + 2]) * cf));
+                    buf[base + 4] = static_cast<T>(surround_sanitize(rear_line_l_.pushAndRead(dSamp, static_cast<double>(buf[base + 4]) * sb)));
+                    buf[base + 5] = static_cast<T>(surround_sanitize(rear_line_r_.pushAndRead(dSamp, static_cast<double>(buf[base + 5]) * sb)));
+                    if (in_channels == 8) {
+                        buf[base + 6] = static_cast<T>(surround_sanitize(rear_line_bl_.pushAndRead(dSamp, static_cast<double>(buf[base + 6]) * sb)));
+                        buf[base + 7] = static_cast<T>(surround_sanitize(rear_line_br_.pushAndRead(dSamp, static_cast<double>(buf[base + 7]) * sb)));
+                    }
+                }
+            }
+            if (in_channels != out_channels) {
+                ChannelLayoutRouter::convert(buf, frames, in_channels, out_channels);
+            }
+            return out_channels;
+        }
+
+        return in_channels;
+    }
+
     // -------------------------------------------------------------------------
     // Mode 1: Cinema Matrix 5.1 (Active Dematrix -> Folded Spherical HRTF)
     // -------------------------------------------------------------------------
@@ -678,6 +1009,79 @@ private:
     void processMatrix(T *s, uint32_t frames)
     {
         const double sr = static_cast<double>(sample_rate_);
+        const bool useSofa = isSofaActive();
+
+        if (useSofa) {
+            uint32_t offset = 0;
+            while (offset < frames) {
+                const uint32_t chunk = std::min<uint32_t>(frames - offset, 8192u);
+                if (matrix_mc_scratch_.size() < static_cast<size_t>(chunk) * 6u) {
+                    matrix_mc_scratch_.resize(static_cast<size_t>(chunk) * 6u);
+                }
+                for (uint32_t i = 0; i < chunk; ++i) {
+                    smooth_center_focus_   += smoothing_coeff_ * (center_focus_ - smooth_center_focus_);
+                    smooth_surround_boost_ += smoothing_coeff_ * (surround_boost_ - smooth_surround_boost_);
+                    smooth_surround_delay_ += smoothing_coeff_ * (surround_delay_ms_ - smooth_surround_delay_);
+
+                    const double l_in = static_cast<double>(s[2 * (offset + i)]);
+                    const double r_in = static_cast<double>(s[2 * (offset + i) + 1]);
+
+                    const double l_lo = matrix_lfe_lp2_.processSample(matrix_lfe_lp1_.processSample(l_in, 0), 0);
+                    const double r_lo = matrix_lfe_lp2_.processSample(matrix_lfe_lp1_.processSample(r_in, 1), 1);
+                    const double l_hi = matrix_lfe_hp2_.processSample(matrix_lfe_hp1_.processSample(l_in, 0), 0);
+                    const double r_hi = matrix_lfe_hp2_.processSample(matrix_lfe_hp1_.processSample(r_in, 1), 1);
+                    const double lfe = 0.5 * (l_lo + r_lo);
+
+                    matrix_env_lr_ += matrix_env_coeff_ * (l_hi * r_hi - matrix_env_lr_);
+                    matrix_env_l2_ += matrix_env_coeff_ * (l_hi * l_hi - matrix_env_l2_);
+                    matrix_env_r2_ += matrix_env_coeff_ * (r_hi * r_hi - matrix_env_r2_);
+
+                    const double denom_e = std::sqrt(matrix_env_l2_ * matrix_env_r2_) + 1.0e-12;
+                    const double corr = std::clamp(matrix_env_lr_ / denom_e, -1.0, 1.0);
+                    const double balance = std::clamp((matrix_env_l2_ - matrix_env_r2_) /
+                                                      (matrix_env_l2_ + matrix_env_r2_ + 1.0e-12), -1.0, 1.0);
+                    const double c_steer = std::clamp(corr, 0.0, 1.0) * (1.0 - std::fabs(balance));
+
+                    const double mid_hi  = 0.5 * (l_hi + r_hi);
+                    const double side_hi = 0.5 * (l_hi - r_hi);
+                    const double c_amt = static_cast<double>(smooth_center_focus_) * c_steer;
+                    const double c  = mid_hi * c_amt;
+                    const double fl = l_hi - c;
+                    const double fr = r_hi - c;
+
+                    const double side_band = matrix_surr_lp_.processSample(matrix_surr_hp_.processSample(side_hi, 0), 0);
+                    double q_a = 0.0, q_b = 0.0;
+                    matrix_hilbert_.process(side_band, q_a, q_b);
+
+                    const double ls_steer = std::clamp(0.5 * (1.0 + 0.70 * balance), 0.15, 0.85);
+                    const double rs_steer = 1.0 - ls_steer;
+                    const double rear_delay_samples = static_cast<double>(smooth_surround_delay_) * 0.001 * sr;
+                    const double ls_raw = rear_line_l_.pushAndRead(rear_delay_samples, q_a * ls_steer * 1.4142135623730951);
+                    const double rs_raw = rear_line_r_.pushAndRead(rear_delay_samples, -q_b * rs_steer * 1.4142135623730951);
+                    const double rb = 0.38 * static_cast<double>(smooth_surround_boost_);
+                    const double ls = rear_diffuser_l_.process(ls_raw) * rb;
+                    const double rs = rear_diffuser_r_.process(rs_raw) * rb;
+
+                    const size_t mcIdx = static_cast<size_t>(i) * 6u;
+                    matrix_mc_scratch_[mcIdx + 0] = fl;
+                    matrix_mc_scratch_[mcIdx + 1] = fr;
+                    matrix_mc_scratch_[mcIdx + 2] = c;
+                    matrix_mc_scratch_[mcIdx + 3] = lfe;
+                    matrix_mc_scratch_[mcIdx + 4] = ls;
+                    matrix_mc_scratch_[mcIdx + 5] = rs;
+                }
+                if (sofa_hrtf_.process(matrix_mc_scratch_.data(), chunk, 6, 1.0, 1.0)) {
+                    for (uint32_t i = 0; i < chunk; ++i) {
+                        s[2 * (offset + i)]     = static_cast<T>(surround_sanitize(matrix_mc_scratch_[2 * i]));
+                        s[2 * (offset + i) + 1] = static_cast<T>(surround_sanitize(matrix_mc_scratch_[2 * i + 1]));
+                    }
+                    offset += chunk;
+                    continue;
+                }
+                break;
+            }
+            if (offset == frames) return;
+        }
 
         for (uint32_t i = 0; i < frames; ++i) {
             smooth_center_focus_   += smoothing_coeff_ * (center_focus_ - smooth_center_focus_);
@@ -753,6 +1157,17 @@ private:
     template <typename T>
     void processBinaural(T *s, uint32_t frames)
     {
+        if (binaural_mode_ == 0 && isSofaActive()) {
+            // Advance intensity smoother over block so wetMix is smooth
+            for (uint32_t i = 0; i < frames; ++i) {
+                smooth_binaural_boost_ += smoothing_coeff_ * (binaural_boost_ - smooth_binaural_boost_);
+            }
+            if (sofa_hrtf_.process(s, frames, 2, 0.7071067811865475, static_cast<double>(smooth_binaural_boost_))) {
+                applyBinauralRoomReflections(s, frames);
+                return;
+            }
+        }
+
         constexpr double PI = 3.14159265358979323846;
         const double sr = static_cast<double>(sample_rate_);
         const double itd_samples = std::max(1.0, 0.00026 * sr); // ~30 deg spherical head ITD (0.26 ms)
@@ -1001,6 +1416,8 @@ private:
         // Matrix rear surrounds & short diffusers
         rear_line_l_.init(static_cast<uint32_t>(35.0f * 0.001f * sample_rate_) + 16u);
         rear_line_r_.init(static_cast<uint32_t>(35.0f * 0.001f * sample_rate_) + 16u);
+        rear_line_bl_.init(static_cast<uint32_t>(45.0f * 0.001f * sample_rate_) + 16u);
+        rear_line_br_.init(static_cast<uint32_t>(45.0f * 0.001f * sample_rate_) + 16u);
         rear_diffuser_l_.init(110.0f, sr_scale, 0.45); // ~2.3 ms @ 48k
         rear_diffuser_r_.init(149.0f, sr_scale, 0.45); // ~3.1 ms @ 48k
 
@@ -1095,7 +1512,7 @@ private:
 
     void reconfigureHrtf()
     {
-        // 5 virtual speaker positions for Cinema Matrix 5.1 with power-balanced ear weights
+        // 5 virtual speaker positions for Cinema Matrix 5.1 + 4 extra for discrete 7.1
         matrix_sources_[0].configure(   0.0f,  0.0f, head_radius_cm_, 0.5f, sample_rate_); // Center
         matrix_sources_[0].setEarMix(1.00, 1.00);
 
@@ -1105,11 +1522,23 @@ private:
         matrix_sources_[2].configure(  30.0f,  0.0f, head_radius_cm_, 0.6f, sample_rate_); // Right
         matrix_sources_[2].setEarMix(0.72, 0.28);
 
-        matrix_sources_[3].configure(-110.0f, 10.0f, head_radius_cm_, 0.8f, sample_rate_); // Left Surround
+        matrix_sources_[3].configure(-110.0f, 10.0f, head_radius_cm_, 0.8f, sample_rate_); // 5.1 Left Surround
         matrix_sources_[3].setEarMix(0.78, 0.22);
 
-        matrix_sources_[4].configure( 110.0f, 10.0f, head_radius_cm_, 0.8f, sample_rate_); // Right Surround
+        matrix_sources_[4].configure( 110.0f, 10.0f, head_radius_cm_, 0.8f, sample_rate_); // 5.1 Right Surround
         matrix_sources_[4].setEarMix(0.78, 0.22);
+
+        matrix_sources_[5].configure(-150.0f, 10.0f, head_radius_cm_, 0.85f, sample_rate_); // 7.1 Back Left
+        matrix_sources_[5].setEarMix(0.76, 0.24);
+
+        matrix_sources_[6].configure( 150.0f, 10.0f, head_radius_cm_, 0.85f, sample_rate_); // 7.1 Back Right
+        matrix_sources_[6].setEarMix(0.76, 0.24);
+
+        matrix_sources_[7].configure( -90.0f,  0.0f, head_radius_cm_, 0.75f, sample_rate_); // 7.1 Side Left
+        matrix_sources_[7].setEarMix(0.80, 0.20);
+
+        matrix_sources_[8].configure(  90.0f,  0.0f, head_radius_cm_, 0.75f, sample_rate_); // 7.1 Side Right
+        matrix_sources_[8].setEarMix(0.80, 0.20);
     }
 
     // Engine Core State
@@ -1162,16 +1591,21 @@ private:
     int last_stage_mode_ = 0;
 
     // Mode 1: Cinema Matrix DSP Nodes
-    HrtfSource matrix_sources_[5];
+    HrtfSource matrix_sources_[9];
     CytomicSVF matrix_lfe_lp1_, matrix_lfe_lp2_;
     CytomicSVF matrix_lfe_hp1_, matrix_lfe_hp2_;
     CytomicSVF matrix_surr_hp_, matrix_surr_lp_;
     SurroundHilbert4 matrix_hilbert_;
-    SurroundDelay rear_line_l_, rear_line_r_;
+    SurroundDelay rear_line_l_, rear_line_r_, rear_line_bl_, rear_line_br_;
     SurroundDiffuserAP rear_diffuser_l_, rear_diffuser_r_;
     double matrix_env_lr_ = 0.0;
     double matrix_env_l2_ = 0.0;
     double matrix_env_r2_ = 0.0;
+    std::vector<double> matrix_mc_scratch_;
+
+    // Personal SOFA HRTF renderer (overrides fixed spherical model when loaded & enabled)
+    SofaHrtfDSP sofa_hrtf_;
+    bool sofa_hrtf_enabled_ = true;
 
     // Mode 2: Binaural Virtualizer DSP Nodes
     SurroundDelay  binaural_itd_l_, binaural_itd_r_;

@@ -232,6 +232,12 @@ DspChainNodeMeta dspChainNodeMetaFor(DspNodeId id) {
         defaultSubtitle: '3-band lookahead dynamics',
         icon: Icons.speed_rounded,
       );
+    case DspNodeId.bassManagement:
+      return const DspChainNodeMeta(
+        title: 'Bass Management (5.1/7.1)',
+        defaultSubtitle: 'LR4 subwoofer crossover & calibration',
+        icon: Icons.speaker_group_rounded,
+      );
   }
 }
 

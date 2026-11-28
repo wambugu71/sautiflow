@@ -18,6 +18,9 @@ $includes = @(
     "-Itests",
     "-Ithird_party",
     "-Ithird_party/libsamplerate/include",
+    "-Ithird_party/libmysofa/src",
+    "-Ithird_party/libmysofa/src/hrtf",
+    "-Ithird_party/zlib",
     "-Ithird_party/r8brain",
     "-Ithird_party/ffmpeg/include",
     "-Idsp"
@@ -36,19 +39,40 @@ $defines = @(
     '-DHAVE_STDBOOL_H=1',
     '-DHAVE_STRINGS_H=1',
     '-DHAVE_SYS_TYPES_H=1',
+    "-DSAUTIFLOW_ENABLE_MYSOFA=1",
     "-DSAUTIFLOW_ENABLE_FFMPEG=1"
 )
+
+# Reuse or build third-party C objects (libsamplerate, libmysofa, zlib) so both DSP unit tests and engine tests can link them
+$cObjs = Get-ChildItem -Path "build/obj_dll/*.o" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notmatch '^(audio_engine|mp4_aac_decoder|ffmpeg_stream_decoder)' } |
+    Select-Object -ExpandProperty FullName
+if (-not $cObjs) {
+    $cTestFiles = @()
+    $cTestFiles += (Get-ChildItem -Path "third_party/libsamplerate/src/*.c" | Select-Object -ExpandProperty FullName)
+    $cTestFiles += (Get-ChildItem -Path "third_party/libmysofa/src/hrtf/*.c" | Select-Object -ExpandProperty FullName)
+    $cTestFiles += (Get-ChildItem -Path "third_party/libmysofa/src/hdf/*.c" | Select-Object -ExpandProperty FullName)
+    $cTestFiles += (Get-ChildItem -Path "third_party/libmysofa/src/resampler/*.c" | Select-Object -ExpandProperty FullName)
+    $cTestFiles += (Get-ChildItem -Path "third_party/zlib/*.c" | Select-Object -ExpandProperty FullName)
+    $cObjs = @()
+    foreach ($cf in $cTestFiles) {
+        $co = "$objDir/$([System.IO.Path]::GetFileNameWithoutExtension($cf))_c.o"
+        gcc -O2 -c $cf -o $co @includes @defines
+        if ($LASTEXITCODE -ne 0) { throw "gcc failed on $cf" }
+        $cObjs += $co
+    }
+}
 
 $failed = $false
 
 # ---------------------------------------------------------------------------
-# Test 1: header-level DSP unit tests (self-contained, fast)
+# Test 1: header-level DSP unit tests (self-contained + libmysofa)
 # ---------------------------------------------------------------------------
 Write-Host "== Building test_dsp_fixes.exe =="
 g++ -std=c++20 -O2 -Wall -c tests/test_dsp_fixes.cpp -o "$objDir/test_dsp_fixes.o" @includes @defines
 if ($LASTEXITCODE -ne 0) { throw "g++ failed on test_dsp_fixes.cpp" }
 
-g++ -std=c++20 -O2 -o test_dsp_fixes.exe "$objDir/test_dsp_fixes.o" -static-libgcc -static-libstdc++
+g++ -std=c++20 -O2 -o test_dsp_fixes.exe "$objDir/test_dsp_fixes.o" @cObjs -static-libgcc -static-libstdc++ -lm
 if ($LASTEXITCODE -ne 0) { throw "linking test_dsp_fixes.exe failed" }
 
 Write-Host "== Running test_dsp_fixes.exe =="
@@ -62,7 +86,7 @@ Write-Host "== Building test_simd_dsp.exe =="
 g++ -std=c++20 -O2 -Wall -c tests/test_simd_dsp.cpp -o "$objDir/test_simd_dsp.o" @includes @defines
 if ($LASTEXITCODE -ne 0) { throw "g++ failed on test_simd_dsp.cpp" }
 
-g++ -std=c++20 -O2 -o test_simd_dsp.exe "$objDir/test_simd_dsp.o" -static-libgcc -static-libstdc++
+g++ -std=c++20 -O2 -o test_simd_dsp.exe "$objDir/test_simd_dsp.o" @cObjs -static-libgcc -static-libstdc++ -lm
 if ($LASTEXITCODE -ne 0) { throw "linking test_simd_dsp.exe failed" }
 
 Write-Host "== Running test_simd_dsp.exe =="

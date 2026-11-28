@@ -65,6 +65,7 @@
 #include "dsp/oversampler.h"
 #include "dsp/bs1770_kweight.h"
 #include "dsp/spatial_surround_dsp.h"
+#include "dsp/bass_management_dsp.h"
 #include "dsp/denormals.h"
 #include "dsp/subsonic_filter.h"
 #include "dsp/scaletempo_dsp.h"
@@ -4139,6 +4140,10 @@ struct AudioEngineHandle
     AEConvolverInfo convolverInfo{};
     sauti::dsp::MasterLimiterDSP masterLimiterDsp;
     sauti::dsp::SpatialSurroundDSP surroundDsp;
+    sauti::dsp::BassManagementDSP bassManagementDsp;
+    std::atomic<int> processingChannels{2};
+    std::atomic<bool> multichannelProcessingEnabled{true};
+    std::mutex sofaHrtfControlMutex;
     sauti::dsp::SubsonicFilter subsonicFilter;
     sauti::dsp::UltrasonicFilter ultrasonicFilter;
     sauti::dsp::DynamicLoudnessDSP dynamicLoudnessDsp;
@@ -5922,6 +5927,55 @@ static void reload_convolver_ir_if_rate_changed(AudioEngineHandle *e)
     resample_and_load_convolver_ir_locked(e, targetSr);
 }
 
+static void reload_sofa_hrtf_if_rate_changed(AudioEngineHandle *e)
+{
+    if (!e) return;
+    const int targetSr = (e->sampleRate > 0) ? e->sampleRate : 48000;
+    std::lock_guard<std::mutex> sofaLk(e->sofaHrtfControlMutex);
+    if (!e->surroundDsp.hasSofaLoaded()) return;
+    const auto meta = e->surroundDsp.getSofaMetadata();
+    if (meta.loaded && meta.engine_sample_rate == targetSr) return;
+    e->surroundDsp.rebuildSofaForSampleRate(static_cast<float>(targetSr));
+}
+
+static int resolve_processing_channels(const AudioEngineHandle *e, int nativeCh)
+{
+    if (!e) return 2;
+    const int outCh = (e->channels > 0) ? std::clamp(e->channels, 1, 8) : 2;
+    if (e->exclusiveModeEnabled.load(std::memory_order_relaxed) ||
+        !e->multichannelProcessingEnabled.load(std::memory_order_relaxed))
+    {
+        return outCh;
+    }
+    if (nativeCh >= 7) return 8;
+    if (nativeCh >= 3) return 6;
+    return (outCh == 1) ? 1 : 2;
+}
+
+static void sync_processing_channels_for_decoder(AudioEngineHandle *e, ma_decoder *dec, bool flushRing)
+{
+    if (!e) return;
+    const int outCh = (e->channels > 0) ? std::clamp(e->channels, 1, 8) : 2;
+    const int decCh = (dec != nullptr && dec->outputChannels > 0) ? static_cast<int>(dec->outputChannels) : outCh;
+    const int targetProcCh = resolve_processing_channels(e, decCh);
+    const int curProcCh = e->processingChannels.load(std::memory_order_acquire);
+    if (targetProcCh != curProcCh)
+    {
+        if (flushRing)
+        {
+            e->ringBufferFlushing.store(true, std::memory_order_release);
+            e->pcmRingBuffer.reset();
+            e->pcmDirectRingBuffer.reset();
+            e->processingChannels.store(targetProcCh, std::memory_order_release);
+            e->ringBufferFlushing.store(false, std::memory_order_release);
+        }
+        else
+        {
+            e->processingChannels.store(targetProcCh, std::memory_order_release);
+        }
+    }
+}
+
 static void reinit_clean_room_dsp_filters(AudioEngineHandle *e)
 {
     if (e == nullptr)
@@ -5951,6 +6005,8 @@ static void reinit_clean_room_dsp_filters(AudioEngineHandle *e)
     e->noiseGateDsp.setSampleRate(srF);
     e->dynamicEqDsp.setSampleRate(srF);
     e->tapeDriftDsp.setSampleRate(srF);
+    e->bassManagementDsp.setSampleRate(srF);
+    e->surroundDsp.setSampleRate(srF);
 }
 
 static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
@@ -6087,6 +6143,7 @@ static void applyRatePlan(AudioEngineHandle *e, const AudioRatePlan &plan)
     }
 
     reload_convolver_ir_if_rate_changed(e);
+    reload_sofa_hrtf_if_rate_changed(e);
 
     ma_uint32 decOutRate = (e->currentDecoder != nullptr) ? e->currentDecoder->outputSampleRate : (ma_uint32)plan.engineRate;
 
@@ -6281,7 +6338,9 @@ static bool load_decoder_for_path(
     }
 
     const bool isNetwork = is_network_url(path);
-    ma_uint32 outCh = (e->channels > 0) ? (ma_uint32)e->channels : 2;
+    const bool allowMultiCh = !e->exclusiveModeEnabled.load(std::memory_order_relaxed) &&
+                              e->multichannelProcessingEnabled.load(std::memory_order_relaxed);
+    ma_uint32 outCh = (allowMultiCh && !isNetwork) ? 0u : ((e->channels > 0) ? (ma_uint32)e->channels : 2u);
     ma_uint32 targetRate = (e->engineSampleRate > 0)
                            ? (ma_uint32)e->engineSampleRate
                            : ((e->sampleRate > 0) ? (ma_uint32)e->sampleRate : 48000);
@@ -6424,6 +6483,57 @@ static bool load_decoder_for_path(
         return false;
     }
 
+    ma_format nativeFmt = ma_format_unknown;
+    ma_uint32 nativeCh = 0;
+    ma_uint32 nativeRate = 0;
+    (void)get_decoder_native_format(tmp, &nativeFmt, &nativeCh, &nativeRate);
+
+    // If opened at native channel count (outCh == 0), normalize odd channel counts
+    // (e.g., 1ch -> 2ch stereo, 5.0 -> 6ch 5.1, >8ch -> 8ch 7.1) via canonical targetProcCh.
+    if (allowMultiCh && !isNetwork && !(sautiflow::dsd::is_dsd_file_path(path)))
+    {
+        const int effNativeCh = (nativeCh > 0) ? static_cast<int>(nativeCh) : static_cast<int>(tmp->outputChannels);
+        const ma_uint32 targetProcCh = static_cast<ma_uint32>(resolve_processing_channels(e, effNativeCh));
+        if (targetProcCh > 0 && tmp->outputChannels != targetProcCh)
+        {
+            ma_decoder_uninit(tmp);
+            delete tmp;
+            tmp = new ma_decoder{};
+            cfg.channels = targetProcCh;
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+            ffmpegInitCfg.targetChannels = (int)targetProcCh;
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+            r = is_network_url(path)
+                    ? ma_decoder_init_file(path.c_str(), &cfg, tmp)
+                    : ma_decoder_init_file_w(wpath.c_str(), &cfg, tmp);
+#else
+            r = ma_decoder_init_file(path.c_str(), &cfg, tmp);
+#endif
+#if defined(SAUTIFLOW_ENABLE_FFMPEG) && SAUTIFLOW_ENABLE_FFMPEG
+            if (r != MA_SUCCESS)
+            {
+                delete tmp;
+                tmp = new ma_decoder{};
+                ffmpegInitCfg.forceFallback = true;
+                cfg.pCustomBackendUserData = &ffmpegInitCfg;
+#if defined(_WIN32) || defined(_WIN64)
+                r = ma_decoder_init_file_w(wpath.c_str(), &cfg, tmp);
+#else
+                r = ma_decoder_init_file(path.c_str(), &cfg, tmp);
+#endif
+            }
+#endif
+            if (r != MA_SUCCESS)
+            {
+                set_last_error(e, std::string("Failed to decode multichannel source: ") + path);
+                delete tmp;
+                return false;
+            }
+            (void)get_decoder_native_format(tmp, &nativeFmt, &nativeCh, &nativeRate);
+        }
+    }
+
     ma_uint64 len = 0;
     (void)ma_decoder_get_length_in_pcm_frames(tmp, &len);
 
@@ -6433,11 +6543,6 @@ static bool load_decoder_for_path(
     if (outStream != nullptr)
         *outStream = nullptr;
 #endif
-
-    ma_format nativeFmt = ma_format_unknown;
-    ma_uint32 nativeCh = 0;
-    ma_uint32 nativeRate = 0;
-    (void)get_decoder_native_format(tmp, &nativeFmt, &nativeCh, &nativeRate);
 
     if (!isPreload)
     {
@@ -7132,6 +7237,7 @@ static void worker_loop(AudioEngineHandle *e)
                 e->currentLengthFrames = newCurrentLen;
                 e->currentIndex = jumpIndex;
                 e->hasCurrent = true;
+                sync_processing_channels_for_decoder(e, newCurrent, false);
                 arm_transition_fade_in(e);
                 apply_initial_track_loudness(e, newCurrent, path);
 
@@ -7488,7 +7594,8 @@ static ma_result read_and_resample_crossfade(
         return MA_INVALID_ARGS;
     }
 
-    const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
+    const int procCh = e->processingChannels.load(std::memory_order_acquire);
+    const size_t ch = (procCh > 0) ? (size_t)std::clamp(procCh, 1, 8) : ((e->channels > 0) ? (size_t)e->channels : 2);
     const int targetRate = (e->engineSampleRate > 0) ? e->engineSampleRate : ((e->sampleRate > 0) ? e->sampleRate : 48000);
     int fadeOutRate = (int)fadeOut->outputSampleRate;
     if (fadeOutRate <= 0)
@@ -7658,7 +7765,8 @@ static void service_crossfade_state(AudioEngineHandle *e, std::vector<float> &te
         return;
     }
 
-    const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
+    const int procCh = e->processingChannels.load(std::memory_order_acquire);
+    const size_t ch = (procCh > 0) ? (size_t)std::clamp(procCh, 1, 8) : ((e->channels > 0) ? (size_t)e->channels : 2);
     std::lock_guard<std::mutex> d(e->decoderMutex);
     ma_decoder *fadeOut = e->fadingOutDecoder;
     if (fadeOut != nullptr)
@@ -7668,6 +7776,8 @@ static void service_crossfade_state(AudioEngineHandle *e, std::vector<float> &te
         size_t fillFrames = std::min(wantFrames, availSamples / ch);
         if (fillFrames > 0)
         {
+            if (tempChunk.size() < fillFrames * ch)
+                tempChunk.resize(fillFrames * ch);
             ma_uint64 framesRead = 0;
             const ma_result rr = read_and_resample_crossfade(e, fadeOut, tempChunk.data(), fillFrames, &framesRead);
             if (framesRead > 0)
@@ -7806,7 +7916,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // outgoing track, causing audible stutter during crossfades.
             service_crossfade_state(e, tempChunk);
 
-            const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
+            const int procCh = e->processingChannels.load(std::memory_order_acquire);
+    const size_t ch = (procCh > 0) ? (size_t)std::clamp(procCh, 1, 8) : ((e->channels > 0) ? (size_t)e->channels : 2);
             const size_t targetChunkFrames = 1024;
             const size_t targetChunkSamples = targetChunkFrames * ch;
             const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
@@ -7945,6 +8056,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->currentLengthFrames = e->nextLengthFrames;
                             e->currentIndex = e->nextIndex;
                             sync_active_dsd_from_decoder(e, e->currentDecoder);
+                sync_processing_channels_for_decoder(e, e->currentDecoder, false);
+                            sync_processing_channels_for_decoder(e, e->currentDecoder, true);
                             e->fadingOutTrackBpm.store(e->currentTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                             e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -8113,8 +8226,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
             const bool cfActive = e->crossfadeEnabled.load(std::memory_order_relaxed);
             const bool amActive = e->automixEnabled.load(std::memory_order_relaxed);
             const bool forceTransition = e->automixTransitionRequested.exchange(false, std::memory_order_acq_rel);
+            const bool sameProcChannels = (e->nextDecoder != nullptr) &&
+                (resolve_processing_channels(e, static_cast<int>(e->nextDecoder->outputChannels)) == static_cast<int>(ch));
 
-            if ((cfActive || amActive || forceTransition) && e->hasNext && !e->isCrossfading.load(std::memory_order_acquire))
+            if ((cfActive || amActive || forceTransition) && e->hasNext && sameProcChannels && !e->isCrossfading.load(std::memory_order_acquire))
             {
                 ma_uint64 length = e->currentLengthFrames;
                 if (length == 0 && e->currentDecoder != nullptr)
@@ -8258,6 +8373,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             e->currentIndex = e->nextIndex;
                             reset_playback_position(e, 0);
                             sync_active_dsd_from_decoder(e, e->currentDecoder);
+                sync_processing_channels_for_decoder(e, e->currentDecoder, false);
 
                             if (e->currentDecoder != nullptr)
                             {
@@ -8693,6 +8809,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     reset_track_resampler_locked(e);
                     e->abRepeatEnabled.store(false, std::memory_order_release);
                     sync_active_dsd_from_decoder(e, e->currentDecoder);
+                sync_processing_channels_for_decoder(e, e->currentDecoder, false);
+                    sync_processing_channels_for_decoder(e, e->currentDecoder, true);
 
                     if (e->currentDecoder != nullptr)
                     {
@@ -8998,6 +9116,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
     const ma_format outFmt = e->activeOut.format;
     const ma_uint32 outCh = (e->activeOut.channels > 0) ? e->activeOut.channels : ((e->channels > 0) ? (ma_uint32)e->channels : 2u);
     const ma_uint32 outSr = (e->activeOut.sampleRate > 0) ? e->activeOut.sampleRate : ((e->sampleRate > 0) ? (ma_uint32)e->sampleRate : 48000u);
+    const int outChInt = std::clamp(static_cast<int>(outCh), 1, 8);
+    const int procCh = std::clamp(e->processingChannels.load(std::memory_order_acquire), 1, 8);
+    const bool needsDeviceSRC = (e->engineSampleRate > 0 && e->deviceSampleRate > 0 && e->engineSampleRate != e->deviceSampleRate);
 
     if (e->rateTransitionInProgress.load(std::memory_order_acquire))
     {
@@ -9011,24 +9132,29 @@ static void decode_producer_loop(AudioEngineHandle *e)
     {
         sauti::dsp::ScopedDenormalsDisable denormalsScope;
         float *processBuffer = nullptr;
-    ma_uint32 totalSamples = frameCount * (ma_uint32)e->channels;
+    const bool canRenderInPlaceToOutput = (e->outputFormat == AE_FORMAT_F32 && outFmt == ma_format_f32 && procCh == outChInt && !needsDeviceSRC);
+    ma_uint32 totalProcSamples = frameCount * static_cast<ma_uint32>(procCh);
+    ma_uint32 totalOutSamples = frameCount * static_cast<ma_uint32>(outChInt);
 
-    if (e->outputFormat == AE_FORMAT_F32 && outFmt == ma_format_f32)
+    if (canRenderInPlaceToOutput)
     {
         processBuffer = reinterpret_cast<float *>(pOutput);
     }
     else
     {
         size_t avail = e->conversionBuffer.size();
-        if (avail < totalSamples)
+        const ma_uint32 maxPeakCh = static_cast<ma_uint32>(std::max(procCh, outChInt));
+        if (avail < static_cast<size_t>(frameCount) * maxPeakCh)
         {
-            totalSamples = (ma_uint32)avail;
+            frameCount = static_cast<ma_uint32>(avail / maxPeakCh);
+            totalProcSamples = frameCount * static_cast<ma_uint32>(procCh);
+            totalOutSamples = frameCount * static_cast<ma_uint32>(outChInt);
         }
         processBuffer = e->conversionBuffer.data();
     }
 
     // Zero out buffer (silence)
-    std::memset(processBuffer, 0, totalSamples * sizeof(float));
+    std::memset(processBuffer, 0, std::max(totalProcSamples, totalOutSamples) * sizeof(float));
 
     if (!e->isPlaying.load(std::memory_order_relaxed))
     {
@@ -9094,7 +9220,6 @@ static void decode_producer_loop(AudioEngineHandle *e)
     }
 
     ma_uint32 produced = 0;
-    const bool needsDeviceSRC = (e->engineSampleRate > 0 && e->deviceSampleRate > 0 && e->engineSampleRate != e->deviceSampleRate);
     const int p64Reasons = precision64_reasons(e);
     const bool use64 = (p64Reasons != 0);
     double *buf64 = nullptr;
@@ -9119,9 +9244,9 @@ static void decode_producer_loop(AudioEngineHandle *e)
     {
         if (!needsDeviceSRC)
         {
-            size_t samplesNeeded = (size_t)frameCount * (size_t)e->channels;
+            size_t samplesNeeded = (size_t)frameCount * (size_t)procCh;
             size_t samplesRead = e->pcmRingBuffer.read(processBuffer, samplesNeeded);
-            produced = (ma_uint32)(samplesRead / (size_t)e->channels);
+            produced = (ma_uint32)(samplesRead / (size_t)procCh);
 
             if (samplesRead < samplesNeeded)
             {
@@ -9144,7 +9269,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 inNeeded = (ma_uint64)std::ceil((double)frameCount * (double)e->engineSampleRate / (double)e->deviceSampleRate);
             }
 
-            size_t engineSamplesNeeded = (size_t)inNeeded * (size_t)e->channels;
+            size_t engineSamplesNeeded = (size_t)inNeeded * (size_t)procCh;
             if (e->engineProcessBuffer.size() < engineSamplesNeeded)
             {
                 engineSamplesNeeded = e->engineProcessBuffer.size();
@@ -9155,7 +9280,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 samplesRead = e->pcmRingBuffer.read(e->engineProcessBuffer.data(), engineSamplesNeeded);
             }
-            produced = (ma_uint32)(samplesRead / (size_t)e->channels);
+            produced = (ma_uint32)(samplesRead / (size_t)procCh);
 
             if (samplesRead < engineSamplesNeeded)
             {
@@ -9195,7 +9320,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         if (e->loudnessMeterEnabled.load(std::memory_order_relaxed) ||
             e->loudnessMeter.normalizerEnabled.load(std::memory_order_relaxed))
         {
-            e->loudnessMeter.process(processBuffer, produced, e->channels, 1.0f);
+            e->loudnessMeter.process(processBuffer, produced, procCh, 1.0f);
         }
 
         ma_uint64 fadeRemaining = e->crossfadeFramesRemaining.load(std::memory_order_relaxed);
@@ -9215,7 +9340,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 const bool sourceDead = e->crossfadeSourceDead.load(std::memory_order_acquire);
 
                 // Read pre-decoded old-track audio from the SPSC ring (lock-free)
-                size_t neededMixSamples = (size_t)produced * (size_t)e->channels;
+                size_t neededMixSamples = (size_t)produced * (size_t)procCh;
                 if (e->crossfadeMixBuffer.size() < neededMixSamples)
                 {
                     neededMixSamples = e->crossfadeMixBuffer.size();
@@ -9225,7 +9350,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 {
                     gotSamples = e->crossfadeRingBuffer.read(e->crossfadeMixBuffer.data(), neededMixSamples);
                 }
-                const ma_uint64 oldFramesRead = gotSamples / (size_t)e->channels;
+                const ma_uint64 oldFramesRead = gotSamples / (size_t)procCh;
                 std::fill(e->crossfadeMixBuffer.begin() + gotSamples,
                           e->crossfadeMixBuffer.begin() + neededMixSamples, 0.0f);
                 float *mixBuf = e->crossfadeMixBuffer.data();
@@ -9332,7 +9457,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
 
                 // Precalculate SpaceEcho delay buffer geometry once per block
-                const size_t chCount = (e->channels > 0) ? (size_t)e->channels : 2;
+                const size_t chCount = (size_t)procCh;
                 const size_t echoBufFrames = e->automixEchoBuffer.size() / chCount;
                 float echoBpm = e->currentTrackBpm.load(std::memory_order_relaxed);
                 if (echoBpm < 40.0f || echoBpm > 300.0f) echoBpm = 120.0f;
@@ -9361,7 +9486,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     }
 
                     const float outEnv = aborting ? abortScale : std::cos(t * halfPi);
-                    const size_t base = (size_t)i * (size_t)e->channels;
+                    const size_t base = (size_t)i * (size_t)procCh;
 
                     // Block-rate filter parameter recalculation (eliminates per-sample transcendental overhead)
                     if (isAutomixActive && ((i & 31) == 0 || i == 0))
@@ -9412,7 +9537,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     if (isAutomixActive && automixMode == 0 /* AE_AUTOMIX_STYLE_BASS_SWAP */)
                     {
                         // True Audiophile 4th-order Linkwitz-Riley (LR4) isolator crossover
-                        for (int c = 0; c < e->channels; ++c)
+                        for (int c = 0; c < procCh; ++c)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             const float rawIn  = processBuffer[base + (size_t)c] * inGain;
@@ -9447,7 +9572,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         const float blendIn  = std::sin(s * halfPi);
                         if (aborting) blendOut *= abortScale;
 
-                        for (int c = 0; c < e->channels; ++c)
+                        for (int c = 0; c < procCh; ++c)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             const float rawIn  = processBuffer[base + (size_t)c] * inGain;
@@ -9470,7 +9595,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         const float sweepWetOut = std::min(1.0f, t / 0.02f);
                         const float sweepWetIn = std::min(1.0f, (1.0f - t) / 0.02f);
 
-                        for (int c = 0; c < e->channels; ++c)
+                        for (int c = 0; c < procCh; ++c)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             const float rawIn  = processBuffer[base + (size_t)c] * inGain;
@@ -9526,7 +9651,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             echoSend *= abortScale;
                         }
 
-                        for (int c = 0; c < e->channels; ++c)
+                        for (int c = 0; c < procCh; ++c)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             const float rawIn  = processBuffer[base + (size_t)c] * inGain;
@@ -9593,7 +9718,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         }
                         if (aborting) cutOut *= abortScale;
 
-                        for (int c = 0; c < e->channels; ++c)
+                        for (int c = 0; c < procCh; ++c)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             const float rawIn  = processBuffer[base + (size_t)c] * inGain;
@@ -9617,7 +9742,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         const float sweepWetIn = std::min(1.0f, (1.0f - t) / 0.02f);
 
                         // Multi-stage hybrid: LR4 250 Hz split FIRST, then resonant sweep on mid/high only + constant-power bass-swap
-                        for (int c = 0; c < e->channels; ++c)
+                        for (int c = 0; c < procCh; ++c)
                         {
                             const float rawOut = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             const float rawIn  = processBuffer[base + (size_t)c] * inGain;
@@ -9649,7 +9774,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     }
                     else
                     {
-                        for (int c = 0; c < e->channels; ++c)
+                        for (int c = 0; c < procCh; ++c)
                         {
                             float outSample = (i < oldFramesRead) ? (mixBuf[base + (size_t)c] * outGain) : 0.0f;
                             float inSample  = processBuffer[base + (size_t)c] * inGain;
@@ -9672,8 +9797,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 {
                     for (ma_uint32 i = fadeFramesDone; i < produced; ++i)
                     {
-                        const size_t base = (size_t)i * (size_t)e->channels;
-                        for (int c = 0; c < e->channels; ++c)
+                        const size_t base = (size_t)i * (size_t)procCh;
+                        for (int c = 0; c < procCh; ++c)
                         {
                             processBuffer[base + (size_t)c] *= inGain;
                         }
@@ -9720,8 +9845,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
                 const float tIn = std::sin(t * halfPi);
-                const size_t base = (size_t)i * (size_t)e->channels;
-                for (int c = 0; c < e->channels; ++c)
+                const size_t base = (size_t)i * (size_t)procCh;
+                for (int c = 0; c < procCh; ++c)
                 {
                     processBuffer[base + (size_t)c] *= tIn;
                 }
@@ -9730,12 +9855,13 @@ static void decode_producer_loop(AudioEngineHandle *e)
             e->crossfadeFramesRemaining.store(fadeRemaining, std::memory_order_relaxed);
         }
 
-        const size_t producedSamples = (size_t)produced * (size_t)e->channels;
+        const size_t producedProcSamples = (size_t)produced * (size_t)procCh;
+        const size_t producedOutSamples = (size_t)produced * (size_t)outChInt;
 
         if (use64)
         {
-            const size_t safeProduced = std::min(producedSamples, e->processBuffer64.size());
-            const size_t safeFrameSamples = std::min((size_t)totalSamples, e->processBuffer64.size());
+            const size_t safeProduced = std::min(producedProcSamples, e->processBuffer64.size());
+            const size_t safeFrameSamples = std::min((size_t)std::max(totalProcSamples, totalOutSamples), e->processBuffer64.size());
             buf64 = e->processBuffer64.data();
             for (size_t i = 0; i < safeProduced; ++i)
             {
@@ -9784,10 +9910,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 }
             }
             e->paramNormalizerGain.setTarget(normTarget);
-            e->paramNormalizerGain.prepareBlock((ma_uint32)producedSamples,
+            e->paramNormalizerGain.prepareBlock((ma_uint32)producedProcSamples,
                                                 e->parameterSmoothingMs.load(std::memory_order_relaxed),
                                                 e->sampleRate,
-                                                e->channels);
+                                                procCh);
 
             const bool normActive = !crossfadeMixing &&
                                     (std::fabs(e->paramNormalizerGain.current - 1.0f) > 1e-4f ||
@@ -9797,12 +9923,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
             {
                 if (use64)
                 {
-                    for (size_t i = 0; i < producedSamples; ++i)
+                    for (size_t i = 0; i < producedProcSamples; ++i)
                         buf64[i] *= static_cast<double>(e->paramNormalizerGain.next());
                 }
                 else
                 {
-                    for (size_t i = 0; i < producedSamples; ++i)
+                    for (size_t i = 0; i < producedProcSamples; ++i)
                         processBuffer[i] *= e->paramNormalizerGain.next();
                 }
             }
@@ -9811,12 +9937,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 if (use64)
                 {
                     const double rg64 = static_cast<double>(rg);
-                    for (size_t i = 0; i < producedSamples; ++i)
+                    for (size_t i = 0; i < producedProcSamples; ++i)
                         buf64[i] *= rg64;
                 }
                 else
                 {
-                    for (size_t i = 0; i < producedSamples; ++i)
+                    for (size_t i = 0; i < producedProcSamples; ++i)
                         processBuffer[i] *= rg;
                 }
             }
@@ -9838,12 +9964,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                     ma_uint64 processed = (fadeTotal > fadeRemaining) ? (fadeTotal - fadeRemaining) : 0;
                     for (ma_uint32 i = 0; i < produced && fadeRemaining > 0; ++i)
                     {
-                        const size_t base = (size_t)i * (size_t)e->channels;
+                        const size_t base = (size_t)i * (size_t)procCh;
                         if (use64)
                         {
                             const double t64 = clampd((double)(processed + (ma_uint64)i) / (double)fadeTotal, 0.0, 1.0);
                             const double currentVol64 = (double)volBeg + ((double)volEnd - (double)volBeg) * t64;
-                            for (int c = 0; c < e->channels; ++c)
+                            for (int c = 0; c < procCh; ++c)
                             {
                                 buf64[base + (size_t)c] *= currentVol64;
                             }
@@ -9852,7 +9978,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         {
                             const float t = clampf((float)(processed + (ma_uint64)i) / (float)fadeTotal, 0.0f, 1.0f);
                             const float currentVol = volBeg + (volEnd - volBeg) * t;
-                            for (int c = 0; c < e->channels; ++c)
+                            for (int c = 0; c < procCh; ++c)
                             {
                                 processBuffer[base + (size_t)c] *= currentVol;
                             }
@@ -9871,16 +9997,16 @@ static void decode_producer_loop(AudioEngineHandle *e)
             if (e->subsonicFilter.isEnabled())
             {
                 if (use64)
-                    e->subsonicFilter.process(buf64, produced, e->channels);
+                    e->subsonicFilter.process(buf64, produced, procCh);
                 else
-                    e->subsonicFilter.process(processBuffer, produced, e->channels);
+                    e->subsonicFilter.process(processBuffer, produced, procCh);
             }
             if (e->ultrasonicFilter.isEnabled())
             {
                 if (use64)
-                    e->ultrasonicFilter.process(buf64, produced, e->channels);
+                    e->ultrasonicFilter.process(buf64, produced, procCh);
                 else
-                    e->ultrasonicFilter.process(processBuffer, produced, e->channels);
+                    e->ultrasonicFilter.process(processBuffer, produced, procCh);
             }
 
             // =================================================================
@@ -9890,12 +10016,8 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // otherwise — zero F64<->F32 hopping, identical order for stereo
             // and multichannel.
             // =================================================================
-            if (e->channels >= 1 && produced > 0)
+            if (procCh >= 1 && produced > 0)
             {
-                const int chCount = e->channels;
-                const bool isStereo = (chCount == 2);
-                const bool isMono   = (chCount == 1);
-
                 // Acquire try-locks once upfront in canonical lock order:
                 // eqMutex -> fxMutex -> dspMutex (never inverted).
                 std::unique_lock<std::mutex> eqLock(e->eqMutex, std::try_to_lock);
@@ -9916,49 +10038,56 @@ static void decode_producer_loop(AudioEngineHandle *e)
 
                 auto runRack = [&](auto *buf, auto *stScratch) {
                     using SampleT = std::remove_pointer_t<decltype(buf)>;
-                    const size_t ch = (size_t)chCount;
+                    int activeCh = procCh;
+                    bool bassMgmtRan = false;
                     uint64_t activeTopologyHash = 14695981039346656037ULL;
                     auto recordActiveNode = [&](int nodeId) {
                         activeTopologyHash ^= static_cast<uint64_t>(nodeId + 1);
                         activeTopologyHash *= 1099511628211ULL;
                     };
 
-                    auto runStereoOp = [&](auto &&fn) {
-                        if (isStereo)
-                        {
-                            fn(buf);
-                        }
-                        else if (isMono)
-                        {
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                stScratch[i * 2 + 0] = buf[i];
-                                stScratch[i * 2 + 1] = buf[i];
-                            }
-                            fn(stScratch);
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                buf[i] = stScratch[i * 2 + 0];
-                            }
-                        }
-                        else
-                        {
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                stScratch[i * 2 + 0] = buf[i * ch + 0];
-                                stScratch[i * 2 + 1] = buf[i * ch + 1];
-                            }
-                            fn(stScratch);
-                            for (ma_uint32 i = 0; i < produced; ++i)
-                            {
-                                buf[i * ch + 0] = stScratch[i * 2 + 0];
-                                buf[i * ch + 1] = stScratch[i * 2 + 1];
-                            }
-                        }
-                    };
-
                     for (int slotIdx = 0; slotIdx < AE_DSP_NODE_COUNT; ++slotIdx)
                     {
+                        const int chCount = activeCh;
+                        const size_t ch = static_cast<size_t>(activeCh);
+                        const bool isStereo = (activeCh == 2);
+                        const bool isMono = (activeCh == 1);
+                        const size_t activeSamples = static_cast<size_t>(produced) * ch;
+
+                        auto runStereoOp = [&](auto &&fn) {
+                            if (isStereo)
+                            {
+                                fn(buf);
+                            }
+                            else if (isMono)
+                            {
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    stScratch[i * 2 + 0] = buf[i];
+                                    stScratch[i * 2 + 1] = buf[i];
+                                }
+                                fn(stScratch);
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    buf[i] = stScratch[i * 2 + 0];
+                                }
+                            }
+                            else
+                            {
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    stScratch[i * 2 + 0] = buf[i * ch + 0];
+                                    stScratch[i * 2 + 1] = buf[i * ch + 1];
+                                }
+                                fn(stScratch);
+                                for (ma_uint32 i = 0; i < produced; ++i)
+                                {
+                                    buf[i * ch + 0] = stScratch[i * 2 + 0];
+                                    buf[i * ch + 1] = stScratch[i * 2 + 1];
+                                }
+                            }
+                        };
+
                         const int nodeId = chainOrder[(size_t)slotIdx];
                         switch (nodeId)
                         {
@@ -9967,7 +10096,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 const float preampDb = e->eqPreampDb.load(std::memory_order_relaxed);
                                 const float targetLin = (std::abs(preampDb) < 1.0e-4f) ? 1.0f : std::pow(10.0f, preampDb / 20.0f);
                                 e->paramEqPreamp.setTarget(targetLin);
-                                e->paramEqPreamp.prepareBlock((ma_uint32)producedSamples,
+                                e->paramEqPreamp.prepareBlock((ma_uint32)activeSamples,
                                                               e->parameterSmoothingMs.load(std::memory_order_relaxed),
                                                               e->sampleRate,
                                                               chCount);
@@ -9976,7 +10105,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 if (preampActive)
                                 {
                                     recordActiveNode(nodeId);
-                                    for (size_t i = 0; i < producedSamples; ++i)
+                                    for (size_t i = 0; i < activeSamples; ++i)
                                         buf[i] *= static_cast<SampleT>(e->paramEqPreamp.next());
                                 }
                                 break;
@@ -10104,10 +10233,25 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                 }
                                 break;
                             case AE_DSP_NODE_SURROUND:
-                                if (fxLock.owns_lock() && isStereo && e->surroundDsp.isEnabled())
+                                if (activeCh >= 4 && outChInt == 2 && !bassMgmtRan &&
+                                    dspLock.owns_lock() && e->bassManagementDsp.isEnabled())
+                                {
+                                    recordActiveNode(AE_DSP_NODE_BASS_MANAGEMENT);
+                                    e->bassManagementDsp.process(buf, produced, activeCh);
+                                    bassMgmtRan = true;
+                                }
+                                if (fxLock.owns_lock() && e->surroundDsp.isEnabled())
                                 {
                                     recordActiveNode(nodeId);
-                                    e->surroundDsp.process(buf, produced);
+                                    activeCh = e->surroundDsp.processMultichannel(buf, produced, activeCh, outChInt);
+                                }
+                                break;
+                            case AE_DSP_NODE_BASS_MANAGEMENT:
+                                if (!bassMgmtRan && dspLock.owns_lock() && e->bassManagementDsp.isEnabled())
+                                {
+                                    recordActiveNode(nodeId);
+                                    e->bassManagementDsp.process(buf, produced, activeCh);
+                                    bassMgmtRan = true;
                                 }
                                 break;
                             case AE_DSP_NODE_STEREO_WIDEN:
@@ -10174,8 +10318,15 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         }
                     }
 
+                    if (activeCh != outChInt)
+                    {
+                        sauti::dsp::ChannelLayoutRouter::convert(buf, produced, activeCh, outChInt);
+                        activeCh = outChInt;
+                    }
+
                     // C1-smooth raised-cosine waveform continuity across active rack topology changes
-                    const int trackedCh = std::min(chCount, 8);
+                    const size_t outChSize = static_cast<size_t>(outChInt);
+                    const int trackedCh = std::min(outChInt, 8);
                     e->lastAudioChainGeneration = chainGen;
                     if (activeTopologyHash != e->lastActiveRackTopologyHash)
                     {
@@ -10200,7 +10351,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                             const int elapsed = total - e->rackDeclickSamplesLeft;
                             const double progress = static_cast<double>(elapsed) / static_cast<double>(total);
                             const double env = 0.5 * (1.0 + std::cos(M_PI * progress));
-                            const size_t base = (size_t)i * ch;
+                            const size_t base = (size_t)i * outChSize;
                             for (int c = 0; c < trackedCh; ++c)
                             {
                                 buf[base + (size_t)c] += static_cast<SampleT>(e->rackDeclickOffset[c] * env);
@@ -10213,7 +10364,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                         }
                     }
 
-                    const size_t lastBase = (size_t)(produced - 1) * ch;
+                    const size_t lastBase = (size_t)(produced - 1) * outChSize;
                     for (int c = 0; c < trackedCh; ++c)
                     {
                         e->lastRackOutSample[c] = static_cast<double>(buf[lastBase + (size_t)c]);
@@ -10226,12 +10377,26 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 else
                     runRack(processBuffer, e->dspStereoBuffer.data());
             }
+            else if (procCh != outChInt && produced > 0)
+            {
+                if (use64 && buf64 != nullptr)
+                    sauti::dsp::ChannelLayoutRouter::convert(buf64, produced, procCh, outChInt);
+                else
+                    sauti::dsp::ChannelLayoutRouter::convert(processBuffer, produced, procCh, outChInt);
+            }
         } // End of !bypassAppDsp block
         else
         {
             e->hasLastRackOutSample = false;
             e->rackDeclickSamplesLeft = 0;
             e->lastActiveRackTopologyHash = 0;
+            if (procCh != outChInt && produced > 0)
+            {
+                if (use64 && buf64 != nullptr)
+                    sauti::dsp::ChannelLayoutRouter::convert(buf64, produced, procCh, outChInt);
+                else
+                    sauti::dsp::ChannelLayoutRouter::convert(processBuffer, produced, procCh, outChInt);
+            }
         }
 
         // =====================================================================
@@ -10244,10 +10409,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
         const bool needAnalyzer = e->analyzerEnabled.load(std::memory_order_relaxed);
         if (use64 && needAnalyzer)
         {
-            for (size_t i = 0; i < producedSamples; ++i)
+            for (size_t i = 0; i < producedOutSamples; ++i)
                 processBuffer[i] = static_cast<float>(buf64[i]);
         }
-        e->capture_analyzer_frames(processBuffer, produced, e->channels);
+        e->capture_analyzer_frames(processBuffer, produced, outChInt);
 
         // =====================================================================
         // Stage 3: Master Volume Stage (User Master Gain Fader)
@@ -10256,10 +10421,10 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // =====================================================================
         {
             e->paramUserGain.setTarget(e->gain.load(std::memory_order_relaxed));
-            e->paramUserGain.prepareBlock((ma_uint32)producedSamples,
+            e->paramUserGain.prepareBlock((ma_uint32)producedOutSamples,
                                           e->parameterSmoothingMs.load(std::memory_order_relaxed),
                                           e->sampleRate,
-                                          e->channels);
+                                          outChInt);
             const float userGainTarget = e->paramUserGain.getTarget();
             const bool isUnity = std::fabs(userGainTarget - 1.0f) < 1e-6f;
             if (bypassAppDsp && isUnity)
@@ -10273,12 +10438,12 @@ static void decode_producer_loop(AudioEngineHandle *e)
                 {
                     if (use64)
                     {
-                        for (size_t i = 0; i < producedSamples; ++i)
+                        for (size_t i = 0; i < producedOutSamples; ++i)
                             buf64[i] *= static_cast<double>(e->paramUserGain.next());
                     }
                     else
                     {
-                        for (size_t i = 0; i < producedSamples; ++i)
+                        for (size_t i = 0; i < producedOutSamples; ++i)
                             processBuffer[i] *= e->paramUserGain.next();
                     }
                 }
@@ -10291,11 +10456,11 @@ static void decode_producer_loop(AudioEngineHandle *e)
             const float currentVolume = e->paramUserGain.getTarget();
             if (use64)
             {
-                e->dynamicLoudnessDsp.process(buf64, produced, e->channels, static_cast<double>(currentVolume));
+                e->dynamicLoudnessDsp.process(buf64, produced, outChInt, static_cast<double>(currentVolume));
             }
             else
             {
-                e->dynamicLoudnessDsp.process(processBuffer, produced, e->channels, currentVolume);
+                e->dynamicLoudnessDsp.process(processBuffer, produced, outChInt, currentVolume);
             }
         }
 
@@ -10305,7 +10470,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // cannot bypass limiter ceiling protection.
         // =====================================================================
         {
-            const int ch = (e->channels > 0) ? e->channels : 2;
+            const int ch = outChInt;
             const float panVal = e->pan.load(std::memory_order_relaxed);
             const float lg = e->channelGainLeft.load(std::memory_order_relaxed);
             const float rg = e->channelGainRight.load(std::memory_order_relaxed);
@@ -10344,23 +10509,23 @@ static void decode_producer_loop(AudioEngineHandle *e)
             if (e->masterLimiterDsp.isEnabled())
             {
                 if (use64)
-                    e->masterLimiterDsp.process(buf64, produced, e->channels);
+                    e->masterLimiterDsp.process(buf64, produced, outChInt);
                 else
-                    e->masterLimiterDsp.process(processBuffer, produced, e->channels);
+                    e->masterLimiterDsp.process(processBuffer, produced, outChInt);
             }
             else if (e->lookaheadLimiterEnabled.load(std::memory_order_acquire))
             {
                 if (use64)
-                    e->lookaheadLimiter.process(buf64, produced, e->channels, e->engineSampleRate);
+                    e->lookaheadLimiter.process(buf64, produced, outChInt, e->engineSampleRate);
                 else
-                    e->lookaheadLimiter.process(processBuffer, produced, e->channels, e->engineSampleRate);
+                    e->lookaheadLimiter.process(processBuffer, produced, outChInt, e->engineSampleRate);
             }
             else if (e->limiterEnabled.load(std::memory_order_acquire))
             {
                 if (use64)
-                    e->limiter.process(buf64, produced, e->channels);
+                    e->limiter.process(buf64, produced, outChInt);
                 else
-                    e->limiter.process(processBuffer, produced, e->channels);
+                    e->limiter.process(processBuffer, produced, outChInt);
             }
         }
 
@@ -10368,7 +10533,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     // Stage 5b: Output Routing (Polarity Invert, L/R Swap) & Post-Limiter True Peak
     // =========================================================================
     {
-        const int ch = (e->channels > 0) ? e->channels : 2;
+        const int ch = outChInt;
         const bool invL  = e->phaseInvertLeft.load(std::memory_order_relaxed);
         const bool invR  = e->phaseInvertRight.load(std::memory_order_relaxed);
         const bool doSwap = e->lrSwapEnabled.load(std::memory_order_relaxed);
@@ -10425,7 +10590,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         if (e->clippingDetectionEnabled.load(std::memory_order_relaxed))
         {
             uint64_t clippedCountLocal = 0;
-            const size_t numSamplesCheck = produced * e->channels;
+            const size_t numSamplesCheck = produced * static_cast<size_t>(outChInt);
             if (use64 && buf64 != nullptr)
             {
                 for (size_t i = 0; i < numSamplesCheck; ++i)
@@ -10457,7 +10622,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
     if (e->castPcmTapEnabled.load(std::memory_order_acquire) &&
         !e->ringBufferFlushing.load(std::memory_order_relaxed))
     {
-        const int ch = (e->channels > 0) ? e->channels : 2;
+        const int ch = outChInt;
         size_t castSamples = std::min(
             (size_t)produced * (size_t)ch,
             std::min(e->castWorkBuffer64.size(), e->castConvertScratch.size() / 3));
@@ -10513,7 +10678,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // Convert buf64 to processBuffer once here.
         if (use64 && buf64 != nullptr)
         {
-            const size_t inSamples = (size_t)produced * (size_t)e->channels;
+            const size_t inSamples = (size_t)produced * (size_t)outChInt;
             for (size_t i = 0; i < inSamples; ++i)
             {
                 processBuffer[i] = static_cast<float>(buf64[i]);
@@ -10526,7 +10691,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
             // When device rate conversion is needed, deviceResampler runs a deterministic
             // real-time linear resampler (or 1:1 identity r8brain memcpy) to prevent bursty
             // FFT block processing on the real-time audio thread.
-            const int srcCh = (e->channels > 0) ? e->channels : 2;
+            const int srcCh = outChInt;
             const float *inPtr = processBuffer;
             float *outPtr = finalDstBuffer;
             ma_uint64 inRemaining = (ma_uint64)produced;
@@ -10553,7 +10718,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
         {
             if (finalDstBuffer != processBuffer)
             {
-                std::memcpy(finalDstBuffer, processBuffer, std::min<size_t>((size_t)produced, (size_t)frameCount) * (size_t)e->channels * sizeof(float));
+                std::memcpy(finalDstBuffer, processBuffer, std::min<size_t>((size_t)produced, (size_t)frameCount) * (size_t)outChInt * sizeof(float));
             }
         }
     }
@@ -10645,7 +10810,7 @@ static void decode_producer_loop(AudioEngineHandle *e)
                                e->analogWarmthDsp.isEnabled() || e->tapeDriftDsp.isEnabled() ||
                                e->dialogEnhancerDsp.isActive() || e->clarityDsp.isEnabled() ||
                                e->compressorEnabled || e->crossfeedEnabled || e->stereoWidenEnabled ||
-                               e->stereoEnhancementEnabled || e->surroundDsp.isEnabled() ||
+                               e->stereoEnhancementEnabled || e->surroundDsp.isEnabled() || e->bassManagementDsp.isEnabled() ||
                                e->reverbEnabled || e->crystalizerEnabled || e->fftConvolverDsp.isEnabled() ||
                                e->levellerDsp.isEnabled() || e->lookaheadAgcDsp.isEnabled() || e->dynamicLoudnessDsp.isEnabled() ||
                                e->masterLimiterDsp.isEnabled() || e->lookaheadLimiterEnabled.load(std::memory_order_relaxed) ||
@@ -10670,36 +10835,36 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // Pure 64-bit path: preserve 53-bit mantissa precision all the way to quantization.
         if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
         {
-            e->ditherProcessor.process(effectiveDither, activeIntFormat, buf64, totalSamples, e->channels, activeDitherRate, targetValidBits, sourceBits);
+            e->ditherProcessor.process(effectiveDither, activeIntFormat, buf64, totalOutSamples, outChInt, activeDitherRate, targetValidBits, sourceBits);
         }
 
         if (outFmt == ma_format_s16)
         {
-            floatToIntExact(AE_FORMAT_S16, pOutput, buf64, totalSamples);
+            floatToIntExact(AE_FORMAT_S16, pOutput, buf64, totalOutSamples);
         }
         else if (outFmt == ma_format_u8)
         {
-            floatToIntExact(AE_FORMAT_U8, pOutput, buf64, totalSamples);
+            floatToIntExact(AE_FORMAT_U8, pOutput, buf64, totalOutSamples);
         }
         else if (outFmt == ma_format_s24)
         {
-            floatToIntExact(AE_FORMAT_S24, pOutput, buf64, totalSamples);
+            floatToIntExact(AE_FORMAT_S24, pOutput, buf64, totalOutSamples);
         }
         else if (outFmt == ma_format_s32)
         {
-            floatToIntExact(AE_FORMAT_S32, pOutput, buf64, totalSamples);
+            floatToIntExact(AE_FORMAT_S32, pOutput, buf64, totalOutSamples);
         }
         else if (outFmt == ma_format_f32)
         {
             float *outF32 = reinterpret_cast<float *>(pOutput);
-            quantizeFloatToFormatGrid(activeIntFormat, outF32, buf64, totalSamples);
+            quantizeFloatToFormatGrid(activeIntFormat, outF32, buf64, totalOutSamples);
         }
     }
     else
     {
         if (effectiveDither > 0 && activeIntFormat != AE_FORMAT_F32)
         {
-            e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalSamples, e->channels, activeDitherRate, targetValidBits, sourceBits);
+            e->ditherProcessor.process(effectiveDither, activeIntFormat, finalDstBuffer, totalOutSamples, outChInt, activeDitherRate, targetValidBits, sourceBits);
         }
 
         // Exact integer-grid conversion. ma_pcm_f32_to_X truncate against a
@@ -10709,30 +10874,30 @@ static void decode_producer_loop(AudioEngineHandle *e)
         // applied above.
         if (outFmt == ma_format_s16)
         {
-            floatToIntExact(AE_FORMAT_S16, pOutput, finalDstBuffer, totalSamples);
+            floatToIntExact(AE_FORMAT_S16, pOutput, finalDstBuffer, totalOutSamples);
         }
         else if (outFmt == ma_format_u8)
         {
-            floatToIntExact(AE_FORMAT_U8, pOutput, finalDstBuffer, totalSamples);
+            floatToIntExact(AE_FORMAT_U8, pOutput, finalDstBuffer, totalOutSamples);
         }
         else if (outFmt == ma_format_s24)
         {
-            floatToIntExact(AE_FORMAT_S24, pOutput, finalDstBuffer, totalSamples);
+            floatToIntExact(AE_FORMAT_S24, pOutput, finalDstBuffer, totalOutSamples);
         }
         else if (outFmt == ma_format_s32)
         {
-            floatToIntExact(AE_FORMAT_S32, pOutput, finalDstBuffer, totalSamples);
+            floatToIntExact(AE_FORMAT_S32, pOutput, finalDstBuffer, totalOutSamples);
         }
         else if (outFmt == ma_format_f32)
         {
             float *outF32 = reinterpret_cast<float *>(pOutput);
             if (activeIntFormat != AE_FORMAT_F32)
             {
-                quantizeFloatToFormatGrid(activeIntFormat, outF32, finalDstBuffer, totalSamples);
+                quantizeFloatToFormatGrid(activeIntFormat, outF32, finalDstBuffer, totalOutSamples);
             }
             else if (static_cast<const void*>(finalDstBuffer) != pOutput)
             {
-                std::memcpy(pOutput, finalDstBuffer, totalSamples * sizeof(float));
+                std::memcpy(pOutput, finalDstBuffer, totalOutSamples * sizeof(float));
             }
         }
     }
@@ -13091,6 +13256,7 @@ extern "C"
         AudioEngineHandle *e = new AudioEngineHandle();
         e->sampleRate = sample_rate;
         e->channels = channels;
+        e->processingChannels.store(std::clamp(channels, 1, 8), std::memory_order_relaxed);
         for (int i = 0; i < AE_DSP_NODE_COUNT; ++i)
         {
             e->dspChainOrder[(size_t)i].store(i, std::memory_order_relaxed);
@@ -13904,6 +14070,11 @@ extern "C"
         if (!cfEnabled && !amEnabled)
             return false;
 
+        const int curProcCh = e->processingChannels.load(std::memory_order_acquire);
+        const int nextProcCh = resolve_processing_channels(e, static_cast<int>(nextDec->outputChannels));
+        if (nextProcCh != curProcCh)
+            return false;
+
         int durationMs = 0;
         if (cfEnabled)
         {
@@ -13927,7 +14098,8 @@ extern "C"
             e->crossfadeRingBuffer.reset();
         }
 
-        const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
+        const int procCh = e->processingChannels.load(std::memory_order_acquire);
+    const size_t ch = (procCh > 0) ? (size_t)std::clamp(procCh, 1, 8) : ((e->channels > 0) ? (size_t)e->channels : 2);
         const int sr = (e->sampleRate > 0) ? e->sampleRate : 48000;
         const ma_uint64 fadeFrames = (ma_uint64)((double)sr * ((double)durationMs / 1000.0));
         if (fadeFrames == 0)
@@ -14240,6 +14412,7 @@ extern "C"
                 e->currentLengthFrames = newCurrentLen;
                 e->currentIndex = jumpIndex;
                 e->hasCurrent = (newCurrent != nullptr);
+                sync_processing_channels_for_decoder(e, newCurrent, false);
                 arm_transition_fade_in(e);
                 apply_initial_track_loudness(e, newCurrent, path);
 
@@ -14389,6 +14562,7 @@ extern "C"
                     e->sourceChannels = (int)nNativeCh;
                 }
                 sync_active_dsd_from_decoder(e, e->currentDecoder);
+                sync_processing_channels_for_decoder(e, e->currentDecoder, false);
                 promotedSrcRate = (e->sourceSampleRate > 0) ? (uint32_t)e->sourceSampleRate : nNativeRate;
                 e->currentTrackBpm.store(e->nextTrackBpm.load(std::memory_order_relaxed), std::memory_order_relaxed);
                 e->currentTrackBpmExplicit.store(e->nextTrackBpmExplicit.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -15111,6 +15285,10 @@ extern "C"
                 {
                     totalLatency += e->reverbNode.getLatencySamples();
                 }
+                if (e->surroundDsp.isEnabled())
+                {
+                    totalLatency += static_cast<double>(e->surroundDsp.getLatencySamples());
+                }
             }
             if (e->deviceResamplerInit)
             {
@@ -15227,18 +15405,19 @@ extern "C"
         if (e == nullptr)
             return ps;
 
+        const int procCh = std::clamp(e->processingChannels.load(std::memory_order_acquire), 1, 8);
         ps.input_format = (e->sourceFormat != ma_format_unknown)
                               ? (int)ma_format_to_ae_format(e->sourceFormat)
                               : (int)e->outputFormat;
         ps.input_sample_rate = (e->sourceSampleRate > 0) ? e->sourceSampleRate : e->sampleRate;
-        ps.input_channels = e->channels;
+        ps.input_channels = (e->sourceChannels > 0) ? e->sourceChannels : procCh;
 
         const int p64Reasons = precision64_reasons(e);
         const bool is64Active = (p64Reasons != 0);
         // Report 64-bit float internal precision as 64 (or AE_FORMAT_F32 = 0 for 32-bit float)
         ps.processing_format = is64Active ? 64 : (int)AE_FORMAT_F32;
         ps.processing_sample_rate = e->sampleRate;
-        ps.processing_channels = e->channels;
+        ps.processing_channels = procCh;
 
         ps.device_format_actual = -1;
         int actualDevRate = (e->deviceSampleRate > 0)
@@ -15337,10 +15516,10 @@ extern "C"
             ps.active_limiter = 0;
         }
 
-        const bool isStereoSpatial = (e->channels == 2);
         const bool hasSpatialOther = e->stereoWidenEnabled ||
             e->stereoEnhancementEnabled ||
-            (isStereoSpatial && e->surroundDsp.isEnabled()) ||
+            e->surroundDsp.isEnabled() ||
+            e->bassManagementDsp.isEnabled() ||
             e->reverbEnabled;
         const bool hasFftConvolver = (e->channels >= 2 && e->fftConvolverDsp.isEnabled());
 
@@ -15836,16 +16015,19 @@ extern "C"
                         }
                         break;
                     case AE_DSP_NODE_SURROUND:
-                        if (isStereoSpatial && e->surroundDsp.isEnabled() &&
+                        if (e->surroundDsp.isEnabled() &&
                             e->surroundDsp.getMode() != sauti::dsp::SurroundMode::Off)
                         {
                             const auto sMode = e->surroundDsp.getMode();
+                            const double surrLatMs = (sr > 0.0) ? (static_cast<double>(e->surroundDsp.getLatencySamples()) * 1000.0 / sr) : 0.0;
+                            const char *hrtfLabel = e->surroundDsp.isSofaActive() ? "Personal SOFA" : "Spherical Head";
                             switch (sMode)
                             {
                                 case sauti::dsp::SurroundMode::MatrixSurround:
                                     appendNode("surround_3d", "Spatial Surround", nativePrec,
-                                               "Matrix 5.1 · Focus " + fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "% · Boost " + fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%", 0.0,
+                                               "Matrix 5.1 · Focus " + fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "% · Boost " + fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%", surrLatMs,
                                                {{"Mode", "Matrix 5.1"},
+                                                {"HRTF", hrtfLabel},
                                                 {"Center Focus", fmtFloat(e->surroundDsp.getCenterFocus() * 100.0, 0) + "%"},
                                                 {"Surround Boost", fmtFloat(e->surroundDsp.getSurroundBoost() * 100.0, 0) + "%"},
                                                 {"Rear Delay", fmtFloat(e->surroundDsp.getSurroundDelayMs(), 1) + " ms"},
@@ -15861,6 +16043,7 @@ extern "C"
                                     const char *angName = (ang == 0) ? "Narrow (10°)" : (ang == 2 ? "Wide (45°)" : "Standard (30°)");
                                     std::vector<std::pair<std::string, std::string>> bParams = {
                                         {"Mode", targetName},
+                                        {"HRTF", isSpeaker ? "XTC" : hrtfLabel},
                                         {"Intensity", fmtFloat(e->surroundDsp.getBinauralBoost() * 100.0, 0) + "%"},
                                         {"Shadow Cutoff", fmtFloat(e->surroundDsp.getBinauralShadowCutoff(), 0) + " Hz"},
                                     };
@@ -15874,7 +16057,7 @@ extern "C"
                                         bParams.push_back({"Room Mix", fmtFloat(e->surroundDsp.getBinauralRoomMix() * 100.0, 0) + "%"});
                                     }
                                     appendNode("surround_3d", "Spatial Surround", nativePrec,
-                                               std::string("Binaural · ") + targetName + " · " + fmtFloat(e->surroundDsp.getBinauralBoost() * 100.0, 0) + "%", 0.0,
+                                               std::string("Binaural · ") + targetName + " · " + fmtFloat(e->surroundDsp.getBinauralBoost() * 100.0, 0) + "%", surrLatMs,
                                                std::move(bParams));
                                     break;
                                 }
@@ -16005,6 +16188,30 @@ extern "C"
                                         {"AGC Gain", fmtSignedDb(agcDb, 1)},
                                         {"Bass / Mid / High GR", fmtFloat(lowGr, 1) + " / " + fmtFloat(midGr, 1) + " / " + fmtFloat(highGr, 1) + " dB"},
                                         {"Lookahead / Ceiling", fmtFloat(laMs, 1) + " ms / " + fmtFloat(ceilDb, 1) + " dBTP"}});
+                        }
+                        break;
+                    case AE_DSP_NODE_BASS_MANAGEMENT:
+                        if (e->bassManagementDsp.isEnabled())
+                        {
+                            const float xoverHz = e->bassManagementDsp.getCrossoverHz();
+                            const float lfeLpfHz = e->bassManagementDsp.getLfeLowpassHz();
+                            const float lfeGainDb = e->bassManagementDsp.getLfeGainDb();
+                            const int lfeMode = e->bassManagementDsp.getLfeMode();
+                            const int frontSm = e->bassManagementDsp.isFrontSmall() ? 1 : 0;
+                            const int centerSm = e->bassManagementDsp.isCenterSmall() ? 1 : 0;
+                            const int surSm = e->bassManagementDsp.isSurroundSmall() ? 1 : 0;
+                            const int rearSm = e->bassManagementDsp.isRearSmall() ? 1 : 0;
+                            const char *modeLabel = (lfeMode == 1) ? "LFE + Main" : (lfeMode == 2 ? "Phantom Sub" : "LFE Only");
+                            const std::string spkMask = std::string("F:") + (frontSm ? "S" : "L") +
+                                                        " C:" + (centerSm ? "S" : "L") +
+                                                        " S:" + (surSm ? "S" : "L") +
+                                                        " R:" + (rearSm ? "S" : "L");
+                            appendNode("bass_management", "5.1 / 7.1 Bass Management", nativePrec,
+                                       "XO " + fmtFloat(xoverHz, 0) + " Hz · " + modeLabel + " · " + spkMask, 0.0,
+                                       {{"Crossover", fmtFloat(xoverHz, 0) + " Hz (LR4)"},
+                                        {"LFE LPF / Gain", fmtFloat(lfeLpfHz, 0) + " Hz / " + fmtSignedDb(lfeGainDb, 1)},
+                                        {"LFE Mode", modeLabel},
+                                        {"Speaker Sizes", spkMask}});
                         }
                         break;
                     default:
@@ -17299,6 +17506,7 @@ extern "C"
             }
 
             reload_convolver_ir_if_rate_changed(e);
+    reload_sofa_hrtf_if_rate_changed(e);
 
             const ma_format requestedOutFmt = ae_format_to_ma_format(e->outputFormat);
 
@@ -18005,7 +18213,8 @@ extern "C"
                     ma_uint64 decCursor = 0;
                     if (ma_decoder_get_cursor_in_pcm_frames(e->currentDecoder, &decCursor) == MA_SUCCESS)
                     {
-                        const size_t ch = (e->channels > 0) ? (size_t)e->channels : 2;
+                        const int procCh = e->processingChannels.load(std::memory_order_acquire);
+    const size_t ch = (procCh > 0) ? (size_t)std::clamp(procCh, 1, 8) : ((e->channels > 0) ? (size_t)e->channels : 2);
                         const size_t unplayedFrames = e->pcmRingBuffer.available_read() / ch;
                         const ma_uint64 decCursorEngine = convert_frame_rate(decCursor, oldDecRate, oldRate);
                         const ma_uint64 cursorMinusRing = (decCursorEngine >= unplayedFrames) ? (decCursorEngine - unplayedFrames) : 0;
@@ -18093,6 +18302,7 @@ extern "C"
     #if defined(AE_ENABLE_CURL) && AE_ENABLE_CURL
                             e->currentStream = newSt;
     #endif
+                            sync_processing_channels_for_decoder(e, newDec, false);
                             reset_track_resampler_locked(e);
                         }
                         if (e->sourceSampleRate > 0 && e->engineSampleRate > 0)
@@ -20813,6 +21023,7 @@ extern "C"
             engine->lookaheadAgcDsp.reset();
             engine->dynamicEqDsp.reset();
             engine->tapeDriftDsp.reset();
+            engine->bassManagementDsp.reset();
         }
         {
             std::lock_guard<std::mutex> fx(engine->fxMutex);
@@ -21420,6 +21631,143 @@ extern "C"
         dsp.setStageWidth(field_width);
         dsp.setBinauralRoomPreset(vhs_room_preset);
         dsp.setBinauralRoomMix(vhs_reflection_gain);
+    }
+
+    // Personal SOFA HRTF (AES69 via libmysofa)
+    AE_API int ae_dsp_load_sofa_hrtf_file(AudioEngineHandle *engine, const char *file_path)
+    {
+        if (!engine || !file_path || file_path[0] == '\0') return 0;
+        std::lock_guard<std::mutex> sofaLk(engine->sofaHrtfControlMutex);
+        return engine->surroundDsp.loadSofaFile(file_path) ? 1 : 0;
+    }
+
+    AE_API int ae_dsp_load_sofa_hrtf_memory(AudioEngineHandle *engine, const uint8_t *data, int byte_count)
+    {
+        if (!engine || !data || byte_count <= 0) return 0;
+        std::lock_guard<std::mutex> sofaLk(engine->sofaHrtfControlMutex);
+        return engine->surroundDsp.loadSofaMemory(data, static_cast<size_t>(byte_count)) ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_clear_sofa_hrtf(AudioEngineHandle *engine)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> sofaLk(engine->sofaHrtfControlMutex);
+        engine->surroundDsp.clearSofa();
+    }
+
+    AE_API void ae_dsp_set_sofa_hrtf_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->fxMutex);
+        engine->surroundDsp.setSofaEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_get_sofa_hrtf_info(AudioEngineHandle *engine, AESofaHrtfInfo *out_info)
+    {
+        if (!engine || !out_info) return 0;
+        std::memset(out_info, 0, sizeof(AESofaHrtfInfo));
+        std::lock_guard<std::mutex> sofaLk(engine->sofaHrtfControlMutex);
+        const auto meta = engine->surroundDsp.getSofaMetadata();
+        out_info->loaded = meta.loaded ? 1 : 0;
+        out_info->enabled = engine->surroundDsp.isSofaEnabled() ? 1 : 0;
+        out_info->native_sample_rate = meta.native_sample_rate;
+        out_info->engine_sample_rate = meta.engine_sample_rate;
+        out_info->ir_length = meta.ir_length;
+        out_info->num_measurements = meta.num_measurements;
+        out_info->latency_samples = meta.latency_samples;
+        if (!meta.name.empty())
+        {
+            std::snprintf(out_info->name, sizeof(out_info->name), "%s", meta.name.c_str());
+        }
+        return out_info->loaded;
+    }
+
+    // 5.1 / 7.1 Discrete Bass Management & Speaker Calibration
+    AE_API void ae_dsp_set_bass_management_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->bassManagementDsp.setEnabled(enabled != 0);
+    }
+
+    AE_API int ae_dsp_get_bass_management_enabled(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        return engine->bassManagementDsp.isEnabled() ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_bass_management_params(AudioEngineHandle *engine,
+                                                  float crossover_hz,
+                                                  float lfe_lpf_hz,
+                                                  float lfe_gain_db,
+                                                  int lfe_mode,
+                                                  int front_small,
+                                                  int center_small,
+                                                  int surround_small,
+                                                  int rear_small)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->bassManagementDsp.setCrossoverHz(crossover_hz);
+        engine->bassManagementDsp.setLfeLowpassHz(lfe_lpf_hz);
+        engine->bassManagementDsp.setLfeGainDb(lfe_gain_db);
+        engine->bassManagementDsp.setLfeMode(lfe_mode);
+        engine->bassManagementDsp.setSpeakerSizes(
+            front_small != 0,
+            center_small != 0,
+            surround_small != 0,
+            rear_small != 0);
+    }
+
+    AE_API void ae_dsp_get_bass_management_params(AudioEngineHandle *engine,
+                                                  float *out_crossover_hz,
+                                                  float *out_lfe_lpf_hz,
+                                                  float *out_lfe_gain_db,
+                                                  int *out_lfe_mode,
+                                                  int *out_front_small,
+                                                  int *out_center_small,
+                                                  int *out_surround_small,
+                                                  int *out_rear_small)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (out_crossover_hz) *out_crossover_hz = engine->bassManagementDsp.getCrossoverHz();
+        if (out_lfe_lpf_hz) *out_lfe_lpf_hz = engine->bassManagementDsp.getLfeLowpassHz();
+        if (out_lfe_gain_db) *out_lfe_gain_db = engine->bassManagementDsp.getLfeGainDb();
+        if (out_lfe_mode) *out_lfe_mode = engine->bassManagementDsp.getLfeMode();
+        if (out_front_small) *out_front_small = engine->bassManagementDsp.isFrontSmall() ? 1 : 0;
+        if (out_center_small) *out_center_small = engine->bassManagementDsp.isCenterSmall() ? 1 : 0;
+        if (out_surround_small) *out_surround_small = engine->bassManagementDsp.isSurroundSmall() ? 1 : 0;
+        if (out_rear_small) *out_rear_small = engine->bassManagementDsp.isRearSmall() ? 1 : 0;
+    }
+
+    AE_API void ae_dsp_set_speaker_calibration(AudioEngineHandle *engine, int channel, float trim_db, float delay_ms)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        engine->bassManagementDsp.setChannelTrimDb(channel, trim_db);
+        engine->bassManagementDsp.setChannelDelayMs(channel, delay_ms);
+    }
+
+    AE_API void ae_dsp_get_speaker_calibration(AudioEngineHandle *engine, int channel, float *out_trim_db, float *out_delay_ms)
+    {
+        if (!engine) return;
+        std::lock_guard<std::mutex> lock(engine->dspMutex);
+        if (out_trim_db) *out_trim_db = engine->bassManagementDsp.getChannelTrimDb(channel);
+        if (out_delay_ms) *out_delay_ms = engine->bassManagementDsp.getChannelDelayMs(channel);
+    }
+
+    AE_API void ae_dsp_set_multichannel_processing_enabled(AudioEngineHandle *engine, int enabled)
+    {
+        if (!engine) return;
+        engine->multichannelProcessingEnabled.store(enabled != 0, std::memory_order_release);
+    }
+
+    AE_API int ae_dsp_get_multichannel_processing_enabled(AudioEngineHandle *engine)
+    {
+        if (!engine) return 0;
+        return engine->multichannelProcessingEnabled.load(std::memory_order_acquire) ? 1 : 0;
     }
 
     // FFT Impulse Response Convolver

@@ -1,6 +1,7 @@
 export 'audio_engine_ffi.dart' show ReverbEngine, ReverbParamsEx, LatticeReverbParams, DiffusionReverbParams,
         HadamardReverbParams, BarrReverbParams, GriesingerReverbParams,
         ToneCrossoverParams, MultibandMasteringParams, ToneMode;
+import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
@@ -224,7 +225,8 @@ enum DspNodeId {
   reverb(21, 'reverb'),
   convolver(22, 'autoeq_fir'),
   broadcastLeveller(23, 'broadcast_leveller'),
-  lookaheadAgc(24, 'lookahead_agc_limiter');
+  lookaheadAgc(24, 'lookahead_agc_limiter'),
+  bassManagement(25, 'bass_management');
 
   /// Native `AEDspNodeId` integer identifier.
   final int value;
@@ -902,6 +904,146 @@ typedef _DspGetChainOrderDart = int Function(
 typedef _DspResetChainOrderNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _DspResetChainOrderDart = void Function(ffi.Pointer<ffi.Void>);
 
+// Personal SOFA HRTF (AES69 via libmysofa)
+final class _AESofaHrtfInfoNative extends ffi.Struct {
+  @ffi.Int32()
+  external int loaded;
+  @ffi.Int32()
+  external int enabled;
+  @ffi.Int32()
+  external int nativeSampleRate;
+  @ffi.Int32()
+  external int engineSampleRate;
+  @ffi.Int32()
+  external int irLength;
+  @ffi.Int32()
+  external int numMeasurements;
+  @ffi.Int32()
+  external int latencySamples;
+  @ffi.Array(128)
+  external ffi.Array<ffi.Uint8> name;
+}
+
+typedef _DspLoadSofaHrtfFileNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>);
+typedef _DspLoadSofaHrtfFileDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<Utf8>);
+
+typedef _DspLoadSofaHrtfMemoryNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Uint8>, ffi.Int32);
+typedef _DspLoadSofaHrtfMemoryDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Uint8>, int);
+
+typedef _DspGetSofaHrtfInfoNative = ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<_AESofaHrtfInfoNative>);
+typedef _DspGetSofaHrtfInfoDart = int Function(
+    ffi.Pointer<ffi.Void>, ffi.Pointer<_AESofaHrtfInfoNative>);
+
+/// Metadata and active state of the loaded personal SOFA HRTF database.
+class SofaHrtfInfo {
+  final bool loaded;
+  final bool enabled;
+  final int nativeSampleRate;
+  final int engineSampleRate;
+  final int irLength;
+  final int numMeasurements;
+  final int latencySamples;
+  final String name;
+
+  const SofaHrtfInfo({
+    this.loaded = false,
+    this.enabled = false,
+    this.nativeSampleRate = 0,
+    this.engineSampleRate = 0,
+    this.irLength = 0,
+    this.numMeasurements = 0,
+    this.latencySamples = 0,
+    this.name = '',
+  });
+
+  Map<String, dynamic> toMap() => {
+        'loaded': loaded,
+        'enabled': enabled,
+        'nativeSampleRate': nativeSampleRate,
+        'engineSampleRate': engineSampleRate,
+        'irLength': irLength,
+        'numMeasurements': numMeasurements,
+        'latencySamples': latencySamples,
+        'name': name,
+      };
+}
+
+// 5.1 / 7.1 Discrete Bass Management & Speaker Calibration
+typedef _DspSetBassManagementParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Float,
+    ffi.Float,
+    ffi.Float,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32);
+typedef _DspSetBassManagementParamsDart = void Function(
+    ffi.Pointer<ffi.Void>, double, double, double, int, int, int, int, int);
+
+typedef _DspGetBassManagementParamsNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>);
+typedef _DspGetBassManagementParamsDart = void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>);
+
+typedef _DspSetSpeakerCalibrationNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Float, ffi.Float);
+typedef _DspSetSpeakerCalibrationDart = void Function(
+    ffi.Pointer<ffi.Void>, int, double, double);
+
+typedef _DspGetSpeakerCalibrationNative = ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Int32,
+    ffi.Pointer<ffi.Float>,
+    ffi.Pointer<ffi.Float>);
+typedef _DspGetSpeakerCalibrationDart = void Function(ffi.Pointer<ffi.Void>,
+    int, ffi.Pointer<ffi.Float>, ffi.Pointer<ffi.Float>);
+
+/// Configuration snapshot for the 5.1 / 7.1 LR4 Bass Management engine.
+class BassManagementParams {
+  final double crossoverHz;
+  final double lfeLpfHz;
+  final double lfeGainDb;
+  final int lfeMode;
+  final bool frontSmall;
+  final bool centerSmall;
+  final bool surroundSmall;
+  final bool rearSmall;
+
+  const BassManagementParams({
+    this.crossoverHz = 80.0,
+    this.lfeLpfHz = 120.0,
+    this.lfeGainDb = 0.0,
+    this.lfeMode = 0,
+    this.frontSmall = true,
+    this.centerSmall = true,
+    this.surroundSmall = true,
+    this.rearSmall = true,
+  });
+}
+
 /// Clean-room high-fidelity DSP suite for SautiFlow.
 class SautiDsp {
   final ffi.DynamicLibrary _lib;
@@ -1008,6 +1150,21 @@ class SautiDsp {
   _DspSetChainOrderDart? _setDspChainOrder;
   _DspGetChainOrderDart? _getDspChainOrder;
   _DspResetChainOrderDart? _resetDspChainOrder;
+
+  _DspLoadSofaHrtfFileDart? _loadSofaHrtfFile;
+  _DspLoadSofaHrtfMemoryDart? _loadSofaHrtfMemory;
+  _DspClearConvolverIrDart? _clearSofaHrtf;
+  _DspSetEnabledDart? _setSofaHrtfEnabled;
+  _DspGetSofaHrtfInfoDart? _getSofaHrtfInfo;
+
+  _DspSetEnabledDart? _setBassManagementEnabled;
+  _DspHasConvolverIrDart? _getBassManagementEnabled;
+  _DspSetBassManagementParamsDart? _setBassManagementParams;
+  _DspGetBassManagementParamsDart? _getBassManagementParams;
+  _DspSetSpeakerCalibrationDart? _setSpeakerCalibration;
+  _DspGetSpeakerCalibrationDart? _getSpeakerCalibration;
+  _DspSetEnabledDart? _setMultichannelProcessingEnabled;
+  _DspHasConvolverIrDart? _getMultichannelProcessingEnabled;
 
   SautiDsp(this._lib, this._enginePtr) {
     _initFunctions();
@@ -1276,6 +1433,93 @@ class SautiDsp {
           _DspResetChainOrderDart>('ae_reset_dsp_chain_order');
     } catch (_) {
       _resetDspChainOrder = null;
+    }
+
+    try {
+      _loadSofaHrtfFile = _lib.lookupFunction<_DspLoadSofaHrtfFileNative,
+          _DspLoadSofaHrtfFileDart>('ae_dsp_load_sofa_hrtf_file');
+    } catch (_) {
+      _loadSofaHrtfFile = null;
+    }
+    try {
+      _loadSofaHrtfMemory = _lib.lookupFunction<_DspLoadSofaHrtfMemoryNative,
+          _DspLoadSofaHrtfMemoryDart>('ae_dsp_load_sofa_hrtf_memory');
+    } catch (_) {
+      _loadSofaHrtfMemory = null;
+    }
+    try {
+      _clearSofaHrtf = _lib.lookupFunction<_DspClearConvolverIrNative,
+          _DspClearConvolverIrDart>('ae_dsp_clear_sofa_hrtf');
+    } catch (_) {
+      _clearSofaHrtf = null;
+    }
+    try {
+      _setSofaHrtfEnabled =
+          _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+              'ae_dsp_set_sofa_hrtf_enabled');
+    } catch (_) {
+      _setSofaHrtfEnabled = null;
+    }
+    try {
+      _getSofaHrtfInfo = _lib.lookupFunction<_DspGetSofaHrtfInfoNative,
+          _DspGetSofaHrtfInfoDart>('ae_dsp_get_sofa_hrtf_info');
+    } catch (_) {
+      _getSofaHrtfInfo = null;
+    }
+    try {
+      _setBassManagementEnabled =
+          _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+              'ae_dsp_set_bass_management_enabled');
+    } catch (_) {
+      _setBassManagementEnabled = null;
+    }
+    try {
+      _getBassManagementEnabled = _lib.lookupFunction<_DspHasConvolverIrNative,
+          _DspHasConvolverIrDart>('ae_dsp_get_bass_management_enabled');
+    } catch (_) {
+      _getBassManagementEnabled = null;
+    }
+    try {
+      _setBassManagementParams = _lib.lookupFunction<
+          _DspSetBassManagementParamsNative,
+          _DspSetBassManagementParamsDart>('ae_dsp_set_bass_management_params');
+    } catch (_) {
+      _setBassManagementParams = null;
+    }
+    try {
+      _getBassManagementParams = _lib.lookupFunction<
+          _DspGetBassManagementParamsNative,
+          _DspGetBassManagementParamsDart>('ae_dsp_get_bass_management_params');
+    } catch (_) {
+      _getBassManagementParams = null;
+    }
+    try {
+      _setSpeakerCalibration = _lib.lookupFunction<
+          _DspSetSpeakerCalibrationNative,
+          _DspSetSpeakerCalibrationDart>('ae_dsp_set_speaker_calibration');
+    } catch (_) {
+      _setSpeakerCalibration = null;
+    }
+    try {
+      _getSpeakerCalibration = _lib.lookupFunction<
+          _DspGetSpeakerCalibrationNative,
+          _DspGetSpeakerCalibrationDart>('ae_dsp_get_speaker_calibration');
+    } catch (_) {
+      _getSpeakerCalibration = null;
+    }
+    try {
+      _setMultichannelProcessingEnabled =
+          _lib.lookupFunction<_DspSetEnabledNative, _DspSetEnabledDart>(
+              'ae_dsp_set_multichannel_processing_enabled');
+    } catch (_) {
+      _setMultichannelProcessingEnabled = null;
+    }
+    try {
+      _getMultichannelProcessingEnabled =
+          _lib.lookupFunction<_DspHasConvolverIrNative, _DspHasConvolverIrDart>(
+              'ae_dsp_get_multichannel_processing_enabled');
+    } catch (_) {
+      _getMultichannelProcessingEnabled = null;
     }
   }
 
@@ -2491,5 +2735,198 @@ class SautiDsp {
     final fn = _resetDspChainOrder;
     if (_enginePtr == ffi.nullptr || fn == null) return;
     fn(_enginePtr);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Personal SOFA HRTF (AES69 via libmysofa)
+  // ---------------------------------------------------------------------------
+
+  /// Loads an AES69 `.sofa` personal HRTF database from [filePath].
+  bool loadSofaHrtfFile(String filePath) {
+    final fn = _loadSofaHrtfFile;
+    if (_enginePtr == ffi.nullptr || fn == null || filePath.isEmpty) {
+      return false;
+    }
+    final pathPtr = filePath.toNativeUtf8(allocator: calloc);
+    try {
+      return fn(_enginePtr, pathPtr) == 1;
+    } finally {
+      calloc.free(pathPtr);
+    }
+  }
+
+  /// Loads an AES69 `.sofa` personal HRTF database from an in-memory buffer.
+  bool loadSofaHrtfMemory(Uint8List bytes) {
+    final fn = _loadSofaHrtfMemory;
+    if (_enginePtr == ffi.nullptr || fn == null || bytes.isEmpty) {
+      return false;
+    }
+    final ptr = calloc<ffi.Uint8>(bytes.length);
+    ptr.asTypedList(bytes.length).setAll(0, bytes);
+    try {
+      return fn(_enginePtr, ptr, bytes.length) == 1;
+    } finally {
+      calloc.free(ptr);
+    }
+  }
+
+  /// Clears any loaded SOFA HRTF database and reverts to the parametric head model.
+  void clearSofaHrtf() {
+    final fn = _clearSofaHrtf;
+    if (_enginePtr == ffi.nullptr || fn == null) return;
+    fn(_enginePtr);
+  }
+
+  /// Enables or bypasses a loaded SOFA HRTF database.
+  void setSofaHrtfEnabled(bool enabled) {
+    final fn = _setSofaHrtfEnabled;
+    if (_enginePtr == ffi.nullptr || fn == null) return;
+    fn(_enginePtr, enabled ? 1 : 0);
+  }
+
+  /// Returns metadata & status for the currently loaded SOFA HRTF database.
+  SofaHrtfInfo? getSofaHrtfInfo() {
+    final fn = _getSofaHrtfInfo;
+    if (_enginePtr == ffi.nullptr || fn == null) return null;
+    final ptr = calloc<_AESofaHrtfInfoNative>();
+    try {
+      fn(_enginePtr, ptr);
+      final r = ptr.ref;
+      final nameBytes = <int>[];
+      for (int i = 0; i < 128; i++) {
+        final b = r.name[i];
+        if (b == 0) break;
+        nameBytes.add(b);
+      }
+      return SofaHrtfInfo(
+        loaded: r.loaded != 0,
+        enabled: r.enabled != 0,
+        nativeSampleRate: r.nativeSampleRate,
+        engineSampleRate: r.engineSampleRate,
+        irLength: r.irLength,
+        numMeasurements: r.numMeasurements,
+        latencySamples: r.latencySamples,
+        name: utf8.decode(nameBytes, allowMalformed: true),
+      );
+    } finally {
+      calloc.free(ptr);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5.1 / 7.1 Discrete Bass Management & Speaker Calibration
+  // ---------------------------------------------------------------------------
+
+  void setBassManagementEnabled(bool enabled) {
+    final fn = _setBassManagementEnabled;
+    if (_enginePtr == ffi.nullptr || fn == null) return;
+    fn(_enginePtr, enabled ? 1 : 0);
+  }
+
+  bool isBassManagementEnabled() {
+    final fn = _getBassManagementEnabled;
+    if (_enginePtr == ffi.nullptr || fn == null) return false;
+    return fn(_enginePtr) != 0;
+  }
+
+  void setBassManagementParams({
+    double crossoverHz = 80.0,
+    double lfeLpfHz = 120.0,
+    double lfeGainDb = 0.0,
+    int lfeMode = 0,
+    bool frontSmall = true,
+    bool centerSmall = true,
+    bool surroundSmall = true,
+    bool rearSmall = true,
+  }) {
+    final fn = _setBassManagementParams;
+    if (_enginePtr == ffi.nullptr || fn == null) return;
+    fn(
+      _enginePtr,
+      crossoverHz,
+      lfeLpfHz,
+      lfeGainDb,
+      lfeMode,
+      frontSmall ? 1 : 0,
+      centerSmall ? 1 : 0,
+      surroundSmall ? 1 : 0,
+      rearSmall ? 1 : 0,
+    );
+  }
+
+  BassManagementParams getBassManagementParams() {
+    final fn = _getBassManagementParams;
+    if (_enginePtr == ffi.nullptr || fn == null) {
+      return const BassManagementParams();
+    }
+    final pXover = calloc<ffi.Float>();
+    final pLfeLpf = calloc<ffi.Float>();
+    final pLfeGain = calloc<ffi.Float>();
+    final pLfeMode = calloc<ffi.Int32>();
+    final pFront = calloc<ffi.Int32>();
+    final pCenter = calloc<ffi.Int32>();
+    final pSurround = calloc<ffi.Int32>();
+    final pRear = calloc<ffi.Int32>();
+    try {
+      fn(_enginePtr, pXover, pLfeLpf, pLfeGain, pLfeMode, pFront, pCenter,
+          pSurround, pRear);
+      return BassManagementParams(
+        crossoverHz: pXover.value,
+        lfeLpfHz: pLfeLpf.value,
+        lfeGainDb: pLfeGain.value,
+        lfeMode: pLfeMode.value,
+        frontSmall: pFront.value != 0,
+        centerSmall: pCenter.value != 0,
+        surroundSmall: pSurround.value != 0,
+        rearSmall: pRear.value != 0,
+      );
+    } finally {
+      calloc.free(pXover);
+      calloc.free(pLfeLpf);
+      calloc.free(pLfeGain);
+      calloc.free(pLfeMode);
+      calloc.free(pFront);
+      calloc.free(pCenter);
+      calloc.free(pSurround);
+      calloc.free(pRear);
+    }
+  }
+
+  void setSpeakerCalibration(
+    int channelIndex, {
+    double trimDb = 0.0,
+    double delayMs = 0.0,
+  }) {
+    final fn = _setSpeakerCalibration;
+    if (_enginePtr == ffi.nullptr || fn == null) return;
+    fn(_enginePtr, channelIndex, trimDb, delayMs);
+  }
+
+  ({double trimDb, double delayMs}) getSpeakerCalibration(int channelIndex) {
+    final fn = _getSpeakerCalibration;
+    if (_enginePtr == ffi.nullptr || fn == null) {
+      return (trimDb: 0.0, delayMs: 0.0);
+    }
+    final pTrim = calloc<ffi.Float>();
+    final pDelay = calloc<ffi.Float>();
+    try {
+      fn(_enginePtr, channelIndex, pTrim, pDelay);
+      return (trimDb: pTrim.value, delayMs: pDelay.value);
+    } finally {
+      calloc.free(pTrim);
+      calloc.free(pDelay);
+    }
+  }
+
+  void setMultichannelProcessingEnabled(bool enabled) {
+    final fn = _setMultichannelProcessingEnabled;
+    if (_enginePtr == ffi.nullptr || fn == null) return;
+    fn(_enginePtr, enabled ? 1 : 0);
+  }
+
+  bool isMultichannelProcessingEnabled() {
+    final fn = _getMultichannelProcessingEnabled;
+    if (_enginePtr == ffi.nullptr || fn == null) return true;
+    return fn(_enginePtr) != 0;
   }
 }

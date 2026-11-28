@@ -5,11 +5,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB LIBSAMPLERATE_SOURCES "../third_party/libsamplerate/src/*.c")
+file(GLOB LIBMYSOFA_SOURCES
+  "../third_party/libmysofa/src/hrtf/*.c"
+  "../third_party/libmysofa/src/hdf/*.c"
+  "../third_party/libmysofa/src/resampler/*.c"
+)
 
 add_library(audio_engine SHARED
   ../audio_engine.cpp
   ../ffmpeg_stream_decoder.cpp
   ${LIBSAMPLERATE_SOURCES}
+  ${LIBMYSOFA_SOURCES}
 )
 
 target_include_directories(audio_engine PRIVATE
@@ -17,6 +23,8 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../dsp
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libsamplerate/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libmysofa/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/libmysofa/src/hrtf
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/r8brain
   ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ffmpeg/include
 )
@@ -34,6 +42,7 @@ target_compile_definitions(audio_engine PRIVATE
   ENABLE_SINC_BEST_CONVERTER=1
   ENABLE_SINC_MEDIUM_CONVERTER=1
   ENABLE_SINC_FAST_CONVERTER=1
+  SAUTIFLOW_ENABLE_MYSOFA=1
   MA_NO_ASSERT
   MA_DR_WAV_NO_ASSERT
   MA_DR_FLAC_NO_ASSERT
@@ -104,6 +113,7 @@ target_link_libraries(audio_engine PRIVATE
   pthread
   dl
   m
+  z
 )
 
 set_target_properties(audio_engine PROPERTIES

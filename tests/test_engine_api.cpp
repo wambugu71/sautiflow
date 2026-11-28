@@ -2499,6 +2499,133 @@ static void test_convolver_overhaul()
     ae_destroy_engine(e);
 }
 
+static void test_sofa_hrtf_and_multichannel_api()
+{
+    std::printf("\n== Personal SOFA HRTF & 5.1/7.1 Multichannel Pipeline API ==\n");
+
+    const char *sofaPath = "third_party/libmysofa/share/default.sofa";
+    std::ifstream sofaStream(sofaPath, std::ios::binary | std::ios::ate);
+    CHECK(sofaStream.is_open(), "opened third_party/libmysofa/share/default.sofa");
+    if (!sofaStream.is_open()) return;
+
+    const std::streamsize sofaSize = sofaStream.tellg();
+    sofaStream.seekg(0, std::ios::beg);
+    std::vector<uint8_t> sofaBytes(static_cast<size_t>(sofaSize));
+    sofaStream.read(reinterpret_cast<char *>(sofaBytes.data()), sofaSize);
+    sofaStream.close();
+
+    AudioEngineHandle *e = ae_create_engine(48000, 2);
+    CHECK(e != nullptr, "created stereo (2ch) engine for SOFA & 5.1 pipeline tests");
+    if (!e) return;
+
+    // 1. SOFA load from file + memory + toggle + clear
+    CHECK(ae_dsp_load_sofa_hrtf_file(e, sofaPath) == 1, "ae_dsp_load_sofa_hrtf_file succeeds");
+    AESofaHrtfInfo sInfo{};
+    CHECK(ae_dsp_get_sofa_hrtf_info(e, &sInfo) == 1 &&
+          sInfo.loaded == 1 && sInfo.enabled == 1 &&
+          sInfo.native_sample_rate > 0 && sInfo.num_measurements > 0 && sInfo.latency_samples >= 128,
+          "ae_dsp_get_sofa_hrtf_info reports loaded database metadata");
+
+    ae_dsp_set_sofa_hrtf_enabled(e, 0);
+    ae_dsp_get_sofa_hrtf_info(e, &sInfo);
+    CHECK(sInfo.loaded == 1 && sInfo.enabled == 0, "ae_dsp_set_sofa_hrtf_enabled(0) bypasses without unloading");
+    ae_dsp_set_sofa_hrtf_enabled(e, 1);
+
+    ae_dsp_clear_sofa_hrtf(e);
+    ae_dsp_get_sofa_hrtf_info(e, &sInfo);
+    CHECK(sInfo.loaded == 0, "ae_dsp_clear_sofa_hrtf clears loaded state");
+
+    CHECK(ae_dsp_load_sofa_hrtf_memory(e, sofaBytes.data(), static_cast<int>(sofaBytes.size())) == 1,
+          "ae_dsp_load_sofa_hrtf_memory succeeds");
+
+    // 2. Bass Management & Speaker Calibration round-trips
+    ae_dsp_set_multichannel_processing_enabled(e, 1);
+    CHECK(ae_dsp_get_multichannel_processing_enabled(e) == 1, "multichannel processing enabled getter matches setter");
+
+    ae_dsp_set_bass_management_enabled(e, 1);
+    CHECK(ae_dsp_get_bass_management_enabled(e) == 1, "bass management enabled getter matches setter");
+
+    ae_dsp_set_bass_management_params(e, 95.0f, 110.0f, 3.5f, 1, 1, 0, 1, 0);
+    float xover = 0.0f, lfeLpf = 0.0f, lfeGain = 0.0f;
+    int lfeMode = -1, fSm = -1, cSm = -1, sSm = -1, rSm = -1;
+    ae_dsp_get_bass_management_params(e, &xover, &lfeLpf, &lfeGain, &lfeMode, &fSm, &cSm, &sSm, &rSm);
+    CHECK(std::fabs(xover - 95.0f) < 0.1f && std::fabs(lfeLpf - 110.0f) < 0.1f &&
+          std::fabs(lfeGain - 3.5f) < 0.1f && lfeMode == 1 &&
+          fSm == 1 && cSm == 0 && sSm == 1 && rSm == 0,
+          "bass management params round-trip accurately");
+
+    ae_dsp_set_speaker_calibration(e, 2, -2.5f, 4.5f);
+    float trimDb = 0.0f, delayMs = 0.0f;
+    ae_dsp_get_speaker_calibration(e, 2, &trimDb, &delayMs);
+    CHECK(std::fabs(trimDb + 2.5f) < 0.05f && std::fabs(delayMs - 4.5f) < 0.05f,
+          "speaker calibration trim & delay round-trip accurately");
+
+    // 3. Real 6-channel (5.1) WAV playback through 2ch output engine with decoupled processingChannels
+    const char *wav51 = "test_51_surround_api.wav";
+    {
+        const uint32_t sr = 48000;
+        const uint16_t ch = 6;
+        const uint32_t frames = sr * 2;
+        std::vector<int16_t> pcm(static_cast<size_t>(frames) * ch, 0);
+        for (uint32_t i = 0; i < frames; ++i) {
+            const double t = static_cast<double>(i) / sr;
+            pcm[i * ch + 0] = static_cast<int16_t>(std::lround(0.20 * std::sin(2.0 * M_PI * 440.0 * t) * 32767.0)); // FL
+            pcm[i * ch + 2] = static_cast<int16_t>(std::lround(0.20 * std::sin(2.0 * M_PI * 880.0 * t) * 32767.0)); // FC
+            pcm[i * ch + 3] = static_cast<int16_t>(std::lround(0.25 * std::sin(2.0 * M_PI * 45.0 * t) * 32767.0));  // LFE
+            pcm[i * ch + 4] = static_cast<int16_t>(std::lround(0.15 * std::sin(2.0 * M_PI * 660.0 * t) * 32767.0)); // SL
+        }
+#pragma pack(push, 1)
+        struct WH51 {
+            char r[4]; uint32_t rs; char w[4]; char f[4]; uint32_t fs;
+            uint16_t af, ch; uint32_t sr, br; uint16_t ba, bps;
+            char d[4]; uint32_t db;
+        };
+#pragma pack(pop)
+        const uint32_t dataBytes = static_cast<uint32_t>(pcm.size() * sizeof(int16_t));
+        WH51 hdr{
+            {'R','I','F','F'}, 36u + dataBytes, {'W','A','V','E'},
+            {'f','m','t',' '}, 16u, 1u, ch, sr, sr * ch * 2u, static_cast<uint16_t>(ch * 2u), 16u,
+            {'d','a','t','a'}, dataBytes
+        };
+        std::FILE *fp = std::fopen(wav51, "wb");
+        if (fp) {
+            std::fwrite(&hdr, sizeof(hdr), 1, fp);
+            std::fwrite(pcm.data(), 1, dataBytes, fp);
+            std::fclose(fp);
+        }
+    }
+
+    ae_dsp_set_surround_enabled(e, 1);
+    ae_dsp_set_surround_mode(e, AE_SURROUND_BINAURAL);
+    ae_dsp_set_surround_binaural_params(e, 0, 0.75f, 2, 0.25f, 1, 3500.0f);
+
+    const char *paths[] = {wav51};
+    ae_set_playlist(e, paths, 1);
+    ae_play(e);
+
+    AEPipelineState ps{};
+    for (int wait = 0; wait < 60; ++wait) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        ps = ae_get_pipeline_state(e);
+        if (ps.input_channels == 6 && ps.processing_channels == 6) break;
+    }
+    CHECK(ps.input_channels == 6 && ps.processing_channels == 6 && ps.output_channels == 2,
+          "AEPipelineState preserves input_channels=6, processing_channels=6, output_channels=2 (no premature stereo downmix)");
+
+    std::vector<char> jsonBuf(8192, '\0');
+    const int jLen = ae_get_active_dsp_nodes_json(e, jsonBuf.data(), static_cast<int>(jsonBuf.size()));
+    std::string activeJson(jsonBuf.data(), static_cast<size_t>(std::max(0, jLen)));
+    CHECK(activeJson.find("\"id\":\"bass_management\"") != std::string::npos,
+          "ae_get_active_dsp_nodes_json includes bass_management");
+    CHECK(activeJson.find("\"id\":\"surround_3d\"") != std::string::npos &&
+          activeJson.find("SOFA") != std::string::npos,
+          "ae_get_active_dsp_nodes_json includes surround_3d with SOFA telemetry");
+
+    ae_stop(e);
+    ae_destroy_engine(e);
+    std::remove(wav51);
+}
+
 int main()
 {
     std::printf("==============================================\n");
@@ -2530,6 +2657,7 @@ int main()
     test_ffmpeg_streaming_audit();
     test_dsp_chain_order();
     test_convolver_overhaul();
+    test_sofa_hrtf_and_multichannel_api();
 
     std::printf("\n----------------------------------------------\n");
     std::printf(" RESULTS: %d passed, %d failed\n", g_passes, g_failures);

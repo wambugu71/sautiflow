@@ -634,6 +634,31 @@ class EqScreen extends StatefulWidget {
           (state['surroundStageBassAnchorHz'] as num?)?.toDouble() ?? 60.0,
     );
 
+    final multichannelProcEnabled =
+        state['multichannelProcessingEnabled'] ?? true;
+    player.setMultichannelProcessingEnabled(multichannelProcEnabled);
+
+    final sofaHrtfPath = state['sofaHrtfPath'] as String?;
+    final sofaHrtfEnabled = state['sofaHrtfEnabled'] ?? true;
+    player.setSofaHrtfEnabled(sofaHrtfEnabled);
+    if (sofaHrtfPath != null && sofaHrtfPath.isNotEmpty) {
+      player.loadSofaHrtf(sofaHrtfPath);
+    }
+
+    final bassMgmtEnabled =
+        masterEnabled && (state['bassMgmtEnabled'] ?? false);
+    player.setBassManagement(
+      enabled: bassMgmtEnabled,
+      crossoverHz: (state['bassMgmtCrossoverHz'] as num?)?.toDouble() ?? 80.0,
+      lfeLpfHz: (state['bassMgmtLfeLpfHz'] as num?)?.toDouble() ?? 120.0,
+      lfeGainDb: (state['bassMgmtLfeGainDb'] as num?)?.toDouble() ?? 0.0,
+      lfeMode: (state['bassMgmtLfeMode'] as num?)?.toInt() ?? 0,
+      frontSmall: state['bassMgmtFrontSmall'] ?? true,
+      centerSmall: state['bassMgmtCenterSmall'] ?? true,
+      surroundSmall: state['bassMgmtSurroundSmall'] ?? true,
+      rearSmall: state['bassMgmtRearSmall'] ?? true,
+    );
+
     player.setMasterLimiter(
       enabled: limiterEnabled,
       ceilingDb: limiterCeilingDb,
@@ -1816,6 +1841,8 @@ class _EqScreenState extends State<EqScreen>
   StreamSubscription<List<DspNodeId>>? _dspChainOrderSub;
   StreamSubscription<Map<String, dynamic>?>? _convolverInfoSub;
   Map<String, dynamic>? _convolverInfo;
+  StreamSubscription<Map<String, dynamic>?>? _sofaInfoSub;
+  Map<String, dynamic>? _sofaInfo;
 
   // Soft Limiter
   bool _limiterEnabled = false;
@@ -2074,6 +2101,54 @@ class _EqScreenState extends State<EqScreen>
   double _surroundStageCancellation = 0.60;
   double _surroundStageAirPresence = 0.40;
   double _surroundStageBassAnchorHz = 60.0;
+
+  // 5c. Personal SOFA HRTF & 5.1 / 7.1 Bass Management
+  String? _sofaHrtfPath;
+  String? _sofaHrtfFileName;
+  bool _sofaHrtfEnabled = true;
+  bool _multichannelProcessingEnabled = true;
+  bool _bassMgmtEnabled = false;
+  double _bassMgmtCrossoverHz = 80.0;
+  double _bassMgmtLfeLpfHz = 120.0;
+  double _bassMgmtLfeGainDb = 0.0;
+  int _bassMgmtLfeMode = 0; // 0=LFE Only, 1=LFE+Main, 2=Phantom Sub
+  bool _bassMgmtFrontSmall = true;
+  bool _bassMgmtCenterSmall = true;
+  bool _bassMgmtSurroundSmall = true;
+  bool _bassMgmtRearSmall = true;
+
+  /// Built-in AES69 `.sofa` HRTF profiles bundled as Flutter assets.
+  static const List<({String label, String asset})> _builtinSofaPresets = [
+    (
+      label: 'MIT KEMAR (Normal Pinna)',
+      asset: 'assets/sofa/mit_kemar_normal_pinna.sofa',
+    ),
+    (
+      label: 'MIT KEMAR (Large Pinna)',
+      asset: 'assets/sofa/mit_kemar_large_pinna.sofa',
+    ),
+    (
+      label: 'IRCAM LISTEN (Subject 1002)',
+      asset: 'assets/sofa/listen_irc_1002.sofa',
+    ),
+    (
+      label: 'ARI Diffuse-Field (NH2)',
+      asset: 'assets/sofa/ari_dtf_nh2.sofa',
+    ),
+    (
+      label: 'ARI Anechoic HRTF (NH898)',
+      asset: 'assets/sofa/ari_hrtf_nh898.sofa',
+    ),
+    (
+      label: 'CIPIC Human (Subject 003)',
+      asset: 'assets/sofa/cipic_subject_003.sofa',
+    ),
+  ];
+
+  final List<M3EDropdownItem<String>> _sofaItems = [
+    for (final s in _builtinSofaPresets)
+      M3EDropdownItem(label: s.label, value: s.asset),
+  ];
 
   // 6. Master Peak Limiter
   bool _masterLimiterEnabled = false;
@@ -2812,6 +2887,8 @@ class _EqScreenState extends State<EqScreen>
 
   late final M3EDropdownController<String> _hrirDropdownController =
       M3EDropdownController<String>();
+  late final M3EDropdownController<String> _sofaDropdownController =
+      M3EDropdownController<String>();
 
   @override
   void setState(VoidCallback fn) {
@@ -2855,6 +2932,12 @@ class _EqScreenState extends State<EqScreen>
     _convolverInfoSub = widget.player.convolverInfoStream.listen((info) {
       if (mounted) {
         setState(() => _convolverInfo = info);
+      }
+    });
+    _sofaInfo = widget.player.lastSofaInfo;
+    _sofaInfoSub = widget.player.sofaInfoStream.listen((info) {
+      if (mounted) {
+        setState(() => _sofaInfo = info);
       }
     });
   }
@@ -3121,7 +3204,9 @@ class _EqScreenState extends State<EqScreen>
     _eqSettingsSub?.cancel();
     _dspChainOrderSub?.cancel();
     _convolverInfoSub?.cancel();
+    _sofaInfoSub?.cancel();
     _hrirDropdownController.dispose();
+    _sofaDropdownController.dispose();
     _dynamicEqScrollController.dispose();
     widget.player.setAnalyzerEnabled(false);
     super.dispose();
@@ -3503,6 +3588,30 @@ class _EqScreenState extends State<EqScreen>
         _surroundStageBassAnchorHz =
             (dspMap['surroundStageBassAnchorHz'] as num?)?.toDouble() ?? 60.0;
 
+        _multichannelProcessingEnabled =
+            dspMap['multichannelProcessingEnabled'] ?? true;
+        _sofaHrtfPath = dspMap['sofaHrtfPath'] as String?;
+        if (_sofaHrtfPath != null && _sofaHrtfPath!.isNotEmpty) {
+          _sofaHrtfFileName =
+              _builtinSofaLabel(_sofaHrtfPath) ?? p.basename(_sofaHrtfPath!);
+        } else {
+          _sofaHrtfFileName = null;
+        }
+        _sofaHrtfEnabled = dspMap['sofaHrtfEnabled'] ?? true;
+        _bassMgmtEnabled = dspMap['bassMgmtEnabled'] ?? false;
+        _bassMgmtCrossoverHz =
+            (dspMap['bassMgmtCrossoverHz'] as num?)?.toDouble() ?? 80.0;
+        _bassMgmtLfeLpfHz =
+            (dspMap['bassMgmtLfeLpfHz'] as num?)?.toDouble() ?? 120.0;
+        _bassMgmtLfeGainDb =
+            (dspMap['bassMgmtLfeGainDb'] as num?)?.toDouble() ?? 0.0;
+        _bassMgmtLfeMode =
+            (dspMap['bassMgmtLfeMode'] as num?)?.toInt() ?? 0;
+        _bassMgmtFrontSmall = dspMap['bassMgmtFrontSmall'] ?? true;
+        _bassMgmtCenterSmall = dspMap['bassMgmtCenterSmall'] ?? true;
+        _bassMgmtSurroundSmall = dspMap['bassMgmtSurroundSmall'] ?? true;
+        _bassMgmtRearSmall = dspMap['bassMgmtRearSmall'] ?? true;
+
         _masterLimiterEnabled = dspMap['limiterEnabled'] ?? false;
         _masterLimiterCeilingDb =
             (dspMap['limiterCeilingDb'] as num?)?.toDouble() ?? -0.1;
@@ -3661,13 +3770,21 @@ class _EqScreenState extends State<EqScreen>
       });
     }
 
-    // Sync built-in HRIR dropdown selection with a restored asset IR
+    // Sync built-in HRIR / SOFA dropdown selections with restored asset paths
     if (mounted && _isBuiltinHrir(_convolverIrPath)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _hrirDropdownController
           ..clearAll()
           ..selectWhere((item) => item.value == _convolverIrPath);
+      });
+    }
+    if (mounted && _isBuiltinSofa(_sofaHrtfPath)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _sofaDropdownController
+          ..clearAll()
+          ..selectWhere((item) => item.value == _sofaHrtfPath);
       });
     }
 
@@ -4034,6 +4151,32 @@ class _EqScreenState extends State<EqScreen>
   bool _isBuiltinHrir(String? path) =>
       path != null && _builtinHrirs.any((h) => h.asset == path);
 
+  bool _isBuiltinSofa(String? path) =>
+      path != null && _builtinSofaPresets.any((s) => s.asset == path);
+
+  String? _builtinSofaLabel(String? path) {
+    if (path == null) return null;
+    for (final s in _builtinSofaPresets) {
+      if (s.asset == path) return s.label;
+    }
+    return null;
+  }
+
+  void _onSofaPresetSelected(List<M3EDropdownItem<String>> selected) {
+    if (selected.isEmpty) return;
+    final item = selected.first;
+    if (item.value == _sofaHrtfPath) return;
+    setState(() {
+      _sofaHrtfPath = item.value;
+      _sofaHrtfFileName = item.label;
+      _sofaHrtfEnabled = true;
+    });
+    _subScreenSetState?.call(() {});
+    widget.player.setSofaHrtfEnabled(true);
+    widget.player.loadSofaHrtf(item.value);
+    _saveEqState();
+  }
+
   void _onHrirPresetSelected(List<M3EDropdownItem<String>> selected) {
     if (selected.isEmpty) return;
     final item = selected.first;
@@ -4088,6 +4231,48 @@ class _EqScreenState extends State<EqScreen>
       vhsRoomPreset: _surroundBinauralRoomPreset,
       haasDelayMs: _surroundRearDelayMs,
     );
+  }
+
+  void _updateBassManagement() {
+    widget.player.setBassManagement(
+      enabled: _bassMgmtEnabled,
+      crossoverHz: _bassMgmtCrossoverHz,
+      lfeLpfHz: _bassMgmtLfeLpfHz,
+      lfeGainDb: _bassMgmtLfeGainDb,
+      lfeMode: _bassMgmtLfeMode,
+      frontSmall: _bassMgmtFrontSmall,
+      centerSmall: _bassMgmtCenterSmall,
+      surroundSmall: _bassMgmtSurroundSmall,
+      rearSmall: _bassMgmtRearSmall,
+    );
+  }
+
+  Future<void> _pickSofaHrtfFile() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['sofa'],
+      );
+      if (result != null && result.files.single.path != null) {
+        final path = result.files.single.path!;
+        _sofaDropdownController.clearAll();
+        setState(() {
+          _sofaHrtfPath = path;
+          _sofaHrtfFileName = p.basename(path);
+          _sofaHrtfEnabled = true;
+        });
+        _subScreenSetState?.call(() {});
+        widget.player.setSofaHrtfEnabled(true);
+        widget.player.loadSofaHrtf(path);
+        _saveEqState();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load SOFA HRTF file: $e')),
+        );
+      }
+    }
   }
 
   void _updateMasterLimiter() {
@@ -4570,6 +4755,18 @@ class _EqScreenState extends State<EqScreen>
       'surroundFieldWidth': _surroundStageWidth,
       'surroundRoomPreset': _surroundBinauralRoomPreset,
       'surroundHaasDelayMs': _surroundRearDelayMs,
+      'multichannelProcessingEnabled': _multichannelProcessingEnabled,
+      'sofaHrtfPath': _sofaHrtfPath,
+      'sofaHrtfEnabled': _sofaHrtfEnabled,
+      'bassMgmtEnabled': _bassMgmtEnabled,
+      'bassMgmtCrossoverHz': _bassMgmtCrossoverHz,
+      'bassMgmtLfeLpfHz': _bassMgmtLfeLpfHz,
+      'bassMgmtLfeGainDb': _bassMgmtLfeGainDb,
+      'bassMgmtLfeMode': _bassMgmtLfeMode,
+      'bassMgmtFrontSmall': _bassMgmtFrontSmall,
+      'bassMgmtCenterSmall': _bassMgmtCenterSmall,
+      'bassMgmtSurroundSmall': _bassMgmtSurroundSmall,
+      'bassMgmtRearSmall': _bassMgmtRearSmall,
       'limiterEnabled': _masterLimiterEnabled,
       'limiterCeilingDb': _masterLimiterCeilingDb,
       'limiterOutputGainDb': _masterLimiterOutputGainDb,
@@ -5079,6 +5276,26 @@ class _EqScreenState extends State<EqScreen>
       _surroundStageAirPresence = 0.40;
       _surroundStageBassAnchorHz = 60.0;
       widget.player.setSurround(enabled: false, mode: SurroundMode.off);
+
+      _sofaHrtfPath = null;
+      _sofaHrtfFileName = null;
+      _sofaHrtfEnabled = true;
+      _sofaInfo = null;
+      _sofaDropdownController.clearAll();
+      widget.player.clearSofaHrtf();
+
+      _bassMgmtEnabled = false;
+      _bassMgmtCrossoverHz = 80.0;
+      _bassMgmtLfeLpfHz = 120.0;
+      _bassMgmtLfeGainDb = 0.0;
+      _bassMgmtLfeMode = 0;
+      _bassMgmtFrontSmall = true;
+      _bassMgmtCenterSmall = true;
+      _bassMgmtSurroundSmall = true;
+      _bassMgmtRearSmall = true;
+      _multichannelProcessingEnabled = true;
+      widget.player.setBassManagement(enabled: false);
+      widget.player.setMultichannelProcessingEnabled(true);
 
       _masterLimiterEnabled = false;
       _masterLimiterCeilingDb = -0.1;
@@ -5786,6 +6003,26 @@ class _EqScreenState extends State<EqScreen>
           Icons.speed_rounded,
           (_) => _buildLookaheadAgcSection(),
           shape: Shapes.diamond,
+        ),
+      ),
+      DspChainNodeInfo(
+        id: DspNodeId.bassManagement,
+        title: 'Bass Management (5.1/7.1)',
+        subtitle: _bassMgmtEnabled
+            ? 'XO ${_bassMgmtCrossoverHz.toInt()} Hz · ${_bassMgmtLfeMode == 1 ? 'LFE+Main' : (_bassMgmtLfeMode == 2 ? 'Phantom' : 'LFE')}'
+            : 'Disabled',
+        icon: Icons.speaker_group_rounded,
+        isEnabled: _bassMgmtEnabled,
+        onToggle: (v) {
+          setState(() => _bassMgmtEnabled = v);
+          _updateBassManagement();
+          _saveEqState();
+        },
+        onOpenDetail: () => _openDetailScreen(
+          'Spatial Surround',
+          SautiIcons.spatialSound,
+          (_) => _buildSurroundSection(),
+          shape: Shapes.puffyDiamond,
         ),
       ),
     ];
@@ -12958,9 +13195,388 @@ class _EqScreenState extends State<EqScreen>
             ],
           ),
 
+        // Personal SOFA HRTF card for Matrix 5.1 & Binaural Headphone modes
+        if (_surroundMode == SurroundMode.matrixSurround ||
+            (_surroundMode == SurroundMode.binauralVirtualizer &&
+                _surroundBinauralMode == 0)) ...[
+          const SizedBox(height: 16),
+          _buildSofaHrtfCard(primaryColor),
+        ],
+
+        const SizedBox(height: 16),
+        _buildBassManagementPanel(primaryColor),
+
+        const SizedBox(height: 12),
         _buildSpatialConflictHint(),
         const SizedBox(height: 14),
       ],
+    );
+  }
+
+  Widget _buildSofaHrtfCard(Color primaryColor) {
+    final info = _sofaInfo;
+    final bool isLoaded = info != null && info['loaded'] == true;
+    final String titleText = _sofaHrtfFileName ??
+        (isLoaded && (info['name'] as String? ?? '').isNotEmpty
+            ? info['name'] as String
+            : 'No Personal SOFA HRTF Loaded');
+    final String subtitleText = isLoaded
+        ? '${info['nativeSampleRate']}Hz -> ${info['engineSampleRate']}Hz · ${info['numMeasurements']} pts · ${info['latencySamples']} smp'
+        : 'Select a bundled AES69 .sofa profile or load your own';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: surfaceDarkerColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: (_sofaHrtfEnabled && isLoaded)
+              ? primaryColor.withValues(alpha: 0.45)
+              : Colors.white12,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.headset_mic_rounded, size: 16, color: primaryColor),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Text(
+                  'Personal HRTF (.sofa)',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+              if (isLoaded)
+                Switch.adaptive(
+                  value: _sofaHrtfEnabled,
+                  activeTrackColor: primaryColor.withValues(alpha: 0.5),
+                  activeThumbColor: primaryColor,
+                  onChanged: (v) {
+                    setState(() => _sofaHrtfEnabled = v);
+                    _subScreenSetState?.call(() {});
+                    widget.player.setSofaHrtfEnabled(v);
+                    _saveEqState();
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          M3EDropdownMenu<String>(
+            controller: _sofaDropdownController,
+            items: _sofaItems,
+            singleSelect: true,
+            showChipAnimation: false,
+            onSelectionChanged: _onSofaPresetSelected,
+            fieldStyle: M3EDropdownFieldStyle(
+              backgroundColor: Colors.black.withValues(alpha: 0.22),
+              foregroundColor: Colors.white,
+              border: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+              focusedBorder: BorderSide(color: primaryColor),
+              borderRadius: BorderRadius.circular(10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              selectedTextStyle: const TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            dropdownStyle: M3EDropdownPanelStyle(
+              backgroundColor: surfaceDarkerColor,
+              containerRadius: 14,
+              maxHeight: 280,
+            ),
+            itemStyle: M3EDropdownItemStyle(
+              textColor: Colors.white70,
+              selectedTextColor: primaryColor,
+              selectedTextStyle: TextStyle(
+                color: primaryColor,
+                fontSize: 12.5,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            titleText,
+            style: TextStyle(
+              color: isLoaded ? Colors.white : Colors.white54,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitleText,
+            style: const TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (isLoaded || _sofaHrtfPath != null)
+                TextButton.icon(
+                  onPressed: () {
+                    _sofaDropdownController.clearAll();
+                    setState(() {
+                      _sofaHrtfPath = null;
+                      _sofaHrtfFileName = null;
+                      _sofaInfo = null;
+                    });
+                    _subScreenSetState?.call(() {});
+                    widget.player.clearSofaHrtf();
+                    _saveEqState();
+                  },
+                  icon: const Icon(Icons.clear_rounded, size: 15),
+                  label: const Text('Clear', style: TextStyle(fontSize: 11.5)),
+                  style: TextButton.styleFrom(foregroundColor: Colors.white60),
+                ),
+              const SizedBox(width: 6),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.folder_open_rounded, size: 15),
+                label: const Text('Load .sofa', style: TextStyle(fontSize: 11.5)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor.withValues(alpha: 0.25),
+                  foregroundColor: primaryColor,
+                  elevation: 0,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                ),
+                onPressed: _pickSofaHrtfFile,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBassManagementPanel(Color primaryColor) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: surfaceDarkerColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _bassMgmtEnabled
+              ? primaryColor.withValues(alpha: 0.45)
+              : Colors.white12,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.speaker_group_rounded, size: 16, color: primaryColor),
+              const SizedBox(width: 6),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '5.1 / 7.1 Bass Management',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                    Text(
+                      'Discrete multichannel DSP & LR4 subwoofer crossover',
+                      style: TextStyle(color: Colors.white38, fontSize: 10.5),
+                    ),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: _bassMgmtEnabled,
+                activeTrackColor: primaryColor.withValues(alpha: 0.5),
+                activeThumbColor: primaryColor,
+                onChanged: (v) {
+                  setState(() => _bassMgmtEnabled = v);
+                  _subScreenSetState?.call(() {});
+                  _updateBassManagement();
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Discrete 5.1 / 7.1 Processing',
+                  style: TextStyle(color: Colors.white70, fontSize: 11.5),
+                ),
+              ),
+              Switch.adaptive(
+                value: _multichannelProcessingEnabled,
+                activeTrackColor: primaryColor.withValues(alpha: 0.5),
+                activeThumbColor: primaryColor,
+                onChanged: (v) {
+                  setState(() => _multichannelProcessingEnabled = v);
+                  _subScreenSetState?.call(() {});
+                  widget.player.setMultichannelProcessingEnabled(v);
+                  _saveEqState();
+                },
+              ),
+            ],
+          ),
+          if (_bassMgmtEnabled) ...[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ModernAudioKnob(
+                  label: 'CROSSOVER',
+                  value: _bassMgmtCrossoverHz.clamp(40.0, 200.0),
+                  min: 40.0,
+                  max: 200.0,
+                  flatValue: 80.0,
+                  activeColor: primaryColor,
+                  valueFormatter: (v) => '${v.toInt()}Hz',
+                  onChanged: (v) {
+                    setState(() => _bassMgmtCrossoverHz = v);
+                    _subScreenSetState?.call(() {});
+                    _updateBassManagement();
+                    _saveEqState();
+                  },
+                ),
+                ModernAudioKnob(
+                  label: 'LFE LPF',
+                  value: _bassMgmtLfeLpfHz.clamp(60.0, 200.0),
+                  min: 60.0,
+                  max: 200.0,
+                  flatValue: 120.0,
+                  activeColor: primaryColor,
+                  valueFormatter: (v) => '${v.toInt()}Hz',
+                  onChanged: (v) {
+                    setState(() => _bassMgmtLfeLpfHz = v);
+                    _subScreenSetState?.call(() {});
+                    _updateBassManagement();
+                    _saveEqState();
+                  },
+                ),
+                ModernAudioKnob(
+                  label: 'LFE GAIN',
+                  value: _bassMgmtLfeGainDb.clamp(-12.0, 12.0),
+                  min: -12.0,
+                  max: 12.0,
+                  flatValue: 0.0,
+                  activeColor: primaryColor,
+                  valueFormatter: (v) =>
+                      '${v >= 0 ? '+' : ''}${v.toStringAsFixed(1)}dB',
+                  onChanged: (v) {
+                    setState(() => _bassMgmtLfeGainDb = v);
+                    _subScreenSetState?.call(() {});
+                    _updateBassManagement();
+                    _saveEqState();
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              alignment: WrapAlignment.center,
+              children: [
+                for (final entry in const [
+                  (0, 'LFE Only'),
+                  (1, 'LFE + Main'),
+                  (2, 'Phantom Sub'),
+                ])
+                  ChoiceChip(
+                    label: Text(entry.$2, style: const TextStyle(fontSize: 11)),
+                    selected: _bassMgmtLfeMode == entry.$1,
+                    selectedColor: primaryColor.withValues(alpha: 0.25),
+                    onSelected: (s) {
+                      if (s) {
+                        setState(() => _bassMgmtLfeMode = entry.$1);
+                        _subScreenSetState?.call(() {});
+                        _updateBassManagement();
+                        _saveEqState();
+                      }
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              alignment: WrapAlignment.center,
+              children: [
+                FilterChip(
+                  label: Text(
+                    'Front: ${_bassMgmtFrontSmall ? 'Small' : 'Large'}',
+                    style: const TextStyle(fontSize: 10.5),
+                  ),
+                  selected: _bassMgmtFrontSmall,
+                  selectedColor: primaryColor.withValues(alpha: 0.22),
+                  onSelected: (v) {
+                    setState(() => _bassMgmtFrontSmall = v);
+                    _subScreenSetState?.call(() {});
+                    _updateBassManagement();
+                    _saveEqState();
+                  },
+                ),
+                FilterChip(
+                  label: Text(
+                    'Center: ${_bassMgmtCenterSmall ? 'Small' : 'Large'}',
+                    style: const TextStyle(fontSize: 10.5),
+                  ),
+                  selected: _bassMgmtCenterSmall,
+                  selectedColor: primaryColor.withValues(alpha: 0.22),
+                  onSelected: (v) {
+                    setState(() => _bassMgmtCenterSmall = v);
+                    _subScreenSetState?.call(() {});
+                    _updateBassManagement();
+                    _saveEqState();
+                  },
+                ),
+                FilterChip(
+                  label: Text(
+                    'Surround: ${_bassMgmtSurroundSmall ? 'Small' : 'Large'}',
+                    style: const TextStyle(fontSize: 10.5),
+                  ),
+                  selected: _bassMgmtSurroundSmall,
+                  selectedColor: primaryColor.withValues(alpha: 0.22),
+                  onSelected: (v) {
+                    setState(() => _bassMgmtSurroundSmall = v);
+                    _subScreenSetState?.call(() {});
+                    _updateBassManagement();
+                    _saveEqState();
+                  },
+                ),
+                FilterChip(
+                  label: Text(
+                    'Rear: ${_bassMgmtRearSmall ? 'Small' : 'Large'}',
+                    style: const TextStyle(fontSize: 10.5),
+                  ),
+                  selected: _bassMgmtRearSmall,
+                  selectedColor: primaryColor.withValues(alpha: 0.22),
+                  onSelected: (v) {
+                    setState(() => _bassMgmtRearSmall = v);
+                    _subScreenSetState?.call(() {});
+                    _updateBassManagement();
+                    _saveEqState();
+                  },
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 

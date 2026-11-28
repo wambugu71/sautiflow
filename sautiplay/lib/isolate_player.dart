@@ -25,6 +25,9 @@ class IsolateAudioPlayer {
   final _convolverInfoController =
       StreamController<Map<String, dynamic>?>.broadcast();
   Map<String, dynamic>? _lastConvolverInfo;
+  final _sofaInfoController =
+      StreamController<Map<String, dynamic>?>.broadcast();
+  Map<String, dynamic>? _lastSofaInfo;
 
   final List<Map<String, dynamic>> _pendingCommands = [];
   bool _networkStreamingSupported = false;
@@ -125,6 +128,9 @@ class IsolateAudioPlayer {
   Stream<Map<String, dynamic>?> get convolverInfoStream =>
       _convolverInfoController.stream;
   Map<String, dynamic>? get lastConvolverInfo => _lastConvolverInfo;
+  Stream<Map<String, dynamic>?> get sofaInfoStream =>
+      _sofaInfoController.stream;
+  Map<String, dynamic>? get lastSofaInfo => _lastSofaInfo;
   StreamTelemetry get streamTelemetry => _lastTelemetry;
   bool get isBuffering => _isBuffering;
   PlayerStatus? get currentStatus => _lastStatus;
@@ -224,6 +230,11 @@ class IsolateAudioPlayer {
               ? Map<String, dynamic>.from(rawInfo)
               : null;
           _convolverInfoController.add(_lastConvolverInfo);
+        } else if (message['type'] == 'sofaInfo') {
+          final rawInfo = message['info'];
+          _lastSofaInfo =
+              rawInfo is Map ? Map<String, dynamic>.from(rawInfo) : null;
+          _sofaInfoController.add(_lastSofaInfo);
         }
       } else if (message is String) {
         if (message.startsWith('[log]')) {
@@ -387,6 +398,7 @@ class IsolateAudioPlayer {
     _telemetryController.close();
     _bufferingController.close();
     _convolverInfoController.close();
+    _sofaInfoController.close();
     _receivePort.close();
     for (final c in _pendingRequests.values) {
       if (!c.isCompleted) c.complete(null);
@@ -1609,6 +1621,80 @@ class IsolateAudioPlayer {
   void setConvolverMix({double wet = 1.0, double dry = 0.0}) =>
       _send({'cmd': 'setConvolverMix', 'wet': wet, 'dry': dry});
 
+  // ---------------------------------------------------------------------------
+  // Personal SOFA HRTF & 5.1 / 7.1 Bass Management
+  // ---------------------------------------------------------------------------
+
+  String? _loadedSofaHrtfPath;
+
+  void loadSofaHrtf(String path) {
+    if (_loadedSofaHrtfPath == path) return;
+    _loadedSofaHrtfPath = path;
+    if (path.startsWith('assets/')) {
+      _loadSofaHrtfAsset(path);
+      return;
+    }
+    _send({'cmd': 'loadSofaHrtf', 'path': path});
+  }
+
+  Future<void> _loadSofaHrtfAsset(String assetKey) async {
+    try {
+      final data = await rootBundle.load(assetKey);
+      final bytes =
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      _send({'cmd': 'loadSofaHrtfData', 'bytes': bytes});
+    } catch (e) {
+      debugPrint('loadSofaHrtfAsset($assetKey) failed: $e');
+    }
+  }
+
+  void clearSofaHrtf() {
+    _loadedSofaHrtfPath = null;
+    _send({'cmd': 'clearSofaHrtf'});
+  }
+
+  void setSofaHrtfEnabled(bool enabled) =>
+      _send({'cmd': 'setSofaHrtfEnabled', 'enabled': enabled});
+
+  void setBassManagement({
+    required bool enabled,
+    double crossoverHz = 80.0,
+    double lfeLpfHz = 120.0,
+    double lfeGainDb = 0.0,
+    int lfeMode = 0,
+    bool frontSmall = true,
+    bool centerSmall = true,
+    bool surroundSmall = true,
+    bool rearSmall = true,
+  }) =>
+      _send({
+        'cmd': 'setBassManagement',
+        'enabled': enabled,
+        'crossoverHz': crossoverHz,
+        'lfeLpfHz': lfeLpfHz,
+        'lfeGainDb': lfeGainDb,
+        'lfeMode': lfeMode,
+        'frontSmall': frontSmall,
+        'centerSmall': centerSmall,
+        'surroundSmall': surroundSmall,
+        'rearSmall': rearSmall,
+      });
+
+  void setSpeakerCalibration(
+    int channelIndex, {
+    double trimDb = 0.0,
+    double delayMs = 0.0,
+  }) =>
+      _send({
+        'cmd': 'setSpeakerCalibration',
+        'channel': channelIndex,
+        'trimDb': trimDb,
+        'delayMs': delayMs,
+      });
+
+  void setMultichannelProcessingEnabled(bool enabled) =>
+      _send({'cmd': 'setMultichannelProcessingEnabled', 'enabled': enabled});
+
   void setMasterLimiter({
     required bool enabled,
     double ceilingDb = -0.1,
@@ -2387,6 +2473,9 @@ void _isolateEntry(_IsolateInitData initData) {
 
   int lastSentConvolverEngineSr = 0;
   bool lastSentConvolverLoaded = false;
+  int lastSentSofaEngineSr = 0;
+  bool lastSentSofaLoaded = false;
+  bool lastSentSofaEnabled = false;
 
   void emitConvolverInfo({bool force = false}) {
     try {
@@ -2412,10 +2501,40 @@ void _isolateEntry(_IsolateInitData initData) {
     } catch (_) {}
   }
 
+  void emitSofaInfo({bool force = false}) {
+    try {
+      final info = player.dsp.getSofaHrtfInfo();
+      if (info == null || !info.loaded) {
+        if (lastSentSofaLoaded || force) {
+          lastSentSofaLoaded = false;
+          lastSentSofaEnabled = false;
+          lastSentSofaEngineSr = 0;
+          initData.sendPort.send({'type': 'sofaInfo', 'info': null});
+        }
+        return;
+      }
+      if (force ||
+          !lastSentSofaLoaded ||
+          info.enabled != lastSentSofaEnabled ||
+          info.engineSampleRate != lastSentSofaEngineSr) {
+        lastSentSofaLoaded = true;
+        lastSentSofaEnabled = info.enabled;
+        lastSentSofaEngineSr = info.engineSampleRate;
+        initData.sendPort.send({
+          'type': 'sofaInfo',
+          'info': info.toMap(),
+        });
+      }
+    } catch (_) {}
+  }
+
   player.statusStream.listen((status) {
     initData.sendPort.send(status);
     if (lastSentConvolverLoaded) {
       emitConvolverInfo();
+    }
+    if (lastSentSofaLoaded) {
+      emitSofaInfo();
     }
 
     if (status.isPlaying &&
@@ -4179,6 +4298,64 @@ void _isolateEntry(_IsolateInitData initData) {
             wet: (message['wet'] as num?)?.toDouble() ?? 1.0,
             dry: (message['dry'] as num?)?.toDouble() ?? 0.0,
           );
+          break;
+        case 'loadSofaHrtf':
+          try {
+            final path = message['path'] as String;
+            final ok = player.dsp.loadSofaHrtfFile(path);
+            if (!ok) {
+              initData.sendPort
+                  .send('[log]loadSofaHrtf failed to load SOFA: $path');
+            }
+            emitSofaInfo(force: true);
+          } catch (e) {
+            initData.sendPort.send('[log]loadSofaHrtf Error: $e');
+          }
+          break;
+        case 'loadSofaHrtfData':
+          try {
+            final bytes = message['bytes'] as Uint8List;
+            final ok = player.dsp.loadSofaHrtfMemory(bytes);
+            if (!ok) {
+              initData.sendPort
+                  .send('[log]loadSofaHrtfData failed to load SOFA bytes');
+            }
+            emitSofaInfo(force: true);
+          } catch (e) {
+            initData.sendPort.send('[log]loadSofaHrtfData Error: $e');
+          }
+          break;
+        case 'clearSofaHrtf':
+          player.dsp.clearSofaHrtf();
+          emitSofaInfo(force: true);
+          break;
+        case 'setSofaHrtfEnabled':
+          player.dsp.setSofaHrtfEnabled(message['enabled'] == true);
+          emitSofaInfo(force: true);
+          break;
+        case 'setBassManagement':
+          player.dsp.setBassManagementEnabled(message['enabled'] == true);
+          player.dsp.setBassManagementParams(
+            crossoverHz: (message['crossoverHz'] as num?)?.toDouble() ?? 80.0,
+            lfeLpfHz: (message['lfeLpfHz'] as num?)?.toDouble() ?? 120.0,
+            lfeGainDb: (message['lfeGainDb'] as num?)?.toDouble() ?? 0.0,
+            lfeMode: (message['lfeMode'] as num?)?.toInt() ?? 0,
+            frontSmall: message['frontSmall'] != false,
+            centerSmall: message['centerSmall'] != false,
+            surroundSmall: message['surroundSmall'] != false,
+            rearSmall: message['rearSmall'] != false,
+          );
+          break;
+        case 'setSpeakerCalibration':
+          player.dsp.setSpeakerCalibration(
+            (message['channel'] as num?)?.toInt() ?? 0,
+            trimDb: (message['trimDb'] as num?)?.toDouble() ?? 0.0,
+            delayMs: (message['delayMs'] as num?)?.toDouble() ?? 0.0,
+          );
+          break;
+        case 'setMultichannelProcessingEnabled':
+          player.dsp.setMultichannelProcessingEnabled(
+              message['enabled'] == true);
           break;
         case 'setMasterLimiter':
           userMasterLimiterEnabled = message['enabled'] == true;

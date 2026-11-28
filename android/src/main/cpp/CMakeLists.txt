@@ -5,11 +5,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB LIBSAMPLERATE_SOURCES "../../../../third_party/libsamplerate/src/*.c")
+file(GLOB LIBMYSOFA_SOURCES
+  "../../../../third_party/libmysofa/src/hrtf/*.c"
+  "../../../../third_party/libmysofa/src/hdf/*.c"
+  "../../../../third_party/libmysofa/src/resampler/*.c"
+)
 add_library(audio_engine SHARED
   ../../../../audio_engine.cpp
   ../../../../ffmpeg_stream_decoder.cpp
   ../../../../third_party/libusb/libusb_android.c
   ${LIBSAMPLERATE_SOURCES}
+  ${LIBMYSOFA_SOURCES}
 )
 
 target_include_directories(audio_engine PRIVATE
@@ -18,6 +24,8 @@ target_include_directories(audio_engine PRIVATE
   ../../../../third_party
   ../../../../third_party/libusb
   ../../../../third_party/libsamplerate/include
+  ../../../../third_party/libmysofa/src
+  ../../../../third_party/libmysofa/src/hrtf
   ../../../../third_party/r8brain
   ../../../../third_party/ffmpeg/include
 )
@@ -35,6 +43,7 @@ target_compile_definitions(audio_engine PRIVATE
   ENABLE_SINC_BEST_CONVERTER=1
   ENABLE_SINC_MEDIUM_CONVERTER=1
   ENABLE_SINC_FAST_CONVERTER=1
+  SAUTIFLOW_ENABLE_MYSOFA=1
   MA_NO_ASSERT
   MA_DR_WAV_NO_ASSERT
   MA_DR_FLAC_NO_ASSERT
@@ -51,6 +60,7 @@ endif()
 
 
 find_library(log-lib log)
+find_library(z-lib z)
 
 # IMPORTANT:
 # Avoid find_package(CURL) in Android plugin builds. It can trigger repeated
@@ -181,6 +191,7 @@ target_compile_options(oboe PRIVATE -Wno-error)
 target_link_libraries(audio_engine PRIVATE
   oboe
   ${log-lib}
+  ${z-lib}
   android
   OpenSLES
   m

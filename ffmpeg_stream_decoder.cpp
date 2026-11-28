@@ -1410,7 +1410,7 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
     // Initial Resampler setup if sample format is already known
     if (m_codecCtx->sample_rate > 0 && m_codecCtx->sample_fmt != AV_SAMPLE_FMT_NONE) {
         AVChannelLayout outLayout;
-        av_channel_layout_default(&outLayout, m_targetChannels == 1 ? 1 : 2);
+        av_channel_layout_default(&outLayout, std::clamp(m_targetChannels, 1, 8));
 
         ret = swr_alloc_set_opts2(
             &m_swrCtx,
@@ -1566,7 +1566,7 @@ void FFmpegStreamSource::demux_and_decode_thread_func() {
                 }
 
                 AVChannelLayout outLayout;
-                av_channel_layout_default(&outLayout, m_targetChannels == 1 ? 1 : 2);
+                av_channel_layout_default(&outLayout, std::clamp(m_targetChannels, 1, 8));
                 swr_alloc_set_opts2(
                     &m_swrCtx,
                     &outLayout,

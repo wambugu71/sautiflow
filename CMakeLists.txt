@@ -5,10 +5,22 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB LIBSAMPLERATE_SOURCES "third_party/libsamplerate/src/*.c")
+file(GLOB LIBMYSOFA_SOURCES
+  "third_party/libmysofa/src/hrtf/*.c"
+  "third_party/libmysofa/src/hdf/*.c"
+  "third_party/libmysofa/src/resampler/*.c"
+)
+if(WIN32)
+  file(GLOB ZLIB_MINIMAL_SOURCES "third_party/zlib/*.c")
+else()
+  set(ZLIB_MINIMAL_SOURCES "")
+endif()
 add_library(audio_engine SHARED
   audio_engine.cpp
   ffmpeg_stream_decoder.cpp
   ${LIBSAMPLERATE_SOURCES}
+  ${LIBMYSOFA_SOURCES}
+  ${ZLIB_MINIMAL_SOURCES}
 )
 
 set_target_properties(audio_engine PROPERTIES
@@ -20,8 +32,11 @@ target_include_directories(audio_engine PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/dsp
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libsamplerate/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libmysofa/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libmysofa/src/hrtf
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/r8brain
   ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg/include
+  $<$<BOOL:${WIN32}>:${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib>
 )
 
 if(MSVC)
@@ -44,6 +59,7 @@ target_compile_definitions(audio_engine PRIVATE
   ENABLE_SINC_BEST_CONVERTER=1
   ENABLE_SINC_MEDIUM_CONVERTER=1
   ENABLE_SINC_FAST_CONVERTER=1
+  SAUTIFLOW_ENABLE_MYSOFA=1
   MA_NO_ASSERT
   MA_DR_WAV_NO_ASSERT
   MA_DR_FLAC_NO_ASSERT
@@ -94,7 +110,7 @@ elseif(APPLE)
     target_link_directories(audio_engine PRIVATE ${_md_apple_ffmpeg_dir})
     target_link_libraries(audio_engine PRIVATE avformat avcodec avutil swresample)
   endif()
-  target_link_libraries(audio_engine PRIVATE ${COREAUDIO_FRAMEWORK} ${AUDIOTOOLBOX_FRAMEWORK} ${AVFOUNDATION_FRAMEWORK} ${SECURITY_FRAMEWORK})
+  target_link_libraries(audio_engine PRIVATE ${COREAUDIO_FRAMEWORK} ${AUDIOTOOLBOX_FRAMEWORK} ${AVFOUNDATION_FRAMEWORK} ${SECURITY_FRAMEWORK} z)
 elseif(UNIX)
   set(_md_linux_ffmpeg_dir "${CMAKE_CURRENT_SOURCE_DIR}/native/linux/${CMAKE_SYSTEM_PROCESSOR}")
   if(NOT EXISTS "${_md_linux_ffmpeg_dir}/libavformat.so")
@@ -116,7 +132,7 @@ elseif(UNIX)
       target_link_libraries(audio_engine PRIVATE mbedtls mbedcrypto mbedx509)
     endif()
   endif()
-  target_link_libraries(audio_engine PRIVATE pthread dl m)
+  target_link_libraries(audio_engine PRIVATE pthread dl m z)
 endif()
 
 add_executable(test_cases test/auto_sr_disable_cases_test.cpp)
